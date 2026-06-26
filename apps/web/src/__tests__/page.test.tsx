@@ -1,41 +1,67 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { SessionProvider } from 'next-auth/react';
 import Home from '../app/page';
+import { SITE } from '../config/site';
+
+// Home is an async server component: it discovers games/apps from the filesystem
+// (discoverGamesAndApps) and renders them via HomeClient as a dynamic grid.
+// The Header renders a LoginButton that calls useSession(), so the tree must be
+// wrapped in a SessionProvider. Branding comes from src/config/site (site.json),
+// so these tests read SITE.* and survive a rebrand (e.g. "Jimmie's Hits").
+async function renderHome() {
+  const ui = await Home();
+  return render(<SessionProvider session={null}>{ui}</SessionProvider>);
+}
 
 describe('Home Page', () => {
-  it('renders the main heading', () => {
-    render(<Home />);
-    // Use getByRole to target the h1 specifically since "Hank's Hits" appears in footer too
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent("Hank's Hits");
+  it('renders the site name', async () => {
+    await renderHome();
+    const h1s = screen.getAllByRole('heading', { level: 1 });
+    expect(h1s.some((h) => h.textContent?.includes(SITE.name))).toBe(true);
   });
 
-  it('renders the tagline', () => {
-    render(<Home />);
-    expect(
-      screen.getByText('Monster trucks, games, and awesome stuff!')
-    ).toBeInTheDocument();
+  it('renders the tagline', async () => {
+    await renderHome();
+    expect(screen.getByText(SITE.tagline)).toBeInTheDocument();
   });
 
-  it('renders the Play Monster Truck button', () => {
-    render(<Home />);
-    expect(screen.getByText('Play Monster Truck')).toBeInTheDocument();
+  it('discovers and links at least one game', async () => {
+    await renderHome();
+    const gameLinks = screen
+      .getAllByRole('link')
+      .filter((a) => a.getAttribute('href')?.startsWith('/games/'));
+    expect(gameLinks.length).toBeGreaterThan(0);
   });
 
-  it('renders the How to Play section', () => {
-    render(<Home />);
-    expect(screen.getByText('How to Play')).toBeInTheDocument();
+  // Proves the brand binding is LIVE — not a coincidence of the default name.
+  // Swap the config for a sentinel and confirm it actually renders. This fails
+  // if someone hardcodes the name back into HomeClient instead of using SITE.
+  it('renders the name from the config binding (rebrand actually works)', async () => {
+    vi.resetModules();
+    vi.doMock('@/config/site', () => ({
+      SITE: {
+        name: 'Zzyzx Test Brand',
+        owner: 'Zog',
+        tagline: 'Zog tagline',
+        description: 'sentinel description',
+        emoji: '🧪',
+      },
+    }));
+    try {
+      const { default: HomeFresh } = await import('../app/page');
+      const ui = await HomeFresh();
+      render(<SessionProvider session={null}>{ui}</SessionProvider>);
+      const h1s = screen.getAllByRole('heading', { level: 1 });
+      expect(h1s.some((h) => h.textContent?.includes('Zzyzx Test Brand'))).toBe(true);
+      // owner drives the footer "Made for X" — the field everyone forgets to rebind
+      expect(document.body.textContent).toContain('Made for Zog');
+      // a re-hardcoded brand anywhere (hero-only, header-only, or footer-only) must fail this
+      expect(document.body.textContent).not.toContain("Hank's Hits");
+      expect(document.body.textContent).not.toContain('Made for Hank');
+    } finally {
+      vi.doUnmock('@/config/site');
+      vi.resetModules();
+    }
   });
-
-  it('renders mobile and desktop control instructions', () => {
-    render(<Home />);
-    expect(screen.getByText('On Phone')).toBeInTheDocument();
-    expect(screen.getByText('On Computer')).toBeInTheDocument();
-  });
-
-  it('has correct link to monster truck game', () => {
-    render(<Home />);
-    const playButton = screen.getByText('Play Monster Truck').closest('a');
-    expect(playButton).toHaveAttribute('href', '/games/monster-truck');
-  });
-
 });

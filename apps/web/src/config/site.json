@@ -1,0 +1,8 @@
+{
+  "_comment": "Rebrand the whole site here: change BOTH siteName and ownerName (e.g. 'Jimmie's Hits' / 'Jimmie'). That updates everything — browser title, home page, footer, link previews, and the installable app name. Editing this file is the only step; it ships to Railway on deploy.",
+  "siteName": "Hank's Hits",
+  "ownerName": "Hank",
+  "tagline": "Games, apps, and awesome stuff! 🚀",
+  "description": "Games, trucks, and awesome stuff!",
+  "emoji": "🎮"
+}

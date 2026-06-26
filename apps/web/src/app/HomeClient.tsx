@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Header } from "@/shared/components/Header";
 import type { DisplayCategory } from "@/shared/lib/game-registry";
+import { SITE } from "@/config/site";
 
 // Floating emojis for hero background
 const FLOATING_EMOJIS = ["🎮", "🕹️", "🏆", "⭐", "🎯", "🚀", "💎", "🎪"];
@@ -14,7 +15,7 @@ interface HomeClientProps {
 export function HomeClient({ categories }: HomeClientProps) {
   return (
     <div className="min-h-screen bg-slate-950 overflow-x-hidden">
-      <Header title="Hank's Hits" titleIcon="🎮" showBackButton={false} />
+      <Header title={SITE.name} titleIcon={SITE.emoji} showBackButton={false} />
 
       {/* Hero Section - Playful & Energetic */}
       <div className="relative min-h-[60vh] flex items-center justify-center overflow-hidden">
@@ -43,17 +44,17 @@ export function HomeClient({ categories }: HomeClientProps) {
         <div className="relative z-10 text-center px-4">
           {/* Bouncing game controller */}
           <div className="mb-6 animate-bounce-slow">
-            <span className="text-7xl md:text-9xl drop-shadow-2xl filter">🎮</span>
+            <span className="text-7xl md:text-9xl drop-shadow-2xl filter">{SITE.emoji}</span>
           </div>
 
           {/* Title with gradient text */}
           <h1 className="text-5xl md:text-7xl font-black mb-4 bg-gradient-to-r from-yellow-300 via-pink-400 to-cyan-400 bg-clip-text text-transparent drop-shadow-lg">
-            Hank&apos;s Hits
+            {SITE.name}
           </h1>
 
           {/* Tagline */}
           <p className="text-xl md:text-2xl text-white/70 mb-8 font-medium">
-            Games, apps, and awesome stuff! 🚀
+            {SITE.tagline}
           </p>
 
           {/* Scroll hint */}
@@ -149,10 +150,10 @@ export function HomeClient({ categories }: HomeClientProps) {
       <footer className="bg-slate-950 border-t border-white/5 py-8 px-4">
         <div className="max-w-6xl mx-auto text-center">
           <p className="text-2xl mb-2">
-            <span className="text-3xl">🎮</span> Hank&apos;s Hits
+            <span className="text-3xl">{SITE.emoji}</span> {SITE.name}
           </p>
           <p className="text-white/40 text-sm">
-            Made for Hank with ❤️
+            Made for {SITE.owner} with ❤️
           </p>
         </div>
       </footer>
