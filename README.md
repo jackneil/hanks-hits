@@ -124,7 +124,7 @@ After setup, hand the keyboard to the kid: they just open Claude Code in this fo
 
 ### Make it yours (rebrand the site name)
 
-All the site branding lives in one file: **`apps/web/src/config/site.json`**. Change `siteName` and `ownerName` (e.g. to `"Jimmie's Hits"` / `"Jimmie"`) and the whole site updates — page title, home page, footer, and link previews — and it ships to Railway on the next deploy. Prefer not to touch code? Set `NEXT_PUBLIC_SITE_NAME` (and optionally `NEXT_PUBLIC_OWNER_NAME`) as environment variables in the Railway dashboard instead. The kid can also just ask Claude: *"call it Jimmie's Hits."*
+All the site branding lives in one file: **`apps/web/src/config/site.json`**. Change **both** `siteName` and `ownerName` (e.g. to `"Jimmie's Hits"` / `"Jimmie"`) and the whole site updates — browser title, home page, footer, link previews, and the installable (Add-to-Home-Screen) app name — and it ships to Railway on the next deploy. That one file is the only thing to edit. The kid can also just ask Claude: *"call it Jimmie's Hits."*
 
 ### Useful commands
 

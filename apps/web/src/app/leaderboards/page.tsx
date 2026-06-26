@@ -1,8 +1,7 @@
 import { LeaderboardsPage } from "@/apps/leaderboards";
-import { SITE } from "@/config/site";
 
 export const metadata = {
-  title: `Leaderboards | ${SITE.name}`,
+  title: "Leaderboards",
   description: "See how you rank against other players!",
 };
 

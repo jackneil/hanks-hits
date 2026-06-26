@@ -20,9 +20,15 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: SITE.name,
+  title: { default: SITE.name, template: `%s | ${SITE.name}` },
   description: SITE.description,
-  manifest: "/manifest.json",
+  manifest: "/manifest.webmanifest",
+  openGraph: {
+    title: SITE.name,
+    description: SITE.description,
+    siteName: SITE.name,
+    type: "website",
+  },
   icons: {
     icon: "/favicon.ico",
     apple: "/icon.svg",

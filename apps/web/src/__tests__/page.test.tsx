@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { SessionProvider } from 'next-auth/react';
 import Home from '../app/page';
@@ -32,5 +32,31 @@ describe('Home Page', () => {
       .getAllByRole('link')
       .filter((a) => a.getAttribute('href')?.startsWith('/games/'));
     expect(gameLinks.length).toBeGreaterThan(0);
+  });
+
+  // Proves the brand binding is LIVE — not a coincidence of the default name.
+  // Swap the config for a sentinel and confirm it actually renders. This fails
+  // if someone hardcodes the name back into HomeClient instead of using SITE.
+  it('renders the name from the config binding (rebrand actually works)', async () => {
+    vi.resetModules();
+    vi.doMock('@/config/site', () => ({
+      SITE: {
+        name: 'Zzyzx Test Brand',
+        owner: 'Zog',
+        tagline: 'Zog tagline',
+        description: 'sentinel description',
+        emoji: '🧪',
+      },
+    }));
+    try {
+      const { default: HomeFresh } = await import('../app/page');
+      const ui = await HomeFresh();
+      render(<SessionProvider session={null}>{ui}</SessionProvider>);
+      const h1s = screen.getAllByRole('heading', { level: 1 });
+      expect(h1s.some((h) => h.textContent?.includes('Zzyzx Test Brand'))).toBe(true);
+    } finally {
+      vi.doUnmock('@/config/site');
+      vi.resetModules();
+    }
   });
 });

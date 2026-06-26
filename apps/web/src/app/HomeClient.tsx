@@ -44,7 +44,7 @@ export function HomeClient({ categories }: HomeClientProps) {
         <div className="relative z-10 text-center px-4">
           {/* Bouncing game controller */}
           <div className="mb-6 animate-bounce-slow">
-            <span className="text-7xl md:text-9xl drop-shadow-2xl filter">🎮</span>
+            <span className="text-7xl md:text-9xl drop-shadow-2xl filter">{SITE.emoji}</span>
           </div>
 
           {/* Title with gradient text */}

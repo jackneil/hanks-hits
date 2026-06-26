@@ -1,8 +1,7 @@
 import { ProfilePage } from "@/apps/profile";
-import { SITE } from "@/config/site";
 
 export const metadata = {
-  title: `My Profile | ${SITE.name}`,
+  title: "My Profile",
   description: "View your game progress and account settings",
 };
 
