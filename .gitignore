@@ -40,3 +40,7 @@ Thumbs.db
 
 # Vercel
 .vercel
+
+# Kid's personal "player card" — LOCAL ONLY, never committed, never shared.
+# Claude reads this to remember the kid by name and personalize games for them.
+.claude/player-profile.json

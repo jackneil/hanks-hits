@@ -11,7 +11,7 @@ The kid doesn't know what to make. Spark them with a few awesome ideas tied to w
 
 ## What to do
 
-1. **Pull from what the kid loves.** Hank likes trucks, video games, hunting, golf, soccer, and the outdoors — lean into that. If it's a different kid, ask one quick question: *"What do you like more — sports, animals, racing, or space?"*
+1. **Pull from what the kid loves.** First check their Player Card (`.claude/player-profile.json`) — if it exists, use their saved `interests` (and age) to aim the ideas. No card yet? Hank likes trucks, video games, hunting, golf, soccer, and the outdoors; for a different kid, ask one quick question: *"What do you like more — sports, animals, racing, or space?"* (and you can offer to save it → **about-me**).
 2. **Offer 3 ideas, max.** More than that overwhelms. Make each one a one-liner a kid can picture instantly:
    - 🏈 *"A game where you kick field goals and the wind keeps changing!"*
    - 🦌 *"A sneaky game where you tiptoe past animals in the woods!"*
