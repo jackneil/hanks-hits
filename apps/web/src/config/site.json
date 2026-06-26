@@ -1,0 +1,8 @@
+{
+  "_comment": "Rebrand the whole site here. Change siteName + ownerName (e.g. 'Jimmie's Hits' / 'Jimmie') and it updates everywhere — title, home page, footer, link previews. This file ships to Railway on deploy. You can also override at deploy time with the NEXT_PUBLIC_SITE_NAME / NEXT_PUBLIC_OWNER_NAME env vars in the Railway dashboard.",
+  "siteName": "Hank's Hits",
+  "ownerName": "Hank",
+  "tagline": "Games, apps, and awesome stuff! 🚀",
+  "description": "Games, trucks, and awesome stuff!",
+  "emoji": "🎮"
+}

@@ -3,6 +3,7 @@ import { Nunito } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { AuthProvider } from "@/shared/components";
+import { SITE } from "@/config/site";
 
 const nunito = Nunito({
   subsets: ["latin"],
@@ -19,8 +20,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Hank's Hits",
-  description: "Games, trucks, and awesome stuff!",
+  title: SITE.name,
+  description: SITE.description,
   manifest: "/manifest.json",
   icons: {
     icon: "/favicon.ico",
@@ -29,7 +30,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Hank's Hits",
+    title: SITE.name,
   },
 };
 
