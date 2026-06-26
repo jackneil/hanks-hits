@@ -15,7 +15,7 @@ Make the kid a **Player Card** so you can call them by name and build games they
 This is **always optional.** If the kid would rather just build, say *"Cool, let's just make a game!"* and go to **make-a-game** — no card needed.
 
 ## 🛡️ Read this BEFORE you save anything — what may and may NOT be stored
-The card may contain **only these keys, nothing else**: `name`, `age`, `interests`, `boyOrGirl`, `favoriteColor`, `notes`, `updatedAt`. Never invent other keys.
+The card may contain **only these keys, nothing else**: `name`, `age`, `ageAsOf`, `interests`, `boyOrGirl`, `favoriteColor`, `notes`, `updatedAt`. Never invent other keys.
 
 **NEVER ask for, echo back, or store anything that could identify or locate the kid (or anyone else)** — this is examples, not the whole list: last/full name, birthday/birthdate (the age *number* is fine), street or address, town/city, **school** OR the name of their sports team/club/camp, parent or sibling names, usernames on other apps, phone, email, passwords, photos.
 
@@ -27,7 +27,7 @@ The card may contain **only these keys, nothing else**: `name`, `age`, `interest
 ## Ask a few quick questions (one at a time, skippable, conversational)
 Keep it to ~4–5, like a character-select screen — not an interview:
 1. **Name:** *"What should I call you?"* (first name or a nickname — never a last name)
-2. **Age:** *"How old are you?"* (just the number — never ask for or save a birthday/birthdate)
+2. **Age:** *"How old are you?"* (just the number — never a birthday/birthdate). Save it as `age` **plus** `ageAsOf` (today's date). That lets me tell they're probably older later ("you were 9 a couple years ago, so you're about 11 now!") **without ever storing a birthday**.
 3. **Interests (the big one):** *"What stuff do you LOVE? Trucks? Animals? Sports? Space? Dinosaurs? Drawing?"* — keep only the *activity* ("soccer"), drop any place ("at Riverside" → just "soccer").
 4. **Soft hint (optional):** *"Are you a boy or a girl?"* — only a gentle hint; **anyone can like anything** (girls love monster trucks, boys love pet games). Never use it to limit ideas — interests come first.
 5. **Fun extra:** *"Favorite color?"* or *"Favorite game so far?"* — quick and fun.
@@ -40,12 +40,13 @@ Write **only the fields the kid actually gave you** to **`.claude/player-profile
 {
   "name": "Hank",
   "age": 9,
+  "ageAsOf": "2026-06-26",
   "interests": ["monster trucks", "soccer"],
   "favoriteColor": "green",
   "updatedAt": "2026-06-26"
 }
 ```
-(`name` is whatever they told you — the "Hank" here is just a template. `updatedAt` is today's date, date only. Add `boyOrGirl`/`notes` only if relevant, and `notes` only for play-style.) Then show it back as a fun card using **only the stored fields**: *"🎴 Here's your Player Card, Hank! Age 9 · loves monster trucks & soccer · favorite color green. I'll remember this every time!"*
+(`name` is whatever they told you — the "Hank" here is just a template. `age` is the number they said; `ageAsOf` and `updatedAt` are today's date, date only. Add `boyOrGirl`/`notes` only if relevant, and `notes` only for play-style.) Then show it back as a fun card using **only the stored fields**: *"🎴 Here's your Player Card, Hank! Age 9 · loves monster trucks & soccer · favorite color green. I'll remember this every time!"*
 
 ## Use it right away
 Don't stop at the card — turn it into fun immediately:

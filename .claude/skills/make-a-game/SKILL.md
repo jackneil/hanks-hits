@@ -70,8 +70,8 @@ Big buttons (44px+), bright colors, touch AND keyboard, celebrations on score/wi
 2. `cd apps/web && pnpm build` — this is the **real gate**: it runs the TypeScript compiler (catches the unregistered-`appId` build failure that vitest cannot) and regenerates `gameMetadata.generated.ts` (the static name/emoji/color lookup the profile page **and leaderboards** read). Must pass. Heads-up: in `pnpm dev` a new game shows on the home grid right away but looks generic (gray 🎮, wrong name/category) on the profile/leaderboards until this build runs once — expected, not a bug.
 3. **Watch it actually run.** Hand to **play-my-game** (or `/qa`) and SEE the game render and respond to a tap/keypress in a browser. Passing tests + a green build is the **floor, not the finish line** — unit tests don't draw a pixel. If you haven't watched it move and score, it is not done.
 
-## Step 6 — Show the kid + celebrate
-Let them play it right away (via **play-my-game**). Celebrate big 🎉, then offer: *"Want it harder? Add something? Put it on the internet for your friends?"* (→ **change-a-game** / **put-it-online**).
+## Step 6 — Show the kid (automatically) + celebrate
+**Open it on their screen and bring it to the front right away — don't wait to be asked.** Use **play-my-game** to start the dev server and pop the game to the front so they see it running the instant it's done. Celebrate big 🎉, then offer: *"Want it harder? Add something? Put it on the internet for your friends?"* (→ **change-a-game** / **put-it-online**).
 
 ## 🛡️ Guardrails — content safety
 **HARD LINE (never negotiate, never ask permission, never tone down):** realistic guns aimed at people, blood, gore, killing real-looking people, torture, hateful or sexual content. Don't dial these back — **swap the whole premise to something cartoony and start building the safe version** (foam darts, aliens, goo, snowballs, lasers at blocks). Don't scold or lecture. If the kid pushes back ("no, I want REAL blood"), stay warm and **do not cave** — just keep selling the fun version and build it: *"Honestly the goo-blaster is way cooler — watch!"* If they get upset or escalate ("I HATE the goo one, you're dumb"), validate the *feeling* without caving — *"I know, you really wanted it scary — you've got a wild imagination!"* — hold the content line, and pour that energy into something they CAN have more of (more enemies, bigger goo explosions). Never go cold or make them feel rejected; never cave on the HARD LINE no matter how many times they ask.
@@ -79,6 +79,8 @@ Let them play it right away (via **play-my-game**). Celebrate big 🎉, then off
 **SOFT (just dial back, can discuss):** a monster that's a bit too scary, a boss that's too hard.
 
 **Other:** no personal info, no money/accounts, no random web links. One game = one island — never edit or import another game's folder. No MVPs or stubs — build the complete small version, all 9 steps.
+
+**Public-safe content:** never bake the kid's identifiable info into the game itself — a **first name** is the most that should ever appear. No last name, address, town/city, school, exact age, or friends'/family names in the game's text, code, labels, or filenames (a game can be published to the public internet). Build every game **deploy-ready** — the standard module pattern runs on Railway as-is — but default to running it **locally**; publishing is the gated exception (see **put-it-online**).
 
 ## Rationalization table — STOP if you think any of these
 | Excuse | Reality |

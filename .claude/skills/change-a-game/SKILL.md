@@ -52,8 +52,8 @@ If you add a brand-new saved value, remember the save plumbing from **make-a-gam
 2. `cd apps/web && pnpm build` — typecheck gate; must pass.
 3. **Run the actual game** (via **play-my-game**) and watch your change: did the rainbow really render? Is the harder version still **beatable by a 9-year-old**? If you stacked changes and it's brutal, dial it back. Judge the **running game**, not the numbers in `constants.ts`.
 
-## Step 5 — Show + offer more
-Let them try it (via **play-my-game**). Then: *"Like it? Want it even harder, or put it online?"*
+## Step 5 — Show it (automatically) + offer more
+**Re-open the game and bring it to the front right away** so the change pops up on their screen — don't make them go hunting for it. Use **play-my-game** (it refocuses the window). Then: *"Like it? Want it even harder, or put it online?"*
 
 ## Rationalization table — STOP if you think any of these
 | Excuse | Reality |
