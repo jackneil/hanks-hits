@@ -26,7 +26,7 @@ A game is **one island, but it spans two folders:** the module `apps/web/src/gam
 - **How it plays / looks inside** → `Game.tsx` / `components/`
 - **Page background / page-level color / theme** → usually the **route page** `src/app/games/<name>/page.tsx` (`min-h-screen bg-...`). Most games set their background here, not in the module. (A few, like 2048, set it in both — change both.)
 
-**Read the file before you claim you added something.** If the feature already exists (e.g. flappy's bird is already an animated rainbow in `Game.tsx`), don't fake-add it — tell the kid happily it's already there and make it pop more. Ground every claim in the real code, never in what you assume. Before declaring a CSS class "missing," check the component's own `<style jsx>` block, not just `globals.css` — classes are often defined locally.
+**Read the file before you claim you added something.** Open the game's `Game.tsx` and confirm the feature isn't already there before you say "I added it." If it turns out it already exists, happily tell the kid it's already there and make it pop more. Ground every claim in the real code, never in what you assume. Before declaring a CSS class "missing," check the component's own `<style jsx>` block, not just `globals.css` — classes are often defined locally.
 
 Editing **this game's own** module and route page is fine — that's still its island. The danger zone is **truly shared** code (see next section).
 
@@ -59,7 +59,7 @@ Let them try it (via **play-my-game**). Then: *"Like it? Want it even harder, or
 | Excuse | Reality |
 |---|---|
 | "`pnpm test` passed, so my change works." | The suite likely never touches this game. Add a test and watch it run. |
-| "I added the rainbow bird!" | Read `Game.tsx` first — it may already exist. Don't fake-add features. |
+| "I added the thing you asked for!" (without checking) | Read `Game.tsx` first — it may already exist. Don't fake-add what's already there. |
 | "Make it harder = crank every knob." | One lever at a time, then check it's still beatable. |
 | "Background changes go in the game module." | For most games it's the **route page** under `src/app/games/<name>/`. |
 | "I'll theme all games via a shared file." | That can break all 30+ at once. One game at a time, never the shared theme block. |

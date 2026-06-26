@@ -1,6 +1,6 @@
 ---
 name: getting-started
-description: Use when a kid is new or confused and asking what this is or what to do. Triggers on "what is this?", "what can you do?", "help", "I'm new", "how does this work?", "what do I do?", "I don't get it", "how do I start?", "are you a robot?".
+description: Use when a kid is new or confused and asking what this is or what to do, OR opens with almost nothing — a bare greeting or a single vague word. Triggers on "what is this?", "what can you do?", "help", "I'm new", "how does this work?", "what do I do?", "I don't get it", "how do I start?", "are you a robot?", "hi", "hello", "hey", or any very short/unclear first message.
 ---
 
 # Getting Started 👋

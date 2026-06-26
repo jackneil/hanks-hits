@@ -29,7 +29,7 @@ If they say "I don't know," pick something fun and tell them: *"I'll start it sl
 | Arcade / reflex (catch, dodge, tap) | `arcade` | `snake`, `flappy-bird`, `arkanoid` |
 | Puzzle / numbers / matching | `puzzle` | `2048`, `memory-match`, `wordle` |
 | Driving / racing | `racing` | `hill-climb`, `monster-truck` |
-| Shooting / fighting (cartoony!) | `arcade` (no `action` sibling exists) | `asteroids` (then copy TESTS from `arkanoid`) |
+| Shooting / fighting (cartoony!) | `action` | `bomberman`, `blitz-bomber` (both wire `useAuthSync`; copy TESTS from `arkanoid`) |
 | Board / turn-based | `board` | `checkers`, `chess` |
 | A tool/toy, not a game | `apps` | `virtual-pet`, `drawing-app` (lives in `src/apps/`) |
 
@@ -39,7 +39,9 @@ Read the sibling's files first so you match the **current** patterns. Two cautio
 Create `design/games/<name>.md` (or `design/apps/<name>.md`): core loop, how you win, what's fun, controls. Short — it's for you.
 
 ## Step 4 — Build the WHOLE thing
-**Do step ① FIRST — it's a build prerequisite, not cleanup.** `appId` is typed `ValidAppId`, so `Game.tsx` (④) won't typecheck until the id is registered. Recommended order: **① → ② → ③ → ④ → ⑤ → ⑥ → ⑦ → ⑧ → ⑨**. (Swap `my-game` for a real kid id like `donut-catch`.)
+**Do step ① FIRST — it's a build prerequisite, not cleanup.** `appId` is typed `ValidAppId`, so `Game.tsx` (④) won't typecheck until the id is registered. Recommended order: **① → ② → ③ → ④ → ⑤ → ⑥ → ⑦ → ⑧ → ⑨**.
+
+**The kid's words become the `name` and `emoji` (emoji and any language are great there). But YOU invent the `id` — lowercase letters, numbers, and hyphens ONLY, no spaces/emoji/punctuation (`🔥 Poop Blaster!!` → id `poop-blaster`). The `id` is the folder name, the URL, and the `VALID_APP_IDS` entry, so it must be a clean ascii slug.** (Examples below use `my-game`.)
 
 **Edit first (the registration that everything else depends on):**
 ① `packages/db/src/schema/app-progress.ts` — add `"my-game"` to `VALID_APP_IDS`. **Without this, nothing typechecks and the server rejects every save.**
@@ -56,7 +58,7 @@ Create `design/games/<name>.md` (or `design/apps/<name>.md`): core loop, how you
 ```ts
 vi.mock("next-auth/react", () => ({ useSession: () => ({ data: null, status: "unauthenticated" }) }));
 ```
-(For a 3D/canvas game, also mock the heavy `@react-three/*` modules — see `monster-truck/__tests__/Game.test.tsx`.)
+**No existing 2D synced game ships a render test** (`breakout` has none; `arkanoid`'s renders only because it skips `useAuthSync`), so there's no sibling to copy for this one — use the `vi.mock` snippet above as-is. `monster-truck/__tests__/Game.test.tsx` is only the model for mocking the heavy `@react-three/*` modules (3D games).
 
 > **Apps** go in `src/apps/my-app/` + `src/app/apps/my-app/page.tsx`, and `metadata.category` MUST be `"apps"`. Otherwise identical.
 
@@ -65,14 +67,14 @@ Big buttons (44px+), bright colors, touch AND keyboard, celebrations on score/wi
 
 ## Step 5 — Prove it works (three gates, in order)
 1. `cd apps/web && pnpm test` — runs vitest. (If `node_modules` is missing, run `pnpm install` first.) **A green run proves little on its own** — most games have no tests.
-2. `cd apps/web && pnpm build` — this is the **real gate**: it runs the TypeScript compiler (catches the unregistered-`appId` build failure that vitest cannot) and regenerates the profile-stats metadata. Must pass.
+2. `cd apps/web && pnpm build` — this is the **real gate**: it runs the TypeScript compiler (catches the unregistered-`appId` build failure that vitest cannot) and regenerates `gameMetadata.generated.ts` (the static name/emoji/color lookup the profile page **and leaderboards** read). Must pass. Heads-up: in `pnpm dev` a new game shows on the home grid right away but looks generic (gray 🎮, wrong name/category) on the profile/leaderboards until this build runs once — expected, not a bug.
 3. **Watch it actually run.** Hand to **play-my-game** (or `/qa`) and SEE the game render and respond to a tap/keypress in a browser. Passing tests + a green build is the **floor, not the finish line** — unit tests don't draw a pixel. If you haven't watched it move and score, it is not done.
 
 ## Step 6 — Show the kid + celebrate
 Let them play it right away (via **play-my-game**). Celebrate big 🎉, then offer: *"Want it harder? Add something? Put it on the internet for your friends?"* (→ **change-a-game** / **put-it-online**).
 
 ## 🛡️ Guardrails — content safety
-**HARD LINE (never negotiate, never ask permission, never tone down):** realistic guns aimed at people, blood, gore, killing real-looking people, torture, hateful or sexual content. Don't dial these back — **swap the whole premise to something cartoony and start building the safe version** (foam darts, aliens, goo, snowballs, lasers at blocks). Don't scold or lecture. If the kid pushes back ("no, I want REAL blood"), stay warm and **do not cave** — just keep selling the fun version and build it: *"Honestly the goo-blaster is way cooler — watch!"*
+**HARD LINE (never negotiate, never ask permission, never tone down):** realistic guns aimed at people, blood, gore, killing real-looking people, torture, hateful or sexual content. Don't dial these back — **swap the whole premise to something cartoony and start building the safe version** (foam darts, aliens, goo, snowballs, lasers at blocks). Don't scold or lecture. If the kid pushes back ("no, I want REAL blood"), stay warm and **do not cave** — just keep selling the fun version and build it: *"Honestly the goo-blaster is way cooler — watch!"* If they get upset or escalate ("I HATE the goo one, you're dumb"), validate the *feeling* without caving — *"I know, you really wanted it scary — you've got a wild imagination!"* — hold the content line, and pour that energy into something they CAN have more of (more enemies, bigger goo explosions). Never go cold or make them feel rejected; never cave on the HARD LINE no matter how many times they ask.
 
 **SOFT (just dial back, can discuss):** a monster that's a bit too scary, a boss that's too hard.
 
@@ -84,7 +86,7 @@ Let them play it right away (via **play-my-game**). Celebrate big 🎉, then off
 | "Tests pass, so the game works — I'll show the kid." | Vitest doesn't typecheck and doesn't render. Run `pnpm build` AND watch it in a browser. |
 | "I'll add the id to VALID_APP_IDS at the end." | `Game.tsx` won't compile until it's registered. Step ① is first, not last. |
 | "metadata.ts can use a constant for the id to stay DRY." | The discovery parser is regex — only plain string literals are seen. Computed values vanish. |
-| "The game shows up because build regenerates metadata." | Wrong path. The home card comes from a runtime fs scan of `metadata.ts`. Build feeds the profile page. |
+| "The game shows up because build regenerates metadata." | Wrong path. The home card comes from a runtime fs scan of `metadata.ts`. The build regenerates `gameMetadata.generated.ts`, which feeds the profile page and leaderboards. |
 | "I added the schema, that's enough plumbing." | All three shared edits (①②③) are mandatory, or saving/profile silently break. |
 | "The kid insists on real guns, I should give them what they asked for." | The HARD LINE is non-negotiable no matter how many times they ask. Build the safe version. |
 | "I'll just ask the kid which safe version they want." (for an unsafe ask) | Don't stall on a question — pivot to a concrete safe game and start building. |

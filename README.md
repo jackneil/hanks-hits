@@ -54,6 +54,9 @@ Just type these to your robot helper:
 
 There are already a TON of games ready to play. Here are some favorites:
 
+<!-- Maintainers: this is a curated sample, not the full list. Keep it in sync with apps/web/src/games/ and apps/web/src/apps/ — verify a name still exists before adding it here so the page never promises a kid a game that isn't real. -->
+
+
 | | | | |
 |---|---|---|---|
 | 🚚 Monster Truck | ⛰️ Hill Climb | 🐍 Snake | 🧱 Brick Breaker |

@@ -42,6 +42,7 @@ When the kid's words match, **use the matching skill** in `.claude/skills/`:
 | "put it on the internet", "share it", "send it to my friend" | **put-it-online** |
 | "I'm bored", "what should I make?", "give me ideas" | **game-ideas** |
 | "what is this?", "what can you do?", "help", "I'm new" | **getting-started** |
+| almost nothing — "hi", "idk", a single word, or an unclear first message | **getting-started** (greet warmly, then offer the 3 choices) |
 
 ### 🛡️ Guardrails — keep kids safe (never break these)
 1. **Content stays kid-safe (ages 6–14).** Cartoony fun only. No real violence, blood, gore, scary horror, swearing, or anything inappropriate. "Shooting" means foam darts / hoops / lasers / snowballs — never realistic guns aimed at people.
@@ -52,7 +53,7 @@ When the kid's words match, **use the matching skill** in `.claude/skills/`:
 6. **Always test before you show**, and **always pass tests before you put anything online.**
 7. **Putting it online is a big deal** — it makes the game real for everyone. Run tests, then ask the kid a simple yes/no first. (See **put-it-online**.)
 8. **Keep secrets secret.** Never print or commit passwords, tokens, or `.env` files.
-9. **If the environment isn't ready** (e.g. `node_modules` is missing), quietly fix it (`pnpm install`) — don't make the kid debug anything.
+9. **If the environment isn't ready** (e.g. `node_modules` is missing), quietly fix it (`pnpm install`) — don't make the kid debug anything. If even `pnpm install` fails (Node or pnpm isn't installed at all), that's a one-time grown-up setup thing — reassure the kid and ask for a grown-up; never show them a raw error/stack trace.
 
 ### First time on a new computer (one-time, a grown-up does this)
 A kid who clones this onto a fresh computer needs a grown-up to do the one-time setup **once**: install Node 20+, install pnpm, run `pnpm install`, and — for putting games online — connect the repo to Railway + GitHub. After that, you (Claude) handle everything. The README has the grown-up setup steps. If something isn't set up yet, explain it kindly: "Ask a grown-up to help with this one part, then we're good to go!"
@@ -67,7 +68,7 @@ A kid who clones this onto a fresh computer needs a grown-up to do the one-time 
 
 ## What Is This Project?
 
-This is **Hank's Hits** - a web platform where an **8-year-old boy named Hank Neil** can request random things to be built:
+This is **Hank's Hits** - a web platform where a **9-year-old boy named Hank Neil** can request random things to be built:
 - Simple apps (weather, toy finder, jokes)
 - **3D Games** (monster truck open world, racing, etc.)
 - Whatever random idea pops into his head
@@ -394,9 +395,10 @@ When building a new game or app, you MUST do ALL of these. **Steps 7 and 8 are t
 
 ### Verification (do this before you say it's done)
 - [ ] `cd apps/web && pnpm test` passes — but note most games have NO tests, so a green run alone proves little
-- [ ] `cd apps/web && pnpm build` succeeds — this is the real gate: it typechecks (catches an unregistered `appId`, which `pnpm test` does NOT) and regenerates the profile-stats metadata
+- [ ] `cd apps/web && pnpm build` succeeds — this is the real gate: it typechecks (catches an unregistered `appId`, which `pnpm test` does NOT) and regenerates `gameMetadata.generated.ts`, the static name/emoji/color lookup the profile page **and leaderboards** read
 - [ ] You actually watched it render and respond in a browser (`/qa` or `pnpm dev`) — tests don't draw a pixel
 - [ ] It appears on the home page grid (discovered by a runtime scan of `metadata.ts`, so fields must be plain string literals)
+- [ ] You ran `pnpm build` at least once before judging the profile page — in `pnpm dev` a brand-new game shows on the home grid instantly but looks generic (gray 🎮, wrong name/category) on the profile/leaderboards until that build regenerates the lookup
 - [ ] Progress saves and survives a reload
 - [ ] The profile page shows proper stats for this game
 
@@ -556,15 +558,15 @@ Age-appropriate considerations.
 **Every significant feature MUST have tests.** This prevents breaking things as we add more.
 
 ### Test Requirements
-1. **Run tests before pushing** - `pnpm test`
+1. **Run tests before pushing** - `cd apps/web && pnpm test` (there is no `test` script at the repo root)
 2. **Add tests for new components** - at minimum, "renders without crashing"
 3. **Test critical game logic** - physics helpers, scoring, controls
 4. **Keep tests fast** - should run in <30 seconds total
 
 ### Test Commands
 ```bash
-pnpm test        # Run all tests
-pnpm test:watch  # Watch mode during development
+cd apps/web && pnpm test        # Run all tests (no `test` script exists at the repo root)
+cd apps/web && pnpm test:watch  # Watch mode during development
 ```
 
 ### What to Test
@@ -581,7 +583,7 @@ pnpm test:watch  # Watch mode during development
 2. **Don't add external services** - Railway only for now
 3. **Don't make tiny buttons** - remember, it's for kids
 4. **Don't punish failures** - games should be forgiving
-5. **Don't skip mobile** - tilt controls are essential
+5. **Don't skip mobile** - touch controls matter on every game; tilt steering is essential for *driving* games specifically (not turn-based or board games)
 6. **Don't skip tests** - every feature needs basic tests
 
 ---
