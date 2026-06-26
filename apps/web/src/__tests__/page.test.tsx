@@ -1,41 +1,37 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { SessionProvider } from 'next-auth/react';
 import Home from '../app/page';
 
+// Home is an async server component: it discovers games/apps from the filesystem
+// (discoverGamesAndApps) and renders them via HomeClient as a dynamic grid.
+// The Header renders a LoginButton that calls useSession(), so the tree must be
+// wrapped in a SessionProvider. These tests assert the stable shell + that the
+// discovery actually surfaces playable games, rather than brittle per-game copy.
+async function renderHome() {
+  const ui = await Home();
+  return render(<SessionProvider session={null}>{ui}</SessionProvider>);
+}
+
 describe('Home Page', () => {
-  it('renders the main heading', () => {
-    render(<Home />);
-    // Use getByRole to target the h1 specifically since "Hank's Hits" appears in footer too
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent("Hank's Hits");
+  it("renders the Hank's Hits title", async () => {
+    await renderHome();
+    const h1s = screen.getAllByRole('heading', { level: 1 });
+    expect(h1s.some((h) => h.textContent?.includes("Hank's Hits"))).toBe(true);
   });
 
-  it('renders the tagline', () => {
-    render(<Home />);
+  it('renders the tagline', async () => {
+    await renderHome();
     expect(
-      screen.getByText('Monster trucks, games, and awesome stuff!')
+      screen.getByText(/Games, apps, and awesome stuff/i)
     ).toBeInTheDocument();
   });
 
-  it('renders the Play Monster Truck button', () => {
-    render(<Home />);
-    expect(screen.getByText('Play Monster Truck')).toBeInTheDocument();
+  it('discovers and links at least one game', async () => {
+    await renderHome();
+    const gameLinks = screen
+      .getAllByRole('link')
+      .filter((a) => a.getAttribute('href')?.startsWith('/games/'));
+    expect(gameLinks.length).toBeGreaterThan(0);
   });
-
-  it('renders the How to Play section', () => {
-    render(<Home />);
-    expect(screen.getByText('How to Play')).toBeInTheDocument();
-  });
-
-  it('renders mobile and desktop control instructions', () => {
-    render(<Home />);
-    expect(screen.getByText('On Phone')).toBeInTheDocument();
-    expect(screen.getByText('On Computer')).toBeInTheDocument();
-  });
-
-  it('has correct link to monster truck game', () => {
-    render(<Home />);
-    const playButton = screen.getByText('Play Monster Truck').closest('a');
-    expect(playButton).toHaveAttribute('href', '/games/monster-truck');
-  });
-
 });

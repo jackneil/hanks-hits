@@ -1,5 +1,39 @@
 import '@testing-library/jest-dom';
 
+// jsdom does not implement localStorage/sessionStorage. Zustand's `persist`
+// middleware calls setItem/getItem as soon as any persisted store is touched,
+// so without these every persisted-store test throws
+// "Cannot read properties of undefined (reading 'setItem')".
+class MemoryStorage implements Storage {
+  private store = new Map<string, string>();
+  get length(): number {
+    return this.store.size;
+  }
+  clear(): void {
+    this.store.clear();
+  }
+  getItem(key: string): string | null {
+    return this.store.has(key) ? this.store.get(key)! : null;
+  }
+  key(index: number): string | null {
+    return Array.from(this.store.keys())[index] ?? null;
+  }
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
+}
+Object.defineProperty(window, 'localStorage', {
+  writable: true,
+  value: new MemoryStorage(),
+});
+Object.defineProperty(window, 'sessionStorage', {
+  writable: true,
+  value: new MemoryStorage(),
+});
+
 // Mock window.matchMedia for components that use it
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

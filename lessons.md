@@ -1,0 +1,7 @@
+# Lessons (applied silently in future sessions)
+
+- [1x] When running a workflow/subagents to TEST skills by having them "follow the skill" or "act," sandbox each agent in its own git worktree (`isolation: "worktree"`), or constrain it to read-only/plan-only. Agents told to follow a build skill will actually build in the real working tree — a RED/GREEN skill-test run here silently scaffolded a whole `truck-jump` game plus flappy-bird/globals/shared-file edits into the main tree. Clean up only with surgical `git checkout -- <explicit files>` + `rm -rf <explicit new dirs>`, never `git checkout .`/`reset --hard` (that would wipe the uncommitted docs/skills you're keeping).
+
+- [1x] This repo's test gate can be quietly red at HEAD. The vitest suite needs a `localStorage`/`sessionStorage` mock in `apps/web/src/__tests__/setup.ts` (jsdom has none; Zustand `persist` calls `setItem` on every persisted store) and `page.test.tsx` must `await Home()` + wrap in `<SessionProvider>` (home is an async server component). Before trusting "tests pass" as a gate, confirm the baseline is actually green.
+
+- [1x] `pnpm test` (vitest) does NOT typecheck and most games ship no tests, so a green run proves little about a new/changed game. The real gate is `cd apps/web && pnpm build` (runs `tsc` + regenerates profile metadata). The home page is discovered by a runtime regex scan of each `metadata.ts` (plain string literals only), not the generated file. A new game's `appId` must be added to `VALID_APP_IDS` BEFORE `Game.tsx` will typecheck.
