@@ -13,6 +13,7 @@ export interface GameMetadata {
   category: CategoryId;
   description?: string;
   hidden?: boolean; // Set true to hide from home page
+  madeByKid?: boolean; // Set true on games the kid built/remixed — powers the "my-creations" shelf
 }
 
 // Category definitions

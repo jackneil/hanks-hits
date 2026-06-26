@@ -44,6 +44,9 @@ When the kid's words match, **use the matching skill** in `.claude/skills/`:
 | "what is this?", "what can you do?", "help", "I'm new" | **getting-started** |
 | almost nothing — "hi", "idk", a single word, or an unclear first message | **getting-started** (greet warmly, then offer the 3 choices) |
 | "remember me", "call me…", "my name is…", "I'm 9", or a brand-new kid with no Player Card | **about-me** |
+| "my games", "show me what I made", "my creations" | **my-creations** |
+| "one like X but Y", "a snake game but space", "remix", "copy my game and change it" | **remix-a-game** |
+| "undo", "go back", "I liked it better", "put it back", "oops" | **oops-go-back** |
 
 ### Know your buddy — personalize and teach as you go
 - **At the start of each session, check `.claude/player-profile.json`.** If it exists, read it and **greet the kid by name**, leaning on their age + interests. If it doesn't exist and the kid seems new, warmly **offer to make a Player Card** (→ **about-me**) — never force it; if they just want to build, build.

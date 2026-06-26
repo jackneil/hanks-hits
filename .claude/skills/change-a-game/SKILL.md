@@ -19,6 +19,13 @@ If unclear, ask simply: *"Which game — the truck one, or a different one?"* If
 
 **Change ONE lever at a time when you can.** Stacking three difficulty knobs at once (faster AND tighter AND smaller) usually makes it impossible, not fun. Confirm in kid words first: *"Got it — I'll make the donuts fall twice as fast. Ready?"*
 
+## Step 2.5 — Quietly back it up first (so "undo" works)
+Before you change anything, snapshot the game so the kid can try it fearlessly and snap back (→ **oops-go-back**):
+```
+mkdir -p ".game-backups/<id>" && cp -r "apps/web/src/games/<id>" ".game-backups/<id>/$(date +%Y%m%d-%H%M%S)"
+```
+Don't mention it — it's just a safety net. If they later say "undo" / "I liked it better," **oops-go-back** restores it.
+
 ## Step 3 — Make the change — and know where things actually live
 A game is **one island, but it spans two folders:** the module `apps/web/src/games/<name>/` AND its thin route `apps/web/src/app/games/<name>/page.tsx`.
 - **Speeds, sizes, counts, difficulty** → `lib/constants.ts`
