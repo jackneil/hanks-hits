@@ -11,11 +11,11 @@ This is a sibling to `GAME_IDEAS.md` (which is per-game ideas); this file is abo
 1. **`my-creations` skill** — a private, local gallery of the kid's OWN games (the #1 missing stickiness surface; cheap, zero exposure risk).
 2. **`remix-a-game` skill** — copy an existing working game into a new id and re-theme it; make "start from one you love" the default, never a blank page (most-cited mechanism in the research; >25% of Scratch projects are remixes).
 3. **`oops-go-back` undo + pre-edit checkpoint in `change-a-game`** — kids can fearlessly try a change and revert (forgiving/undo is a core engagement hook).
-4. **CLAUDE.md "keep the kid the builder" rule** — change one thing, narrate the *why* in kid words, do a tiny "what broke / how we fixed it" beat. Dodges the agency trap our "Claude builds it" model is *most* exposed to.
+4. **Teach a little while building (keep it LIGHT)** — narrate what changed + *why* in kid words ("we made the number bigger so the truck goes faster") so they learn as they play. Never withhold help or slow the fun to "force learning."
 5. **CLAUDE.md "talk-to-a-non-reader" block + read-aloud option** — branch on Player Card age; 6–8yos are emergent readers and text-only is an accessibility fail.
 6. **In-app "My Games" shelf** — separate the kid's creations from the 24 built-ins on the home page, with personal-best stats.
-7. **Intrinsic-first BUILDING milestones** — celebrate made-1st-game / remixed / fixed-a-bug with confetti + a one-time message. **No streaks, no currency, no leaderboards for building** (avoids documented dark-pattern + overjustification traps).
-8. **Harden the publish artifact** — unguessable revocable share URL token, generic `og:title` (no kid-named title), treat in-game typed text as PII at authoring time. Closes enumeration + free-text leak vectors.
+7. **Lean INTO the fun mechanics** — coins, points, high scores, achievements, badges, streaks, unlockables, and **friend leaderboards** for building *and* playing. Kids love them; let them invent their own achievements and compete with friends. Build on the leaderboards we already have. (Only real line: no real-money purchases / predatory lootboxes.)
+8. **Real safety on publishing** — don't expose a specific kid's identity to strangers: unguessable/revocable share URL (not a guessable id that lets anyone enumerate kids' games), generic `og:title` (no "Hank, age 8" card), and treat in-game typed text as PII. (Extends the publish PII scrub + under-13 gate we already built.)
 
 ---
 
@@ -29,7 +29,7 @@ This is a sibling to `GAME_IDEAS.md` (which is per-game ideas); this file is abo
 | **`remix-a-game` skill** — "make one like my truck game but dinosaurs" → COPY a working game's island into a new id + re-theme. From-scratch becomes the fallback. | new-skill | medium | `.claude/skills/remix-a-game/SKILL.md` (reuses make-a-game plumbing); cross-link from make-a-game Step 0 + game-ideas |
 | **`oops-go-back` undo + checkpoint** — auto-save the game folder's prior state before any edit; "undo that" / "I liked it better" restores it, in kid words. | new-skill | medium | `.claude/skills/oops-go-back/SKILL.md`; pre-edit checkpoint in change-a-game Step 3 (scoped to the one island, never `git add -A`) |
 | **"talk-to-a-non-reader" behavior** — age ≤8 (or on request): one short sentence at a 1st–3rd-grade level, emoji/either-or over paragraphs, offer to read instructions aloud (`say` / browser TTS). No important instruction text-only. | claude-behavior | small | CLAUDE.md (new subsection); play-my-game; branches on about-me age/ageAsOf |
-| **"keep the kid the builder"** — change ONE thing, narrate what changed + *why* in kid words, ask a predict-or-pick question, tiny "what broke/how we fixed it" beat. Platform-wide stance vs silently one-shotting a perfect game. | claude-behavior | small | CLAUDE.md (new block); reinforce in make-a-game Steps 4–6 + change-a-game Steps 2–5; pairs with the "drop ONE nugget" habit |
+| **Teach a little while building (keep it light)** — narrate what changed + *why* in kid words, maybe a quick predict-or-pick question. Helps them learn while they play. NOT a reason to withhold help or slow the fun. | claude-behavior | small | CLAUDE.md (we already have "drop ONE nugget"); light-touch in make-a-game / change-a-game |
 
 ### MEDIUM
 
@@ -38,25 +38,24 @@ This is a sibling to `GAME_IDEAS.md` (which is per-game ideas); this file is abo
 | **`im-stuck` skill** — distinct from game-ideas: "I don't get it"/"it won't work"/"help" → calm one-step-at-a-time hand, reframe breakage as normal/fixable, ONE just-in-time hint (fading as the kid succeeds), route to change/play. | new-skill | small | `.claude/skills/im-stuck/SKILL.md`; disambiguate triggers vs getting-started |
 | **`make-it-mine` (sprite + sound helper)** — "make MY truck"/"add a boom" → generate/edit simple SVG/canvas sprites + wire real Web Audio sounds into the game's island. Curated kid-safe kit first, generate only when needed. | new-skill | large | `.claude/skills/make-it-mine/SKILL.md`; writes into the game's island; reuses change-a-game gates |
 | **In-app "My Games" shelf** — localStorage list of authored/remixed games (id/name/emoji/createdAt/lastPlayed) as a top home-page section above the built-ins, with personal-best stats. | app-mechanism | medium | `HomeClient.tsx` + `game-registry.ts` (author/origin flag); reads existing Zustand progress |
-| **Intrinsic-first building milestones** — confetti + one-time message for acts of building (1st game, remix, bug fix). **Strictly no streaks/currency/login-pressure/public-building-leaderboard.** | app-mechanism | medium | new `shared/lib/build-milestones.ts` or profile; CLAUDE.md note codifying the no-dark-pattern rule so future work doesn't drift |
+| **Achievements, coins & friend leaderboards** — fun rewards for building AND playing (1st game, high scores, beat-your-friend), confetti + unlockables; let kids add their own achievements and compete. Extend the leaderboards we already have. Only real line: no real-money / predatory lootboxes. | app-mechanism | medium | extend existing leaderboards + profile; new `shared/lib/achievements.ts` |
 | **Harden publish share artifact** — unguessable URL token (not kid-name/sequential id), generic `og:title` ("A game made on Hank's Hits"), and a parent "turn it off"/unpublish path. | skill-tweak | medium | put-it-online (token step, og check in Step 2.5, unpublish path); layout.tsx og:title; route slug gen |
 | **Free-text-in-games PII guard** — any text a kid types INTO a game (title/label/sign/NPC speech/high-score name) gets about-me-style PII rules: length-limited, never school/town/last-name even if volunteered, re-scanned at publish. | skill-tweak | small | make-a-game + change-a-game guardrails; reinforced by put-it-online Step 2.5 |
 | **"wide-walls" variety nudge** — when seeding ideas / picking a game kind, span genuinely DIFFERENT kinds (reflex / building-toy / story-joke / music-toy) anchored to Player Card interests, not 20 reskins of one platformer. | skill-tweak | small | game-ideas (seed from interests, span kinds); make-a-game Step 2 variety check |
 
 ---
 
-## 🔑 Key research insights (these shape the guardrails above)
+## 🔑 Key research insights (the ones worth keeping)
 
-- **The agency trap is our #1 risk.** INSEAD field study: on-demand AI requests rose 5→11 per game over 12 weeks, and students with *unrestricted* AI help learned **less than half** as much (30% vs 64% improvement) — kids escalate reliance even knowing it hurts them. For a "Claude builds it" platform, the **system** (not the kid's self-control) must protect productive struggle. → drives "keep the kid the builder."
-- **Measure success by DIVERSITY of what kids make**, not a progression rail. Resnick's literal failure test for "wide walls": "if every game is the same coin-collector with a reskin, the walls aren't wide enough." → drives the variety nudge.
-- **Remix is the default, not the blank page.** "The blank canvas is paralyzing for a child; remixing gives an instant working thing to tweak, teaches by reading real examples, and produces a fast win." → drives remix-a-game.
-- **Don't pay kids for play they already enjoy** (overjustification effect, Lepper/Greene/Nisbett): points/badges/prizes measurably *reduce* intrinsic interest. Celebrations must be informational + surprising, never transactional ("do 20 more to unlock" shifts play-for-fun → play-for-coins). → drives intrinsic-first milestones.
-- **Streaks / daily-login pressure are flagged dark patterns** (FTC/Fairplay) that exploit kids' undeveloped executive function. "A kid should come back because it's fun, not because a flame counter will die."
-- **The game IS its own error message.** Kids can't read stack traces but absolutely know when a game *feels wrong or isn't fun* — imprecise instructions produce visibly-wrong behavior they can self-diagnose. This is why games beat generic apps for sustaining iteration.
-- **6–8yos are emergent readers** — text-only instructions are an accessibility failure; every important instruction must also work via icon/color/animation/voice.
-- **Publish = a regulated, moderated act, not a button.** Guessable/sequential share IDs (`/game/1042`) let anyone enumerate every kid's creation; a share card that says "Hank Neil, age 8" is the exact failure the 5Rights kids named. Private-until-a-grown-up-approves; unguessable revocable tokens.
-- **Free-text is the #1 PII leak vector** — "an unfiltered title field is a PII leak with a Share button on it." Kids type their school/address/last name into titles, labels, and in-game signs.
-- **Chatbot guardrails degrade over long multi-turn chats** (Common Sense Media, Nov 2025) — a kid-facing build chat must hard-filter *every turn*, stay strictly task-scoped to building games, and never drift into companion/therapy behavior.
+- **Remix beats the blank page.** "The blank canvas is paralyzing for a child; remixing gives an instant working thing to tweak and a fast win." >25% of Scratch projects are remixes. → remix-a-game.
+- **Aim for variety in what kids make** (Resnick's "wide walls"): if every game is the same coin-collector reskin, offer genuinely different *kinds* of things too. → variety nudge.
+- **The game IS its own error message.** Kids can't read stack traces but absolutely know when a game *feels wrong or isn't fun* — imprecise instructions produce visibly-wrong behavior they self-diagnose. This is why games sustain iteration.
+- **6–8yos are emergent readers** — every important instruction should also work via icon/color/animation/voice, not text alone. → non-reader behavior.
+- **Teach a little as you build** so kids pick things up — narrate the *why* in kid words. Keep it light; never withhold help or slow the fun.
+- **Real safety on publishing (the kind worth doing):** don't expose a specific kid's identity to strangers — no guessable/sequential share IDs that let anyone enumerate kids' games, no share card that says "Hank, age 8", and treat free-text a kid types into a game (titles/labels/signs) like PII. Already partly done via the publish PII scrub + under-13 gate.
+- **Stay scoped to building games.** A kid-facing build chat should keep doing its job and not drift into companion/therapy/advice territory.
+
+> **Deliberately CUT from the original synthesis:** the "no coins / no streaks / no leaderboards / intrinsic-rewards-only" stance. Kids love those mechanics and they're core fun — **build them** (see CLAUDE.md "Make it FUN first"). Be reasonably cautious about real harms, not pop-psychology ones.
 
 ---
 
