@@ -1,6 +1,4 @@
-import Link from "next/link";
-import { LoginButton } from "@/shared/components";
-import { discoverGamesAndApps, type DisplayCategory } from "@/shared/lib/game-registry";
+import { discoverGamesAndApps } from "@/shared/lib/game-registry";
 import { HomeClient } from "./HomeClient";
 
 // Server component - discovers games at build time

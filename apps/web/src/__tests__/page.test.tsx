@@ -54,6 +54,11 @@ describe('Home Page', () => {
       render(<SessionProvider session={null}>{ui}</SessionProvider>);
       const h1s = screen.getAllByRole('heading', { level: 1 });
       expect(h1s.some((h) => h.textContent?.includes('Zzyzx Test Brand'))).toBe(true);
+      // owner drives the footer "Made for X" — the field everyone forgets to rebind
+      expect(document.body.textContent).toContain('Made for Zog');
+      // a re-hardcoded brand anywhere (hero-only, header-only, or footer-only) must fail this
+      expect(document.body.textContent).not.toContain("Hank's Hits");
+      expect(document.body.textContent).not.toContain('Made for Hank');
     } finally {
       vi.doUnmock('@/config/site');
       vi.resetModules();
