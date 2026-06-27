@@ -156,7 +156,10 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const userId = session.user.id;
-    let finalData: AppProgressData = data;
+    // SECURITY: persist the VALIDATED/parsed payload, not the raw request body —
+    // otherwise unknown keys that Zod strips from validation.data are still stored
+    // verbatim. validation.data is bounded by the schema; `data` is attacker-shaped.
+    let finalData: AppProgressData = validation.data as AppProgressData;
     let conflicts: string[] = [];
 
     // If merging, fetch existing first and merge
@@ -173,7 +176,7 @@ export async function POST(request: Request, context: RouteContext) {
         const serverTimestamp = existing.updatedAt.getTime();
         const nowTimestamp = Date.now();
         const mergeResult = mergeProgress(
-          data,
+          validation.data as AppProgressData,
           existing.data as AppProgressData,
           nowTimestamp,
           serverTimestamp

@@ -128,15 +128,25 @@ export function checkProgressRateLimit(userId: string): RateLimitResult {
  * Helper to extract IP from request headers
  */
 export function getClientIP(request: Request): string {
-  // Railway/Vercel/Cloudflare headers
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    return forwarded.split(",")[0].trim();
-  }
-
+  // SECURITY: the LEFTMOST X-Forwarded-For entry is fully client-controlled (a
+  // client can prepend any value), so it must never key a rate-limit bucket.
+  // Prefer x-real-ip, which the trusted Railway edge proxy sets to the real
+  // client IP; otherwise take the RIGHTMOST X-Forwarded-For hop — the address
+  // the closest trusted proxy actually observed.
   const realIP = request.headers.get("x-real-ip");
   if (realIP) {
-    return realIP;
+    return realIP.trim();
+  }
+
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) {
+    const parts = forwarded
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length > 0) {
+      return parts[parts.length - 1];
+    }
   }
 
   // Fallback - shouldn't happen in production
