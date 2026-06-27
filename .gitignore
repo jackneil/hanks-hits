@@ -47,3 +47,7 @@ Thumbs.db
 
 # Auto-backups taken before editing a game, so "oops, go back" can restore it — local.
 .game-backups/
+
+# Claude Code local settings (machine-local — never commit)
+.claude/settings.local.json
+settings.local.json

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Pre-commit secret scanner — blocks commits that contain likely secrets (gitleaks).
+# Activate in a fresh clone with:  git config core.hooksPath .githooks
+# Bypass once, only if you're SURE it's a false positive:  git commit --no-verify
+set -uo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "[secret-scan] gitleaks not installed — skipping scan. Install it: brew install gitleaks" >&2
+  exit 0
+fi
+
+if ! gitleaks git --staged --redact; then
+  echo "" >&2
+  echo "🚫 [secret-scan] gitleaks flagged a possible secret in your staged changes — commit BLOCKED." >&2
+  echo "   • Move the secret into a gitignored .env (never commit it)." >&2
+  echo "   • Genuine false positive? add a rule to .gitleaksignore, or bypass once: git commit --no-verify" >&2
+  exit 1
+fi
+exit 0
