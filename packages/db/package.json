@@ -19,7 +19,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "drizzle-orm": "^0.40.1",
+    "drizzle-orm": "^0.45.2",
     "pg": "^8.16.3"
   },
   "devDependencies": {
