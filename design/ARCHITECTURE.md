@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-A web platform for 8-year-old Hank Neil to play 3D games and use simple apps. **Claude builds and maintains all code.**
+A web platform where 9-year-old Hank Neil (and other kids who clone it) design their own browser games and simple apps just by describing them. **Claude builds and maintains all code.**
 
 **Site Name:** Hank's Hits
 **Hosting:** Railway only (PostgreSQL + web app)
@@ -13,7 +13,7 @@ A web platform for 8-year-old Hank Neil to play 3D games and use simple apps. **
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| **Next.js** | 16.1.1 | App Router |
+| **Next.js** | 16.2.9 | App Router |
 | **React** | 19.2.3 | Latest |
 | **Tailwind** | 4.x | CSS |
 | **DaisyUI** | 5.x | Kid-friendly theme |
@@ -27,9 +27,8 @@ A web platform for 8-year-old Hank Neil to play 3D games and use simple apps. **
 | `@react-three/fiber` | 9.4.2 | React ^19.0.0 |
 | `@react-three/rapier` | 2.2.0 | React ^19, R3F ^9.0.4 |
 | `@react-three/drei` | 10.7.7 | React ^19, R3F ^9.0.0 |
-| `ecctrl` | 1.0.97 | React >=19.1.0, three >=0.177.0 |
 
-**All packages verified compatible with our React 19.2.3**
+**All four packages are installed and in use, verified compatible with our React 19.2.3.** For 2D physics games, `matter-js` (0.20.0) is also installed. `ecctrl` (a ready-made vehicle controller + joystick) is **not currently installed** — the monster-truck game uses a hand-rolled controller instead. Add it with `cd apps/web && pnpm add ecctrl` if a future driving game wants an off-the-shelf controller (it's compatible with this stack; see Key References).
 
 ---
 
@@ -41,7 +40,7 @@ A web platform for 8-year-old Hank Neil to play 3D games and use simple apps. **
 ├─────────────────────────────────────────┤
 │  ┌─────────────┐    ┌─────────────┐    │
 │  │  Next.js    │───▶│ PostgreSQL  │    │
-│  │  Web App    │    │  (later)    │    │
+│  │  Web App    │    │ (Drizzle)   │    │
 │  └─────────────┘    └─────────────┘    │
 └─────────────────────────────────────────┘
 ```
@@ -57,7 +56,7 @@ A web platform for 8-year-old Hank Neil to play 3D games and use simple apps. **
 import dynamic from 'next/dynamic';
 
 const MonsterTruckGame = dynamic(
-  () => import('@/components/game/MonsterTruckGame'),
+  () => import('@/games/monster-truck'),
   { ssr: false }
 );
 
@@ -69,7 +68,7 @@ export default function GamePage() {
 ### Vehicle Physics (Rapier)
 
 ```tsx
-// components/game/Vehicle.tsx
+// src/games/monster-truck/components/Vehicle.tsx
 "use client";
 
 import { RigidBody, useRapier } from '@react-three/rapier';
@@ -155,7 +154,7 @@ From [Open World Game Design](https://gamedesignskills.com/game-design/game-prog
 - Collectibles in "mini-clusters" (mini-adventures)
 - Meaningful rewards (not just points)
 
-### Kid-Friendly (Age 8)
+### Kid-Friendly (Ages 6–14)
 
 - **Forgiving physics** - truck can flip but auto-recovers
 - **Big buttons** (44px minimum)
@@ -167,42 +166,40 @@ From [Open World Game Design](https://gamedesignskills.com/game-design/game-prog
 
 ## Project Structure
 
+Each game/app is a **self-contained module** (see the "Compartmentalized Structure" section in `CLAUDE.md` for the authoritative rules and the exact "add a new game" checklist).
+
 ```
-hank-neil/
+hanks-hits/
 ├── apps/
 │   └── web/
 │       ├── src/
-│       │   ├── app/
-│       │   │   ├── page.tsx              # Landing
-│       │   │   ├── dashboard/page.tsx    # Game launcher
-│       │   │   └── games/
-│       │   │       └── monster-truck/
-│       │   │           └── page.tsx      # Dynamic import
-│       │   ├── components/
-│       │   │   └── game/
-│       │   │       ├── MonsterTruckGame.tsx
-│       │   │       ├── Vehicle.tsx
-│       │   │       ├── Terrain.tsx
-│       │   │       ├── FollowCamera.tsx
-│       │   │       ├── MobileControls.tsx
-│       │   │       └── GameUI.tsx
-│       │   ├── hooks/
-│       │   │   ├── useDeviceOrientation.ts
-│       │   │   ├── useKeyboardControls.ts
-│       │   │   └── useTouchControls.ts
-│       │   └── lib/
-│       │       └── gameStore.ts          # Zustand
-│       └── public/
-│           └── games/
-│               └── monster-truck/
-│                   ├── models/
-│                   └── textures/
+│       │   ├── app/                        # Next.js routes ONLY (kept thin)
+│       │   │   ├── page.tsx                 # Home — renders HomeClient.tsx (auto-discovers games)
+│       │   │   ├── games/<name>/page.tsx    # Thin route: dynamic() import of the game module, ssr:false
+│       │   │   ├── apps/<name>/page.tsx     # Thin route for a fun-app module
+│       │   │   └── api/                     # progress, roms, leaderboards, auth, admin, profile, …
+│       │   ├── games/                       # SELF-CONTAINED game modules (one folder per game)
+│       │   │   └── <name>/
+│       │   │       ├── components/          # game-specific components
+│       │   │       ├── hooks/               # game-specific hooks
+│       │   │       ├── lib/                 # store.ts (Zustand persist), constants.ts, …
+│       │   │       ├── Game.tsx             # main component ("use client")
+│       │   │       ├── metadata.ts          # home-page discovery (id, name, emoji, category)
+│       │   │       ├── index.ts             # exports component + store + Progress type
+│       │   │       └── __tests__/           # Vitest tests
+│       │   ├── apps/                        # SELF-CONTAINED app modules (one folder per app)
+│       │   ├── shared/                      # ONLY truly-reused UI / hooks / lib
+│       │   └── lib/                         # progress-schemas.ts, rate-limit.ts, auth-client.ts, progress-merge.ts, …
+│       ├── public/                          # static assets
+│       └── next.config.ts                   # transpilePackages: ["three"]
 ├── packages/
-│   ├── ui/               # Shared components
-│   └── db/               # Database (later)
+│   └── db/                                  # Drizzle ORM schema + migrations (PostgreSQL)
+│       └── src/schema/                      # app-progress.ts (VALID_APP_IDS), auth.ts, leaderboards.ts
 ├── design/
-│   └── ARCHITECTURE.md   # This file
-├── CLAUDE.md             # Claude instructions
+│   ├── ARCHITECTURE.md                      # This file
+│   └── games/<name>.md                      # per-game design docs
+├── CLAUDE.md                                # Claude instructions (kid tone, guardrails, checklists)
+├── .claude/skills/                          # kid-facing playbooks (make-a-game, play-my-game, …)
 ├── turbo.json
 ├── pnpm-workspace.yaml
 └── package.json
@@ -292,12 +289,16 @@ From [THREE.Terrain](https://github.com/IceCreamYou/THREE.Terrain):
 
 ## Current Status
 
+The platform runs on Railway (auto-deploys on push to `master`) and is well past the original monster-truck MVP. The monster-truck design sections above are realized as a real game, and the platform has since generalized into many self-contained game/app modules — see **Project Structure** above and `CLAUDE.md` for the authoritative "add a new game" pattern, and `design/FRAMEWORK_ROADMAP.md` for where it's heading.
+
 - [x] Turborepo + pnpm workspace
-- [x] Next.js 16 app with React 19
-- [x] DaisyUI kid theme ("Hank's Hits")
-- [x] Layout with title
-- [ ] **Next: Landing page**
-- [ ] **Then: Phase 1 (drivable truck)**
+- [x] Next.js 16 + React 19 app, DaisyUI kid theme ("Hank's Hits")
+- [x] Home page that auto-discovers games from their `metadata.ts`
+- [x] Monster-truck 3D game (R3F + Rapier) plus a full library of games and fun-apps (2048, Snake, Asteroids, Hill Climb, Cookie Clicker, Chess, weather, jokes, drawing, virtual pet, …)
+- [x] Auth (next-auth) + cloud progress save (PostgreSQL via Drizzle) with Zod-validated writes
+- [x] Leaderboards + profile stats
+- [x] One-file site rebranding (`apps/web/src/config/site.json`)
+- [ ] **Ongoing:** more games/apps as kids dream them up, plus platform polish
 
 ---
 

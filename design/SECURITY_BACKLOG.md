@@ -11,53 +11,24 @@ Listed in priority order.
 - [x] Rate limiting on login (10 attempts/15min/email)
 - [x] Email normalization (lowercase + trim)
 
+## Completed (2026-07-01) — `security/audit-fixes` branch
+
+- [x] **Progress data validation (Zod)** — `apps/web/src/app/api/progress/[appId]/route.ts` now calls `validateProgress(appId, data)`; per-game `.strict()` schemas with bounded numeric fields live in `apps/web/src/lib/progress-schemas.ts`, so injected values (e.g. 999999 coins) are rejected.
+- [x] **Dynamic localStorage cleanup** — `apps/web/src/lib/auth-client.ts` iterates `Object.keys(localStorage)` and clears keys ending in `-storage` / `-progress` / `-save` / `-game-state` (no longer misses newly-added games).
+- [x] **Removed dangerous `deepMergeProgress`** — the exploitable `Math.max`/`||` merge helper is gone from the codebase.
+- [x] **Hardened ROM asset proxy** — `apps/web/src/app/api/roms/[...path]/route.ts` tightened against SSRF / path abuse.
+- [x] **Fixed rate-limiter client-IP derivation** — `apps/web/src/lib/rate-limit.ts` now derives the caller IP correctly (previous logic could be spoofed or collapse many users onto one key).
+- [x] **Dependency CVE bumps** — `next` 16.1.1 → 16.2.9, `drizzle-orm` 0.40.1 → 0.45.2.
+
 ---
 
 ## High Priority
 
-### 1. Progress Data Validation (Zod)
-**File:** `apps/web/src/app/api/progress/[appId]/route.ts`
-
-Currently accepts any JSON blob. Should validate:
-- Required fields per game (coins, unlockedVehicles, etc.)
-- Max values for numeric fields (prevent injecting 999999 coins)
-- Type checking for all fields
-
-```typescript
-// Example: apps/web/src/lib/progress-schemas.ts
-import { z } from "zod";
-
-export const hillClimbProgressSchema = z.object({
-  coins: z.number().min(0).max(10_000_000),
-  xp: z.number().min(0),
-  unlockedVehicles: z.array(z.string()),
-  unlockedStages: z.array(z.string()),
-  // etc.
-});
-```
-
-### 2. Dynamic localStorage Cleanup
-**File:** `apps/web/src/lib/auth-client.ts`
-
-Current hardcoded keys will miss new games:
-```typescript
-localStorage.removeItem("hill-climb-storage");
-localStorage.removeItem("monster-truck-save");
-```
-
-Should iterate and clear all game-related keys:
-```typescript
-for (const key of Object.keys(localStorage)) {
-  if (key.endsWith("-storage") || key.endsWith("-save")) {
-    localStorage.removeItem(key);
-  }
-}
-```
-
-### 3. Server Timestamps Only
+### 1. Server Timestamps Only
 **File:** `apps/web/src/lib/progress-merge.ts`
 
-Client-provided timestamps can be manipulated (set clock forward).
+Client-provided timestamps can still be manipulated (set the clock forward). `mergeProgress(...)` still accepts both `localTimestamp` and `serverTimestamp`, and `extractTimestamp()` reads `updatedAt` / `lastModified` / `timestamp` straight from the (client-controlled) progress blob — so a client can claim a future timestamp and win the merge.
+
 Should use server time only for merge decisions:
 ```typescript
 // Instead of:
@@ -72,31 +43,19 @@ mergeProgress(localData, serverData, serverData?.updatedAt)
 
 ## Medium Priority
 
-### 4. Stronger Password Requirements
+### 2. Stronger Password Requirements
 **File:** `apps/web/src/app/api/auth/signup/route.ts`
 
-Current: 6 characters minimum
+Current: 6 characters minimum (`password.length < 6`)
 Recommended: 8 characters minimum
 
 For a kids' game, don't overcomplicate (no special chars requirement).
-
-### 5. Remove Dangerous deepMergeProgress
-**File:** `apps/web/src/lib/progress-merge.ts`
-
-The `deepMergeProgress` function is exploitable:
-- `Math.max()` on numbers = infinite coins exploit
-- `||` on booleans = permanent unlocks
-
-Either:
-- Delete the function entirely
-- Add huge warning comments
-- Make it require explicit opt-in per field
 
 ---
 
 ## Low Priority (Future)
 
-### 6. Email Verification
+### 3. Email Verification
 New users can sign up with any email without verification.
 Would require:
 - Send verification email on signup
@@ -105,7 +64,7 @@ Would require:
 
 Not critical for a kids' game platform but good practice.
 
-### 7. Audit Logging
+### 4. Audit Logging
 Currently no logging of:
 - Failed login attempts
 - Account creation
@@ -116,7 +75,7 @@ Would help with:
 - Debugging user issues
 - Compliance (if ever needed)
 
-### 8. Account Lockout
+### 5. Account Lockout
 After X failed attempts, lock account temporarily.
 Currently rate-limited by email, but could add:
 - Account lockout after 20 failed attempts
@@ -127,6 +86,5 @@ Currently rate-limited by email, but could add:
 
 ## Notes
 
-- In-memory rate limiting resets on server restart (acceptable for low-traffic kids' game)
-- For production with high traffic, consider Upstash Redis
-- Transaction log table exists but is never used - intended for anti-cheat but not implemented
+- In-memory rate limiting resets on server restart (acceptable for low-traffic kids' game). For production with high traffic, consider Upstash Redis.
+- The transaction-log table (`appTransactions` / `app_transactions` in `packages/db/src/schema/app-progress.ts`) exists but is not yet used for anti-cheat merge — intended for future exploit-proof currency tracking.
