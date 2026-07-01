@@ -99,6 +99,13 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Tap to fly through pipes",
     category: "arcade",
   },
+  "four-wheeler-adventure": {
+    name: "Four-Wheeler Adventure",
+    icon: "🐕",
+    color: "green",
+    description: "Ride, hunt, fish & race in a huge open world",
+    category: "racing",
+  },
   "hextris": {
     name: "Hextris",
     icon: "⬡",
