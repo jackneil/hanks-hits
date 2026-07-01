@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Pre-push CI gate - runs the SAME checks GitHub would, locally, BEFORE anything
+# reaches the remote. Blocks the push if lint, typecheck, tests, or the build fail.
+#
+# Activate in a fresh clone with:  git config core.hooksPath .githooks
+# Bypass once, only if you REALLY mean it (e.g. pushing a WIP spike branch):
+#     git push --no-verify
+#
+# The gate mirrors apps/web package scripts so local == CI. Keep it in sync when
+# you add a real CI step.
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+WEB="${ROOT}/apps/web"
+
+# Nothing to check if the web app isn't here (e.g. a docs-only checkout).
+[ -d "${WEB}" ] || exit 0
+
+# pnpm is required to run the gate. If it's genuinely not installed, warn and let
+# the push through rather than hard-blocking on a broken toolchain (mirrors the
+# secret-scan hook's "tool missing -> skip" stance). CI still exists as a backstop.
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "[ci-gate] pnpm not installed - skipping local CI gate. Install: https://pnpm.io/installation" >&2
+  exit 0
+fi
+
+# Run from the workspace ROOT: this is a pnpm monorepo, so the lockfile lives at the
+# root and `--frozen-lockfile` only resolves it from there. App checks target the web
+# package via `--filter web` (pnpm runs each script with cwd = apps/web).
+cd "${ROOT}" || exit 0
+
+# run "<label>" <cmd...>  - fast-fail with a clear banner
+run() {
+  local label="$1"; shift
+  echo "[ci-gate] running: ${label} ..." >&2
+  if ! "$@"; then
+    echo "" >&2
+    echo "[ci-gate] ${label} FAILED - push BLOCKED." >&2
+    echo "   Fix it and push again, or bypass once (only if you are sure): git push --no-verify" >&2
+    exit 1
+  fi
+}
+
+echo "[ci-gate] running local CI gate before push (lint, typecheck, test, build) ..." >&2
+
+run "install (frozen lockfile)" pnpm install --frozen-lockfile
+run "lint"                      pnpm --filter web lint
+run "typecheck"                 pnpm --filter web typecheck
+run "test"                      pnpm --filter web test
+run "build"                     pnpm --filter web build
+
+# The build regenerates the game-metadata lookup. If that produced an uncommitted
+# change, the committed copy is stale - catch it here instead of shipping drift.
+GEN="src/shared/lib/gameMetadata.generated.ts"
+if [ -f "${GEN}" ] && ! git -C "${ROOT}" diff --quiet -- "apps/web/${GEN}"; then
+  echo "" >&2
+  echo "[ci-gate] build regenerated ${GEN} but it is not committed - push BLOCKED." >&2
+  echo "   Run: (cd apps/web && pnpm build) then commit the regenerated file." >&2
+  exit 1
+fi
+
+echo "[ci-gate] all checks passed - pushing." >&2
+exit 0
