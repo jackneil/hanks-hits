@@ -477,7 +477,7 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
 
         // Check for power-up collection
         let newProgress = state.progress;
-        let newPlayer = { ...state.player, x: newX, y: newY };
+        const newPlayer = { ...state.player, x: newX, y: newY };
         const newGrid = state.grid.map(row => row.map(t => ({ ...t })));
 
         if (tile.powerUp) {
@@ -567,11 +567,11 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
 
         let newBombs = [...state.bombs];
         let newExplosions = [...state.explosions];
-        let newGrid = state.grid.map(row => row.map(t => ({ ...t })));
-        let newEnemies = [...state.enemies];
+        const newGrid = state.grid.map(row => row.map(t => ({ ...t })));
+        const newEnemies = [...state.enemies];
         let newPlayer = { ...state.player };
         let newScore = state.score;
-        let newProgress = { ...state.progress };
+        const newProgress = { ...state.progress };
         let newExitRevealed = state.exitRevealed;
 
         // Update player invincibility

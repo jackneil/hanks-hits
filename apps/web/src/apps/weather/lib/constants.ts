@@ -96,10 +96,10 @@ export function mapWeatherCode(code: number): WeatherCondition {
   if (code >= 45 && code <= 48) return "foggy";
   // Drizzle
   if (code >= 51 && code <= 57) return "rainy";
-  // Rain
-  if (code >= 61 && code <= 67) return "rainy";
   // Freezing rain
   if (code >= 66 && code <= 67) return "snowy";
+  // Rain
+  if (code >= 61 && code <= 65) return "rainy";
   // Snowfall
   if (code >= 71 && code <= 77) return "snowy";
   // Rain showers

@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/shared/components/Header";
-import type { DisplayCategory } from "@/shared/lib/game-registry";
+import type { DisplayCategory, DisplayItem } from "@/shared/lib/game-registry";
 import { SITE } from "@/config/site";
 
 // Floating emojis for hero background
@@ -12,7 +13,80 @@ interface HomeClientProps {
   categories: DisplayCategory[];
 }
 
+type RecentItem = DisplayItem & {
+  playedAt: number;
+};
+
+const RECENTLY_PLAYED_KEY = "hanks-hits-recently-played";
+
+function normalizeSearch(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function loadRecentItems(allItems: DisplayItem[]): RecentItem[] {
+  try {
+    const raw = window.localStorage.getItem(RECENTLY_PLAYED_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as RecentItem[];
+    if (!Array.isArray(parsed)) return [];
+
+    const currentItems = new Map(allItems.map((item) => [item.href, item]));
+    return parsed
+      .filter((item) => currentItems.has(item.href))
+      .map((item) => ({
+        ...currentItems.get(item.href)!,
+        playedAt: typeof item.playedAt === "number" ? item.playedAt : 0,
+      }))
+      .sort((a, b) => b.playedAt - a.playedAt)
+      .slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentItem(item: DisplayItem, current: RecentItem[]) {
+  const next = [
+    { ...item, playedAt: Date.now() },
+    ...current.filter((recent) => recent.href !== item.href),
+  ].slice(0, 6);
+
+  window.localStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(next));
+  return next;
+}
+
 export function HomeClient({ categories }: HomeClientProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+
+  const allItems = useMemo(
+    () => categories.flatMap((category) => category.items),
+    [categories]
+  );
+
+  useEffect(() => {
+    setRecentItems(loadRecentItems(allItems));
+  }, [allItems]);
+
+  const filteredCategories = useMemo(() => {
+    const query = normalizeSearch(searchQuery);
+    if (!query) return categories;
+
+    return categories
+      .map((category) => ({
+        ...category,
+        items: category.items.filter((item) =>
+          `${item.name} ${category.title}`.toLowerCase().includes(query)
+        ),
+      }))
+      .filter((category) => category.items.length > 0);
+  }, [categories, searchQuery]);
+
+  const hasSearch = normalizeSearch(searchQuery).length > 0;
+
+  const handleGameClick = (item: DisplayItem) => {
+    setRecentItems((current) => saveRecentItem(item, current));
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 overflow-x-hidden">
       <Header title={SITE.name} titleIcon={SITE.emoji} showBackButton={false} />
@@ -64,8 +138,50 @@ export function HomeClient({ categories }: HomeClientProps) {
         </div>
       </div>
 
+      {/* Discovery controls */}
+      <section className="bg-slate-950 px-4 py-8">
+        <div className="mx-auto max-w-6xl">
+          <label htmlFor="game-search" className="sr-only">
+            Search games and apps
+          </label>
+          <input
+            id="game-search"
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search games and apps"
+            className="input input-lg w-full rounded-2xl border-white/10 bg-white/10 text-white placeholder:text-white/45 focus:border-cyan-300 focus:outline-none"
+          />
+        </div>
+      </section>
+
+      {!hasSearch && recentItems.length > 0 && (
+        <section className="bg-slate-950 px-4 pb-10">
+          <div className="mx-auto max-w-6xl">
+            <h2 className="mb-4 text-xl font-bold text-white">
+              Recently Played
+            </h2>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+              {recentItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => handleGameClick(item)}
+                  className="group rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/15 active:scale-95"
+                >
+                  <span className="mb-2 block text-4xl transition-transform duration-300 group-hover:scale-110">
+                    {item.emoji}
+                  </span>
+                  <span className="font-bold text-white/90">{item.name}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Category Sections */}
-      {categories.map((category, categoryIndex) => (
+      {filteredCategories.map((category, categoryIndex) => (
         <section
           key={category.id}
           className={`relative py-12 md:py-16 px-4 ${category.bgClass}`}
@@ -94,6 +210,7 @@ export function HomeClient({ categories }: HomeClientProps) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  onClick={() => handleGameClick(item)}
                   className="group relative"
                   style={{
                     animationDelay: `${categoryIndex * 0.1 + itemIndex * 0.05}s`,
@@ -146,6 +263,14 @@ export function HomeClient({ categories }: HomeClientProps) {
         </section>
       ))}
 
+      {hasSearch && filteredCategories.length === 0 && (
+        <section className="bg-slate-950 px-4 py-16">
+          <div className="mx-auto max-w-6xl text-center text-white/70">
+            No games or apps found.
+          </div>
+        </section>
+      )}
+
       {/* Footer */}
       <footer className="bg-slate-950 border-t border-white/5 py-8 px-4">
         <div className="max-w-6xl mx-auto text-center">
@@ -159,7 +284,7 @@ export function HomeClient({ categories }: HomeClientProps) {
       </footer>
 
       {/* Custom animations */}
-      <style jsx>{`
+      <style>{`
         @keyframes float {
           0%, 100% {
             transform: translateY(0) rotate(0deg);

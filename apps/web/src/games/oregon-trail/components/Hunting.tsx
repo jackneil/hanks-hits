@@ -312,7 +312,7 @@ export function Hunting() {
             const config = ANIMAL_CONFIG[animal.type];
 
             // Move animal
-            let newX = animal.x - config.speed * delta * animal.direction;
+            const newX = animal.x - config.speed * delta * animal.direction;
 
             // Remove if off screen
             if (animal.direction === 1 && newX < -config.size) return null;

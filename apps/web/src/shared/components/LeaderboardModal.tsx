@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Leaderboard } from "./Leaderboard";
 
 interface LeaderboardModalProps {
@@ -44,7 +45,7 @@ export function LeaderboardModal({
 
   if (!isOpen) return null;
 
-  return (
+  const modal = (
     <div
       className="fixed inset-0 z-[1500] flex items-center justify-center p-4"
       role="dialog"
@@ -99,4 +100,8 @@ export function LeaderboardModal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(modal, document.body);
 }

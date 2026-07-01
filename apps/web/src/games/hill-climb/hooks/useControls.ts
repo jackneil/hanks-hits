@@ -132,6 +132,42 @@ export function useTouchControls(): ControlState & { setNitro: (active: boolean)
 
   const touchZonesRef = useRef<Map<number, TouchZone>>(new Map());
 
+  const updateControlsFromTouches = useCallback(() => {
+    let gas = false;
+    let brake = false;
+    let leanBack = false;
+    let leanForward = false;
+
+    const DRAG_THRESHOLD = 30; // Pixels to drag for lean
+
+    touchZonesRef.current.forEach((zone) => {
+      if (zone.id === 'right') {
+        gas = true;
+        // Drag up on right = lean forward
+        const dragDistance = zone.startY - zone.currentY;
+        if (dragDistance > DRAG_THRESHOLD) {
+          leanForward = true;
+        }
+      } else {
+        brake = true;
+        // Drag up on left = lean back
+        const dragDistance = zone.startY - zone.currentY;
+        if (dragDistance > DRAG_THRESHOLD) {
+          leanBack = true;
+        }
+      }
+    });
+
+    setControls((c) => ({
+      gas,
+      brake,
+      leanBack,
+      leanForward,
+      nitro: c.nitro, // Preserve nitro state (set by button)
+      reset: false,
+    }));
+  }, []);
+
   const handleTouchStart = useCallback((e: TouchEvent) => {
     const touches = e.changedTouches;
     const screenWidth = window.innerWidth;
@@ -174,42 +210,6 @@ export function useTouchControls(): ControlState & { setNitro: (active: boolean)
     }
 
     updateControlsFromTouches();
-  }, []);
-
-  const updateControlsFromTouches = useCallback(() => {
-    let gas = false;
-    let brake = false;
-    let leanBack = false;
-    let leanForward = false;
-
-    const DRAG_THRESHOLD = 30; // Pixels to drag for lean
-
-    touchZonesRef.current.forEach((zone) => {
-      if (zone.id === 'right') {
-        gas = true;
-        // Drag up on right = lean forward
-        const dragDistance = zone.startY - zone.currentY;
-        if (dragDistance > DRAG_THRESHOLD) {
-          leanForward = true;
-        }
-      } else {
-        brake = true;
-        // Drag up on left = lean back
-        const dragDistance = zone.startY - zone.currentY;
-        if (dragDistance > DRAG_THRESHOLD) {
-          leanBack = true;
-        }
-      }
-    });
-
-    setControls((c) => ({
-      gas,
-      brake,
-      leanBack,
-      leanForward,
-      nitro: c.nitro, // Preserve nitro state (set by button)
-      reset: false,
-    }));
   }, []);
 
   useEffect(() => {

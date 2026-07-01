@@ -66,7 +66,7 @@ export function GuestWarning({ className = "", compact = false }: GuestWarningPr
         <h3 className="font-bold">Playing as Guest</h3>
         <div className="text-sm">
           Your progress is saved on this device only. Clear your browser data
-          and it's gone forever!
+          and it&apos;s gone forever!
         </div>
       </div>
       <Link href="/login" className="btn btn-sm btn-primary">

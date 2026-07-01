@@ -120,9 +120,38 @@ type SpaceInvadersState = {
 // ============================================
 // Helper Functions
 // ============================================
-function createAliens(wave: number, alienRows: number, waveScalingMultiplier: number): Alien[] {
+function getAlienWidth(alien: Alien): number {
+  return alien.width ?? ALIEN.WIDTH * (alien.sizeMultiplier ?? 1);
+}
+
+function getAlienHeight(alien: Alien): number {
+  return alien.height ?? ALIEN.HEIGHT * (alien.sizeMultiplier ?? 1);
+}
+
+function getAlienFormationSpacingX(sizeMultiplier: number, alienWidth: number): number {
+  const scaledSpacing = ALIEN.SPACING_X * sizeMultiplier;
+  const maxSpacing = (CANVAS_WIDTH - 20 - alienWidth) / (ALIEN.COLS - 1);
+  return Math.min(scaledSpacing, maxSpacing);
+}
+
+function getAlienFormationStartX(spacingX: number, alienWidth: number): number {
+  const formationWidth = (ALIEN.COLS - 1) * spacingX + alienWidth;
+  return Math.max(10, (CANVAS_WIDTH - formationWidth) / 2);
+}
+
+function createAliens(
+  wave: number,
+  alienRows: number,
+  waveScalingMultiplier: number,
+  sizeMultiplier: number
+): Alien[] {
   const aliens: Alien[] = [];
   const waveDifficulty = getWaveDifficulty(wave, waveScalingMultiplier);
+  const alienWidth = ALIEN.WIDTH * sizeMultiplier;
+  const alienHeight = ALIEN.HEIGHT * sizeMultiplier;
+  const spacingX = getAlienFormationSpacingX(sizeMultiplier, alienWidth);
+  const spacingY = ALIEN.SPACING_Y * sizeMultiplier;
+  const startX = getAlienFormationStartX(spacingX, alienWidth);
   let id = 0;
 
   // Use alienRows from difficulty settings instead of ALIEN.ROWS
@@ -131,8 +160,11 @@ function createAliens(wave: number, alienRows: number, waveScalingMultiplier: nu
       aliens.push({
         id: id++,
         type: getAlienTypeForRow(row),
-        x: ALIEN.START_X + col * ALIEN.SPACING_X,
-        y: ALIEN.START_Y + row * ALIEN.SPACING_Y + waveDifficulty.startingRow * 20,
+        x: startX + col * spacingX,
+        y: ALIEN.START_Y + row * spacingY + waveDifficulty.startingRow * 20,
+        width: alienWidth,
+        height: alienHeight,
+        sizeMultiplier,
         alive: true,
         animationFrame: 0,
       });
@@ -204,7 +236,12 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
           lives: INITIAL_LIVES,
           wave: 1,
           playerX: CANVAS_WIDTH / 2 - PLAYER.WIDTH / 2,
-          aliens: createAliens(1, diffSettings.alienRows, diffSettings.waveScalingMultiplier),
+          aliens: createAliens(
+            1,
+            diffSettings.alienRows,
+            diffSettings.waveScalingMultiplier,
+            diffSettings.sizeMultiplier
+          ),
           alienDirection: 1,
           alienMoveTimer: Date.now(),
           alienAnimationFrame: 0,
@@ -291,7 +328,12 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
         set({
           gameState: "playing",
           wave: newWave,
-          aliens: createAliens(newWave, diffSettings.alienRows, diffSettings.waveScalingMultiplier),
+          aliens: createAliens(
+            newWave,
+            diffSettings.alienRows,
+            diffSettings.waveScalingMultiplier,
+            diffSettings.sizeMultiplier
+          ),
           alienDirection: 1,
           alienMoveTimer: Date.now(),
           playerBullets: [],
@@ -318,7 +360,7 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
         let newPlayerBullets = [...state.playerBullets];
         let newAlienBullets = [...state.alienBullets];
         let newAliens = [...state.aliens];
-        let newShields = state.shields.map((shield) => [...shield]);
+        const newShields = state.shields.map((shield) => [...shield]);
         let newExplosions = [...state.explosions];
         let newMysteryShip = state.mysteryShip;
         let newScore = state.score;
@@ -357,7 +399,7 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
         // Update aliens movement
         // ============================================
         const aliveAliens = newAliens.filter((a) => a.alive);
-        const totalAliens = ALIEN.ROWS * ALIEN.COLS;
+        const totalAliens = newAliens.length || diffSettings.alienRows * ALIEN.COLS;
         const waveDifficulty = getWaveDifficulty(state.wave, diffSettings.waveScalingMultiplier);
         const baseSpeed =
           ALIEN.BASE_MOVE_SPEED * waveDifficulty.alienSpeedMultiplier * diffSettings.enemySpeedMultiplier;
@@ -377,7 +419,7 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
           // Check if any alive alien will hit the wall
           for (const alien of aliveAliens) {
             const nextX = alien.x + newDirection * currentSpeed * 5;
-            if (nextX <= 10 || nextX >= CANVAS_WIDTH - ALIEN.WIDTH - 10) {
+            if (nextX <= 10 || nextX >= CANVAS_WIDTH - getAlienWidth(alien) - 10) {
               shouldDrop = true;
               newDirection = (newDirection * -1) as 1 | -1;
               break;
@@ -411,7 +453,7 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
           for (let col = 0; col < ALIEN.COLS; col++) {
             const columnAliens = aliveAliens
               .filter((a) => {
-                const originalCol = Math.round((a.x - ALIEN.START_X) / ALIEN.SPACING_X);
+                const originalCol = a.id % ALIEN.COLS;
                 return originalCol === col;
               })
               .sort((a, b) => b.y - a.y);
@@ -427,8 +469,8 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
             if (Math.random() < shootChance) {
               newAlienBullets.push({
                 id: bulletIdCounter++,
-                x: alien.x + ALIEN.WIDTH / 2 - BULLET.WIDTH / 2,
-                y: alien.y + ALIEN.HEIGHT,
+                x: alien.x + getAlienWidth(alien) / 2 - BULLET.WIDTH / 2,
+                y: alien.y + getAlienHeight(alien),
                 isPlayerBullet: false,
               });
               break; // Only one alien shoots per frame
@@ -444,9 +486,9 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
             if (!alien.alive) continue;
 
             if (
-              bullet.x < alien.x + ALIEN.WIDTH &&
+              bullet.x < alien.x + getAlienWidth(alien) &&
               bullet.x + BULLET.WIDTH > alien.x &&
-              bullet.y < alien.y + ALIEN.HEIGHT &&
+              bullet.y < alien.y + getAlienHeight(alien) &&
               bullet.y + BULLET.HEIGHT > alien.y
             ) {
               // Hit!
@@ -460,8 +502,8 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
               // Add explosion
               newExplosions.push({
                 id: explosionIdCounter++,
-                x: alien.x + ALIEN.WIDTH / 2,
-                y: alien.y + ALIEN.HEIGHT / 2,
+                x: alien.x + getAlienWidth(alien) / 2,
+                y: alien.y + getAlienHeight(alien) / 2,
                 frame: 0,
                 maxFrames: 10,
               });
@@ -616,7 +658,7 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
         // Collision: Aliens vs Player (reach bottom)
         // ============================================
         for (const alien of aliveAliens) {
-          if (alien.y + ALIEN.HEIGHT >= PLAYER.Y) {
+          if (alien.y + getAlienHeight(alien) >= PLAYER.Y) {
             // Aliens reached the player - game over
             const finalProgress = {
               ...state.progress,
@@ -651,9 +693,9 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
 
               if (
                 alien.x < block.x + SHIELD.BLOCK_SIZE &&
-                alien.x + ALIEN.WIDTH > block.x &&
+                alien.x + getAlienWidth(alien) > block.x &&
                 alien.y < block.y + SHIELD.BLOCK_SIZE &&
-                alien.y + ALIEN.HEIGHT > block.y
+                alien.y + getAlienHeight(alien) > block.y
               ) {
                 // Alien destroys shield block
                 newShields[si][bi].active = false;

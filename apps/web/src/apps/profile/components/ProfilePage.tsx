@@ -8,6 +8,7 @@ import { GameProgressCard } from "./GameProgressCard";
 import { extractGameStats, type GameDisplayInfo } from "../lib/gameStatExtractor";
 import Link from "next/link";
 import { Header } from "@/shared/components/Header";
+import { getPlayableHref } from "@/shared/lib/app-routing";
 
 interface ProfileData {
   id: string;
@@ -324,7 +325,7 @@ export function ProfilePage() {
             {rankings.ranks.slice(0, 6).map((rank) => (
               <Link
                 key={rank.appId}
-                href={`/games/${rank.appId}`}
+                href={getPlayableHref(rank.appId)}
                 className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20 hover:bg-white/20 transition-colors"
               >
                 <div className="flex items-center gap-3">

@@ -181,8 +181,11 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
           }
         }
 
-        // Check self collision (skip head since we're adding it)
-        if (state.snake.some(segment => positionsEqual(segment, newHead))) {
+        const willEat = positionsEqual(newHead, state.food);
+        const collisionSnake = willEat ? state.snake : state.snake.slice(0, -1);
+
+        // Check self collision. On non-eating moves, the current tail vacates.
+        if (collisionSnake.some(segment => positionsEqual(segment, newHead))) {
           const progress = get().progress;
           set({
             status: "game-over",
@@ -202,7 +205,7 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
         const newSnake = [newHead, ...state.snake];
 
         // Check food collision
-        if (positionsEqual(newHead, state.food)) {
+        if (willEat) {
           // Ate food - don't remove tail (snake grows)
           const newScore = state.score + POINTS_PER_FOOD;
           const progress = get().progress;

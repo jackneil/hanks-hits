@@ -22,6 +22,7 @@ export function Canvas({ onCanvasReady }: CanvasProps) {
     onDrawStart: () => setIsDrawing(true),
     onDrawEnd: () => setIsDrawing(false),
   });
+  const { containerRef, canvasRef } = canvas;
 
   // Pass canvas controls to parent
   useEffect(() => {
@@ -30,7 +31,7 @@ export function Canvas({ onCanvasReady }: CanvasProps) {
 
   return (
     <div
-      ref={canvas.containerRef}
+      ref={containerRef}
       className="relative w-full h-full bg-white rounded-lg overflow-hidden shadow-inner"
     >
       {/* Optional grid overlay */}
@@ -48,7 +49,7 @@ export function Canvas({ onCanvasReady }: CanvasProps) {
       )}
 
       <canvas
-        ref={canvas.canvasRef}
+        ref={canvasRef}
         className="absolute inset-0 cursor-crosshair touch-none"
         style={{ touchAction: "none" }}
       />

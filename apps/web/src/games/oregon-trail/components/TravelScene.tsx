@@ -219,6 +219,44 @@ export function TravelScene() {
     ctx.fillRect(0, height * 0.82, width, height * 0.08);
   }, []);
 
+  // Draw a wheel with spokes
+  function drawWheel(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    rotation: number
+  ) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+
+    // Wheel rim
+    ctx.strokeStyle = "#4a3728";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Spokes
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      ctx.stroke();
+    }
+
+    // Hub
+    ctx.fillStyle = "#4a3728";
+    ctx.beginPath();
+    ctx.arc(0, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
   // Draw covered wagon
   const drawWagon = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -263,44 +301,6 @@ export function TravelScene() {
     // Back wheel
     drawWheel(ctx, x - 20, wheelY, wheelRadius, wheelRotation);
   }, []);
-
-  // Draw a wheel with spokes
-  const drawWheel = (
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    radius: number,
-    rotation: number
-  ) => {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(rotation);
-
-    // Wheel rim
-    ctx.strokeStyle = "#4a3728";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Spokes
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
-      ctx.stroke();
-    }
-
-    // Hub
-    ctx.fillStyle = "#4a3728";
-    ctx.beginPath();
-    ctx.arc(0, 0, 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-  };
 
   // Draw oxen
   const drawOxen = useCallback((

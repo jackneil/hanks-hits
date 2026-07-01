@@ -134,8 +134,9 @@ three@0.182.0
 @react-three/fiber@9.4.2     # React ^19
 @react-three/rapier@2.2.0    # Physics
 @react-three/drei@10.7.7     # Helpers
-ecctrl@1.0.97                # Vehicle controller + joystick
+ecctrl@1.0.97                # Vehicle controller + joystick — NOT installed yet
 ```
+> **`ecctrl` is not currently a dependency** (the existing monster-truck game uses a hand-rolled controller, not ecctrl). If you want its prebuilt vehicle controller + joystick for a new driving game, add it first: `cd apps/web && pnpm add ecctrl`. The other four packages above are installed and in use.
 
 ### Next.js + R3F Rules
 1. **Always use `"use client"`** for R3F components

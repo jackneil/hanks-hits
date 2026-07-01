@@ -167,16 +167,18 @@ export interface TouchControlState {
   horn: boolean;
 }
 
+const initialTouchControlState: TouchControlState = {
+  gas: false,
+  brake: false,
+  left: false,
+  right: false,
+  nos: false,
+  horn: false,
+};
+
 export function useTouchControls() {
-  const stateRef = useRef<TouchControlState>({
-    gas: false,
-    brake: false,
-    left: false,
-    right: false,
-    nos: false,
-    horn: false,
-  });
-  const [state, setState] = useState<TouchControlState>({ ...stateRef.current });
+  const stateRef = useRef<TouchControlState>({ ...initialTouchControlState });
+  const [state, setState] = useState<TouchControlState>(initialTouchControlState);
 
   const updateState = useCallback((updates: Partial<TouchControlState>) => {
     stateRef.current = { ...stateRef.current, ...updates };
@@ -234,27 +236,24 @@ interface OrientationState {
 }
 
 export function useDeviceOrientation() {
+  const getOrientationSupport = () =>
+    typeof window !== 'undefined' && 'DeviceOrientationEvent' in window;
+  const hasImplicitPermission = () => {
+    if (!getOrientationSupport()) return false;
+    return !('requestPermission' in DeviceOrientationEvent);
+  };
+
   const [orientation, setOrientation] = useState<OrientationState>({
     gamma: 0,
     beta: 0,
     steering: 0,
   });
-  const [isSupported, setIsSupported] = useState(false);
-  const [isPermissionGranted, setIsPermissionGranted] = useState(false);
+  const [isSupported] = useState(getOrientationSupport);
+  const [isPermissionGranted, setIsPermissionGranted] = useState(hasImplicitPermission);
 
   const calibrationOffset = useRef(0);
   const lastGamma = useRef(0);
   const smoothingFactor = 0.25;
-
-  useEffect(() => {
-    const supported = 'DeviceOrientationEvent' in window;
-    setIsSupported(supported);
-
-    // Non-iOS devices don't need permission
-    if (supported && !('requestPermission' in DeviceOrientationEvent)) {
-      setIsPermissionGranted(true);
-    }
-  }, []);
 
   const handleOrientation = useCallback((event: DeviceOrientationEvent) => {
     const gamma = event.gamma ?? 0;
@@ -346,7 +345,7 @@ export function useCombinedControls(
     const tc = touch.getControlValues();
 
     // Combine inputs - keyboard takes priority for throttle/steering if pressed
-    let throttle = kb.throttle !== 0 ? kb.throttle : tc.throttle;
+    const throttle = kb.throttle !== 0 ? kb.throttle : tc.throttle;
     let steering = kb.steering !== 0 ? kb.steering : tc.steering;
 
     // Apply tilt steering if enabled and on mobile

@@ -585,6 +585,14 @@ const drawingAppSchema = z.object({
     artworksCreated: z.number().min(0).max(MAX_COUNT),
     totalDrawTime: z.number().min(0).max(MAX_CURRENCY),
   }),
+  savedArtworks: z.array(z.object({
+    id: boundedString,
+    name: boundedString,
+    thumbnail: z.string().max(1_500_000),
+    dataUrl: z.string().max(1_500_000),
+    createdAt: boundedString,
+    editedAt: boundedString,
+  })).max(20).optional(),
   lastModified: timestampSchema,
 });
 

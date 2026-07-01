@@ -178,6 +178,37 @@ export function PlatformerGame() {
     [platforms]
   );
 
+  // Helper to draw star shape
+  function drawStar(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    spikes: number,
+    outerRadius: number,
+    innerRadius: number
+  ) {
+    let rot = (Math.PI / 2) * 3;
+    const step = Math.PI / spikes;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - outerRadius);
+
+    for (let i = 0; i < spikes; i++) {
+      let x = cx + Math.cos(rot) * outerRadius;
+      let y = cy + Math.sin(rot) * outerRadius;
+      ctx.lineTo(x, y);
+      rot += step;
+
+      x = cx + Math.cos(rot) * innerRadius;
+      y = cy + Math.sin(rot) * innerRadius;
+      ctx.lineTo(x, y);
+      rot += step;
+    }
+
+    ctx.lineTo(cx, cy - outerRadius);
+    ctx.closePath();
+  }
+
   const drawCollectibles = useCallback(
     (ctx: CanvasRenderingContext2D, offsetX: number) => {
       collectibles.forEach((item) => {
@@ -227,37 +258,6 @@ export function PlatformerGame() {
     },
     [collectibles]
   );
-
-  // Helper to draw star shape
-  const drawStar = (
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    spikes: number,
-    outerRadius: number,
-    innerRadius: number
-  ) => {
-    let rot = (Math.PI / 2) * 3;
-    const step = Math.PI / spikes;
-
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - outerRadius);
-
-    for (let i = 0; i < spikes; i++) {
-      let x = cx + Math.cos(rot) * outerRadius;
-      let y = cy + Math.sin(rot) * outerRadius;
-      ctx.lineTo(x, y);
-      rot += step;
-
-      x = cx + Math.cos(rot) * innerRadius;
-      y = cy + Math.sin(rot) * innerRadius;
-      ctx.lineTo(x, y);
-      rot += step;
-    }
-
-    ctx.lineTo(cx, cy - outerRadius);
-    ctx.closePath();
-  };
 
   const drawPlayer = useCallback(
     (ctx: CanvasRenderingContext2D, offsetX: number) => {
@@ -811,7 +811,7 @@ export function PlatformerGame() {
       {/* Header */}
       <header className="mb-4 text-center">
         <h1 className="text-3xl font-bold text-white drop-shadow-lg">
-          Hank's Hopper
+          Hank&apos;s Hopper
         </h1>
         <p className="text-sky-100">Jump, collect, and reach the goal!</p>
       </header>

@@ -70,6 +70,28 @@ export default function HillClimbPOC() {
     rotation: 0,
     position: { x: 0, y: 0 },
   });
+  const controlsRef = useRef(controls);
+
+  const resetVehicle = useCallback(() => {
+    if (!vehicleRef.current) return;
+    const { chassis, head, wheelA, wheelB } = vehicleRef.current;
+
+    const startX = 400;
+    const startY = 300;
+
+    // Reset positions
+    Matter.Body.setPosition(chassis, { x: startX, y: startY });
+    Matter.Body.setPosition(head, { x: startX, y: startY + PHYSICS.HEAD_OFFSET_Y });
+    Matter.Body.setPosition(wheelA, { x: startX - PHYSICS.WHEEL_BASE / 2, y: startY + PHYSICS.CHASSIS_HEIGHT / 2 });
+    Matter.Body.setPosition(wheelB, { x: startX + PHYSICS.WHEEL_BASE / 2, y: startY + PHYSICS.CHASSIS_HEIGHT / 2 });
+
+    // Reset velocities and rotation
+    [chassis, head, wheelA, wheelB].forEach(body => {
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Body.setAngularVelocity(body, 0);
+      Matter.Body.setAngle(body, 0);
+    });
+  }, []);
 
   // Keyboard handlers
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -94,7 +116,7 @@ export default function HillClimbPOC() {
         resetVehicle();
         break;
     }
-  }, []);
+  }, [resetVehicle]);
 
   const handleKeyUp = useCallback((e: KeyboardEvent) => {
     switch (e.key.toLowerCase()) {
@@ -115,27 +137,6 @@ export default function HillClimbPOC() {
         setControls(c => ({ ...c, leanForward: false }));
         break;
     }
-  }, []);
-
-  const resetVehicle = useCallback(() => {
-    if (!vehicleRef.current) return;
-    const { chassis, head, wheelA, wheelB } = vehicleRef.current;
-
-    const startX = 400;
-    const startY = 300;
-
-    // Reset positions
-    Matter.Body.setPosition(chassis, { x: startX, y: startY });
-    Matter.Body.setPosition(head, { x: startX, y: startY + PHYSICS.HEAD_OFFSET_Y });
-    Matter.Body.setPosition(wheelA, { x: startX - PHYSICS.WHEEL_BASE / 2, y: startY + PHYSICS.CHASSIS_HEIGHT / 2 });
-    Matter.Body.setPosition(wheelB, { x: startX + PHYSICS.WHEEL_BASE / 2, y: startY + PHYSICS.CHASSIS_HEIGHT / 2 });
-
-    // Reset velocities and rotation
-    [chassis, head, wheelA, wheelB].forEach(body => {
-      Matter.Body.setVelocity(body, { x: 0, y: 0 });
-      Matter.Body.setAngularVelocity(body, 0);
-      Matter.Body.setAngle(body, 0);
-    });
   }, []);
 
   // Initialize Matter.js
@@ -412,7 +413,6 @@ export default function HillClimbPOC() {
   }, []);
 
   // Use ref to access controls in physics loop
-  const controlsRef = useRef(controls);
   useEffect(() => {
     controlsRef.current = controls;
   }, [controls]);

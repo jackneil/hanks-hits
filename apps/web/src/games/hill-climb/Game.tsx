@@ -164,82 +164,6 @@ export function HillClimbGame() {
   const stageConfig = STAGES.find((s) => s.id === currentStageId) || STAGES[0];
 
   // ==========================================================================
-  // INITIALIZATION
-  // ==========================================================================
-
-  const initGame = useCallback(() => {
-    if (!canvasRef.current) return;
-
-    // Size the canvas first (critical - must happen before render loop)
-    canvasRef.current.width = window.innerWidth;
-    canvasRef.current.height = window.innerHeight;
-
-    // Clean up existing
-    if (engineRef.current) {
-      Matter.Engine.clear(engineRef.current);
-    }
-    if (runnerRef.current) {
-      Matter.Runner.stop(runnerRef.current);
-    }
-
-    // Create engine with stage-specific gravity
-    const engine = Matter.Engine.create({
-      gravity: { x: 0, y: PHYSICS.GRAVITY * stageConfig.gravity },
-    });
-    engineRef.current = engine;
-
-    // Create terrain generator
-    terrainGeneratorRef.current = new TerrainGenerator(Date.now());
-
-    // Clear chunk refs
-    chunksRef.current.clear();
-    terrainBodiesRef.current.clear();
-    fuelCansRef.current = [];
-    coinsRef.current = [];
-
-    // Create initial terrain chunks
-    for (let i = -1; i <= TERRAIN.CHUNKS_AHEAD; i++) {
-      createChunk(i);
-    }
-
-    // Create vehicle
-    const stats = getVehicleStats(currentVehicleId);
-    const vehicle = createVehicle({
-      x: 200,
-      y: 300,
-      stats,
-    });
-    vehicleRef.current = vehicle;
-    Matter.Composite.add(engine.world, vehicle.composite);
-
-    // Create flat starting ground
-    const startGround = Matter.Bodies.rectangle(200, 450, 600, 60, {
-      isStatic: true,
-      friction: stageConfig.friction,
-      label: 'ground',
-      render: { fillStyle: stageConfig.groundColor },
-    });
-    Matter.Composite.add(engine.world, startGround);
-
-    // Set up collision detection
-    Matter.Events.on(engine, 'collisionStart', handleCollision);
-
-    // Create runner
-    const runner = Matter.Runner.create();
-    runnerRef.current = runner;
-    Matter.Runner.run(runner, engine);
-
-    // Reset tracking
-    lastRotationRef.current = 0;
-    totalRotationRef.current = 0;
-    isAirborneRef.current = false;
-    airborneTimeRef.current = 0;
-
-    // Start render loop
-    startRenderLoop();
-  }, [currentVehicleId, currentStageId, stageConfig, getVehicleStats]);
-
-  // ==========================================================================
   // CHUNK MANAGEMENT
   // ==========================================================================
 
@@ -318,6 +242,238 @@ export function HillClimbGame() {
       }
     });
   }, [createChunk, removeChunk]);
+
+  // Simple airborne check
+  function checkIfAirborne(vehicle: VehicleComposite): boolean {
+    // Check if both wheels are above expected ground level
+    const frontY = vehicle.wheelFront.position.y;
+    const rearY = vehicle.wheelRear.position.y;
+    const chassisY = vehicle.chassis.position.y;
+
+    // If chassis is moving up or wheels are significantly above where ground would be
+    const velocity = vehicle.chassis.velocity;
+    return velocity.y < -2 || (frontY < chassisY && rearY < chassisY);
+  }
+
+  // ==========================================================================
+  // RENDERING HELPERS
+  // ==========================================================================
+
+  function renderVehicle(ctx: CanvasRenderingContext2D, vehicle: VehicleComposite) {
+    const { chassis, head, wheelFront, wheelRear } = vehicle;
+
+    // Get vehicle render config
+    const vehicleData = VEHICLES.find(v => v.id === currentVehicleId);
+    const render = vehicleData?.render || {
+      scale: 1.0, bodyColor: '#FF6B35', accentColor: '#87CEEB',
+      wheelScale: 1.0, wheelColor: '#333333', bodyShape: 'standard' as const
+    };
+
+    const wheelRadius = PHYSICS.WHEEL_RADIUS * render.wheelScale;
+    const chassisW = PHYSICS.CHASSIS_WIDTH * render.scale;
+    const chassisH = PHYSICS.CHASSIS_HEIGHT * render.scale;
+
+    // Render wheels
+    ctx.fillStyle = render.wheelColor;
+    ctx.beginPath();
+    ctx.arc(wheelRear.position.x, wheelRear.position.y, wheelRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(wheelFront.position.x, wheelFront.position.y, wheelRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Wheel spokes (except for tracked vehicles)
+    if (render.bodyShape !== 'tracked') {
+      ctx.strokeStyle = '#666666';
+      ctx.lineWidth = 2;
+      [wheelRear, wheelFront].forEach((wheel) => {
+        ctx.save();
+        ctx.translate(wheel.position.x, wheel.position.y);
+        ctx.rotate(wheel.angle);
+        ctx.beginPath();
+        ctx.moveTo(-wheelRadius * 0.8, 0);
+        ctx.lineTo(wheelRadius * 0.8, 0);
+        ctx.moveTo(0, -wheelRadius * 0.8);
+        ctx.lineTo(0, wheelRadius * 0.8);
+        ctx.stroke();
+        ctx.restore();
+      });
+    } else {
+      // Tank tracks - draw treads between wheels
+      ctx.fillStyle = render.wheelColor;
+      const trackY = (wheelRear.position.y + wheelFront.position.y) / 2;
+      const trackWidth = Math.abs(wheelFront.position.x - wheelRear.position.x) + wheelRadius * 2;
+      ctx.fillRect(
+        Math.min(wheelRear.position.x, wheelFront.position.x) - wheelRadius,
+        trackY - wheelRadius * 0.6,
+        trackWidth,
+        wheelRadius * 1.2
+      );
+    }
+
+    // Render chassis based on body shape
+    ctx.save();
+    ctx.translate(chassis.position.x, chassis.position.y);
+    ctx.rotate(chassis.angle);
+    ctx.fillStyle = render.bodyColor;
+
+    switch (render.bodyShape) {
+      case 'narrow': // Motorbike, Rocket - streamlined
+        ctx.beginPath();
+        ctx.ellipse(0, 0, chassisW / 2, chassisH / 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Windshield/fairing
+        ctx.fillStyle = render.accentColor;
+        ctx.beginPath();
+        ctx.ellipse(chassisW / 4, -chassisH / 4, chassisW / 6, chassisH / 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+
+      case 'long': // Big Rig - extended body
+        ctx.fillRect(-chassisW / 2, -chassisH / 2, chassisW, chassisH);
+        // Cab section
+        ctx.fillStyle = render.accentColor;
+        ctx.fillRect(chassisW / 4, -chassisH / 2 - chassisH / 3, chassisW / 4, chassisH / 2);
+        // Trailer detail
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-chassisW / 2 + 5, -chassisH / 2 + 5, chassisW / 2, chassisH - 10);
+        break;
+
+      case 'wide': // Monster Truck, Quad Bike - boxy lifted
+        ctx.fillRect(-chassisW / 2, -chassisH / 2 - 5, chassisW, chassisH);
+        // Raised body detail
+        ctx.fillStyle = render.accentColor;
+        ctx.fillRect(chassisW / 6, -chassisH / 2 - chassisH / 2, chassisW / 3, chassisH / 2);
+        break;
+
+      case 'tracked': // Tank - angular military
+        // Main body
+        ctx.fillRect(-chassisW / 2, -chassisH / 2, chassisW, chassisH);
+        // Turret
+        ctx.fillStyle = render.accentColor;
+        ctx.beginPath();
+        ctx.arc(0, -chassisH / 2, chassisH / 2, 0, Math.PI * 2);
+        ctx.fill();
+        // Gun barrel
+        ctx.fillStyle = render.bodyColor;
+        ctx.fillRect(chassisH / 3, -chassisH / 2 - 3, chassisW / 3, 6);
+        break;
+
+      default: // Standard - Jeep, Dune Buggy
+        ctx.fillRect(-chassisW / 2, -chassisH / 2, chassisW, chassisH);
+        // Windshield
+        ctx.fillStyle = render.accentColor;
+        ctx.fillRect(chassisW / 4, -chassisH / 2 - 5, chassisW / 4, chassisH / 2);
+    }
+    ctx.restore();
+
+    // Render head (driver)
+    ctx.fillStyle = '#FFE4C4';
+    ctx.beginPath();
+    ctx.arc(head.position.x, head.position.y, PHYSICS.HEAD_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    // Helmet (color matches vehicle accent)
+    ctx.fillStyle = render.accentColor === '#1F2937' ? '#FF0000' : render.accentColor;
+    ctx.beginPath();
+    ctx.arc(head.position.x, head.position.y - 3, PHYSICS.HEAD_RADIUS, Math.PI, 0);
+    ctx.fill();
+  }
+
+  function renderFuelCan(ctx: CanvasRenderingContext2D, x: number, y: number) {
+    ctx.fillStyle = '#FF0000';
+    ctx.fillRect(x - 15, y - 20, 30, 40);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 20px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('F', x, y + 7);
+  }
+
+  function renderCoin(ctx: CanvasRenderingContext2D, x: number, y: number) {
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.arc(x, y, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#DAA520';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#DAA520';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('$', x, y + 5);
+  }
+
+  // Particle system helpers
+  function spawnParticle(
+    x: number,
+    y: number,
+    type: Particle['type'],
+    options?: Partial<{ vx: number; vy: number; size: number; color: string; life: number }>
+  ) {
+    const defaults = {
+      nitro: { color: '#22D3EE', size: 8, life: 0.4, vx: (Math.random() - 0.5) * 50, vy: Math.random() * 30 + 20 },
+      coin: { color: '#FFD700', size: 6, life: 0.8, vx: (Math.random() - 0.5) * 100, vy: -Math.random() * 80 - 40 },
+      fuel: { color: '#22C55E', size: 5, life: 0.6, vx: (Math.random() - 0.5) * 80, vy: -Math.random() * 60 - 30 },
+      dust: { color: '#A78B5B', size: 10, life: 0.5, vx: (Math.random() - 0.5) * 40, vy: -Math.random() * 20 - 10 },
+      flip: { color: '#FBBF24', size: 8, life: 1.0, vx: (Math.random() - 0.5) * 150, vy: -Math.random() * 100 - 50 },
+    };
+    const d = defaults[type];
+    particlesRef.current.push({
+      x, y,
+      vx: options?.vx ?? d.vx,
+      vy: options?.vy ?? d.vy,
+      life: options?.life ?? d.life,
+      maxLife: options?.life ?? d.life,
+      size: options?.size ?? d.size,
+      color: options?.color ?? d.color,
+      type,
+    });
+  }
+
+  // Screen shake helper
+  function triggerShake(intensity: number, duration: number) {
+    shakeRef.current = { intensity, duration };
+  }
+
+  function updateShake(deltaTime: number) {
+    if (shakeRef.current.duration > 0) {
+      shakeRef.current.duration -= deltaTime;
+      if (shakeRef.current.duration <= 0) {
+        shakeRef.current.intensity = 0;
+      }
+    }
+  }
+
+  function getShakeOffset(): { x: number; y: number } {
+    if (shakeRef.current.intensity <= 0) return { x: 0, y: 0 };
+    const intensity = shakeRef.current.intensity;
+    return {
+      x: (Math.random() - 0.5) * intensity * 2,
+      y: (Math.random() - 0.5) * intensity * 2,
+    };
+  }
+
+  function updateParticles(deltaTime: number) {
+    particlesRef.current = particlesRef.current.filter((p) => {
+      p.x += p.vx * deltaTime;
+      p.y += p.vy * deltaTime;
+      p.vy += 150 * deltaTime; // Gravity for most particles
+      p.life -= deltaTime;
+      return p.life > 0;
+    });
+  }
+
+  function renderParticles(ctx: CanvasRenderingContext2D) {
+    particlesRef.current.forEach((p) => {
+      const alpha = p.life / p.maxLife;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
 
   // ==========================================================================
   // COLLISION HANDLING
@@ -484,18 +640,6 @@ export function HillClimbGame() {
     setSpeed(Math.round(getVehicleSpeed(vehicle)));
     setRotation(Math.round(getVehicleRotation(vehicle)));
   }, [currentVehicleId, getVehicleStats, consumeFuel, consumeNitro, refillNitro, fuel, leanSensitivity, updateDistance, updateChunks, addFlip, addCoins, addAirtime]);
-
-  // Simple airborne check
-  const checkIfAirborne = (vehicle: VehicleComposite): boolean => {
-    // Check if both wheels are above expected ground level
-    const frontY = vehicle.wheelFront.position.y;
-    const rearY = vehicle.wheelRear.position.y;
-    const chassisY = vehicle.chassis.position.y;
-
-    // If chassis is moving up or wheels are significantly above where ground would be
-    const velocity = vehicle.chassis.velocity;
-    return velocity.y < -2 || (frontY < chassisY && rearY < chassisY);
-  };
 
   // ==========================================================================
   // RENDER LOOP
@@ -799,227 +943,91 @@ export function HillClimbGame() {
     };
 
     animationFrameRef.current = requestAnimationFrame(render);
-  }, [stageConfig, gameLoop]);
+  }, [stageConfig, gameLoop, renderVehicle]);
 
   // ==========================================================================
-  // RENDERING HELPERS
+  // INITIALIZATION
   // ==========================================================================
 
-  const renderVehicle = (ctx: CanvasRenderingContext2D, vehicle: VehicleComposite) => {
-    const { chassis, head, wheelFront, wheelRear } = vehicle;
+  const initGame = useCallback(() => {
+    if (!canvasRef.current) return;
 
-    // Get vehicle render config
-    const vehicleData = VEHICLES.find(v => v.id === currentVehicleId);
-    const render = vehicleData?.render || {
-      scale: 1.0, bodyColor: '#FF6B35', accentColor: '#87CEEB',
-      wheelScale: 1.0, wheelColor: '#333333', bodyShape: 'standard' as const
-    };
+    // Size the canvas first (critical - must happen before render loop)
+    canvasRef.current.width = window.innerWidth;
+    canvasRef.current.height = window.innerHeight;
 
-    const wheelRadius = PHYSICS.WHEEL_RADIUS * render.wheelScale;
-    const chassisW = PHYSICS.CHASSIS_WIDTH * render.scale;
-    const chassisH = PHYSICS.CHASSIS_HEIGHT * render.scale;
-
-    // Render wheels
-    ctx.fillStyle = render.wheelColor;
-    ctx.beginPath();
-    ctx.arc(wheelRear.position.x, wheelRear.position.y, wheelRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(wheelFront.position.x, wheelFront.position.y, wheelRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Wheel spokes (except for tracked vehicles)
-    if (render.bodyShape !== 'tracked') {
-      ctx.strokeStyle = '#666666';
-      ctx.lineWidth = 2;
-      [wheelRear, wheelFront].forEach((wheel) => {
-        ctx.save();
-        ctx.translate(wheel.position.x, wheel.position.y);
-        ctx.rotate(wheel.angle);
-        ctx.beginPath();
-        ctx.moveTo(-wheelRadius * 0.8, 0);
-        ctx.lineTo(wheelRadius * 0.8, 0);
-        ctx.moveTo(0, -wheelRadius * 0.8);
-        ctx.lineTo(0, wheelRadius * 0.8);
-        ctx.stroke();
-        ctx.restore();
-      });
-    } else {
-      // Tank tracks - draw treads between wheels
-      ctx.fillStyle = render.wheelColor;
-      const trackY = (wheelRear.position.y + wheelFront.position.y) / 2;
-      const trackWidth = Math.abs(wheelFront.position.x - wheelRear.position.x) + wheelRadius * 2;
-      ctx.fillRect(
-        Math.min(wheelRear.position.x, wheelFront.position.x) - wheelRadius,
-        trackY - wheelRadius * 0.6,
-        trackWidth,
-        wheelRadius * 1.2
-      );
+    // Clean up existing
+    if (engineRef.current) {
+      Matter.Engine.clear(engineRef.current);
+    }
+    if (runnerRef.current) {
+      Matter.Runner.stop(runnerRef.current);
     }
 
-    // Render chassis based on body shape
-    ctx.save();
-    ctx.translate(chassis.position.x, chassis.position.y);
-    ctx.rotate(chassis.angle);
-    ctx.fillStyle = render.bodyColor;
+    // Create engine with stage-specific gravity
+    const engine = Matter.Engine.create({
+      gravity: { x: 0, y: PHYSICS.GRAVITY * stageConfig.gravity },
+    });
+    engineRef.current = engine;
 
-    switch (render.bodyShape) {
-      case 'narrow': // Motorbike, Rocket - streamlined
-        ctx.beginPath();
-        ctx.ellipse(0, 0, chassisW / 2, chassisH / 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Windshield/fairing
-        ctx.fillStyle = render.accentColor;
-        ctx.beginPath();
-        ctx.ellipse(chassisW / 4, -chassisH / 4, chassisW / 6, chassisH / 4, 0, 0, Math.PI * 2);
-        ctx.fill();
-        break;
+    // Create terrain generator
+    terrainGeneratorRef.current = new TerrainGenerator(Date.now());
 
-      case 'long': // Big Rig - extended body
-        ctx.fillRect(-chassisW / 2, -chassisH / 2, chassisW, chassisH);
-        // Cab section
-        ctx.fillStyle = render.accentColor;
-        ctx.fillRect(chassisW / 4, -chassisH / 2 - chassisH / 3, chassisW / 4, chassisH / 2);
-        // Trailer detail
-        ctx.strokeStyle = '#444';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(-chassisW / 2 + 5, -chassisH / 2 + 5, chassisW / 2, chassisH - 10);
-        break;
+    // Clear chunk refs
+    chunksRef.current.clear();
+    terrainBodiesRef.current.clear();
+    fuelCansRef.current = [];
+    coinsRef.current = [];
 
-      case 'wide': // Monster Truck, Quad Bike - boxy lifted
-        ctx.fillRect(-chassisW / 2, -chassisH / 2 - 5, chassisW, chassisH);
-        // Raised body detail
-        ctx.fillStyle = render.accentColor;
-        ctx.fillRect(chassisW / 6, -chassisH / 2 - chassisH / 2, chassisW / 3, chassisH / 2);
-        break;
-
-      case 'tracked': // Tank - angular military
-        // Main body
-        ctx.fillRect(-chassisW / 2, -chassisH / 2, chassisW, chassisH);
-        // Turret
-        ctx.fillStyle = render.accentColor;
-        ctx.beginPath();
-        ctx.arc(0, -chassisH / 2, chassisH / 2, 0, Math.PI * 2);
-        ctx.fill();
-        // Gun barrel
-        ctx.fillStyle = render.bodyColor;
-        ctx.fillRect(chassisH / 3, -chassisH / 2 - 3, chassisW / 3, 6);
-        break;
-
-      default: // Standard - Jeep, Dune Buggy
-        ctx.fillRect(-chassisW / 2, -chassisH / 2, chassisW, chassisH);
-        // Windshield
-        ctx.fillStyle = render.accentColor;
-        ctx.fillRect(chassisW / 4, -chassisH / 2 - 5, chassisW / 4, chassisH / 2);
+    // Create initial terrain chunks
+    for (let i = -1; i <= TERRAIN.CHUNKS_AHEAD; i++) {
+      createChunk(i);
     }
-    ctx.restore();
 
-    // Render head (driver)
-    ctx.fillStyle = '#FFE4C4';
-    ctx.beginPath();
-    ctx.arc(head.position.x, head.position.y, PHYSICS.HEAD_RADIUS, 0, Math.PI * 2);
-    ctx.fill();
-    // Helmet (color matches vehicle accent)
-    ctx.fillStyle = render.accentColor === '#1F2937' ? '#FF0000' : render.accentColor;
-    ctx.beginPath();
-    ctx.arc(head.position.x, head.position.y - 3, PHYSICS.HEAD_RADIUS, Math.PI, 0);
-    ctx.fill();
-  };
-
-  const renderFuelCan = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
-    ctx.fillStyle = '#FF0000';
-    ctx.fillRect(x - 15, y - 20, 30, 40);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 20px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('F', x, y + 7);
-  };
-
-  const renderCoin = (ctx: CanvasRenderingContext2D, x: number, y: number) => {
-    ctx.fillStyle = '#FFD700';
-    ctx.beginPath();
-    ctx.arc(x, y, 15, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#DAA520';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = '#DAA520';
-    ctx.font = 'bold 14px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('$', x, y + 5);
-  };
-
-  // Particle system helpers
-  const spawnParticle = (
-    x: number,
-    y: number,
-    type: Particle['type'],
-    options?: Partial<{ vx: number; vy: number; size: number; color: string; life: number }>
-  ) => {
-    const defaults = {
-      nitro: { color: '#22D3EE', size: 8, life: 0.4, vx: (Math.random() - 0.5) * 50, vy: Math.random() * 30 + 20 },
-      coin: { color: '#FFD700', size: 6, life: 0.8, vx: (Math.random() - 0.5) * 100, vy: -Math.random() * 80 - 40 },
-      fuel: { color: '#22C55E', size: 5, life: 0.6, vx: (Math.random() - 0.5) * 80, vy: -Math.random() * 60 - 30 },
-      dust: { color: '#A78B5B', size: 10, life: 0.5, vx: (Math.random() - 0.5) * 40, vy: -Math.random() * 20 - 10 },
-      flip: { color: '#FBBF24', size: 8, life: 1.0, vx: (Math.random() - 0.5) * 150, vy: -Math.random() * 100 - 50 },
-    };
-    const d = defaults[type];
-    particlesRef.current.push({
-      x, y,
-      vx: options?.vx ?? d.vx,
-      vy: options?.vy ?? d.vy,
-      life: options?.life ?? d.life,
-      maxLife: options?.life ?? d.life,
-      size: options?.size ?? d.size,
-      color: options?.color ?? d.color,
-      type,
+    // Create vehicle
+    const stats = getVehicleStats(currentVehicleId);
+    const vehicle = createVehicle({
+      x: 200,
+      y: 300,
+      stats,
     });
-  };
+    vehicleRef.current = vehicle;
+    Matter.Composite.add(engine.world, vehicle.composite);
 
-  // Screen shake helper
-  const triggerShake = (intensity: number, duration: number) => {
-    shakeRef.current = { intensity, duration };
-  };
-
-  const updateShake = (deltaTime: number) => {
-    if (shakeRef.current.duration > 0) {
-      shakeRef.current.duration -= deltaTime;
-      if (shakeRef.current.duration <= 0) {
-        shakeRef.current.intensity = 0;
-      }
-    }
-  };
-
-  const getShakeOffset = (): { x: number; y: number } => {
-    if (shakeRef.current.intensity <= 0) return { x: 0, y: 0 };
-    const intensity = shakeRef.current.intensity;
-    return {
-      x: (Math.random() - 0.5) * intensity * 2,
-      y: (Math.random() - 0.5) * intensity * 2,
-    };
-  };
-
-  const updateParticles = (deltaTime: number) => {
-    particlesRef.current = particlesRef.current.filter((p) => {
-      p.x += p.vx * deltaTime;
-      p.y += p.vy * deltaTime;
-      p.vy += 150 * deltaTime; // Gravity for most particles
-      p.life -= deltaTime;
-      return p.life > 0;
+    // Create flat starting ground
+    const startGround = Matter.Bodies.rectangle(200, 450, 600, 60, {
+      isStatic: true,
+      friction: stageConfig.friction,
+      label: 'ground',
+      render: { fillStyle: stageConfig.groundColor },
     });
-  };
+    Matter.Composite.add(engine.world, startGround);
 
-  const renderParticles = (ctx: CanvasRenderingContext2D) => {
-    particlesRef.current.forEach((p) => {
-      const alpha = p.life / p.maxLife;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.globalAlpha = 1;
-  };
+    // Set up collision detection
+    Matter.Events.on(engine, 'collisionStart', handleCollision);
+
+    // Create runner
+    const runner = Matter.Runner.create();
+    runnerRef.current = runner;
+    Matter.Runner.run(runner, engine);
+
+    // Reset tracking
+    lastRotationRef.current = 0;
+    totalRotationRef.current = 0;
+    isAirborneRef.current = false;
+    airborneTimeRef.current = 0;
+
+    // Start render loop
+    startRenderLoop();
+  }, [
+    currentVehicleId,
+    currentStageId,
+    stageConfig,
+    getVehicleStats,
+    createChunk,
+    handleCollision,
+    startRenderLoop,
+  ]);
 
   // ==========================================================================
   // LIFECYCLE

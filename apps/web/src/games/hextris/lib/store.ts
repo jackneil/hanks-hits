@@ -320,7 +320,6 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
         const now = Date.now();
         let {
           rotation,
-          targetRotation,
           stacks,
           fallingBlock,
           particles,
@@ -333,6 +332,7 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
           score,
           progress,
         } = state;
+        const { targetRotation } = state;
 
         // Copy arrays
         stacks = stacks.map(stack => [...stack]);

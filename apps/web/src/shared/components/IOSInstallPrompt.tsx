@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 /**
  * iOS "Add to Home Screen" prompt
@@ -15,15 +15,20 @@ interface IOSInstallPromptProps {
 }
 
 export function IOSInstallPrompt({ onClose }: IOSInstallPromptProps) {
-  const [dismissed, setDismissed] = useState(true); // Start hidden, show after check
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === 'undefined') return true;
 
-  useEffect(() => {
-    // Check if already dismissed
+    const navigatorWithStandalone = window.navigator as Navigator & {
+      standalone?: boolean;
+    };
+    const isIPhone = /iPhone|iPod/.test(window.navigator.userAgent);
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      navigatorWithStandalone.standalone === true;
     const wasDismissed = localStorage.getItem('ios-install-prompt-dismissed');
-    if (!wasDismissed) {
-      setDismissed(false);
-    }
-  }, []);
+
+    return !isIPhone || isStandalone || !!wasDismissed;
+  });
 
   const handleDismiss = () => {
     setDismissed(true);
@@ -90,7 +95,7 @@ export function IOSInstallPrompt({ onClose }: IOSInstallPromptProps) {
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         @keyframes slide-up {
           from {
             transform: translateY(100%);

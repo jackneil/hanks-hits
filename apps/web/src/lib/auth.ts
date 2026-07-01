@@ -76,7 +76,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
   session: {
     strategy: "jwt",
-    // Default 30 days - can be overridden by "remember me"
+    // Fixed 30-day sessions
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
 

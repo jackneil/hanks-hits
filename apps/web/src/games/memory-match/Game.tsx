@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { useMemoryMatchStore } from "./lib/store";
 import {
   type Difficulty,
@@ -306,7 +306,11 @@ function WinModal({
 // Main game component
 export function MemoryMatchGame() {
   const store = useMemoryMatchStore();
-  const [isClient, setIsClient] = useState(false);
+  const isClient = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
 
   // Auth sync
   const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
@@ -326,7 +330,6 @@ export function MemoryMatchGame() {
 
   // Client-side hydration
   useEffect(() => {
-    setIsClient(true);
     // Start a new game on first load to ensure cards are shuffled
     store.newGame();
   }, []);

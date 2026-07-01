@@ -1,7 +1,7 @@
 // Oregon Trail - Zustand Store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { GameState, GamePhase, PaceType, OccupationType, Month, OregonTrailProgress } from '../types';
+import type { GameState, GamePhase, PaceType, OccupationType, Month, OregonTrailProgress, GameEvent, Supplies } from '../types';
 import { createInitialState, calculateDailyTravel, calculateFoodConsumption, getRandomWeather, updatePartyHealth, applyEventEffect, checkLandmarkReached, checkGameOver, calculateScore, getRiverDepth, attemptRiverCrossing } from './gameLogic';
 import { getRandomEvent } from './events';
 import { LANDMARKS, STORE_PRICES } from './constants';
@@ -13,6 +13,32 @@ const defaultState: GameState = {
   weather: "clear", currentEvent: null, currentRiver: null, huntingFood: 0, huntingAmmoUsed: 0,
   daysRested: 0, foodHunted: 0, riversCrossed: 0, eventsEncountered: 0,
 };
+
+function formatLostSupplies(lostSupplies?: Partial<Supplies>): string {
+  if (!lostSupplies) return "";
+
+  const losses = [
+    lostSupplies.food ? `${lostSupplies.food} lbs food` : null,
+    lostSupplies.oxen ? `${lostSupplies.oxen} oxen` : null,
+    lostSupplies.ammunition ? `${lostSupplies.ammunition} bullets` : null,
+  ].filter(Boolean);
+
+  return losses.length > 0 ? ` Lost ${losses.join(", ")}.` : "";
+}
+
+function createRiverResultEvent(
+  riverName: string,
+  result: ReturnType<typeof attemptRiverCrossing>
+): GameEvent {
+  return {
+    id: "river-crossing-result",
+    title: result.success ? "Safe Crossing!" : `${riverName} Trouble!`,
+    message: `${result.message}${formatLostSupplies(result.lostSupplies)}`,
+    category: result.success ? "positive" : "severe",
+    probability: 0,
+    effect: {},
+  };
+}
 
 // Type for cloud sync (game state + timestamp)
 // Index signature required for AppProgressData compatibility
@@ -97,14 +123,21 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
   crossRiver: (method) => {
     const st = get();
     const result = attemptRiverCrossing(method, st.currentRiver?.depth || 3);
-    let ns = { ...st.supplies };
+    const riverName = st.currentRiver?.name || "River";
+    const ns = { ...st.supplies };
     if (result.lostSupplies) {
       if (result.lostSupplies.food) ns.food = Math.max(0, ns.food - result.lostSupplies.food);
       if (result.lostSupplies.oxen) ns.oxen = Math.max(0, ns.oxen - result.lostSupplies.oxen);
       if (result.lostSupplies.ammunition) ns.ammunition = Math.max(0, ns.ammunition - result.lostSupplies.ammunition);
     }
     if (method === "ferry") ns.money = Math.max(0, ns.money - 20);
-    set({ supplies: ns, currentRiver: null, riversCrossed: st.riversCrossed + 1, gamePhase: "travel" });
+    set({
+      supplies: ns,
+      currentRiver: null,
+      currentEvent: createRiverResultEvent(riverName, result),
+      riversCrossed: st.riversCrossed + 1,
+      gamePhase: "event",
+    });
   },
   continueFromLandmark: () => {
     const st = get();
@@ -168,7 +201,8 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
 }), {
   name: "oregon-trail-storage",
   version: 1,
-  migrate: (persisted: any, version: number) => {
+  migrate: (persisted: unknown, version: number) => {
+    const data = persisted as Partial<OregonTrailSyncData>;
     if (version === 0) {
       // Fix old weather values from before the rename
       const weatherMap: Record<string, string> = {
@@ -176,10 +210,10 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
         snowy: 'snow',
         stormy: 'storm',
       };
-      if (persisted.weather && weatherMap[persisted.weather]) {
-        persisted.weather = weatherMap[persisted.weather];
+      if (typeof data.weather === 'string' && weatherMap[data.weather]) {
+        data.weather = weatherMap[data.weather] as GameState['weather'];
       }
     }
-    return persisted;
+    return data;
   },
 }));

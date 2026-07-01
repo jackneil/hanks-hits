@@ -33,6 +33,16 @@ export interface CookieClickerProgress {
   lastModified: number;
 }
 
+export type GoldenCookieEffect = "frenzy" | "clickFrenzy" | "lucky";
+
+export interface GoldenCookieState {
+  id: string;
+  x: number;
+  y: number;
+  effect: GoldenCookieEffect;
+  expiresAt: number;
+}
+
 export interface CookieClickerState extends CookieClickerProgress {
   // Computed values (not persisted, recalculated)
   cookiesPerClick: number;
@@ -47,6 +57,7 @@ export interface CookieClickerState extends CookieClickerProgress {
   // UI state
   newAchievements: AchievementId[];
   floatingTexts: Array<{ id: string; x: number; y: number; text: string }>;
+  goldenCookie: GoldenCookieState | null;
 }
 
 interface CookieClickerActions {
@@ -71,6 +82,9 @@ interface CookieClickerActions {
   clearNewAchievements: () => void;
 
   // Effects
+  spawnGoldenCookie: (effect?: GoldenCookieEffect) => void;
+  clickGoldenCookie: () => GoldenCookieEffect | null;
+  clearGoldenCookie: () => void;
   activateFrenzy: () => void;
   activateClickFrenzy: () => void;
   addLuckyCookies: () => void;
@@ -118,6 +132,12 @@ const defaultProgress: CookieClickerProgress = {
   lastModified: Date.now(),
 };
 
+const GOLDEN_COOKIE_EFFECTS: GoldenCookieEffect[] = [
+  "frenzy",
+  "clickFrenzy",
+  "lucky",
+];
+
 // ============================================================================
 // STORE
 // ============================================================================
@@ -137,6 +157,7 @@ export const useCookieClickerStore = create<
       clickFrenzyEndTime: 0,
       newAchievements: [],
       floatingTexts: [],
+      goldenCookie: null,
 
       // ========================================================================
       // CORE GAMEPLAY
@@ -431,6 +452,53 @@ export const useCookieClickerStore = create<
       // EFFECTS (Golden Cookie bonuses)
       // ========================================================================
 
+      spawnGoldenCookie: (effect) => {
+        const state = get();
+        if (state.goldenCookie) return;
+
+        const selectedEffect =
+          effect ??
+          GOLDEN_COOKIE_EFFECTS[
+            Math.floor(Math.random() * GOLDEN_COOKIE_EFFECTS.length)
+          ];
+
+        set({
+          goldenCookie: {
+            id: `${Date.now()}-${Math.random()}`,
+            x: 15 + Math.random() * 70,
+            y: 20 + Math.random() * 55,
+            effect: selectedEffect,
+            expiresAt: Date.now() + GAME_CONFIG.GOLDEN_COOKIE_DURATION,
+          },
+        });
+      },
+
+      clickGoldenCookie: () => {
+        const state = get();
+        const goldenCookie = state.goldenCookie;
+        if (!goldenCookie) return null;
+
+        set({ goldenCookie: null });
+
+        switch (goldenCookie.effect) {
+          case "frenzy":
+            get().activateFrenzy();
+            break;
+          case "clickFrenzy":
+            get().activateClickFrenzy();
+            break;
+          case "lucky":
+            get().addLuckyCookies();
+            break;
+        }
+
+        return goldenCookie.effect;
+      },
+
+      clearGoldenCookie: () => {
+        set({ goldenCookie: null });
+      },
+
       activateFrenzy: () => {
         set({
           frenzyMultiplier: GAME_CONFIG.FRENZY_MULTIPLIER,
@@ -456,6 +524,7 @@ export const useCookieClickerStore = create<
         set((s) => ({
           cookies: s.cookies + bonus,
           totalCookiesBaked: s.totalCookiesBaked + bonus,
+          lastModified: Date.now(),
         }));
       },
 
@@ -522,6 +591,7 @@ export const useCookieClickerStore = create<
           clickFrenzyEndTime: 0,
           newAchievements: [],
           floatingTexts: [],
+          goldenCookie: null,
           lastTick: Date.now(),
           lastModified: Date.now(),
         });
@@ -553,6 +623,7 @@ export const useCookieClickerStore = create<
           clickFrenzyEndTime: 0,
           newAchievements: [],
           floatingTexts: [],
+          goldenCookie: null,
         });
 
         // Recalculate derived values

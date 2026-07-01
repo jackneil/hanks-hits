@@ -25,6 +25,8 @@ export function CookieClickerGame() {
   const [showOfflinePopup, setShowOfflinePopup] = useState(false);
   const [offlineEarnings, setOfflineEarnings] = useState(0);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
+  const goldenSpawnRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const goldenExpireRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitialized = useRef(false);
 
   // Cloud sync for authenticated users
@@ -40,12 +42,15 @@ export function CookieClickerGame() {
   useEffect(() => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
+    let popupTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Apply offline progress
     const earned = store.applyOfflineProgress();
     if (earned > 100) {
-      setOfflineEarnings(earned);
-      setShowOfflinePopup(true);
+      popupTimer = setTimeout(() => {
+        setOfflineEarnings(earned);
+        setShowOfflinePopup(true);
+      }, 0);
     }
 
     // Recalculate CPS
@@ -55,6 +60,10 @@ export function CookieClickerGame() {
       cookiesPerSecond: cps,
       cookiesPerClick: clickPower,
     });
+
+    return () => {
+      if (popupTimer) clearTimeout(popupTimer);
+    };
   }, []);
 
   // Game loop tick
@@ -67,6 +76,32 @@ export function CookieClickerGame() {
       if (tickRef.current) {
         clearInterval(tickRef.current);
       }
+    };
+  }, []);
+
+  // Golden cookie spawn loop
+  useEffect(() => {
+    const scheduleGoldenCookie = () => {
+      const delay =
+        GAME_CONFIG.GOLDEN_COOKIE_MIN_SPAWN +
+        Math.random() *
+          (GAME_CONFIG.GOLDEN_COOKIE_MAX_SPAWN -
+            GAME_CONFIG.GOLDEN_COOKIE_MIN_SPAWN);
+
+      goldenSpawnRef.current = setTimeout(() => {
+        useCookieClickerStore.getState().spawnGoldenCookie();
+        goldenExpireRef.current = setTimeout(() => {
+          useCookieClickerStore.getState().clearGoldenCookie();
+          scheduleGoldenCookie();
+        }, GAME_CONFIG.GOLDEN_COOKIE_DURATION);
+      }, delay);
+    };
+
+    scheduleGoldenCookie();
+
+    return () => {
+      if (goldenSpawnRef.current) clearTimeout(goldenSpawnRef.current);
+      if (goldenExpireRef.current) clearTimeout(goldenExpireRef.current);
     };
   }, []);
 
@@ -126,6 +161,8 @@ export function CookieClickerGame() {
         </div>
       </main>
 
+      <GoldenCookie />
+
       {/* Achievement notifications */}
       <AchievementPopups />
 
@@ -157,6 +194,33 @@ export function CookieClickerGame() {
         Upgrades: {store.purchasedUpgrades.length}
       </footer>
     </div>
+  );
+}
+
+function GoldenCookie() {
+  const store = useCookieClickerStore();
+  const goldenCookie = store.goldenCookie;
+  if (!goldenCookie) return null;
+
+  return (
+    <button
+      onClick={() => store.clickGoldenCookie()}
+      className="
+        fixed z-40 h-20 w-20 -translate-x-1/2 -translate-y-1/2
+        rounded-full border-4 border-yellow-200
+        bg-gradient-to-br from-yellow-200 via-yellow-400 to-amber-600
+        text-4xl shadow-2xl shadow-yellow-500/40
+        animate-pulse transition-transform hover:scale-110 active:scale-95
+      "
+      style={{
+        left: `${goldenCookie.x}%`,
+        top: `${goldenCookie.y}%`,
+      }}
+      aria-label="Golden cookie"
+      title="Golden cookie"
+    >
+      🍪
+    </button>
   );
 }
 
@@ -433,15 +497,21 @@ function AchievementPopups() {
 
   useEffect(() => {
     if (store.newAchievements.length > 0) {
-      setDisplayedAchievements(store.newAchievements);
-      store.clearNewAchievements();
+      const nextAchievements = store.newAchievements;
+      const setupTimer = setTimeout(() => {
+        setDisplayedAchievements(nextAchievements);
+        store.clearNewAchievements();
+      }, 0);
 
       // Auto-dismiss after 3 seconds
       const timeout = setTimeout(() => {
         setDisplayedAchievements([]);
       }, 3000);
 
-      return () => clearTimeout(timeout);
+      return () => {
+        clearTimeout(setupTimer);
+        clearTimeout(timeout);
+      };
     }
   }, [store.newAchievements, store]);
 

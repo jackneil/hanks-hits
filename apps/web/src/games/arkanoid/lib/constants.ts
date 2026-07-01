@@ -32,6 +32,25 @@ export const BALL_CONFIG: Record<
   },
 };
 
+export function getSpawnedBallType(
+  parentType: BallType,
+  bonusRoll = Math.random()
+): BallType {
+  if (parentType !== "blue") {
+    return parentType;
+  }
+
+  if (bonusRoll < 0.03) {
+    return "yellow-dot";
+  }
+
+  if (bonusRoll < 0.18) {
+    return "orange";
+  }
+
+  return "blue";
+}
+
 // Physics (tuned for seconds-based dt with no tunneling)
 // Max velocity must be low enough that ball can't skip over walls (0.05 wide)
 export const PHYSICS = {

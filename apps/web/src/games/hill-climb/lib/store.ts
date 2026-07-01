@@ -6,7 +6,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { FUEL, NITRO, VEHICLES, UPGRADES, type UpgradeType } from './constants';
+import { FUEL, NITRO, VEHICLES, UPGRADES, STAGES, type UpgradeType } from './constants';
 
 // =============================================================================
 // TYPES
@@ -181,6 +181,18 @@ const initialState: GameState = {
   leanSensitivity: 1.0,
 };
 
+function getUnlockedStagesForDistance(existingStages: string[], bestDistance: number): string[] {
+  const unlocked = new Set(existingStages);
+
+  for (const stage of STAGES) {
+    if (bestDistance >= stage.unlockDistance) {
+      unlocked.add(stage.id);
+    }
+  }
+
+  return STAGES.filter((stage) => unlocked.has(stage.id)).map((stage) => stage.id);
+}
+
 // =============================================================================
 // STORE
 // =============================================================================
@@ -231,6 +243,7 @@ export const useHillClimbStore = create<GameState & GameActions>()(
             ...state.bestDistancePerStage,
             [stageKey]: newStageBest,
           },
+          unlockedStages: getUnlockedStagesForDistance(state.unlockedStages, newBestDistance),
         });
       },
 
@@ -393,8 +406,12 @@ export const useHillClimbStore = create<GameState & GameActions>()(
 
       selectStage: (stageId) => {
         const state = get();
-        if (state.unlockedStages.includes(stageId)) {
-          set({ currentStageId: stageId });
+        const stage = STAGES.find((s) => s.id === stageId);
+        if (!stage) return;
+
+        const unlockedStages = getUnlockedStagesForDistance(state.unlockedStages, state.bestDistance);
+        if (unlockedStages.includes(stageId)) {
+          set({ currentStageId: stageId, unlockedStages });
         }
       },
 
@@ -504,6 +521,8 @@ export const useHillClimbStore = create<GameState & GameActions>()(
       },
 
       setProgress: (data) => {
+        const unlockedStages = getUnlockedStagesForDistance(data.unlockedStages, data.bestDistance);
+
         set({
           coins: data.coins,
           totalCoinsEarned: data.totalCoinsEarned,
@@ -512,8 +531,10 @@ export const useHillClimbStore = create<GameState & GameActions>()(
           currentVehicleId: data.currentVehicleId,
           unlockedVehicles: data.unlockedVehicles,
           vehicleUpgrades: data.vehicleUpgrades,
-          currentStageId: data.currentStageId,
-          unlockedStages: data.unlockedStages,
+          currentStageId: unlockedStages.includes(data.currentStageId)
+            ? data.currentStageId
+            : initialState.currentStageId,
+          unlockedStages,
           leanSensitivity: data.leanSensitivity,
           soundEnabled: data.soundEnabled,
           musicEnabled: data.musicEnabled,

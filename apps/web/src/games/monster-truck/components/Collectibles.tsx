@@ -17,18 +17,28 @@ function isInLake(x: number, z: number): boolean {
   });
 }
 
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
+function positionSeed(position: [number, number, number], salt = 0): number {
+  return position[0] * 12.9898 + position[1] * 78.233 + position[2] * 37.719 + salt;
+}
+
 // Generate random positions ON THE TERRAIN (avoiding lakes)
 function generatePositions(count: number, minDist = 10, hoverHeight = 0.8): [number, number, number][] {
   const positions: [number, number, number][] = [];
   const maxAttempts = count * 20;
   let attempts = 0;
+  const seedBase = count * 97 + minDist * 31 + hoverHeight * 17;
 
   while (positions.length < count && attempts < maxAttempts) {
     attempts++;
 
     // Random position within world bounds (avoiding center spawn area)
-    const angle = Math.random() * Math.PI * 2;
-    const distance = 40 + Math.random() * (WORLD.HALF_SIZE - 60);
+    const angle = seededRandom(seedBase + attempts * 2) * Math.PI * 2;
+    const distance = 40 + seededRandom(seedBase + attempts * 2 + 1) * (WORLD.HALF_SIZE - 60);
     const x = Math.cos(angle) * distance;
     const z = Math.sin(angle) * distance;
 
@@ -63,7 +73,7 @@ function Coin({
   const meshRef = useRef<THREE.Mesh>(null);
   const [collected, setCollected] = useState(false);
   const baseY = useRef(position[1]);
-  const time = useRef(Math.random() * Math.PI * 2);
+  const time = useRef(seededRandom(positionSeed(position, 1)) * Math.PI * 2);
 
   useFrame((_, delta) => {
     if (!meshRef.current || collected) return;
@@ -116,7 +126,7 @@ function Star({
   const groupRef = useRef<THREE.Group>(null);
   const [collected, setCollected] = useState(false);
   const baseY = useRef(position[1]);
-  const time = useRef(Math.random() * Math.PI * 2);
+  const time = useRef(seededRandom(positionSeed(position, 2)) * Math.PI * 2);
 
   // Star shape using triangles - MUST be before any conditional returns!
   const starShape = useMemo(() => {
@@ -165,9 +175,9 @@ function Star({
     >
       <group ref={groupRef}>
         <mesh castShadow>
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          { }
           <extrudeGeometry
-            args={[starShape as any, { depth: 0.2, bevelEnabled: false }]}
+            args={[starShape, { depth: 0.2, bevelEnabled: false }]}
           />
           <meshStandardMaterial
             color="#ffff00"
@@ -194,7 +204,7 @@ function MysteryBox({
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [collected, setCollected] = useState(false);
-  const time = useRef(Math.random() * Math.PI * 2);
+  const time = useRef(seededRandom(positionSeed(position, 3)) * Math.PI * 2);
 
   useFrame((_, delta) => {
     if (!meshRef.current || collected) return;
@@ -318,11 +328,12 @@ export function CollectParticles({
   count?: number;
 }) {
   const particles = useMemo(() => {
-    return Array.from({ length: count }, () => ({
+    const baseSeed = positionSeed(position, count);
+    return Array.from({ length: count }, (_, i) => ({
       velocity: new THREE.Vector3(
-        (Math.random() - 0.5) * 5,
-        Math.random() * 5 + 2,
-        (Math.random() - 0.5) * 5
+        (seededRandom(baseSeed + i * 3) - 0.5) * 5,
+        seededRandom(baseSeed + i * 3 + 1) * 5 + 2,
+        (seededRandom(baseSeed + i * 3 + 2) - 0.5) * 5
       ),
       position: new THREE.Vector3(...position),
     }));

@@ -12,8 +12,12 @@ vi.mock('@react-three/fiber', () => ({
 
 vi.mock('@react-three/rapier', () => ({
   Physics: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  RigidBody: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  RigidBody: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="rapier-rigid-body">{children}</div>
+  ),
   CuboidCollider: () => null,
+  CylinderCollider: () => null,
+  BallCollider: () => null,
   useRapier: () => ({ world: { castRay: () => null } }),
 }));
 
@@ -25,13 +29,24 @@ vi.mock('@react-three/drei', () => ({
 // We test the store separately, so just test that the Game module loads
 describe('Monster Truck Game Module', () => {
   it('exports MonsterTruckGame component', async () => {
-    const module = await import('../index');
-    expect(module.MonsterTruckGame).toBeDefined();
+    const gameModule = await import('../index');
+    expect(gameModule.MonsterTruckGame).toBeDefined();
   });
 
   it('exports useGameStore hook', async () => {
-    const module = await import('../index');
-    expect(module.useGameStore).toBeDefined();
+    const gameModule = await import('../index');
+    expect(gameModule.useGameStore).toBeDefined();
+  });
+
+  it('keeps physics colliders out of the ambient environment', async () => {
+    const { Environment, EnvironmentColliders } = await import('../components/Environment');
+
+    const { unmount } = render(<Environment />);
+    expect(screen.queryByTestId('rapier-rigid-body')).not.toBeInTheDocument();
+    unmount();
+
+    render(<EnvironmentColliders />);
+    expect(screen.getAllByTestId('rapier-rigid-body').length).toBeGreaterThan(0);
   });
 });
 

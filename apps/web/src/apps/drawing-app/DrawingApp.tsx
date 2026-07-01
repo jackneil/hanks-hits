@@ -110,26 +110,20 @@ export function DrawingApp() {
   }, []);
 
   return (
-    <div className="fixed inset-0 bg-gradient-to-b from-blue-400 via-purple-400 to-pink-400 flex flex-col overflow-hidden">
+    <div
+      data-testid="drawing-app-root"
+      className="h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)] bg-gradient-to-b from-blue-400 via-purple-400 to-pink-400 flex flex-col overflow-hidden"
+    >
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
       {/* Header */}
-      <header className="flex-shrink-0 flex justify-between items-center p-2 md:p-4 bg-white/10 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <a
-            href="/"
-            className="text-2xl md:text-3xl hover:scale-110 transition-transform"
-            aria-label="Back to home"
-          >
-            {"\uD83C\uDFE0"}
-          </a>
-          <h1 className="text-lg md:text-2xl font-bold text-white drop-shadow-lg">
-            {"\uD83C\uDFA8"} Drawing App
-          </h1>
-        </div>
+      <header className="flex-shrink-0 flex justify-between items-center gap-2 p-2 md:p-4 bg-white/10 backdrop-blur-sm">
+        <h1 className="min-w-0 truncate text-lg md:text-2xl font-bold text-white drop-shadow-lg">
+          {"\uD83C\uDFA8"} Drawing App
+        </h1>
 
-        <div className="flex items-center gap-1 md:gap-2">
+        <div className="flex shrink-0 items-center gap-1 md:gap-2">
           {/* Undo */}
           <button
             onClick={handleUndo}

@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useGameStore } from '../lib/store';
+import {
+  getChallengeProgress,
+  useGameStore,
+  type Challenge,
+} from '../lib/store';
 
 interface GameUIProps {
   speed: number;
@@ -10,12 +14,101 @@ interface GameUIProps {
   onOpenGarage: () => void;
 }
 
+function ChallengeRow({
+  challenge,
+  progress,
+}: {
+  challenge: Challenge;
+  progress: number;
+}) {
+  const cappedProgress = Math.min(progress, challenge.target);
+  const progressPercent = (cappedProgress / challenge.target) * 100;
+
+  return (
+    <div className="rounded-xl bg-white/10 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-bold text-white">{challenge.name}</div>
+          <div className="text-sm text-gray-300">{challenge.description}</div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="font-bold text-yellow-300">+{challenge.reward}</div>
+          <div className="text-xs text-yellow-200">coins</div>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-3">
+        <div className="h-3 flex-1 overflow-hidden rounded-full bg-black/40">
+          <div
+            className={`h-full rounded-full ${
+              challenge.completed
+                ? 'bg-green-400'
+                : 'bg-gradient-to-r from-orange-500 to-yellow-300'
+            }`}
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+        <div className="w-20 text-right text-sm font-mono text-gray-200">
+          {Math.floor(cappedProgress)}/{challenge.target}
+        </div>
+      </div>
+      {challenge.completed && (
+        <div className="mt-2 text-sm font-bold text-green-300">Completed</div>
+      )}
+    </div>
+  );
+}
+
+function ChallengesPanel() {
+  const challenges = useGameStore((s) => s.challenges);
+  const setShowChallenges = useGameStore((s) => s.setShowChallenges);
+  const sessionCoins = useGameStore((s) => s.sessionCoins);
+  const sessionAirtime = useGameStore((s) => s.sessionAirtime);
+  const sessionFlips = useGameStore((s) => s.sessionFlips);
+  const sessionDestructions = useGameStore((s) => s.sessionDestructions);
+  const starsCollected = useGameStore((s) => s.starsCollected);
+  const progressSnapshot = {
+    sessionCoins,
+    sessionAirtime,
+    sessionFlips,
+    sessionDestructions,
+    starsCollected,
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 pointer-events-auto">
+      <div className="w-full max-w-lg rounded-2xl bg-gray-900 p-5 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-white">🏁 Challenges</h2>
+          <button
+            onClick={() => setShowChallenges(false)}
+            className="rounded-lg bg-white/10 px-3 py-2 font-bold text-white hover:bg-white/20"
+            aria-label="Close challenges"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3">
+          {challenges.map((challenge) => (
+            <ChallengeRow
+              key={challenge.id}
+              challenge={challenge}
+              progress={getChallengeProgress(progressSnapshot, challenge)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) {
   const coins = useGameStore((s) => s.coins);
   const sessionCoins = useGameStore((s) => s.sessionCoins);
   const nosCharge = useGameStore((s) => s.nosCharge);
   const nosMaxCharge = useGameStore((s) => s.nosMaxCharge);
   const starsCollected = useGameStore((s) => s.starsCollected);
+  const showChallenges = useGameStore((s) => s.showChallenges);
+  const setShowChallenges = useGameStore((s) => s.setShowChallenges);
 
   // Coin animation state
   const [animatedCoins, setAnimatedCoins] = useState(coins);
@@ -23,12 +116,18 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
 
   useEffect(() => {
     if (coins !== animatedCoins) {
-      setCoinDiff(coins - animatedCoins);
-      setAnimatedCoins(coins);
+      const diff = coins - animatedCoins;
+      const updateTimer = setTimeout(() => {
+        setCoinDiff(diff);
+        setAnimatedCoins(coins);
+      }, 0);
 
       // Clear the diff after animation
       const timer = setTimeout(() => setCoinDiff(0), 1500);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(updateTimer);
+        clearTimeout(timer);
+      };
     }
   }, [coins, animatedCoins]);
 
@@ -65,6 +164,13 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
         <div className="bg-black/40 rounded-lg px-3 py-1 text-sm text-gray-300">
           Session: +{sessionCoins}
         </div>
+
+        <button
+          onClick={() => setShowChallenges(true)}
+          className="pointer-events-auto bg-emerald-600 hover:bg-emerald-500 rounded-lg px-3 py-2 text-sm font-bold text-white transition-colors"
+        >
+          🏁 Challenges
+        </button>
       </div>
 
       {/* Top right - NOS and Speed */}
@@ -138,6 +244,8 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
           </button>
         </div>
       )}
+
+      {showChallenges && <ChallengesPanel />}
     </div>
   );
 }

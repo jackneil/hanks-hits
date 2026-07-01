@@ -134,11 +134,14 @@ function drawAlien(
 ) {
   const { type, x, y } = alien;
   const color = frame === 0 ? ALIEN_TYPES[type].color : ALIEN_TYPES[type].colorAlt;
+  const sizeMultiplier = alien.sizeMultiplier ?? 1;
+  const alienWidth = alien.width ?? ALIEN.WIDTH * sizeMultiplier;
+  const alienHeight = alien.height ?? ALIEN.HEIGHT * sizeMultiplier;
 
   ctx.fillStyle = color;
 
   // Simple pixel art aliens
-  const size = 3;
+  const size = 3 * sizeMultiplier;
   const patterns: Record<AlienType, number[][]> = {
     squid: frame === 0
       ? [
@@ -206,8 +209,8 @@ function drawAlien(
   };
 
   const pattern = patterns[type];
-  const offsetX = x + (ALIEN.WIDTH - pattern[0].length * size) / 2;
-  const offsetY = y + (ALIEN.HEIGHT - pattern.length * size) / 2;
+  const offsetX = x + (alienWidth - pattern[0].length * size) / 2;
+  const offsetY = y + (alienHeight - pattern.length * size) / 2;
 
   for (let row = 0; row < pattern.length; row++) {
     for (let col = 0; col < pattern[row].length; col++) {

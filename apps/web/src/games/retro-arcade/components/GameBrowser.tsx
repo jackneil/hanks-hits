@@ -17,6 +17,8 @@ interface GameBrowserProps {
   systemName: string;
   onGameSelect: (game: CatalogGame, romUrl: string) => void;
   onUploadClick: () => void;
+  favoriteIds: string[];
+  onToggleFavorite: (gameId: string) => void;
 }
 
 // Genre colors for visual variety - covers both SNES and Atari genres
@@ -60,52 +62,72 @@ function getGenreLabel(genre: string): string {
 function GameCard({
   game,
   onClick,
+  isFavorite,
+  onToggleFavorite,
   isLoading,
 }: {
   game: CatalogGame;
   onClick: () => void;
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
   isLoading: boolean;
 }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={isLoading}
+    <div
       className={`
         relative bg-gradient-to-br ${getGenreColor(game.genre)}
-        p-4 rounded-xl shadow-lg
+        rounded-xl shadow-lg
         hover:scale-105 active:scale-95
         transition-all duration-150 cursor-pointer
         border-2 border-white/20 hover:border-white/40
-        flex flex-col items-center text-center
         min-h-[120px] sm:min-h-[130px]
-        disabled:opacity-50 disabled:cursor-wait
         touch-manipulation
       `}
     >
-      {/* Favorite star */}
-      {game.favorite && (
-        <span className="absolute top-1 right-1 text-yellow-300 text-lg">
-          ★
+      <button
+        type="button"
+        onClick={onToggleFavorite}
+        className={`absolute right-2 top-2 z-10 h-8 w-8 rounded-full text-lg font-bold transition-colors ${
+          isFavorite
+            ? "bg-yellow-300 text-gray-900"
+            : "bg-black/30 text-white/70 hover:bg-black/50 hover:text-white"
+        }`}
+        aria-label={
+          isFavorite
+            ? `Remove ${game.displayName} from favorites`
+            : `Add ${game.displayName} to favorites`
+        }
+      >
+        {isFavorite ? "★" : "☆"}
+      </button>
+
+      <button
+        onClick={onClick}
+        disabled={isLoading}
+        className="
+          h-full min-h-[120px] w-full rounded-xl p-4
+          flex flex-col items-center text-center
+          disabled:opacity-50 disabled:cursor-wait
+        "
+      >
+        {/* Loading spinner */}
+        {isLoading ? (
+          <div className="text-3xl mb-2 animate-spin">⏳</div>
+        ) : (
+          <div className="text-3xl mb-2">🎮</div>
+        )}
+
+        {/* Game name */}
+        <h3 className="text-xs sm:text-sm font-bold text-white leading-tight line-clamp-2">
+          {game.displayName}
+        </h3>
+
+        {/* Genre badge */}
+        <span className="mt-auto pt-1 text-[10px] sm:text-xs text-white/60 capitalize">
+          {getGenreLabel(game.genre)}
         </span>
-      )}
-
-      {/* Loading spinner */}
-      {isLoading ? (
-        <div className="text-3xl mb-2 animate-spin">⏳</div>
-      ) : (
-        <div className="text-3xl mb-2">🎮</div>
-      )}
-
-      {/* Game name */}
-      <h3 className="text-xs sm:text-sm font-bold text-white leading-tight line-clamp-2">
-        {game.displayName}
-      </h3>
-
-      {/* Genre badge */}
-      <span className="mt-auto pt-1 text-[10px] sm:text-xs text-white/60 capitalize">
-        {getGenreLabel(game.genre)}
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -115,10 +137,13 @@ export function GameBrowser({
   systemName,
   onGameSelect,
   onUploadClick,
+  favoriteIds,
+  onToggleFavorite,
 }: GameBrowserProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGenre, setSelectedGenre] = useState<string>("all");
   const [loadingGameId, setLoadingGameId] = useState<string | null>(null);
+  const favoriteIdSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
 
   // Get all unique genres from catalog
   const genres = useMemo(() => {
@@ -128,7 +153,7 @@ export function GameBrowser({
 
   // Filter games
   const filteredGames = useMemo(() => {
-    let result = catalog;
+    let result = [...catalog];
 
     // Search filter
     if (searchQuery) {
@@ -137,17 +162,25 @@ export function GameBrowser({
     }
 
     // Genre filter
-    if (selectedGenre !== "all") {
+    if (selectedGenre === "favorites") {
+      result = result.filter((g) => favoriteIdSet.has(g.id));
+    }
+
+    if (selectedGenre !== "all" && selectedGenre !== "favorites") {
       result = result.filter((g) => g.genre === selectedGenre);
     }
 
-    // Sort: favorites first, then alphabetical
+    // Sort: user favorites first, then catalog featured games, then alphabetical
     return result.sort((a, b) => {
+      const aIsFavorite = favoriteIdSet.has(a.id);
+      const bIsFavorite = favoriteIdSet.has(b.id);
+      if (aIsFavorite && !bIsFavorite) return -1;
+      if (!aIsFavorite && bIsFavorite) return 1;
       if (a.favorite && !b.favorite) return -1;
       if (!a.favorite && b.favorite) return 1;
       return a.displayName.localeCompare(b.displayName);
     });
-  }, [catalog, searchQuery, selectedGenre]);
+  }, [catalog, favoriteIdSet, searchQuery, selectedGenre]);
 
   const handleGameClick = (game: CatalogGame) => {
     setLoadingGameId(game.id);
@@ -194,6 +227,20 @@ export function GameBrowser({
           >
             All ({catalog.length})
           </button>
+          <button
+            onClick={() => setSelectedGenre("favorites")}
+            className={`
+              px-3 sm:px-4 py-2 rounded-lg font-bold text-sm sm:text-base
+              transition-colors whitespace-nowrap
+              ${
+                selectedGenre === "favorites"
+                  ? "bg-yellow-500 text-gray-950"
+                  : "bg-white/10 text-white/70 hover:bg-white/20"
+              }
+            `}
+          >
+            Favorites ({favoriteIds.length})
+          </button>
           {genres.map((genre) => {
             const count = catalog.filter((g) => g.genre === genre).length;
             return (
@@ -239,6 +286,8 @@ export function GameBrowser({
             key={game.id}
             game={game}
             onClick={() => handleGameClick(game)}
+            isFavorite={favoriteIdSet.has(game.id)}
+            onToggleFavorite={() => onToggleFavorite(game.id)}
             isLoading={loadingGameId === game.id}
           />
         ))}

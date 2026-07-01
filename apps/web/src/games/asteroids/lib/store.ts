@@ -363,10 +363,6 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
           particles,
           score,
           lives,
-          rotatingLeft,
-          rotatingRight,
-          thrusting,
-          shooting,
           shootCooldown,
           hyperspaceCooldown,
           nextBulletId,
@@ -374,6 +370,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
           nextParticleId,
           progress,
         } = state;
+        const { rotatingLeft, rotatingRight, thrusting, shooting } = state;
 
         // Copy arrays
         bullets = [...bullets];

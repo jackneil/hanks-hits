@@ -22,6 +22,13 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Slide and merge numbers",
     category: "arcade",
   },
+  "arkanoid": {
+    name: "Arkanoid",
+    icon: "🎱",
+    color: "orange",
+    description: "Watch balls multiply in this mesmerizing chain reaction game!",
+    category: "arcade",
+  },
   "asteroids": {
     name: "Asteroids",
     icon: "☄️",

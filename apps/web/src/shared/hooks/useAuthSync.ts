@@ -55,8 +55,11 @@ export function useAuthSync<T extends AppProgressData>({
   // (These are inline arrow functions that change every render)
   const getStateRef = useRef(getState);
   const setStateRef = useRef(setState);
-  getStateRef.current = getState;
-  setStateRef.current = setState;
+
+  useEffect(() => {
+    getStateRef.current = getState;
+    setStateRef.current = setState;
+  }, [getState, setState]);
 
   /**
    * Fetch progress from server
@@ -91,7 +94,6 @@ export function useAuthSync<T extends AppProgressData>({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             data,
-            localTimestamp: Date.now(),
             merge,
           }),
         });
@@ -295,14 +297,22 @@ export function useAuthSync<T extends AppProgressData>({
 
   // Initial sync when authenticated
   useEffect(() => {
+    let syncTimer: ReturnType<typeof setTimeout> | undefined;
+
     if (isAuthenticated && !initialSyncDoneRef.current) {
-      performInitialSync();
+      syncTimer = setTimeout(() => {
+        performInitialSync();
+      }, 0);
     }
 
     // Reset sync flag on logout
     if (!isAuthenticated && status !== "loading") {
       initialSyncDoneRef.current = false;
     }
+
+    return () => {
+      if (syncTimer) clearTimeout(syncTimer);
+    };
   }, [isAuthenticated, status, performInitialSync]);
 
   // Subscribe to state changes for auto-save
@@ -334,7 +344,6 @@ export function useAuthSync<T extends AppProgressData>({
       const data = getStateRef.current();
       const payload = JSON.stringify({
         data,
-        localTimestamp: Date.now(),
         merge: false,
       });
 
@@ -360,7 +369,6 @@ export function useAuthSync<T extends AppProgressData>({
             // Use sendBeacon as it's more reliable for cleanup
             const payload = JSON.stringify({
               data,
-              localTimestamp: Date.now(),
               merge: false,
             });
             // Must use Blob with Content-Type or API's request.json() fails

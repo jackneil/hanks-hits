@@ -7,6 +7,7 @@
  */
 
 import { useHillClimbStore } from '../lib/store';
+import Link from 'next/link';
 
 interface GameOverScreenProps {
   onRestart: () => void;
@@ -113,12 +114,12 @@ export function GameOverScreen({ onRestart, onGoToGarage }: GameOverScreenProps)
             🔧 Garage
           </button>
 
-          <a
+          <Link
             href="/"
             className="btn btn-ghost w-full"
           >
             🏠 Home
-          </a>
+          </Link>
         </div>
       </div>
     </div>

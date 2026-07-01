@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useArkanoidStore, type Ball } from "./lib/store";
-import { BALL_CONFIG, PHYSICS, PADDLE, WALLS, GAME, GRID } from "./lib/constants";
+import { BALL_CONFIG, PHYSICS, PADDLE, WALLS, GAME, GRID, getSpawnedBallType } from "./lib/constants";
 
 export function ArkanoidGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -14,7 +14,6 @@ export function ArkanoidGame() {
     score,
     multiplier,
     balls,
-    paddleX,
     soundEnabled,
     progress,
     wasNewHighScore,
@@ -83,6 +82,90 @@ export function ArkanoidGame() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [gameState, pauseGame, resumeGame, setPaddleX]);
+
+  // Render function
+  const render = useCallback((
+    ctx: CanvasRenderingContext2D,
+    canvas: HTMLCanvasElement,
+    ballsToRender: Ball[]
+  ) => {
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Clear
+    ctx.fillStyle = GAME.canvasColor;
+    ctx.fillRect(0, 0, w, h);
+
+    // Helper: normalized to screen coordinates
+    const toScreen = (nx: number, ny: number) => ({
+      x: ((nx + 1) / 2) * w,
+      y: ((1 - ny) / 2) * h,
+    });
+
+    // Draw grid background
+    ctx.fillStyle = GRID.color;
+    const gridSize = GRID.spacing * w;
+    for (let gx = 0; gx < w; gx += gridSize) {
+      for (let gy = 0; gy < h / 2; gy += gridSize) {
+        // Checkerboard pattern
+        if ((Math.floor(gx / gridSize) + Math.floor(gy / gridSize)) % 2 === 0) {
+          ctx.fillStyle = GRID.color;
+        } else {
+          ctx.fillStyle = GRID.alternateColor;
+        }
+        ctx.fillRect(gx, gy, gridSize, gridSize);
+      }
+    }
+
+    // Draw walls
+    ctx.fillStyle = GAME.wallColor;
+    for (const wall of WALLS) {
+      const topLeft = toScreen(wall.x - wall.width / 2, wall.y + wall.height / 2);
+      const screenWidth = wall.width * (w / 2);
+      const screenHeight = wall.height * (h / 2);
+      ctx.fillRect(topLeft.x, topLeft.y, screenWidth, screenHeight);
+    }
+
+    // Draw paddle
+    const currentPaddleX = useArkanoidStore.getState().paddleX;
+    const paddleLeft = toScreen(currentPaddleX - PADDLE.width / 2, PADDLE.y + PADDLE.height / 2);
+    const paddleWidth = PADDLE.width * (w / 2);
+    const paddleHeight = PADDLE.height * (h / 2);
+
+    // Gradient paddle
+    const gradient = ctx.createLinearGradient(
+      paddleLeft.x,
+      paddleLeft.y,
+      paddleLeft.x + paddleWidth,
+      paddleLeft.y
+    );
+    gradient.addColorStop(0, "#fbbf24");
+    gradient.addColorStop(0.5, "#ef4444");
+    gradient.addColorStop(1, "#fbbf24");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(paddleLeft.x, paddleLeft.y, paddleWidth, paddleHeight);
+
+    // Paddle border
+    ctx.strokeStyle = PADDLE.borderColor;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(paddleLeft.x, paddleLeft.y, paddleWidth, paddleHeight);
+
+    // Draw balls
+    ballsToRender.forEach((ball) => {
+      const pos = toScreen(ball.x, ball.y);
+      const radius = BALL_CONFIG[ball.type].radius * (w / 2);
+
+      // Ball gradient
+      const ballGradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, radius);
+      ballGradient.addColorStop(0, BALL_CONFIG[ball.type].color);
+      ballGradient.addColorStop(1, "#1e293b");
+
+      ctx.fillStyle = ballGradient;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }, []);
 
   // Main game loop
   useEffect(() => {
@@ -176,16 +259,17 @@ export function ArkanoidGame() {
           const spawnChance = BALL_CONFIG[ball.type].spawnChance;
           if (Math.random() < spawnChance) {
             // Spawn new ball
+            const spawnedType = getSpawnedBallType(ball.type);
             const angle = Math.random() * Math.PI * 2;
             const speed = 1.5;
             addBall({
-              type: ball.type,
+              type: spawnedType,
               x: x + Math.cos(angle) * radius * 3,
               y: y + Math.sin(angle) * radius * 3,
               vx: Math.cos(angle) * speed,
               vy: Math.sin(angle) * speed,
             });
-            addScore(BALL_CONFIG[ball.type].points);
+            addScore(BALL_CONFIG[spawnedType].points);
           }
         }
 
@@ -232,90 +316,7 @@ export function ArkanoidGame() {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [gameState, addBall, updateBalls, addScore, updateMultiplier, endGame]);
-
-  // Render function
-  const render = (
-    ctx: CanvasRenderingContext2D,
-    canvas: HTMLCanvasElement,
-    ballsToRender: Ball[]
-  ) => {
-    const w = canvas.width;
-    const h = canvas.height;
-
-    // Clear
-    ctx.fillStyle = GAME.canvasColor;
-    ctx.fillRect(0, 0, w, h);
-
-    // Helper: normalized to screen coordinates
-    const toScreen = (nx: number, ny: number) => ({
-      x: ((nx + 1) / 2) * w,
-      y: ((1 - ny) / 2) * h,
-    });
-
-    // Draw grid background
-    ctx.fillStyle = GRID.color;
-    const gridSize = GRID.spacing * w;
-    for (let gx = 0; gx < w; gx += gridSize) {
-      for (let gy = 0; gy < h / 2; gy += gridSize) {
-        // Checkerboard pattern
-        if ((Math.floor(gx / gridSize) + Math.floor(gy / gridSize)) % 2 === 0) {
-          ctx.fillStyle = GRID.color;
-        } else {
-          ctx.fillStyle = GRID.alternateColor;
-        }
-        ctx.fillRect(gx, gy, gridSize, gridSize);
-      }
-    }
-
-    // Draw walls
-    ctx.fillStyle = GAME.wallColor;
-    for (const wall of WALLS) {
-      const topLeft = toScreen(wall.x - wall.width / 2, wall.y + wall.height / 2);
-      const screenWidth = wall.width * (w / 2);
-      const screenHeight = wall.height * (h / 2);
-      ctx.fillRect(topLeft.x, topLeft.y, screenWidth, screenHeight);
-    }
-
-    // Draw paddle
-    const paddleLeft = toScreen(paddleX - PADDLE.width / 2, PADDLE.y + PADDLE.height / 2);
-    const paddleWidth = PADDLE.width * (w / 2);
-    const paddleHeight = PADDLE.height * (h / 2);
-
-    // Gradient paddle
-    const gradient = ctx.createLinearGradient(
-      paddleLeft.x,
-      paddleLeft.y,
-      paddleLeft.x + paddleWidth,
-      paddleLeft.y
-    );
-    gradient.addColorStop(0, "#fbbf24");
-    gradient.addColorStop(0.5, "#ef4444");
-    gradient.addColorStop(1, "#fbbf24");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(paddleLeft.x, paddleLeft.y, paddleWidth, paddleHeight);
-
-    // Paddle border
-    ctx.strokeStyle = PADDLE.borderColor;
-    ctx.lineWidth = 3;
-    ctx.strokeRect(paddleLeft.x, paddleLeft.y, paddleWidth, paddleHeight);
-
-    // Draw balls
-    ballsToRender.forEach((ball) => {
-      const pos = toScreen(ball.x, ball.y);
-      const radius = BALL_CONFIG[ball.type].radius * (w / 2);
-
-      // Ball gradient
-      const ballGradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, radius);
-      ballGradient.addColorStop(0, BALL_CONFIG[ball.type].color);
-      ballGradient.addColorStop(1, "#1e293b");
-
-      ctx.fillStyle = ballGradient;
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-      ctx.fill();
-    });
-  };
+  }, [gameState, addBall, updateBalls, addScore, updateMultiplier, endGame, render]);
 
   // Resize canvas to match display size
   useEffect(() => {

@@ -41,7 +41,7 @@ export const Vehicle = forwardRef<RapierRigidBody, VehicleProps>(
   const getTruckStats = useGameStore((s) => s.getTruckStats);
   const customization = useGameStore((s) => s.customization);
   const nosCharge = useGameStore((s) => s.nosCharge);
-  const useNos = useGameStore((s) => s.useNos);
+  const drainNos = useGameStore((s) => s.useNos);
   const rechargeNos = useGameStore((s) => s.rechargeNos);
   const addAirtime = useGameStore((s) => s.addAirtime);
   const addFlip = useGameStore((s) => s.addFlip);
@@ -180,7 +180,7 @@ export const Vehicle = forwardRef<RapierRigidBody, VehicleProps>(
     if (controls.nos && nosCharge > 0 && grounded) {
       // Only use NOS when grounded (can't thrust in air)
       nosMultiplier = PHYSICS.NOS.FORCE_MULTIPLIER * stats.nos;
-      useNos(PHYSICS.NOS.DRAIN_RATE * delta);
+      drainNos(PHYSICS.NOS.DRAIN_RATE * delta);
     } else if (!controls.nos) {
       // Always recharge when not using (even in air)
       rechargeNos(PHYSICS.NOS.RECHARGE_RATE * delta);
