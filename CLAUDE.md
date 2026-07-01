@@ -575,15 +575,38 @@ Age-appropriate considerations.
 **Every significant feature MUST have tests.** This prevents breaking things as we add more.
 
 ### Test Requirements
-1. **Run tests before pushing** - `cd apps/web && pnpm test` (there is no `test` script at the repo root)
-2. **Add tests for new components** - at minimum, "renders without crashing"
-3. **Test critical game logic** - physics helpers, scoring, controls
-4. **Keep tests fast** - should run in <30 seconds total
+1. **Add tests for new components** - at minimum, "renders without crashing"
+2. **Test critical game logic** - physics helpers, scoring, controls
+3. **Keep tests fast** - should run in <30 seconds total
+
+### MANDATORY: Run the full local CI gate before EVERY push / PR
+There is no GitHub Actions CI — the local gate is the ONLY gate, so run all of it
+before anything hits GitHub (whether opening a PR or committing into one). Run each
+step, in order, and STOP on the first failure — never push red:
+
+```bash
+cd apps/web
+pnpm install --frozen-lockfile   # deps match the lockfile
+pnpm lint                        # eslint (0 errors; warnings are OK)
+pnpm typecheck                   # tsc --noEmit
+pnpm test                        # vitest run
+pnpm build                       # authoritative typecheck + regenerates game metadata
+```
+
+A **pre-push git hook enforces this automatically** (`.githooks/pre-push`) — it runs
+the exact gate above and blocks the push if anything fails. It's tracked in the repo;
+activate it once per clone with `git config core.hooksPath .githooks` (this also enables
+the gitleaks secret-scan `pre-commit` hook). Bypass only in a genuine emergency with
+`git push --no-verify`. If you `--no-verify`, you MUST still run the gate by hand first.
+
+> If you add a real CI step, keep `.githooks/pre-push` and this list in sync so
+> local == CI (see the `ci-local-gate` rule).
 
 ### Test Commands
 ```bash
 cd apps/web && pnpm test        # Run all tests (no `test` script exists at the repo root)
 cd apps/web && pnpm test:watch  # Watch mode during development
+cd apps/web && pnpm typecheck   # tsc --noEmit (part of the pre-push gate)
 ```
 
 ### What to Test
