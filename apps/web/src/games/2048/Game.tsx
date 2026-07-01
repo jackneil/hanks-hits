@@ -353,7 +353,7 @@ export function Game2048() {
       </div>
 
       {/* Inline styles for animations */}
-      <style jsx global>{`
+      <style>{`
         @keyframes spawn {
           0% {
             transform: scale(0);
@@ -393,7 +393,11 @@ export function Game2048() {
 
       <ScoreBoard />
 
-      <div ref={containerRef} className="relative touch-none select-none">
+      <div
+        ref={containerRef}
+        data-testid="game-2048-board-wrapper"
+        className="relative w-full max-w-[400px] touch-none select-none"
+      >
         <Grid />
         <GameOverOverlay />
         <WinOverlay />

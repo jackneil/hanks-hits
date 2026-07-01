@@ -351,6 +351,14 @@ export function RetroArcadeGame() {
     }
   };
 
+  const handleToggleFavorite = (gameId: string) => {
+    if (store.isFavorite(gameId)) {
+      store.removeFavorite(gameId);
+    } else {
+      store.addFavorite(gameId);
+    }
+  };
+
   const handleExit = () => {
     store.stopGame();
   };
@@ -434,6 +442,8 @@ export function RetroArcadeGame() {
               systemName={catalogInfo.systemName}
               onGameSelect={handleGameSelect}
               onUploadClick={() => setShowUploader(true)}
+              favoriteIds={store.favorites}
+              onToggleFavorite={handleToggleFavorite}
             />
           </div>
 

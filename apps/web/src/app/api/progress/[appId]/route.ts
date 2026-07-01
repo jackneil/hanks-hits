@@ -11,7 +11,7 @@ import {
 } from "@hank-neil/db/schema";
 import { mergeProgress } from "@/lib/progress-merge";
 import { validateProgress } from "@/lib/progress-schemas";
-import { checkProgressRateLimit } from "@/lib/rate-limit";
+import { checkProgressDeleteRateLimit, checkProgressRateLimit } from "@/lib/rate-limit";
 import { generateUniqueHandle } from "@/lib/handle-generator";
 import {
   extractLeaderboardScore,
@@ -93,7 +93,6 @@ export async function GET(request: Request, context: RouteContext) {
  *
  * Body:
  * - data: AppProgressData - the entire game state
- * - localTimestamp?: number - client's last modified timestamp
  * - merge?: boolean - if true, merge with server data instead of overwrite
  */
 export async function POST(request: Request, context: RouteContext) {
@@ -127,9 +126,8 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const body = await request.json();
-    const { data, localTimestamp, merge = false } = body as {
+    const { data, merge = false } = body as {
       data: AppProgressData;
-      localTimestamp?: number;
       merge?: boolean;
     };
 
@@ -174,11 +172,10 @@ export async function POST(request: Request, context: RouteContext) {
 
       if (existing) {
         const serverTimestamp = existing.updatedAt.getTime();
-        const nowTimestamp = Date.now();
         const mergeResult = mergeProgress(
           validation.data as AppProgressData,
           existing.data as AppProgressData,
-          nowTimestamp,
+          null,
           serverTimestamp
         );
         finalData = mergeResult.data;
@@ -366,7 +363,7 @@ export async function DELETE(request: Request, context: RouteContext) {
     }
 
     // Rate limit: 10 deletes per minute per user (stricter than saves)
-    const rateLimit = checkProgressRateLimit(session.user.id);
+    const rateLimit = checkProgressDeleteRateLimit(session.user.id);
     if (!rateLimit.success) {
       return NextResponse.json(
         { error: `Too many requests. Try again in ${rateLimit.resetIn}s` },

@@ -1,27 +1,39 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useToyFinderStore } from "./lib/store";
+import Link from "next/link";
+import { useToyFinderStore, type WishlistItem } from "./lib/store";
 import {
   TOY_CATEGORIES,
+  AGE_RANGES,
   PRIORITIES,
   CURATED_TOYS,
   getToyById,
   type Toy,
   type ToyCategory,
+  type AgeRange,
   type Priority,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { FullscreenButton } from "@/shared/components/FullscreenButton";
 
+const CONFETTI_SYMBOLS = ["&#x2B50;", "&#x1F389;", "&#x2728;", "&#x1F381;"];
+const CONFETTI_PIECES = Array.from({ length: 20 }, (_, i) => ({
+  id: i,
+  left: Math.random() * 100,
+  delay: Math.random() * 0.5,
+  size: 1 + Math.random() * 1.5,
+  symbol: CONFETTI_SYMBOLS[Math.floor(Math.random() * CONFETTI_SYMBOLS.length)],
+}));
+
 /**
  * Toy Finder - Kid-friendly toy discovery app
  *
  * Features:
  * - Browse toys by category
- * - Add to wishlist with priority levels
- * - View and manage wishlist
+ * - Save toy ideas with priority levels
+ * - View and manage an idea list
  * - Persistent storage
  */
 export function ToyFinder() {
@@ -56,7 +68,7 @@ export function ToyFinder() {
         const toy = getToyById(item.toyId);
         return toy ? { toy, item } : null;
       })
-      .filter(Boolean) as { toy: Toy; item: (typeof store.wishlistItems)[0] }[];
+      .filter(Boolean) as { toy: Toy; item: WishlistItem }[];
   }, [store.wishlistItems]);
 
   // Handle add to wishlist
@@ -75,9 +87,13 @@ export function ToyFinder() {
     store.setCategory(category);
   };
 
-  // Get priority info
-  const getPriorityInfo = (priority: Priority) => {
-    return PRIORITIES.find((p) => p.id === priority) || PRIORITIES[1];
+  const handleAgeRangeChange = (ageRange: AgeRange) => {
+    store.setAgeRange(ageRange);
+  };
+
+  const showAllToys = () => {
+    store.setCategory("all");
+    store.setAgeRange("all");
   };
 
   return (
@@ -93,13 +109,13 @@ export function ToyFinder() {
       {/* Header */}
       <header className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
-          <a
+          <Link
             href="/"
             className="text-3xl hover:scale-110 transition-transform"
             aria-label="Back to home"
           >
             &#x1F3E0;
-          </a>
+          </Link>
           <h1 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg">
             &#x1F381; Toy Finder
           </h1>
@@ -107,7 +123,7 @@ export function ToyFinder() {
         <button
           onClick={() => store.setShowWishlist(true)}
           className="btn btn-lg bg-pink-500 hover:bg-pink-600 border-none text-white text-xl shadow-lg gap-2"
-          aria-label="View wishlist"
+          aria-label="View idea list"
         >
           &#x2764;&#xFE0F;
           {store.wishlistItems.length > 0 && (
@@ -117,6 +133,14 @@ export function ToyFinder() {
           )}
         </button>
       </header>
+
+      <div className="mb-4 border-l-4 border-white/80 bg-white/15 px-4 py-3 text-sm leading-relaxed text-white shadow-sm">
+        <p className="font-bold">Idea list, not a store</p>
+        <p>
+          Prices are only a rough guide. Nothing can be bought here, and a
+          grown-up should check before any purchase.
+        </p>
+      </div>
 
       {/* Category Tabs */}
       <div className="flex flex-wrap gap-2 justify-center mb-6 overflow-x-auto pb-2">
@@ -132,6 +156,28 @@ export function ToyFinder() {
           >
             <span className="mr-1">{cat.emoji}</span>
             {cat.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Age Filter */}
+      <div
+        className="flex flex-wrap gap-2 justify-center mb-6"
+        aria-label="Filter toys by age range"
+      >
+        {AGE_RANGES.map((ageRange) => (
+          <button
+            key={ageRange.id}
+            type="button"
+            onClick={() => handleAgeRangeChange(ageRange.id)}
+            aria-pressed={store.selectedAgeRange === ageRange.id}
+            className={`btn btn-sm rounded-full font-bold transition-all whitespace-nowrap touch-manipulation ${
+              store.selectedAgeRange === ageRange.id
+                ? "bg-emerald-300 text-purple-950 shadow-lg scale-105"
+                : "bg-white/80 text-purple-800 hover:bg-white"
+            }`}
+          >
+            {ageRange.label}
           </button>
         ))}
       </div>
@@ -218,11 +264,11 @@ export function ToyFinder() {
                     }`}
                   >
                     {isJustAdded ? (
-                      <>&#x2705; ADDED!</>
+                      <>&#x2705; SAVED!</>
                     ) : isInWishlist ? (
-                      <>&#x2764;&#xFE0F; In Wishlist</>
+                      <>&#x2764;&#xFE0F; Saved Idea</>
                     ) : (
-                      <>&#x1F60D; I WANT THIS!</>
+                      <>&#x1F4A1; Save Idea</>
                     )}
                   </button>
                 </div>
@@ -236,10 +282,10 @@ export function ToyFinder() {
           <div className="text-center py-12">
             <div className="text-6xl mb-4">&#x1F61E;</div>
             <p className="text-white text-xl">
-              No toys found in this category.
+              No toys found for these filters.
             </p>
             <button
-              onClick={() => store.setCategory("all")}
+              onClick={showAllToys}
               className="btn btn-lg bg-yellow-400 text-purple-900 mt-4"
             >
               Show All Toys
@@ -254,7 +300,7 @@ export function ToyFinder() {
           <div className="bg-white rounded-3xl max-w-lg w-full max-h-[85vh] overflow-hidden shadow-2xl">
             <div className="bg-gradient-to-r from-pink-500 to-purple-500 p-4 flex justify-between items-center">
               <h2 className="text-2xl font-bold text-white">
-                &#x1F381; My Wishlist
+                &#x1F381; My Idea List
               </h2>
               <button
                 onClick={() => store.setShowWishlist(false)}
@@ -268,10 +314,10 @@ export function ToyFinder() {
                 <div className="text-center py-8">
                   <div className="text-6xl mb-4">&#x1F622;</div>
                   <p className="text-gray-600 text-lg">
-                    Your wishlist is empty!
+                    Your idea list is empty!
                   </p>
                   <p className="text-gray-500 mt-2">
-                    Go find some awesome toys to add!
+                    Go find some fun ideas to save.
                   </p>
                   <button
                     onClick={() => store.setShowWishlist(false)}
@@ -283,7 +329,6 @@ export function ToyFinder() {
               ) : (
                 <div className="space-y-4">
                   {wishlistToys.map(({ toy, item }) => {
-                    const priorityInfo = getPriorityInfo(item.priority);
                     return (
                       <div
                         key={toy.id}
@@ -293,7 +338,7 @@ export function ToyFinder() {
                         <button
                           onClick={() => store.removeFromWishlist(toy.id)}
                           className="absolute top-2 right-2 btn btn-circle btn-xs bg-red-100 text-red-500 border-none hover:bg-red-200"
-                          aria-label="Remove from wishlist"
+                          aria-label="Remove from idea list"
                         >
                           &#x2715;
                         </button>
@@ -342,7 +387,7 @@ export function ToyFinder() {
                       <span>{wishlistToys.length}</span>
                     </div>
                     <div className="flex justify-between text-green-600 font-bold text-xl mt-2">
-                      <span>Total Value:</span>
+                      <span>Estimated Total:</span>
                       <span>
                         $
                         {wishlistToys
@@ -350,6 +395,10 @@ export function ToyFinder() {
                           .toFixed(2)}
                       </span>
                     </div>
+                    <p className="mt-2 text-sm text-gray-500">
+                      Price totals are for planning only. Check with a grown-up
+                      before buying anything.
+                    </p>
                   </div>
                 </div>
               )}
@@ -361,18 +410,18 @@ export function ToyFinder() {
       {/* Confetti effect */}
       {confetti && (
         <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
-          {[...Array(20)].map((_, i) => (
+          {CONFETTI_PIECES.map((piece) => (
             <div
-              key={i}
+              key={piece.id}
               className="absolute animate-confetti"
               style={{
-                left: `${Math.random() * 100}%`,
+                left: `${piece.left}%`,
                 top: "-10%",
-                animationDelay: `${Math.random() * 0.5}s`,
-                fontSize: `${1 + Math.random() * 1.5}rem`,
+                animationDelay: `${piece.delay}s`,
+                fontSize: `${piece.size}rem`,
               }}
             >
-              {["&#x2B50;", "&#x1F389;", "&#x2728;", "&#x1F381;"][Math.floor(Math.random() * 4)]}
+              {piece.symbol}
             </div>
           ))}
         </div>
@@ -390,7 +439,7 @@ export function ToyFinder() {
       )}
 
       {/* Custom animations */}
-      <style jsx>{`
+      <style>{`
         @keyframes confetti {
           0% {
             transform: translateY(0) rotate(0deg);

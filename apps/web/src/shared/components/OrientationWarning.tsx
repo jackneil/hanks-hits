@@ -26,6 +26,9 @@ export function OrientationWarning({ disabled = false }: OrientationWarningProps
       // Use matchMedia for more reliable detection
       const portrait = window.matchMedia('(orientation: portrait)').matches;
       setIsPortrait(portrait);
+      if (!portrait) {
+        setDismissed(false);
+      }
     };
 
     // Initial check
@@ -43,13 +46,6 @@ export function OrientationWarning({ disabled = false }: OrientationWarningProps
       window.removeEventListener('resize', checkOrientation);
     };
   }, []);
-
-  // Reset dismissed state when rotating to landscape and back
-  useEffect(() => {
-    if (!isPortrait) {
-      setDismissed(false);
-    }
-  }, [isPortrait]);
 
   // Don't show if disabled, dismissed, or in landscape
   if (disabled || dismissed || !isPortrait) return null;
@@ -82,7 +78,7 @@ export function OrientationWarning({ disabled = false }: OrientationWarningProps
         Continue in portrait anyway
       </button>
 
-      <style jsx>{`
+      <style>{`
         @keyframes tilt {
           0%, 100% {
             transform: rotate(0deg);

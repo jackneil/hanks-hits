@@ -29,8 +29,8 @@ export type AgeRange = (typeof AGE_RANGES)[number]["id"];
 
 // Priority levels for wishlist
 export const PRIORITIES = [
-  { id: "need", label: "NEED IT!", emoji: "🔥", color: "bg-red-500" },
-  { id: "want", label: "Want It", emoji: "⭐", color: "bg-orange-400" },
+  { id: "need", label: "Top Idea", emoji: "🔥", color: "bg-red-500" },
+  { id: "want", label: "Good Idea", emoji: "⭐", color: "bg-orange-400" },
   { id: "maybe", label: "Maybe", emoji: "🤔", color: "bg-gray-400" },
 ] as const;
 

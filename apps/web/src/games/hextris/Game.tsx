@@ -208,7 +208,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
       ctx.font = "18px Arial";
       ctx.fillText("Tap to Resume", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
     }
-  }, [store]);
+  }, [canvasRef, store]);
 
   return render;
 }

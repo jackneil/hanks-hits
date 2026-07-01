@@ -48,7 +48,7 @@ export default function SignUpPage() {
       }
 
       // Auto sign in after signup
-      const signInResult = await signInWithCredentials(email, password, true);
+      const signInResult = await signInWithCredentials(email, password);
 
       if (signInResult?.error) {
         // Account created but sign in failed - redirect to login
@@ -86,6 +86,15 @@ export default function SignUpPage() {
           </h1>
           <p className="text-gray-600">
             Create an account to save your progress
+          </p>
+        </div>
+
+        <div className="mb-6 border-l-4 border-green-500 pl-4 text-sm leading-relaxed text-gray-700">
+          <p className="font-bold text-gray-800">For grown-ups</p>
+          <p>
+            Accounts save game progress for this player. Leaderboard scores may
+            show the player&apos;s display name. Use a grown-up&apos;s email or
+            get permission before creating an account.
           </p>
         </div>
 

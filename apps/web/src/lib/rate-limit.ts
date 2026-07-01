@@ -125,6 +125,14 @@ export function checkProgressRateLimit(userId: string): RateLimitResult {
 }
 
 /**
+ * Rate limit for progress deletes: 10 requests per minute per user
+ * Stricter than saves because delete is destructive.
+ */
+export function checkProgressDeleteRateLimit(userId: string): RateLimitResult {
+  return checkRateLimit(`progress-delete:${userId}`, 10, 60 * 1000);
+}
+
+/**
  * Helper to extract IP from request headers
  */
 export function getClientIP(request: Request): string {

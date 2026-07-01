@@ -286,8 +286,8 @@ export const usePlatformerStore = create<PlatformerState>()(
         // Normalize delta to ~16ms (60fps)
         const normalizedDelta = Math.min(delta / 16.67, 2);
 
-        let { player, platforms, collectibles, particles, clouds, cameraX, groundOffset } = state;
-        const { movingLeft, movingRight } = state;
+        let { player, platforms, collectibles, clouds, cameraX, groundOffset } = state;
+        const { movingLeft, movingRight, particles } = state;
         const level = state.currentLevel;
 
         // Update time

@@ -225,7 +225,7 @@ export function WordleGame() {
             {/* Hint */}
             {revealedHint !== null && gameState === "playing" && (
               <div className="text-center text-yellow-400 font-bold">
-                💡 Hint: Letter {revealedHint + 1} is "{targetWord[revealedHint]}"
+                💡 Hint: Letter {revealedHint + 1} is &quot;{targetWord[revealedHint]}&quot;
               </div>
             )}
 
@@ -344,7 +344,7 @@ export function WordleGame() {
       </div>
 
       {/* Shake animation */}
-      <style jsx global>{`
+      <style>{`
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
           10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }

@@ -4,14 +4,13 @@ import { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'rea
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
 import type { RapierRigidBody } from '@react-three/rapier';
-import * as THREE from 'three';
 
 import { Vehicle } from './components/Vehicle';
 import { Terrain, Boundaries } from './components/Terrain';
 import { FollowCamera } from './components/FollowCamera';
 import { Collectibles } from './components/Collectibles';
 import { Destructibles } from './components/Destructibles';
-import { Environment } from './components/Environment';
+import { Environment, EnvironmentColliders } from './components/Environment';
 import { MobileControls } from './components/MobileControls';
 import { GameUI, PauseMenu } from './components/GameUI';
 import { Garage } from './components/Garage';
@@ -73,7 +72,7 @@ function GameScene({
   // Calculate spawn position dynamically based on terrain height
   // This prevents the truck from spawning inside the terrain
   const spawnPosition = useMemo(() => {
-    const [x, _, z] = WORLD.SPAWN.POSITION;
+    const [x, , z] = WORLD.SPAWN.POSITION;
     const terrainY = getTerrainHeight(x, z);
     return [x, terrainY + 3, z] as [number, number, number];
   }, []);
@@ -85,6 +84,7 @@ function GameScene({
       <Physics gravity={[0, -20, 0]} debug={false}>
         <Terrain />
         <Boundaries />
+        <EnvironmentColliders />
 
         <Vehicle
           ref={vehicleRef}

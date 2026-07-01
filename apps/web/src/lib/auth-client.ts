@@ -10,15 +10,12 @@ export { useSession, SessionProvider } from "next-auth/react";
  */
 export async function signInWithCredentials(
   email: string,
-  password: string,
-  rememberMe: boolean = true
+  password: string
 ) {
   return nextAuthSignIn("credentials", {
     email,
     password,
     redirect: false,
-    // Note: rememberMe is handled by session maxAge in auth config
-    // For now, we always use 30-day sessions
   });
 }
 

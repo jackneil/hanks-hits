@@ -54,6 +54,7 @@ export function GameShell({
           <button
             onClick={goHome}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl hover:scale-110 transition-transform active:scale-95"
+            aria-label="Back to games"
             title="Go Home"
           >
             🏠
@@ -77,6 +78,7 @@ export function GameShell({
             <button
               onClick={togglePause}
               className="min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl hover:scale-110 transition-transform active:scale-95"
+              aria-label={isPaused ? "Resume game" : "Pause game"}
               title="Pause (ESC)"
             >
               ⏸️

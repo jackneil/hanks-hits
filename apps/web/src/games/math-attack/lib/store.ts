@@ -27,6 +27,7 @@ interface MathAttackState extends MathAttackProgress {
   // Actions
   startGame: (initialLives: number) => void;
   addScore: (points: number, operation: Operation) => void;
+  recordAnswerAttempt: () => void;
   incrementCombo: () => void;
   resetCombo: () => void;
   loseLife: () => void;
@@ -88,6 +89,12 @@ export const useMathAttackStore = create<MathAttackState>()(
             lastModified: Date.now(),
           };
         }),
+
+      recordAnswerAttempt: () =>
+        set((state) => ({
+          totalAnswered: state.totalAnswered + 1,
+          lastModified: Date.now(),
+        })),
 
       incrementCombo: () =>
         set((state) => ({

@@ -182,6 +182,10 @@ export function VirtualPet() {
     const item = SHOP_ITEMS.find(i => i.id === inv.itemId);
     return item?.type === "food";
   });
+  const toyItems = store.progress.inventory.filter(inv => {
+    const item = SHOP_ITEMS.find(i => i.id === inv.itemId);
+    return item?.type === "toy";
+  });
 
   if (store.isPlaying) {
     return <MiniGame onEnd={(score) => store.endMiniGame(score)} />;
@@ -265,7 +269,7 @@ export function VirtualPet() {
       </div>
 
       {/* Action buttons */}
-      <div className="grid grid-cols-4 gap-3 w-full max-w-md mb-6">
+      <div className="grid grid-cols-5 gap-3 w-full max-w-md mb-6">
         {/* Feed button */}
         <div className="relative">
           <button
@@ -283,6 +287,27 @@ export function VirtualPet() {
           {foodItems.length > 0 && (
             <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
               {foodItems.reduce((sum, i) => sum + i.quantity, 0)}
+            </span>
+          )}
+        </div>
+
+        {/* Toy button */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              if (toyItems.length > 0) {
+                store.useToy(toyItems[0].itemId);
+              }
+            }}
+            disabled={toyItems.length === 0 || store.progress.pet.sleeping}
+            className="w-full aspect-square bg-orange-500 hover:bg-orange-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
+          >
+            <span className="text-3xl">⚽</span>
+            <span className="text-xs font-bold">Toy</span>
+          </button>
+          {toyItems.length > 0 && (
+            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+              {toyItems.reduce((sum, i) => sum + i.quantity, 0)}
             </span>
           )}
         </div>

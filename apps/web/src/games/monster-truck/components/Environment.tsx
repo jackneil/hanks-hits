@@ -8,6 +8,15 @@ import * as THREE from 'three';
 import { getTerrainHeight } from '../lib/terrainUtils';
 import { LAKES } from '../lib/constants';
 
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
+function positionSeed(position: [number, number, number], salt = 0): number {
+  return position[0] * 12.9898 + position[1] * 78.233 + position[2] * 37.719 + salt;
+}
+
 export function Environment() {
   return (
     <>
@@ -50,14 +59,20 @@ export function Environment() {
       {/* Clouds */}
       <Clouds />
 
+      {/* Lakes */}
+      <Lakes />
+    </>
+  );
+}
+
+export function EnvironmentColliders() {
+  return (
+    <>
       {/* Trees scattered around */}
       <Trees />
 
       {/* Rocks */}
       <Rocks />
-
-      {/* Lakes */}
-      <Lakes />
     </>
   );
 }
@@ -67,8 +82,8 @@ function Clouds() {
   const cloudData = useMemo(() =>
     Array.from({ length: 15 }, (_, i) => {
       const angle = (i / 15) * Math.PI * 2;
-      const distance = 150 + Math.random() * 100;
-      const height = 60 + Math.random() * 40;
+      const distance = 150 + seededRandom(i * 2 + 1) * 100;
+      const height = 60 + seededRandom(i * 2 + 2) * 40;
       return {
         position: [
           Math.cos(angle) * distance,
@@ -104,10 +119,11 @@ function isInLake(x: number, z: number): boolean {
 // Simple tree with collision on trunk
 function Tree({ position }: { position: [number, number, number] }) {
   // Memoize random values so they don't change every frame (was causing seizure-inducing flickering)
+  const seed = positionSeed(position, 1);
   const { scale, treeRotation } = useMemo(() => ({
-    scale: 0.8 + Math.random() * 0.4,
-    treeRotation: Math.random() * Math.PI * 2,
-  }), []);
+    scale: 0.8 + seededRandom(seed) * 0.4,
+    treeRotation: seededRandom(seed + 1) * Math.PI * 2,
+  }), [seed]);
 
   return (
     <RigidBody type="fixed" position={position} colliders={false}>
@@ -142,8 +158,8 @@ function Trees() {
   const positions = useMemo(() => {
     const result: [number, number, number][] = [];
     for (let i = 0; i < 150; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 40 + Math.random() * 200;
+      const angle = seededRandom(i * 2 + 101) * Math.PI * 2;
+      const distance = 40 + seededRandom(i * 2 + 102) * 200;
       const x = Math.cos(angle) * distance;
       const z = Math.sin(angle) * distance;
 
@@ -183,14 +199,14 @@ function Rocks() {
   const rocks = useMemo(() => {
     const result: { pos: [number, number, number]; scale: number }[] = [];
     for (let i = 0; i < 100; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 20 + Math.random() * 220;
+      const angle = seededRandom(i * 3 + 301) * Math.PI * 2;
+      const distance = 20 + seededRandom(i * 3 + 302) * 220;
       const x = Math.cos(angle) * distance;
       const z = Math.sin(angle) * distance;
       const y = getTerrainHeight(x, z) + 0.3;
       result.push({
         pos: [x, y, z],
-        scale: 0.5 + Math.random() * 2,
+        scale: 0.5 + seededRandom(i * 3 + 303) * 2,
       });
     }
     return result;

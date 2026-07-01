@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { useArkanoidStore } from "../lib/store";
+import { getSpawnedBallType } from "../lib/constants";
 
 describe("Arkanoid Store", () => {
   beforeEach(() => {
@@ -171,6 +172,25 @@ describe("Arkanoid Store", () => {
       const state = useArkanoidStore.getState();
       expect(state.balls).toHaveLength(4); // 3 initial + 1 added
       expect(state.progress.totalBallsSpawned).toBe(initialCount + 1);
+    });
+  });
+
+  describe("getSpawnedBallType", () => {
+    it("keeps blue balls blue for the normal spawn path", () => {
+      expect(getSpawnedBallType("blue", 0.5)).toBe("blue");
+    });
+
+    it("can upgrade blue wall-hit spawns to orange balls", () => {
+      expect(getSpawnedBallType("blue", 0.1)).toBe("orange");
+    });
+
+    it("can upgrade blue wall-hit spawns to yellow-dot bonus balls", () => {
+      expect(getSpawnedBallType("blue", 0.01)).toBe("yellow-dot");
+    });
+
+    it("preserves non-blue spawned ball types", () => {
+      expect(getSpawnedBallType("orange", 0.01)).toBe("orange");
+      expect(getSpawnedBallType("yellow-dot", 0.5)).toBe("yellow-dot");
     });
   });
 

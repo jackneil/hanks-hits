@@ -29,6 +29,7 @@ export function MathAttackGame() {
     settings,
     startGame,
     addScore,
+    recordAnswerAttempt,
     incrementCombo,
     resetCombo,
     loseLife,
@@ -106,11 +107,12 @@ export function MathAttackGame() {
       explosionsRef.current.push({ x: match.x, y: match.y, id: match.id, time: Date.now() });
     } else {
       // Wrong answer
+      recordAnswerAttempt();
       resetCombo();
     }
 
     setInputValue("");
-  }, [gameState, inputValue, combo, addScore, incrementCombo, resetCombo]);
+  }, [gameState, inputValue, combo, addScore, recordAnswerAttempt, incrementCombo, resetCombo]);
 
   // Keyboard input
   const handleKeyDown = useCallback(
@@ -172,6 +174,7 @@ export function MathAttackGame() {
         if (problem.y >= GAME.height - GAME.bottomZone) {
           if (!problem.reachedBottom) {
             problem.reachedBottom = true;
+            recordAnswerAttempt();
             loseLife();
           }
           // Remove problem after it's processed

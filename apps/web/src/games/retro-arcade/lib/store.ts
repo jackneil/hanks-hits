@@ -121,6 +121,15 @@ const defaultStats: PlayStats = {
   lastPlayedAt: 0,
 };
 
+function stripRuntimeBlobUrl(rom: CustomRom): Omit<CustomRom, "blobUrl"> {
+  return {
+    id: rom.id,
+    name: rom.name,
+    system: rom.system,
+    addedAt: rom.addedAt,
+  };
+}
+
 export const useRetroArcadeStore = create<RetroArcadeState>()(
   persist(
     (set, get) => ({
@@ -158,15 +167,26 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
 
       stopGame: () => {
         const state = get();
+        const currentRomUrl = state.currentRomUrl;
+
         // Revoke blob URL if it exists to free memory
-        if (state.currentRomUrl && state.currentRomUrl.startsWith("blob:")) {
-          URL.revokeObjectURL(state.currentRomUrl);
+        const customRoms = state.customRoms.map((rom) => {
+          if (currentRomUrl?.startsWith("blob:") && rom.blobUrl === currentRomUrl) {
+            return stripRuntimeBlobUrl(rom);
+          }
+          return rom;
+        });
+
+        if (currentRomUrl?.startsWith("blob:")) {
+          URL.revokeObjectURL(currentRomUrl);
         }
+
         set({
           currentRomUrl: null,
           currentRomName: null,
           isPlaying: false,
           isLoading: false,
+          customRoms,
         });
       },
 
@@ -174,10 +194,16 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
 
       // Favorites
       addFavorite: (gameId) =>
-        set((state) => ({
-          favorites: [...state.favorites, gameId],
-          lastModified: Date.now(),
-        })),
+        set((state) => {
+          if (state.favorites.includes(gameId)) {
+            return {};
+          }
+
+          return {
+            favorites: [...state.favorites, gameId],
+            lastModified: Date.now(),
+          };
+        }),
 
       removeFavorite: (gameId) =>
         set((state) => ({
@@ -278,7 +304,7 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
           recentlyPlayed: state.recentlyPlayed,
           saveStates: state.saveStates,
           // Strip blobUrl from customRoms for persistence
-          customRoms: state.customRoms.map(({ blobUrl, ...rest }) => rest),
+          customRoms: state.customRoms.map(stripRuntimeBlobUrl),
           stats: state.stats,
           settings: state.settings,
           lastModified: state.lastModified,
@@ -303,7 +329,7 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
         recentlyPlayed: state.recentlyPlayed,
         saveStates: state.saveStates,
         // Don't persist blobUrls
-        customRoms: state.customRoms.map(({ blobUrl, ...rest }) => rest),
+        customRoms: state.customRoms.map(stripRuntimeBlobUrl),
         stats: state.stats,
         settings: state.settings,
         lastModified: state.lastModified,

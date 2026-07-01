@@ -78,6 +78,20 @@ export function BlitzBomberGame() {
     return () => window.removeEventListener("resize", updateScale);
   }, []);
 
+  function drawCloud(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    size: number
+  ) {
+    ctx.beginPath();
+    ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.4, y - size * 0.1, size * 0.4, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.8, y, size * 0.5, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.4, y + size * 0.2, size * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Drawing functions
   const drawSky = useCallback((ctx: CanvasRenderingContext2D) => {
     const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
@@ -94,20 +108,6 @@ export function BlitzBomberGame() {
     drawCloud(ctx, 200, 150, 40);
     drawCloud(ctx, 700, 60, 50);
   }, []);
-
-  const drawCloud = (
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    size: number
-  ) => {
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.5, 0, Math.PI * 2);
-    ctx.arc(x + size * 0.4, y - size * 0.1, size * 0.4, 0, Math.PI * 2);
-    ctx.arc(x + size * 0.8, y, size * 0.5, 0, Math.PI * 2);
-    ctx.arc(x + size * 0.4, y + size * 0.2, size * 0.35, 0, Math.PI * 2);
-    ctx.fill();
-  };
 
   const drawPlane = useCallback(
     (ctx: CanvasRenderingContext2D) => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useWeatherStore } from "./lib/store";
 import type { GeoLocation, CurrentWeather, ForecastDay } from "./lib/store";
 import {
@@ -102,9 +103,7 @@ export function Weather() {
   // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (store.searchQuery) {
-        searchLocations(store.searchQuery);
-      }
+      searchLocations(store.searchQuery);
     }, 300);
     return () => clearTimeout(timer);
   }, [store.searchQuery, searchLocations]);
@@ -242,13 +241,13 @@ export function Weather() {
       {/* Header */}
       <header className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
-          <a
+          <Link
             href="/"
             className="text-3xl hover:scale-110 transition-transform"
             aria-label="Back to home"
           >
             &#x1F3E0;
-          </a>
+          </Link>
           <h1 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg">
             Weather Buddy
           </h1>

@@ -184,6 +184,9 @@ export type Alien = {
   type: AlienType;
   x: number;
   y: number;
+  width?: number;
+  height?: number;
+  sizeMultiplier?: number;
   alive: boolean;
   animationFrame: number; // 0 or 1 for two-frame animation
 };

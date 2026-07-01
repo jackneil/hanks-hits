@@ -59,6 +59,7 @@ export type VirtualPetState = {
 type VirtualPetActions = {
   // Pet actions
   feed: (itemId: string) => void;
+  useToy: (itemId: string) => void;
   play: () => void;
   sleep: () => void;
   wake: () => void;
@@ -240,6 +241,41 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
             stats: {
               ...state.progress.stats,
               totalFeedings: state.progress.stats.totalFeedings + 1,
+            },
+            lastModified: Date.now(),
+          },
+        });
+      },
+
+      useToy: (itemId) => {
+        const state = get();
+        if (state.progress.pet.sleeping) return;
+
+        const item = SHOP_ITEMS.find(i => i.id === itemId);
+        if (!item || item.type !== "toy") return;
+
+        const invItem = state.progress.inventory.find(i => i.itemId === itemId);
+        if (!invItem || invItem.quantity <= 0) return;
+
+        playSound("play", state.progress.settings.soundEnabled);
+
+        const happinessGain = item.effect?.stat === "happiness" ? item.effect.amount : 0;
+        const newInventory = state.progress.inventory.map(i =>
+          i.itemId === itemId ? { ...i, quantity: i.quantity - 1 } : i
+        ).filter(i => i.quantity > 0);
+
+        set({
+          progress: {
+            ...state.progress,
+            pet: {
+              ...state.progress.pet,
+              happiness: clamp(state.progress.pet.happiness + happinessGain, 0, 100),
+              lastChecked: new Date().toISOString(),
+            },
+            inventory: newInventory,
+            stats: {
+              ...state.progress.stats,
+              totalPlaySessions: state.progress.stats.totalPlaySessions + 1,
             },
             lastModified: Date.now(),
           },
@@ -454,7 +490,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         }
 
         // Handle cosmetics
-        let equippedCosmetics = [...state.progress.equippedCosmetics];
+        const equippedCosmetics = [...state.progress.equippedCosmetics];
         if (item.type === "cosmetic" && !equippedCosmetics.includes(itemId)) {
           equippedCosmetics.push(itemId);
         }

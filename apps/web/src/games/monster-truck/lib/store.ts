@@ -232,6 +232,54 @@ const defaultChallenges: Challenge[] = [
   { id: 'flip-5', name: 'Flipmaster', description: 'Do 5 flips', type: 'stunt', target: 5, reward: 600, completed: false },
 ];
 
+type ChallengeProgressSnapshot = Pick<
+  GameState,
+  | 'sessionCoins'
+  | 'sessionAirtime'
+  | 'sessionFlips'
+  | 'sessionDestructions'
+  | 'starsCollected'
+>;
+
+type ChallengeCompletionSnapshot = ChallengeProgressSnapshot &
+  Pick<GameState, 'coins' | 'totalCoinsEarned' | 'challenges'>;
+
+export function getChallengeProgress(
+  state: ChallengeProgressSnapshot,
+  challenge: Challenge
+): number {
+  switch (challenge.id) {
+    case 'collect-10-stars':
+      return state.starsCollected;
+    case 'airtime-10':
+      return state.sessionAirtime;
+    case 'smash-20':
+      return state.sessionDestructions;
+    case 'collect-500':
+      return state.sessionCoins;
+    case 'flip-5':
+      return state.sessionFlips;
+    default:
+      return 0;
+  }
+}
+
+function getChallengeCompletionUpdate(state: ChallengeCompletionSnapshot): {
+  challenges: Challenge[];
+  reward: number;
+} {
+  let reward = 0;
+  const challenges = state.challenges.map((challenge) => {
+    if (challenge.completed) return challenge;
+    if (getChallengeProgress(state, challenge) < challenge.target) return challenge;
+
+    reward += challenge.reward;
+    return { ...challenge, completed: true };
+  });
+
+  return { challenges, reward };
+}
+
 // ============================================================================
 // STORE
 // ============================================================================
@@ -261,11 +309,22 @@ export const useGameStore = create<GameState & GameActions>()(
       showChallenges: false,
 
       // Currency actions
-      addCoins: (amount) => set((state) => ({
-        coins: state.coins + amount,
-        totalCoinsEarned: state.totalCoinsEarned + amount,
-        sessionCoins: state.sessionCoins + amount,
-      })),
+      addCoins: (amount) => set((state) => {
+        const nextState = {
+          ...state,
+          coins: state.coins + amount,
+          totalCoinsEarned: state.totalCoinsEarned + amount,
+          sessionCoins: state.sessionCoins + amount,
+        };
+        const { challenges, reward } = getChallengeCompletionUpdate(nextState);
+
+        return {
+          coins: nextState.coins + reward,
+          totalCoinsEarned: nextState.totalCoinsEarned + reward,
+          sessionCoins: nextState.sessionCoins,
+          challenges,
+        };
+      }),
 
       spendCoins: (amount) => {
         const state = get();
@@ -338,21 +397,65 @@ export const useGameStore = create<GameState & GameActions>()(
       })),
 
       // Session actions
-      addAirtime: (seconds) => set((state) => ({
-        sessionAirtime: state.sessionAirtime + seconds,
-      })),
+      addAirtime: (seconds) => set((state) => {
+        const nextState = {
+          ...state,
+          sessionAirtime: state.sessionAirtime + seconds,
+        };
+        const { challenges, reward } = getChallengeCompletionUpdate(nextState);
 
-      addFlip: () => set((state) => ({
-        sessionFlips: state.sessionFlips + 1,
-      })),
+        return {
+          coins: nextState.coins + reward,
+          totalCoinsEarned: nextState.totalCoinsEarned + reward,
+          sessionAirtime: nextState.sessionAirtime,
+          challenges,
+        };
+      }),
 
-      addDestruction: () => set((state) => ({
-        sessionDestructions: state.sessionDestructions + 1,
-      })),
+      addFlip: () => set((state) => {
+        const nextState = {
+          ...state,
+          sessionFlips: state.sessionFlips + 1,
+        };
+        const { challenges, reward } = getChallengeCompletionUpdate(nextState);
 
-      collectStar: () => set((state) => ({
-        starsCollected: state.starsCollected + 1,
-      })),
+        return {
+          coins: nextState.coins + reward,
+          totalCoinsEarned: nextState.totalCoinsEarned + reward,
+          sessionFlips: nextState.sessionFlips,
+          challenges,
+        };
+      }),
+
+      addDestruction: () => set((state) => {
+        const nextState = {
+          ...state,
+          sessionDestructions: state.sessionDestructions + 1,
+        };
+        const { challenges, reward } = getChallengeCompletionUpdate(nextState);
+
+        return {
+          coins: nextState.coins + reward,
+          totalCoinsEarned: nextState.totalCoinsEarned + reward,
+          sessionDestructions: nextState.sessionDestructions,
+          challenges,
+        };
+      }),
+
+      collectStar: () => set((state) => {
+        const nextState = {
+          ...state,
+          starsCollected: state.starsCollected + 1,
+        };
+        const { challenges, reward } = getChallengeCompletionUpdate(nextState);
+
+        return {
+          coins: nextState.coins + reward,
+          totalCoinsEarned: nextState.totalCoinsEarned + reward,
+          starsCollected: nextState.starsCollected,
+          challenges,
+        };
+      }),
 
       resetSession: () => set({
         sessionCoins: 0,

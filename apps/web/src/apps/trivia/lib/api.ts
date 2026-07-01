@@ -37,20 +37,18 @@ export async function fetchQuestions(
     params.set("category", String(category));
   }
 
-  try {
-    const res = await fetch(`${BASE_URL}?${params}`);
-    const data: ApiResponse = await res.json();
+  const res = await fetch(`${BASE_URL}?${params}`);
+  const data: ApiResponse = await res.json();
 
-    if (data.response_code !== 0) {
-      console.error("Trivia API error code:", data.response_code);
-      return [];
-    }
-
-    return data.results;
-  } catch (error) {
-    console.error("Failed to fetch trivia questions:", error);
-    return [];
+  if (data.response_code !== 0) {
+    throw new Error(`Trivia API error code: ${data.response_code}`);
   }
+
+  if (data.results.length === 0) {
+    throw new Error("Trivia API returned no questions");
+  }
+
+  return data.results;
 }
 
 /**

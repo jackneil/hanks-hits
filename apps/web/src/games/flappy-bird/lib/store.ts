@@ -137,7 +137,7 @@ export const useFlappyStore = create<FlappyBirdState>()(
         // Update bird physics
         let newVelocity = state.bird.velocity + PHYSICS.GRAVITY * normalizedDelta;
         newVelocity = Math.min(newVelocity, PHYSICS.MAX_FALL_SPEED);
-        let newY = state.bird.y + newVelocity * normalizedDelta;
+        const newY = state.bird.y + newVelocity * normalizedDelta;
 
         // Calculate rotation based on velocity
         let newRotation = state.bird.rotation;

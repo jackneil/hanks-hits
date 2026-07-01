@@ -57,12 +57,18 @@ global.ResizeObserver = class ResizeObserver {
 };
 
 // Mock WebGL context for Three.js
-HTMLCanvasElement.prototype.getContext = ((originalGetContext) => {
-  return function (
-    this: HTMLCanvasElement,
-    contextId: string,
-    options?: unknown
-  ) {
+type CanvasGetContext = typeof HTMLCanvasElement.prototype.getContext;
+const originalGetContext = HTMLCanvasElement.prototype.getContext as (
+  this: HTMLCanvasElement,
+  contextId: string,
+  options?: unknown
+) => unknown;
+
+HTMLCanvasElement.prototype.getContext = (function (
+  this: HTMLCanvasElement,
+  contextId: string,
+  options?: unknown
+) {
     if (contextId === 'webgl' || contextId === 'webgl2') {
       return {
         canvas: this,
@@ -119,5 +125,4 @@ HTMLCanvasElement.prototype.getContext = ((originalGetContext) => {
       } as unknown as WebGLRenderingContext;
     }
     return originalGetContext.call(this, contextId, options);
-  };
-})(HTMLCanvasElement.prototype.getContext);
+}) as CanvasGetContext;

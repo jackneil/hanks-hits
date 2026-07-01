@@ -9,7 +9,6 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(true); // Default checked for kids
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -19,7 +18,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const result = await signInWithCredentials(email, password, rememberMe);
+      const result = await signInWithCredentials(email, password);
 
       if (result?.error) {
         setError("Invalid email or password");
@@ -124,21 +123,6 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-          </div>
-
-          {/* Remember Me Checkbox */}
-          <div className="form-control">
-            <label className="label cursor-pointer justify-start gap-3">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="checkbox checkbox-primary checkbox-lg"
-              />
-              <span className="label-text text-base">
-                Stay signed in for 30 days
-              </span>
-            </label>
           </div>
 
           <button

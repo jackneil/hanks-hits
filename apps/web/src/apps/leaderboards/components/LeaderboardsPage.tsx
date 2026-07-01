@@ -8,6 +8,7 @@ import { Header } from "@/shared/components/Header";
 import {
   getGameMetadata,
 } from "@/shared/lib/gameMetadata.generated";
+import { getPlayableHref } from "@/shared/lib/app-routing";
 import { LEADERBOARD_ENABLED_GAMES } from "@/lib/leaderboard-extractors";
 
 interface MyRank {
@@ -381,7 +382,7 @@ export function LeaderboardsPage() {
         {/* Play Button */}
         <section className="max-w-4xl mx-auto px-4 mb-8">
           <Link
-            href={`/games/${selectedGame}`}
+            href={getPlayableHref(selectedGame)}
             className="group relative block w-full py-5 overflow-hidden rounded-2xl font-black text-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
           >
             {/* Animated gradient background */}
@@ -430,7 +431,7 @@ export function LeaderboardsPage() {
       </div>
 
       {/* Custom animations */}
-      <style jsx>{`
+      <style>{`
         @keyframes float-slow {
           0%, 100% {
             transform: translateY(0) rotate(0deg);

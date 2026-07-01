@@ -47,3 +47,11 @@ Thumbs.db
 
 # Auto-backups taken before editing a game, so "oops, go back" can restore it — local.
 .game-backups/
+
+# Session checkpoints — kept on disk for resume, not committed.
+.claude/checkpoints/
+
+# QA / dogfooding tool output — regenerated, not source. Never commit.
+.playwright-mcp/
+dogfood-output/
+dogfood-output-*/

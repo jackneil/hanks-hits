@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useGameStore } from '../lib/store';
+import { useGameStore, type Challenge } from '../lib/store';
 
 // Default trucks to reset - must match store defaults
 const defaultTrucks = [
@@ -9,6 +9,14 @@ const defaultTrucks = [
   { id: 'grip-king', name: 'Grip King', cost: 5000, description: '', baseStats: { engine: 1, suspension: 1, tires: 1.4, nos: 1 }, color: '#3498db', unlocked: false },
   { id: 'speed-demon', name: 'Speed Demon', cost: 8000, description: '', baseStats: { engine: 1.5, suspension: 0.9, tires: 1.1, nos: 1.2 }, color: '#9b59b6', unlocked: false },
   { id: 'the-beast', name: 'The Beast', cost: 15000, description: '', baseStats: { engine: 1.3, suspension: 1.3, tires: 1.3, nos: 1.3 }, color: '#f39c12', unlocked: false },
+];
+
+const defaultChallenges: Challenge[] = [
+  { id: 'collect-10-stars', name: 'Star Collector', description: 'Collect 10 stars', type: 'collection', target: 10, reward: 300, completed: false },
+  { id: 'airtime-10', name: 'Hang Time', description: 'Get 10 seconds of airtime', type: 'stunt', target: 10, reward: 500, completed: false },
+  { id: 'smash-20', name: 'Demolition Derby', description: 'Smash 20 objects', type: 'destruction', target: 20, reward: 350, completed: false },
+  { id: 'collect-500', name: 'Coin Hunter', description: 'Collect 500 coins', type: 'collection', target: 500, reward: 400, completed: false },
+  { id: 'flip-5', name: 'Flipmaster', description: 'Do 5 flips', type: 'stunt', target: 5, reward: 600, completed: false },
 ];
 
 const createDefaultUpgrades = () => ({
@@ -33,6 +41,7 @@ describe('Monster Truck Game Store', () => {
       sessionFlips: 0,
       sessionDestructions: 0,
       starsCollected: 0,
+      challenges: defaultChallenges.map(c => ({ ...c })),
       nosCharge: 100,
       nosMaxCharge: 100,
       isPaused: false,
@@ -56,7 +65,7 @@ describe('Monster Truck Game Store', () => {
 
     it('spends coins when sufficient balance', () => {
       const store = useGameStore.getState();
-      store.addCoins(500);
+      useGameStore.setState({ coins: 500 });
 
       const result = store.spendCoins(200);
       expect(result).toBe(true);
@@ -84,7 +93,7 @@ describe('Monster Truck Game Store', () => {
 
     it('unlocks a truck when enough coins', () => {
       const store = useGameStore.getState();
-      store.addCoins(2000);
+      useGameStore.setState({ coins: 2000 });
 
       const result = store.unlockTruck('big-red');
       expect(result).toBe(true);
@@ -109,7 +118,7 @@ describe('Monster Truck Game Store', () => {
 
     it('selects an unlocked truck', () => {
       const store = useGameStore.getState();
-      store.addCoins(2000);
+      useGameStore.setState({ coins: 2000 });
       store.unlockTruck('big-red');
       store.selectTruck('big-red');
 
@@ -127,7 +136,7 @@ describe('Monster Truck Game Store', () => {
   describe('Upgrades', () => {
     it('upgrades a stat when enough coins', () => {
       const store = useGameStore.getState();
-      store.addCoins(100);
+      useGameStore.setState({ coins: 100 });
 
       const result = store.upgradeStat('mud-crusher', 'engine');
       expect(result).toBe(true);
@@ -149,7 +158,7 @@ describe('Monster Truck Game Store', () => {
 
     it('calculates truck stats with upgrades', () => {
       const store = useGameStore.getState();
-      store.addCoins(1000);
+      useGameStore.setState({ coins: 1000 });
       store.upgradeStat('mud-crusher', 'engine');
       store.upgradeStat('mud-crusher', 'engine');
 
@@ -198,6 +207,52 @@ describe('Monster Truck Game Store', () => {
       expect(state.sessionFlips).toBe(0);
       // But total coins remain
       expect(state.coins).toBe(100);
+    });
+  });
+
+  describe('Challenges', () => {
+    it('auto-completes and rewards coin collection challenges once', () => {
+      const store = useGameStore.getState();
+
+      store.addCoins(500);
+
+      let state = useGameStore.getState();
+      expect(state.challenges.find(c => c.id === 'collect-500')?.completed).toBe(true);
+      expect(state.sessionCoins).toBe(500);
+      expect(state.coins).toBe(900);
+      expect(state.totalCoinsEarned).toBe(900);
+
+      store.addCoins(10);
+
+      state = useGameStore.getState();
+      expect(state.coins).toBe(910);
+      expect(state.totalCoinsEarned).toBe(910);
+    });
+
+    it('auto-completes stunt and destruction challenges from gameplay counters', () => {
+      const store = useGameStore.getState();
+
+      store.addAirtime(10);
+      Array.from({ length: 5 }).forEach(() => store.addFlip());
+      Array.from({ length: 20 }).forEach(() => store.addDestruction());
+
+      const state = useGameStore.getState();
+      expect(state.challenges.find(c => c.id === 'airtime-10')?.completed).toBe(true);
+      expect(state.challenges.find(c => c.id === 'flip-5')?.completed).toBe(true);
+      expect(state.challenges.find(c => c.id === 'smash-20')?.completed).toBe(true);
+      expect(state.coins).toBe(1450);
+      expect(state.totalCoinsEarned).toBe(1450);
+    });
+
+    it('auto-completes the star challenge when enough stars are collected', () => {
+      const store = useGameStore.getState();
+
+      Array.from({ length: 10 }).forEach(() => store.collectStar());
+
+      const state = useGameStore.getState();
+      expect(state.challenges.find(c => c.id === 'collect-10-stars')?.completed).toBe(true);
+      expect(state.starsCollected).toBe(10);
+      expect(state.coins).toBe(300);
     });
   });
 

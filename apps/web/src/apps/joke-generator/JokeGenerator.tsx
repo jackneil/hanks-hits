@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useJokeStore } from "./lib/store";
 import {
   JOKE_CATEGORIES,
@@ -160,13 +161,13 @@ export function JokeGenerator() {
       {/* Header */}
       <header className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
-          <a
+          <Link
             href="/"
             className="text-3xl hover:scale-110 transition-transform"
             aria-label="Back to home"
           >
             &#x1F3E0;
-          </a>
+          </Link>
           <h1 className="text-2xl md:text-3xl font-bold text-purple-800 drop-shadow-sm">
             Joke Generator
           </h1>
@@ -412,7 +413,7 @@ export function JokeGenerator() {
       )}
 
       {/* Custom animations */}
-      <style jsx>{`
+      <style>{`
         @keyframes fadeIn {
           from {
             opacity: 0;

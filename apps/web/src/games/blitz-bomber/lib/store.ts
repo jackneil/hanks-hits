@@ -165,7 +165,7 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
         const normalizedDelta = Math.min(delta / 16.67, 2);
 
         // Update plane position
-        let newPlane = { ...state.plane };
+        const newPlane = { ...state.plane };
         const planeSpeed = settings.planeSpeed * (1 + state.passCount * 0.05); // Speed increases slightly each pass
         newPlane.x += planeSpeed * newPlane.direction * normalizedDelta;
 
@@ -191,7 +191,7 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
 
         // Check bomb collisions with buildings
         let newScore = state.score;
-        let newBuildings = [...state.buildings];
+        const newBuildings = [...state.buildings];
         let newExplosions = [...state.explosions];
         let explosionIdCounter = state.explosionIdCounter;
         let buildingsDestroyedThisFrame = 0;

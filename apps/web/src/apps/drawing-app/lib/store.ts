@@ -43,6 +43,7 @@ export interface DrawingAppProgress {
   [key: string]: unknown;
   settings: DrawingSettings;
   stats: DrawingStats;
+  savedArtworks?: SavedArtwork[];
   lastModified: number;
 }
 
@@ -313,6 +314,7 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
         return {
           settings: state.settings,
           stats: state.stats,
+          savedArtworks: state.savedArtworks,
           lastModified: state.lastModified,
         };
       },
@@ -321,6 +323,7 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
         set({
           settings: data.settings ?? defaultSettings,
           stats: data.stats ?? defaultStats,
+          savedArtworks: data.savedArtworks ?? get().savedArtworks,
           lastModified: Date.now(),
         });
       },
