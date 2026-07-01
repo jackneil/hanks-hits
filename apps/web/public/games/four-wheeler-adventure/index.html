@@ -68,6 +68,15 @@
     cursor: pointer; z-index: 5;
   }
   #raceBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #c98a00; }
+  #endRaceBtn {
+    display: none;
+    position: fixed; top: 122px; right: 14px;
+    font: inherit; font-size: 15px; font-weight: bold; color: #fff;
+    background: linear-gradient(#ff6b5e, #d6342a); border: none; padding: 8px 18px;
+    border-radius: 40px; box-shadow: 0 4px 0 #9c1f18, 0 8px 14px rgba(0,0,0,0.3);
+    cursor: pointer; z-index: 5;
+  }
+  #endRaceBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #9c1f18; }
   #raceStatus {
     position: fixed; top: 110px; left: 50%; transform: translateX(-50%);
     pointer-events: none; color: #fff; display: none;
@@ -414,6 +423,7 @@
   <canvas id="speedo" width="120" height="120"></canvas>
 
   <button id="raceBtn">🏁 Start the Race</button>
+  <button id="endRaceBtn">🛑 End Race</button>
   <button id="switchBtn">🚤 Hop in the Boat</button>
   <button id="bailBtn">🪂 Bail Out</button>
   <button id="camBtn">🎥 Camera</button>
@@ -832,16 +842,16 @@ const parked = {
 };
 const ATV_BAY = { x: GARAGE.x - 350, y: GARAGE.y - 18, angle: Math.PI/2 };   // the ATV's own garage bay (8 bays total)
 const VLABEL = { atv:'Quad 🏍️', boat:'Boat 🚤', jetski:'Jet Ski 🛥️', pontoon:'Pontoon 🛥️', fishingboat:'Fishing Boat 🎣', minifishingboat:'Mini Fishing Boat 🎣', yacht:'Mega Yacht 🛥️', plane:'Plane ✈️', heli:'Helicopter 🚁', utv:'Side-by-Side 🛻', truck:'Truck 🚚', moto:'Motorcycle 🏍️', lambo:'Lamborghini 🏎️', semi:'18-Wheeler 🚛', firetruck:'Fire Truck 🚒', monster:'Monster Truck 🛻', racecar:'Race Car 🏎️', muscle:'Muscle Car 🏎️', canoe:'Canoe 🛶', sailboat:'Sailboat ⛵', tugboat:'Tugboat 🚢', tractor:'Tractor 🚜', jet:'Jet 🚀', biplane:'Biplane 🛩️', chopper:'Chopper 🚁', rv:'Camper 🚐' };
-// 🚲 Bikes — real bike types with realistic top speeds (mph) + prices. (key, label, real mph, price, frame colour, options)
+// 🚲 Bikes — 2× their real top speeds (mph) so the Kids' Bike isn't a snail. (key, label, mph, price, frame colour, options)
 const BIKES = [
-  ['kids',    "🚲 Kids' Bike",          9,  480,   '#e84fae', { tire: 6 }],
-  ['bmx',     '🚲 BMX Bike',            15, 1400,  '#e0481a', { tire: 6 }],
-  ['cruiser', '🚲 Cruiser Bike',        14, 1200,  '#2aa86a', { tire: 7 }],
-  ['mtb',     '🚵 Mountain Bike',       22, 3400,  '#3a6ee0', { tire: 8 }],
-  ['road',    '🚴 Road Bike',           30, 6000,  '#ffd23f', { tire: 4 }],
-  ['ebike',   '⚡ Electric City Bike',   20, 7200,  '#10b0a0', { tire: 6, e: true }],
-  ['emtb',    '⚡ Electric Mtn Bike',    28, 14000, '#5a3ad0', { tire: 8, e: true }],
-  ['supere',  '⚡ Super E-Bike',         45, 18000, '#2a2d33', { tire: 7, e: true }],
+  ['kids',    "🚲 Kids' Bike",          18, 480,   '#e84fae', { tire: 6 }],
+  ['bmx',     '🚲 BMX Bike',            30, 1400,  '#e0481a', { tire: 6 }],
+  ['cruiser', '🚲 Cruiser Bike',        28, 1200,  '#2aa86a', { tire: 7 }],
+  ['mtb',     '🚵 Mountain Bike',       44, 3400,  '#3a6ee0', { tire: 8 }],
+  ['road',    '🚴 Road Bike',           60, 6000,  '#ffd23f', { tire: 4 }],
+  ['ebike',   '⚡ Electric City Bike',   40, 7200,  '#10b0a0', { tire: 6, e: true }],
+  ['emtb',    '⚡ Electric Mtn Bike',    56, 14000, '#5a3ad0', { tire: 8, e: true }],
+  ['supere',  '⚡ Super E-Bike',         90, 18000, '#2a2d33', { tire: 7, e: true }],
 ];
 const BIKE_CFG = {}, BIKE_COST = {};
 BIKES.forEach(([key, label, mph, cost, col, opt]) => {
@@ -1261,6 +1271,7 @@ function startRace() {
   race.state = 'countdown'; race.countdown = 3.2; race.time = 0; race.winner = null;
   document.getElementById('start').style.display = 'none';
   document.getElementById('raceBtn').textContent = '🔄 Restart Race';
+  setEndRaceVisible(true);
   running = true; startAudio();
 }
 
@@ -1271,6 +1282,17 @@ function setCountdown(txt) {
 function setRaceStatus(txt) {
   const e = document.getElementById('raceStatus');
   e.textContent = txt; e.style.display = txt ? 'block' : 'none';
+}
+function setEndRaceVisible(v) {
+  const e = document.getElementById('endRaceBtn');
+  if (e) e.style.display = v ? 'block' : 'none';
+}
+// Bail out of a race early and go back to just free-roaming — no win, no loss.
+function endRace() {
+  race.state = 'idle'; race.winner = null; race.flash = ''; race.flashTime = 0;
+  setCountdown(''); setRaceStatus('');
+  document.getElementById('raceBtn').textContent = '🏁 Start the Race';
+  setEndRaceVisible(false);
 }
 
 /* ---- Getting in/out of vehicles, walking around, and parachuting ---- */
@@ -1309,7 +1331,7 @@ function updateSwitchLabel() {
   }
   b.textContent = '🚶 Get Out & Walk';
 }
-function parkHere(m) { parked[m] = { x: atv.x, y: atv.y, angle: atv.angle }; }
+function parkHere(m) { parked[m] = { x: atv.x, y: atv.y, angle: atv.angle, mud: carMud }; }   // mud stays with the vehicle you leave behind
 // NOS: a burst of nitrous that makes you go TWICE as fast — works in any vehicle or the train.
 function nos() {
   if (mode === 'foot' || mode === 'mount' || inHouse) { hint('🔥 Hop in a vehicle to use NOS!'); return; }
@@ -1361,6 +1383,7 @@ function boardOrExit() {
     if (mode !== 'foot') parkHere(mode);         // leave your current ride here
     mode = near.k;
     atv.x = parked[mode].x; atv.y = parked[mode].y; atv.angle = parked[mode].angle;
+    carMud = parked[mode].mud || 0;              // hop back in — still just as muddy as you left it!
     atv.speed = 0; atv.air = 0; atv.airVel = 0; chute = 0;
     if (isAir(mode)) { planeAlt = 130; planeRoll = 0; }
     aiming = false; inStand = false; hitched = null; canvas.style.cursor = 'pointer';
@@ -1678,9 +1701,9 @@ function update(dt) {
     carMud = Math.max(0, carMud - 0.035); if (hitched && hitched.mud) hitched.mud = Math.max(0, hitched.mud - 0.035);
     if (waterDrops.length < 130) for (let i = 0; i < 3; i++) { const a = Math.random() * 6.28, sp = 1 + Math.random() * 3; waterDrops.push({ x: atv.x + (Math.random()-0.5)*40, y: atv.y - 30 + (Math.random()-0.5)*30, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp + 1, life: 0.6, r: 2 + Math.random()*2, col: '#bfe6f5' }); }
   }
-  // 💦 the hand-held water nozzle: hold to spray (and wash your car)
+  // 💦 the hand-held water nozzle: hold to spray — washes whichever parked vehicle you're standing close to
   if (usingNozzle && sprayingNozzle) {
-    carMud = Math.max(0, carMud - 0.02); if (hitched && hitched.mud) hitched.mud = Math.max(0, hitched.mud - 0.02);
+    for (const k in parked) { if (parked[k] && dist(atv.x, atv.y, parked[k].x, parked[k].y) < 110) parked[k].mud = Math.max(0, (parked[k].mud || 0) - 0.02); }
     const fx = atv.x + Math.cos(atv.angle) * 16, fy = atv.y + Math.sin(atv.angle) * 16;
     if (waterDrops.length < 130) for (let i = 0; i < 4; i++) { const a = atv.angle + (Math.random()-0.5)*0.5, sp = 7 + Math.random()*7; waterDrops.push({ x: fx, y: fy, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp, life: 0.8, r: 2 + Math.random()*2.5, col: '#bfe6f5' }); }
   }
@@ -1891,18 +1914,13 @@ function update(dt) {
   } else if (race.state === 'racing') {
     race.time += dt;
     setCountdown(race.time < 0.7 ? 'GO!' : '');
-    if (offCooldown > 0) offCooldown -= dt;
     updateProgress(atv);
     updateRival();
 
-    // If you drive off the track, you just respawn where you left it — no penalty.
-    if (onTrack(atv.x, atv.y, 55)) {
-      atv.lastOn = { x: atv.x, y: atv.y, angle: atv.angle };   // remember the last good spot
-    } else if (offCooldown <= 0) {
-      if (atv.lastOn) { atv.x = atv.lastOn.x; atv.y = atv.lastOn.y; atv.angle = atv.lastOn.angle; }
-      atv.speed = 0; offCooldown = 1.0;
-      race.flash = '↩️ Back on the track!'; race.flashTime = 1.1;
-    }
+    // Driving during a race feels exactly like free roam — no invisible walls,
+    // no forced stop-and-teleport for wandering off the dirt road. Lap progress
+    // (updateProgress, above) already tracks you by nearest waypoint, so racing
+    // still works correctly no matter where on the map you drive.
 
     // Item boxes: the first racer to reach a checkpoint slows the other one
     for (const cp of checkpoints) {
@@ -1925,6 +1943,7 @@ function update(dt) {
       if (race.winner === 'you') addMoney(10000);          // 💵 $10,000 for winning the race!
       setRaceStatus(race.winner === 'you' ? '🏆 YOU WIN! +$10,000 🏆' : '🐶 Rival wins — try again!');
       document.getElementById('raceBtn').textContent = '🏁 Race Again';
+      setEndRaceVisible(false);
     } else if (race.state === 'racing') {
       if (race.flashTime > 0) { race.flashTime -= dt; setRaceStatus(race.flash); }
       else setRaceStatus(atv.passed >= rival.passed ? '🟢 You lead!' : '🔵 Rival leads!');
@@ -2259,7 +2278,7 @@ function draw() {
     }
   }
   // Any vehicles you're NOT using, parked where you left them (or at the garage)
-  for (const k in parked) if (parked[k]) drawVehicle(k, parked[k].x, parked[k].y, parked[k].angle, 0, 0);
+  for (const k in parked) if (parked[k]) drawVehicle(k, parked[k].x, parked[k].y, parked[k].angle, 0, 0, parked[k].mud || 0);
   drawGarageDoors();   // closed doors hide the garage cars (drawn over them)
   // falling bombs
   for (const b of bombs) {
@@ -2292,13 +2311,9 @@ function draw() {
     if (riding && riding.isHorse) { drawHorse(riding, atv.x, atv.y, atv.angle); ctx.save(); ctx.translate(atv.x, atv.y); ctx.rotate(atv.angle + Math.PI/2); ctx.translate(0, 1); ctx.scale(0.62, 0.62); drawPerson(0, 0, -Math.PI/2, 0, false); ctx.restore(); }   // YOU on a horse
     else { ctx.save(); ctx.translate(atv.x, atv.y); ctx.rotate(atv.angle + Math.PI/2); ctx.translate(0, -3); ctx.scale(0.72, 0.72); drawDog(PLAYER_SKIN); ctx.restore(); }   // you, riding the animal
   }
-  else { if (mode === 'train') { const w = trainWorldPos(); if (w.h > 5) { ctx.save(); ctx.globalAlpha = 0.22; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(atv.x, atv.y + w.h, 24, 14, 0, 0, 6.28); ctx.fill(); ctx.restore(); } } drawVehicle(mode, atv.x, atv.y, atv.angle, atv.steer, atv.air); }
+  else { if (mode === 'train') { const w = trainWorldPos(); if (w.h > 5) { ctx.save(); ctx.globalAlpha = 0.22; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(atv.x, atv.y + w.h, 24, 14, 0, 0, 6.28); ctx.fill(); ctx.restore(); } } drawVehicle(mode, atv.x, atv.y, atv.angle, atv.steer, atv.air, carMud); }
   if (isGround(mode)) drawPlowMount(atv.x, atv.y, atv.angle, atv.air);   // front mount + snow plow on your car
-  if (isGround(mode) && carMud > 0.06) {   // 🟤 mud splattered all over your car
-    ctx.save(); ctx.translate(atv.x, atv.y - atv.air); ctx.rotate(atv.angle); ctx.globalAlpha = Math.min(0.82, carMud);
-    [['#5a3a1c',-9,-7,5],['#6b4a28',7,-11,4],['#4a3018',11,5,5],['#5a3a1c',-11,9,4],['#6b4a28',2,2,6],['#4a3018',-3,14,4],['#5a3a1c',9,-2,3.5],['#6b4a28',-7,-13,3.5],['#4a3018',5,12,4]].forEach(([c, x, y, rr]) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, rr * (0.55 + carMud * 0.6), 0, 6.28); ctx.fill(); });
-    ctx.globalAlpha = 1; ctx.restore();
-  }
+  // (mud on your current vehicle is now drawn inside drawVehicle() itself, above — see the isGround(bt) && mud check there)
   if (carryingCorn && mode === 'foot') {   // a corn sack you're hauling to a feeder
     ctx.save(); ctx.translate(atv.x + 11, atv.y - 4);
     ctx.fillStyle = '#b8915a'; roundRect(-6, -9, 12, 17, 3); ctx.fill();
@@ -3647,9 +3662,12 @@ function drawPlanet() {
   ctx.restore();
   ctx.fillStyle = 'rgba(255,255,255,0.94)'; ctx.font = 'bold 20px Trebuchet MS'; ctx.textAlign = 'center'; ctx.fillText('🪐 ' + p.name, W/2, 34);
 }
-const WORLD_HUD = ['raceBtn','switchBtn','bailBtn','camBtn','trailerBtn','sellBtn','mapBtn','garageBtn','towBtn','fleetBtn','lightBtn','phoneBtn','houseBtn','sleepBtn','eatBtn','closetBtn','askBtn','feedDogBtn','retrieveBtn','sellKillsBtn','invBtn','plowBtn','putHorseBtn','rideHorseBtn','fillBtn','sprayBtn','ladderBtn','nozzleBtn','sprayNozzleBtn','mowBtn','cabinEnterBtn','camperEnterBtn','insideCamperBtn','inAirBtn','slideBtn','swingBtn','castBtn','deckBtn','helmBtn','sellFishBtn','netsBtn','cabinBtn','yachtSkiBtn','tenderBtn','yachtUtvBtn','yachtHeliBtn','loadUtvBtn','landHeliBtn','loadSkiBtn','loadTenderBtn','leaveHouseBtn','trainBtn','rideTrainBtn','aircraftBtn','nosBtn','blastOffBtn','milkBtn','milkHud'];
+const WORLD_HUD = ['raceBtn','endRaceBtn','switchBtn','bailBtn','camBtn','trailerBtn','sellBtn','mapBtn','garageBtn','towBtn','fleetBtn','lightBtn','phoneBtn','houseBtn','sleepBtn','eatBtn','closetBtn','askBtn','feedDogBtn','retrieveBtn','sellKillsBtn','invBtn','plowBtn','putHorseBtn','rideHorseBtn','fillBtn','sprayBtn','ladderBtn','nozzleBtn','sprayNozzleBtn','mowBtn','cabinEnterBtn','camperEnterBtn','insideCamperBtn','inAirBtn','slideBtn','swingBtn','castBtn','deckBtn','helmBtn','sellFishBtn','netsBtn','cabinBtn','yachtSkiBtn','tenderBtn','yachtUtvBtn','yachtHeliBtn','loadUtvBtn','landHeliBtn','loadSkiBtn','loadTenderBtn','leaveHouseBtn','trainBtn','rideTrainBtn','aircraftBtn','nosBtn','blastOffBtn','milkBtn','milkHud'];
 function hideWorldHud() { for (const id of WORLD_HUD) { const e = document.getElementById(id); if (e) e.style.display = 'none'; } }
-function showWorldHud() { for (const id of WORLD_HUD) { const e = document.getElementById(id); if (e) e.style.display = ''; } }
+function showWorldHud() {
+  for (const id of WORLD_HUD) { const e = document.getElementById(id); if (e) e.style.display = ''; }
+  setEndRaceVisible(race.state === 'countdown' || race.state === 'racing');   // only pop back up mid-race
+}
 
 // A hitch ball at the back + a winch at the front — drawn on every vehicle.
 function drawRig(gx, gy, angle, air, back, front) {
@@ -3707,7 +3725,7 @@ function drawTrailer(t) {
 }
 
 // Picks the right sprite for whatever vehicle is being drawn, then adds its rig.
-function drawVehicle(m, x, y, angle, steer, air) {
+function drawVehicle(m, x, y, angle, steer, air, mud) {
   const bt = baseType(m);
   currentPaint = paint[m] || null;   // custom paint colour for this vehicle (from the customizing garage)
   if      (bt === 'atv')   drawATV(x, y, angle, steer, air, PLAYER_SKIN);
@@ -3739,6 +3757,11 @@ function drawVehicle(m, x, y, angle, steer, air) {
   else if (bt === 'semi')  drawSemi(x, y, angle, steer, air);
   else if (bt === 'lambo') drawLambo(x, y, angle, steer, air);
   if (RIG[bt]) drawRig(x, y, angle, air, RIG[bt][0], RIG[bt][1]);   // hitch + winch on every vehicle
+  if (isGround(bt) && mud > 0.06) {   // 🟤 mud splattered all over the vehicle — stays even while parked!
+    ctx.save(); ctx.translate(x, y - air); ctx.rotate(angle); ctx.globalAlpha = Math.min(0.82, mud);
+    [['#5a3a1c',-9,-7,5],['#6b4a28',7,-11,4],['#4a3018',11,5,5],['#5a3a1c',-11,9,4],['#6b4a28',2,2,6],['#4a3018',-3,14,4],['#5a3a1c',9,-2,3.5],['#6b4a28',-7,-13,3.5],['#4a3018',5,12,4]].forEach(([c, x, y, rr]) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x, y, rr * (0.55 + mud * 0.6), 0, 6.28); ctx.fill(); });
+    ctx.globalAlpha = 1; ctx.restore();
+  }
   currentPaint = null;
 }
 
@@ -5034,6 +5057,7 @@ document.getElementById('playBtn').addEventListener('click', () => {
 });
 
 document.getElementById('raceBtn').addEventListener('click', startRace);
+document.getElementById('endRaceBtn').addEventListener('click', endRace);
 document.getElementById('switchBtn').addEventListener('click', () => { boardOrExit(); startAudio(); });
 document.getElementById('bailBtn').addEventListener('click', () => { bailOut(); startAudio(); });
 addEventListener('keydown', e => {
@@ -5751,7 +5775,7 @@ function hopOnJetSki() {
 function loadYachtSki() {
   if (mode !== yachtSkiKey) return;
   if (!yachtKey || !parked[yachtKey] || dist(atv.x, atv.y, parked[yachtKey].x, parked[yachtKey].y) > 400) { hint('🛥️ Ride the jet ski right up to the yacht to load it!'); return; }
-  const y = parked[yachtKey]; delete parked[yachtKey]; mode = yachtKey; atv.x = y.x; atv.y = y.y; atv.angle = y.angle; atv.speed = 0;
+  const y = parked[yachtKey]; delete parked[yachtKey]; mode = yachtKey; atv.x = y.x; atv.y = y.y; atv.angle = y.angle; atv.speed = 0; carMud = y.mud || 0;
   yachtSkiKey = null; hint('🛥️ Loaded the jet ski back onto the yacht!');
 }
 function slide() {
@@ -5896,6 +5920,8 @@ function sprayWater() {
   fireWater = Math.max(0, fireWater - 3);
   const fx = atv.x + Math.cos(atv.angle) * 54, fy = atv.y + Math.sin(atv.angle) * 54;
   for (let i = 0; i < 16; i++) { const a = atv.angle + (Math.random() - 0.5) * 0.5, sp = 8 + Math.random() * 9; waterDrops.push({ x: fx, y: fy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, r: 2 + Math.random() * 2.5 }); }
+  // 🚒 aim the hose right at a muddy parked vehicle, anywhere on the map, to wash it clean
+  for (const k in parked) { if (parked[k] && dist(fx, fy, parked[k].x, parked[k].y) < 55) parked[k].mud = Math.max(0, (parked[k].mud || 0) - 0.05); }
 }
 function toggleLadder() {
   if (baseType(mode) !== 'firetruck') { hint('🪜 Only the Fire Truck has a ladder!'); return; }
@@ -5988,7 +6014,7 @@ function hopOnTender() {
 function loadYachtTender() {
   if (mode !== yachtTenderKey) return;
   if (!yachtKey || !parked[yachtKey] || dist(atv.x, atv.y, parked[yachtKey].x, parked[yachtKey].y) > 400) { hint('🛥️ Drive the fishing boat right up to the yacht to load it!'); return; }
-  const y = parked[yachtKey]; delete parked[yachtKey]; mode = yachtKey; atv.x = y.x; atv.y = y.y; atv.angle = y.angle; atv.speed = 0;
+  const y = parked[yachtKey]; delete parked[yachtKey]; mode = yachtKey; atv.x = y.x; atv.y = y.y; atv.angle = y.angle; atv.speed = 0; carMud = y.mud || 0;
   yachtTenderKey = null; hint('🎣 Loaded the fishing boat back onto the yacht!');
 }
 function launchYachtUTV() {
@@ -6004,7 +6030,7 @@ function launchYachtUTV() {
 function loadYachtUTV() {
   if (mode !== yachtUTVkey) return;
   if (!yachtKey || !parked[yachtKey] || dist(atv.x, atv.y, parked[yachtKey].x, parked[yachtKey].y) > 380) { hint('🛥️ Drive the side-by-side right up to the yacht to load it!'); return; }
-  const y = parked[yachtKey]; delete parked[yachtKey]; mode = yachtKey; atv.x = y.x; atv.y = y.y; atv.angle = y.angle; atv.speed = 0;
+  const y = parked[yachtKey]; delete parked[yachtKey]; mode = yachtKey; atv.x = y.x; atv.y = y.y; atv.angle = y.angle; atv.speed = 0; carMud = y.mud || 0;
   yachtHasUTV = true; yachtUTVkey = null; hint('🛻 Loaded the side-by-side back onto the yacht!');
 }
 function launchYachtHeli() {
@@ -6018,7 +6044,7 @@ function launchYachtHeli() {
 function landYachtHeli() {
   if (mode !== yachtHeliKey) return;
   if (!yachtKey || !parked[yachtKey] || dist(atv.x, atv.y, parked[yachtKey].x, parked[yachtKey].y) > 420) { hint('🛥️ Fly back over the yacht to land on it!'); return; }
-  const y = parked[yachtKey]; delete parked[yachtKey]; mode = yachtKey; atv.x = y.x; atv.y = y.y; atv.angle = y.angle; atv.speed = 0; atv.air = 0;
+  const y = parked[yachtKey]; delete parked[yachtKey]; mode = yachtKey; atv.x = y.x; atv.y = y.y; atv.angle = y.angle; atv.speed = 0; carMud = y.mud || 0; atv.air = 0;
   yachtHasHeli = true; yachtHeliKey = null; hint('🚁 Landed the helicopter back on the yacht!');
 }
 function backToHelm() { onDeck = false; hint('🛞 Back at the helm.'); }
