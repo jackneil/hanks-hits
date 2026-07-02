@@ -951,7 +951,7 @@ let inStandLift = 30;          // how high you perch (tree stand = high, ground 
 let aiming = false;            // is the gun scope up?
 let mouseX = 0, mouseY = 0;    // crosshair position on screen
 const AIM_ZOOM = 2.4;          // how much the scope zooms in
-let VIEW_W = 1, VIEW_H = 1, lastCamX = 0, lastCamY = 0;   // camera info for aiming math
+let VIEW_W = 1, VIEW_H = 1, lastCamX = 0, lastCamY = 0, lastZoom = 1, lastTy = 1;   // camera info for aiming math + click-to-board
 let showMap = false;           // is the big overview map open? (toggle with M)
 let camIndex = 0;              // which camera view preset is active (cycle with the Camera button)
 const CAMERAS = [
@@ -1310,6 +1310,54 @@ function nearestStand() {
   let best = null, bd = Infinity;
   for (const ts of treestands) { const d = dist(atv.x, atv.y, ts.x, ts.y); if (d < bd) { bd = d; best = ts; } }
   return { ts: best, d: bd };
+}
+
+// 👆 Whatever you can hop into/onto right now (vehicle, tree stand, or the train) — for the glowing
+// "you can get in here!" bubble, and for tapping/clicking that same spot to hop in.
+const GLOW_RANGE = { vehicle: 170, stand: 110, train: 260 };    // start glowing this far away
+const READY_RANGE = { vehicle: 150, stand: 80, train: 240 };    // matches boardOrExit()/boardTrain()'s own real distance checks
+function nearestInteractable() {
+  if (mode !== 'foot' || swinging || inHouse || onDeck) return null;
+  let best = null, bd = Infinity;
+  const v = nearestVehicle();
+  if (v.k && v.d < GLOW_RANGE.vehicle && v.d < bd) { bd = v.d; best = { type: 'vehicle', x: parked[v.k].x, y: parked[v.k].y, d: v.d }; }
+  const st = nearestStand();
+  if (st.ts && !inStand && st.d < GLOW_RANGE.stand && st.d < bd) { bd = st.d; best = { type: 'stand', x: st.ts.x, y: st.ts.y, d: st.d }; }
+  if (trainN) {
+    const tw = trainWorldPos(), d = dist(atv.x, atv.y, tw.x, tw.y);
+    if (d < GLOW_RANGE.train && d < bd) { bd = d; best = { type: 'train', x: tw.x, y: tw.y, d: d }; }
+  }
+  return best;
+}
+// Draw the pulsing "you can hop in here!" ring + bouncing bubble over whatever's nearby.
+// Grows and brightens as you get closer, and turns gold + a hand icon once you're close enough to board.
+function drawInteractGlow(camX, camY) {
+  const it = nearestInteractable();
+  if (!it || !onScreen(it.x, it.y, 90, camX, camY)) return;
+  const t = gameTime * 3.2;
+  const pulse = 0.5 + Math.sin(t) * 0.5;                               // 0..1 breathing pulse
+  const closeness = 1 - clamp(it.d / GLOW_RANGE[it.type], 0, 1);       // 0 = just spotted it, 1 = right next to it
+  const ready = it.d < READY_RANGE[it.type];                           // close enough that clicking/E actually works
+  const col = ready ? '#ffe14d' : '#bfe6f5';
+
+  ctx.save();
+  // Glowing ellipse on the ground, growing as you approach and breathing gently
+  const ringR = 22 + closeness * 22 + pulse * 6;
+  ctx.globalAlpha = (ready ? 0.5 : 0.28) + pulse * 0.25;
+  ctx.strokeStyle = col; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.ellipse(it.x, it.y, ringR, ringR * 0.5, 0, 0, 6.28); ctx.stroke();
+
+  // A little bouncing bubble above it with a hand (ready) or arrow (still approaching) icon
+  const by = it.y - 66 - Math.abs(Math.sin(t * 1.3)) * 8;
+  ctx.globalAlpha = 0.55 + pulse * 0.35;
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(it.x, by, 15, 0, 6.28); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = '#14492a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(it.x, by, 15, 0, 6.28); ctx.stroke();
+  ctx.font = 'bold 16px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(ready ? '👆' : '➡️', it.x, by + 1);
+  ctx.restore();
 }
 // Flash a temporary message on the switch button
 function hint(msg) {
@@ -2152,7 +2200,7 @@ function draw() {
   VIEW_W = W / zoom; VIEW_H = H / ty;
   const camX = clamp(atv.x - VIEW_W/2, 0, Math.max(0, WORLD - VIEW_W));
   const camY = clamp(atv.y - VIEW_H/2, 0, Math.max(0, WORLD - VIEW_H));
-  lastCamX = camX; lastCamY = camY;
+  lastCamX = camX; lastCamY = camY; lastZoom = zoom; lastTy = ty;
   ctx.save();
   ctx.scale(zoom, ty);
   ctx.translate(-camX, -camY);
@@ -2393,6 +2441,7 @@ function draw() {
     ctx.save(); ctx.globalAlpha = 0.22; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(delivery.x + 28, delivery.y + 34, 30, 16, 0, 0, 6.28); ctx.fill(); ctx.restore();
     drawAmazonPlane(delivery.x, delivery.y, Math.atan2(atv.y - delivery.y, atv.x - delivery.x));
   }
+  drawInteractGlow(camX, camY);   // 👆 "you can hop in here!" glowing ring + bubble
   drawFence();
   drawNightAndLights(camX, camY);   // darken at night + headlight beams (still in world space)
   ctx.restore();
@@ -6149,7 +6198,19 @@ document.getElementById('mapBtn').addEventListener('click', () => { showMap = !s
 document.getElementById('garageBtn').addEventListener('click', () => { garageDoorOpen = !garageDoorOpen; });
 document.getElementById('towBtn').addEventListener('click', () => { toggleHitch(); startAudio(); });
 canvas.addEventListener('mousemove', e => { const r = canvas.getBoundingClientRect(); mouseX = e.clientX - r.left; mouseY = e.clientY - r.top; });
-canvas.addEventListener('mousedown', e => { if (aiming) { fireGun(); e.preventDefault(); } });
+canvas.addEventListener('mousedown', e => {
+  if (aiming) { fireGun(); e.preventDefault(); return; }
+  // 👆 Click the glowing "hop in" bubble/ring to board it — no need to walk up and press a button
+  if (mode === 'foot') {
+    const it = nearestInteractable();
+    if (it) {
+      const r = canvas.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      const wx = lastCamX + mx / lastZoom, wy = lastCamY + my / lastTy;
+      if (dist(wx, wy, it.x, it.y) < 90) { boardOrExit(); e.preventDefault(); }
+    }
+  }
+});
 bindTouch('btnUp', 'climb'); bindTouch('btnDown', 'dive');
 document.getElementById('btnStunt').addEventListener('click', () => { planeStunt(); startAudio(); });
 document.getElementById('btnBomb').addEventListener('click', () => { dropBomb(); startAudio(); });
