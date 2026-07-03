@@ -296,13 +296,28 @@ function GameCanvas() {
     return () => cancelAnimationFrame(animationFrameId);
   }, [status, store, render]);
 
-  // Handle mouse/touch movement
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!canvasRef.current) return;
+  // Mouse control is RELATIVE: the paddle follows the direction the
+  // mouse moves (movementX), not where the cursor happens to sit. This
+  // kills the dead zone that absolute tracking had - with the cursor
+  // parked far off-board, the paddle used to ignore rightward motion
+  // until the cursor traveled all the way back over the board. Now any
+  // motion anywhere over the page moves the paddle instantly, and the
+  // cursor stays visible and free (pointer lock hid it system-wide,
+  // which was scary). movePaddle clamps, so excess motion past a wall
+  // is simply discarded instead of accumulating drift.
+  useEffect(() => {
+    const handleWindowPointerMove = (e: PointerEvent) => {
+      // Touch drags are handled absolutely by handleTouchMove; relative
+      // deltas from synthesized pointer events would double-move.
+      if (e.pointerType === "touch") return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / scale;
-    movePaddle(x);
+      const { paddle } = useBreakoutStore.getState();
+      const center = paddle.x + paddle.width / 2;
+      movePaddle(center + e.movementX / scale);
+    };
+
+    window.addEventListener("pointermove", handleWindowPointerMove);
+    return () => window.removeEventListener("pointermove", handleWindowPointerMove);
   }, [movePaddle, scale]);
 
   // Handle touch move for mobile
@@ -385,12 +400,11 @@ function GameCanvas() {
         ref={canvasRef}
         width={CANVAS_WIDTH}
         height={CANVAS_HEIGHT}
-        className="border-4 border-blue-600 rounded-lg shadow-2xl cursor-none touch-none"
+        className="border-4 border-blue-600 rounded-lg shadow-2xl touch-none cursor-default"
         style={{
           width: CANVAS_WIDTH * scale,
           height: CANVAS_HEIGHT * scale,
         }}
-        onPointerMove={handlePointerMove}
         onTouchMove={handleTouchMove}
         onClick={handleClick}
         onTouchStart={handleClick}
@@ -525,7 +539,7 @@ export function BreakoutGame() {
 
       {/* Controls hint */}
       <div className="text-center text-purple-200 text-sm">
-        <span className="hidden md:inline">Mouse/Arrow Keys to move | Space to launch/pause</span>
+        <span className="hidden md:inline">Slide mouse left/right to steer | Arrow keys work too | Space to launch/pause</span>
         <span className="md:hidden">Drag to move paddle | Tap to launch</span>
       </div>
 
