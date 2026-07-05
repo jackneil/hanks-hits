@@ -150,7 +150,7 @@
   #detailsStats { font-size: 15px; color: #2a3a52; margin: 10px 0; line-height: 1.6; }
   #detailsClose { font: inherit; font-size: 15px; font-weight: bold; color: #fff; background: linear-gradient(#ff8a5a,#e0481a); border: none; padding: 9px 22px; border-radius: 30px; cursor: pointer; box-shadow: 0 3px 0 #b8350f; }
   #detailsClose:active { transform: translateY(3px); }
-  #dealerPanel, #boatPanel, #standPanel, #sellPanel, #trainPanel, #customPanel, #huntPanel, #invPanel, #anyPanel, #saddlePanel, #flyPanel, #bucketPanel, #bikePanel {
+  #dealerPanel, #boatPanel, #standPanel, #sellPanel, #trainPanel, #customPanel, #huntPanel, #invPanel, #anyPanel, #saddlePanel, #flyPanel, #bucketPanel, #bikePanel, #buildPanel {
     position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: none;
     background: rgba(18,28,38,0.92); border: 3px solid #ffd23f; border-radius: 16px;
     padding: 10px 14px; z-index: 7; max-width: 94vw; text-align: center;
@@ -557,6 +557,12 @@
     <div id="bikeList"></div>
   </div>
 
+  <div id="buildPanel">
+    <div class="dlTitle">🔨 Build on your land — what do you want here?</div>
+    <div id="buildList"></div>
+    <button id="buildCloseBtn" style="margin-top:8px; font:inherit; font-size:13px; font-weight:bold; color:#fff; background:#8a3a2e; border:none; padding:6px 16px; border-radius:20px; cursor:pointer;">✖ Not right now</button>
+  </div>
+
   <div id="detailsPanel">
     <div id="detailsCard">
       <div id="detailsTitle">Details</div>
@@ -824,6 +830,32 @@ const NOZZLE = { x: CARWASH.x - 58, y: CARWASH.y + 56 };              // a water
 const SADDLES = ['🤠 Western Saddle', '🏇 Racing Saddle', '🤎 Brown Saddle', '🖤 Black Saddle', '🌸 Pink Saddle', '⭐ Show Saddle'];
 const COMPOUND = { x1: HOUSE.x - 330, y1: Math.min(PLANE_HOME.y - 250, COWPEN.y - COWPEN.hh - 70), x2: GARAGE.x + 450, y2: pond.y + 240 };   // top fence reaches up to enclose the cow pen
 const inCompound = (x, y) => x > COMPOUND.x1 && x < COMPOUND.x2 && y > COMPOUND.y1 && y < COMPOUND.y2;
+
+/* =========================================================================
+   🏡 MY LAND — buildable plots dotted around the map, roads connecting them.
+   ========================================================================= */
+const LAND_RADIUS = 16000, PLOT_SIZE = 900;    // "pretty big but not too big" — big relative to any building, tiny vs. the 72,000-unit world
+const LAND_PLOTS = [];
+for (let i = 0; i < 6; i++) {
+  const ang = (i * 60 + 15) * Math.PI / 180;
+  LAND_PLOTS.push({ id: i, x: pond.x + Math.cos(ang) * LAND_RADIUS, y: pond.y + Math.sin(ang) * LAND_RADIUS });
+}
+const BUILD_COST = { garage: 3000, trophy: 3000, house_small: 4000, house_medium: 10000, house_huge: 25000 };
+const HOUSE_LABEL = { small: 'Small House', medium: 'Medium House', huge: 'Huge House' };
+function plotSlotPos(plot, slot) { return slot === 0 ? { x: plot.x, y: plot.y } : { x: plot.x + PLOT_SIZE * 0.55, y: plot.y }; }
+// Saved state: one entry per plot, each with up to 2 buildings (slot 0 = main, slot 1 = the add-on expansion)
+let myLand = LAND_PLOTS.map(p => ({ id: p.id, buildings: [] }));   // buildings: [{ slot, type: 'garage'|'trophy'|'house', houseSize }]
+let buildTarget = null;   // { plotId, slot } — which empty Build shack the Build Menu is currently open for
+function saveMyLand() { try { localStorage.setItem('fwa_myland_v1', JSON.stringify(myLand)); } catch (e) {} }
+function loadMyLand() {
+  try {
+    const s = localStorage.getItem('fwa_myland_v1');
+    if (!s) return;
+    const parsed = JSON.parse(s);
+    if (Array.isArray(parsed) && parsed.length === LAND_PLOTS.length) myLand = parsed;
+  } catch (e) {}
+}
+function plotBuilding(plotId, slot) { return myLand[plotId].buildings.find(b => b.slot === slot) || null; }
 let mode = 'atv';
 let chute = 0;                 // parachute height while floating down (0 = not parachuting)
 // where each vehicle waits while you're NOT using it (null = you're driving it now)
@@ -979,6 +1011,8 @@ let trackCells = new Set();    // grass-grid cells the race track covers — no 
 let mowerOn = false;           // is the pull-behind mower running? (MOW button)
 let cabins = [];               // cabins around the map you can go inside (same interior as the house)
 let cabinReturn = null;        // where to drop you when you leave a cabin
+let myHouseReturn = null;      // where to drop you when you leave a player-built house
+let currentMyHouse = null;     // { plotId, slot, size } — which player-built house you're inside, if any
 let patches = [], tufts = [], flowers = [];   // ground decorations for a richer map
 let collected = 0, total = 0;
 let money = 20000;             // your cash — earn it racing & hunting, spend it at the dealerships
@@ -1056,6 +1090,7 @@ function buildWorld() {
   document.getElementById('stars').textContent = `🦴 0 / ${total}`;
 }
 buildWorld();
+loadMyLand();   // 🏡 restore whatever you've already built on your land (saved on this computer)
 
 /* =========================================================================
    RACE TRACK + RIVAL RACER
@@ -1314,8 +1349,34 @@ function nearestStand() {
 
 // 👆 Whatever you can hop into/onto right now (vehicle, tree stand, or the train) — for the glowing
 // "you can get in here!" bubble, and for tapping/clicking that same spot to hop in.
-const GLOW_RANGE = { vehicle: 170, stand: 110, train: 260 };    // start glowing this far away
-const READY_RANGE = { vehicle: 150, stand: 80, train: 240 };    // matches boardOrExit()/boardTrain()'s own real distance checks
+const GLOW_RANGE = { vehicle: 170, stand: 110, train: 260, build: 150, myhouse: 150 };    // start glowing this far away
+const READY_RANGE = { vehicle: 150, stand: 80, train: 240, build: 120, myhouse: 120 };    // matches boardOrExit()/boardTrain()'s own real distance checks
+// Any empty Build-shack slot on YOUR land, nearby (walk up to build a garage/trophy room/house there).
+function nearestBuildSlot() {
+  let best = null, bd = Infinity;
+  for (const plot of LAND_PLOTS) {
+    const has0 = !!plotBuilding(plot.id, 0);
+    const slots = has0 ? [0, 1] : [0];   // the 2nd (add-on) shack only appears once the 1st is built
+    for (const slot of slots) {
+      if (plotBuilding(plot.id, slot)) continue;   // already built here
+      const p = plotSlotPos(plot, slot), d = dist(atv.x, atv.y, p.x, p.y);
+      if (d < bd) { bd = d; best = { plotId: plot.id, slot, x: p.x, y: p.y, d }; }
+    }
+  }
+  return best;
+}
+// Any player-built house nearby that you can walk into.
+function nearestMyHouse() {
+  let best = null, bd = Infinity;
+  for (const plot of LAND_PLOTS) {
+    for (const b of myLand[plot.id].buildings) {
+      if (b.type !== 'house') continue;
+      const p = plotSlotPos(plot, b.slot), d = dist(atv.x, atv.y, p.x, p.y);
+      if (d < bd) { bd = d; best = { plotId: plot.id, slot: b.slot, size: b.houseSize, x: p.x, y: p.y, d }; }
+    }
+  }
+  return best;
+}
 function nearestInteractable() {
   if (mode !== 'foot' || swinging || inHouse || onDeck) return null;
   let best = null, bd = Infinity;
@@ -1327,6 +1388,10 @@ function nearestInteractable() {
     const tw = trainWorldPos(), d = dist(atv.x, atv.y, tw.x, tw.y);
     if (d < GLOW_RANGE.train && d < bd) { bd = d; best = { type: 'train', x: tw.x, y: tw.y, d: d }; }
   }
+  const bs = nearestBuildSlot();
+  if (bs && bs.d < GLOW_RANGE.build && bs.d < bd) { bd = bs.d; best = { type: 'build', x: bs.x, y: bs.y, d: bs.d, plotId: bs.plotId, slot: bs.slot }; }
+  const mh = nearestMyHouse();
+  if (mh && mh.d < GLOW_RANGE.myhouse && mh.d < bd) { bd = mh.d; best = { type: 'myhouse', x: mh.x, y: mh.y, d: mh.d, plotId: mh.plotId, slot: mh.slot, size: mh.size }; }
   return best;
 }
 // Draw the pulsing "you can hop in here!" ring + bouncing bubble over whatever's nearby.
@@ -1417,6 +1482,12 @@ function boardTrain() {
 
 // The E key / switch button: hop into a nearby vehicle, or get out and walk.
 function boardOrExit() {
+  if (mode === 'foot' && !swinging && !inHouse && !onDeck) {
+    const bs = nearestBuildSlot();
+    if (bs && bs.d < READY_RANGE.build) { openBuildMenu(bs.plotId, bs.slot); return; }
+    const mh = nearestMyHouse();
+    if (mh && mh.d < READY_RANGE.myhouse) { enterMyHouse(mh.plotId, mh.slot); return; }
+  }
   if (mode === 'mount') { mode = 'foot'; riding = null; atv.speed = 0; hint('🤠 Hopped off the animal'); updateSwitchLabel(); return; }
   if (mode === 'train') {                                  // hop off → the train heads home to your fence
     const w = trainWorldPos(); mode = 'foot'; atv.x = w.x + 80; atv.y = w.y; atv.speed = 0;
@@ -2150,6 +2221,10 @@ function update(dt) {
   else mh.style.display = 'none';
   document.getElementById('bucketPanel').style.display = (shopStop && mode === 'foot' && !inHouse && dist(atv.x, atv.y, BUCKETSHOP.x, BUCKETSHOP.y) < 150) ? 'block' : 'none';
   document.getElementById('bikePanel').style.display = (shopStop && mode === 'foot' && !inHouse && dist(atv.x, atv.y, BIKESTORE.x, BIKESTORE.y) < 160) ? 'block' : 'none';
+  if (buildTarget) {   // 🔨 walked away from the Build shack while the menu was open — close it
+    const p = plotSlotPos(LAND_PLOTS[buildTarget.plotId], buildTarget.slot);
+    if (mode !== 'foot' || inHouse || dist(atv.x, atv.y, p.x, p.y) > GLOW_RANGE.build) closeBuildMenu();
+  }
   // 🎮 play with the yard toys — kick the soccer & basketball, bounce on the trampoline
   for (const ball of playBalls) {
     ball.x += ball.vx; ball.y += ball.vy; ball.vx *= 0.93; ball.vy *= 0.93;
@@ -2207,6 +2282,7 @@ function draw() {
 
   drawGround(camX, camY);
   drawGrass(camX, camY);   // tall cuttable grass over the whole map
+  drawLandRoads(camX, camY);   // 🏞️ dirt roads out to every land plot
   drawSnowTracks(camX, camY);   // ❄️ tyre tracks packed into the snow
   drawTrack();
   drawTrainTrack(camX, camY);
@@ -2239,6 +2315,7 @@ function draw() {
   drawHouse();
   drawDealership();
   drawGarage();
+  drawLandPlots(camX, camY);   // 🏞️ your land — Build shacks + whatever you've built
   drawCompoundFence();
   drawPond();
   drawFish(camX, camY);
@@ -2526,7 +2603,26 @@ function drawHouseInterior(W, H) {
   ctx.fillStyle = '#0e0e12'; roundRect(cx, cy, cw, ch, 12); ctx.fill();
   ctx.strokeStyle = '#333'; ctx.lineWidth = 4; ctx.strokeRect(cx, cy, cw, ch);
   ctx.fillStyle = '#ff5a4a'; ctx.font = 'bold 42px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(digitalTime(), W/2, cy + ch/2);
-  ctx.fillStyle = '#5a3a14'; ctx.font = 'bold 19px Trebuchet MS'; ctx.fillText(cabinFrom === 'rv' ? '🚐 Inside your Camper — walk with WASD / arrows' : "🏡 Inside Hank's House — walk with WASD / arrows", W/2, 146);
+  const myHouseSize = (cabinFrom === 'myhouse' && currentMyHouse) ? currentMyHouse.size : null;
+  const insideTitle = cabinFrom === 'rv' ? '🚐 Inside your Camper — walk with WASD / arrows'
+    : myHouseSize ? '🏡 Inside your ' + HOUSE_LABEL[myHouseSize] + ' — walk with WASD / arrows'
+    : "🏡 Inside Hank's House — walk with WASD / arrows";
+  ctx.fillStyle = '#5a3a14'; ctx.font = 'bold 19px Trebuchet MS'; ctx.fillText(insideTitle, W/2, 146);
+  if (myHouseSize === 'medium' || myHouseSize === 'huge') {   // 🛏️ extra decorative beds + room dividers for the bigger houses
+    const extraBeds = myHouseSize === 'huge' ? 2 : 1;
+    const spots = [{ x: W * 0.19, y: H * 0.34 }, { x: W * 0.92, y: H * 0.34 }];   // tucked against the back wall, clear of the door/kitchen/bed/closet/left-side action buttons
+    ctx.strokeStyle = 'rgba(90,58,20,0.35)'; ctx.lineWidth = 6;                             // room-divider walls
+    ctx.beginPath(); ctx.moveTo(W * 0.30, 160); ctx.lineTo(W * 0.30, H); ctx.stroke();
+    if (myHouseSize === 'huge') { ctx.beginPath(); ctx.moveTo(W * 0.70, 160); ctx.lineTo(W * 0.70, H); ctx.stroke(); }
+    for (let i = 0; i < extraBeds; i++) {
+      const s = spots[i], ebw = 130, ebh = 84;
+      ctx.fillStyle = '#5a3a1c'; roundRect(s.x - ebw/2, s.y - ebh/2, ebw, ebh, 12); ctx.fill();
+      ctx.fillStyle = '#3f6fae'; roundRect(s.x - ebw/2 + 8, s.y - ebh/2 + 24, ebw - 16, ebh - 32, 8); ctx.fill();
+      ctx.fillStyle = '#eef2f7'; roundRect(s.x - ebw/2 + 14, s.y - ebh/2 + 6, ebw - 28, 22, 6); ctx.fill();
+      ctx.fillStyle = '#14492a'; ctx.font = 'bold 14px Trebuchet MS'; ctx.textAlign = 'center'; ctx.fillText('🛏️ Bedroom ' + (i + 2), s.x, s.y - ebh/2 - 10);
+    }
+    ctx.fillStyle = '#14492a'; ctx.font = 'bold 13px Trebuchet MS'; ctx.fillText(myHouseSize === 'huge' ? '3 Bedrooms · 3 Rooms' : '2 Bedrooms', W/2, H - 14);
+  }
 
   const k = o.kitchen;                                                                   // KITCHEN
   ctx.fillStyle = '#cdd2d8'; roundRect(k.x - 116, k.y - 70, 78, 150, 10); ctx.fill();    // fridge
@@ -4232,6 +4328,94 @@ function drawHouse() {
   ctx.restore();
 }
 
+/* =========================================================================
+   🏡 MY LAND — roads out to each plot, the tiny Build shack, and the
+   simpler generic garage / trophy room / house you can build there.
+   ========================================================================= */
+function drawLandRoads(camX, camY) {
+  for (const plot of LAND_PLOTS) {
+    const dx = plot.x - pond.x, dy = plot.y - pond.y, len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
+    const startR = pond.r + 40, roadLen = len - startR - PLOT_SIZE * 0.6;
+    if (roadLen <= 0) continue;
+    const sx = pond.x + Math.cos(ang) * startR, sy = pond.y + Math.sin(ang) * startR;
+    const midX = sx + Math.cos(ang) * roadLen / 2, midY = sy + Math.sin(ang) * roadLen / 2;
+    if (!onScreen(midX, midY, roadLen / 2 + 200, camX, camY)) continue;
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(ang);
+    ctx.fillStyle = '#9c7a4a'; ctx.fillRect(0, -60, roadLen, 120);                       // dirt road bed
+    ctx.fillStyle = '#8a6a3e'; ctx.fillRect(0, -60, roadLen, 8); ctx.fillRect(0, 52, roadLen, 8);   // shoulders
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 5; ctx.setLineDash([40, 30]);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(roadLen, 0); ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
+  }
+}
+function drawBuildShack(x, y) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.globalAlpha = 0.18; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, 20, 40, 26, 0, 0, 6.28); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#caa46a'; roundRect(-30, -22, 60, 50, 6); ctx.fill();
+  ctx.fillStyle = '#8a5e30'; ctx.beginPath(); ctx.moveTo(-36, -22); ctx.lineTo(36, -22); ctx.lineTo(0, -46); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#5a3a14'; roundRect(-12, 4, 24, 24, 3); ctx.fill();
+  ctx.fillStyle = '#ffd23f'; roundRect(-34, -66, 68, 18, 5); ctx.fill();
+  ctx.fillStyle = '#5a3a14'; ctx.font = 'bold 13px Trebuchet MS'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🔨 BUILD', 0, -57);
+  ctx.restore();
+}
+function drawGenericGarage(x, y) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.globalAlpha = 0.16; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, 50, 150, 100, 0, 0, 6.28); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#b0b6bc'; roundRect(-140, -80, 280, 200, 12); ctx.fill();
+  ctx.fillStyle = '#8a6a3e'; ctx.beginPath(); ctx.moveTo(-150, -80); ctx.lineTo(150, -80); ctx.lineTo(110, -140); ctx.lineTo(-110, -140); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#5a6068'; roundRect(-110, 20, 220, 100, 8); ctx.fill();               // garage door
+  for (let gx = -100; gx < 110; gx += 22) { ctx.strokeStyle = '#40454a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(gx, 20); ctx.lineTo(gx, 118); ctx.stroke(); }
+  ctx.fillStyle = '#ffd23f'; roundRect(-90, -120, 180, 22, 6); ctx.fill();
+  ctx.fillStyle = '#14492a'; ctx.font = 'bold 15px Trebuchet MS'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🚗 GARAGE', 0, -109);
+  ctx.restore();
+}
+function drawGenericTrophyRoom(x, y) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.globalAlpha = 0.16; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, 50, 150, 100, 0, 0, 6.28); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#7a5a3a'; roundRect(-140, -100, 280, 220, 10); ctx.fill();
+  ctx.strokeStyle = '#5a3f26'; ctx.lineWidth = 6; ctx.strokeRect(-140, -100, 280, 220);
+  ctx.fillStyle = '#ffd23f'; roundRect(-90, -122, 180, 22, 6); ctx.fill();
+  ctx.fillStyle = '#5a3a14'; ctx.font = 'bold 15px Trebuchet MS'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🏆 TROPHY ROOM', 0, -111);
+  drawTrophyMount(-70, 20, 'buck', kills.buck || 0);
+  drawTrophyMount(70, 20, 'wolf', kills.wolf || 0);
+  ctx.restore();
+}
+const HOUSE_SCALE = { small: 0.55, medium: 0.82, huge: 1.15 };   // bigger tiers really do look bigger
+function drawGenericHouse(x, y, size) {
+  const s = HOUSE_SCALE[size] || 0.55;
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.globalAlpha = 0.16; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, 60, 220, 150, 0, 0, 6.28); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#ecdcb6'; roundRect(-190, -120, 380, 260, 14); ctx.fill();
+  ctx.fillStyle = '#8a4427'; ctx.beginPath(); ctx.moveTo(-210, -120); ctx.lineTo(210, -120); ctx.lineTo(150, -190); ctx.lineTo(-150, -190); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#5a3a14'; roundRect(-34, 60, 68, 78, 6); ctx.fill();                  // front door
+  ctx.fillStyle = '#3a5a8a'; roundRect(-140, -50, 60, 60, 4); ctx.fill(); roundRect(80, -50, 60, 60, 4); ctx.fill();    // windows
+  ctx.fillStyle = '#8fd0f0'; roundRect(-132, -42, 44, 44, 3); ctx.fill(); roundRect(88, -42, 44, 44, 3); ctx.fill();
+  ctx.fillStyle = '#ffd23f'; roundRect(-100, -166, 200, 26, 6); ctx.fill();
+  ctx.fillStyle = '#5a3a14'; ctx.font = 'bold 16px Trebuchet MS'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🏡 ' + (HOUSE_LABEL[size] || 'House'), 0, -153);
+  ctx.restore();
+}
+function drawLandPlots(camX, camY) {
+  for (const plot of LAND_PLOTS) {
+    if (!onScreen(plot.x, plot.y, PLOT_SIZE, camX, camY)) continue;
+    ctx.save(); ctx.globalAlpha = 0.45; ctx.fillStyle = '#8fce6a';                        // a lighter grassy clearing so it reads as "your land"
+    roundRect(plot.x - PLOT_SIZE / 2, plot.y - PLOT_SIZE / 2, PLOT_SIZE, PLOT_SIZE, 60); ctx.fill(); ctx.globalAlpha = 1; ctx.restore();
+    ctx.fillStyle = '#14492a'; ctx.font = 'bold 15px Trebuchet MS'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🏞️ Land #' + (plot.id + 1), plot.x, plot.y - PLOT_SIZE / 2 - 24);
+    const has0 = !!plotBuilding(plot.id, 0);
+    for (const slot of (has0 ? [0, 1] : [0])) {
+      const p = plotSlotPos(plot, slot), b = plotBuilding(plot.id, slot);
+      if (!b) drawBuildShack(p.x, p.y);
+      else if (b.type === 'garage') drawGenericGarage(p.x, p.y);
+      else if (b.type === 'trophy') drawGenericTrophyRoom(p.x, p.y);
+      else if (b.type === 'house') drawGenericHouse(p.x, p.y, b.houseSize);
+    }
+  }
+}
+
 // The tree/ground-stand store (behind the feeder store).
 function drawStandStore() {
   ctx.save(); ctx.translate(STANDSTORE.x, STANDSTORE.y);
@@ -5241,6 +5425,13 @@ function digitalTime() {
   return hh + ':' + (m < 10 ? '0' : '') + m + ' ' + (h < 12 ? 'AM' : 'PM');
 }
 function enterHouse() { inHouse = true; cabinFrom = 'house'; mode = 'foot'; atv.speed = 0; aiming = false; houseX = W / 2; houseY = H - 120; houseAct = 'none'; }
+// Walk into a house YOU built on your land — same interior as the community house, just bigger for bigger sizes.
+function enterMyHouse(plotId, slot) {
+  const b = plotBuilding(plotId, slot); if (!b) return;
+  myHouseReturn = { x: atv.x, y: atv.y };
+  currentMyHouse = { plotId, slot, size: b.houseSize };
+  inHouse = true; cabinFrom = 'myhouse'; mode = 'foot'; atv.speed = 0; aiming = false; houseX = W / 2; houseY = H - 120; houseAct = 'none';
+}
 function enterYachtCabin() {   // the yacht's inside is IDENTICAL to the house
   if (baseType(mode) !== 'yacht') { hint('🛥️ Only the Mega Yacht has a cabin inside!'); return; }
   yachtReturn = { x: atv.x, y: atv.y, angle: atv.angle, key: mode };
@@ -5281,6 +5472,7 @@ function exitHouse() {
   if (cabinFrom === 'cabin' && cabinReturn) { mode = 'foot'; atv.x = cabinReturn.x; atv.y = cabinReturn.y; atv.angle = -Math.PI/2; atv.speed = 0; cabinFrom = 'house'; return; }
   if (cabinFrom === 'camper' && camperReturn) { mode = 'foot'; atv.x = camperReturn.x; atv.y = camperReturn.y; atv.angle = -Math.PI/2; atv.speed = 0; cabinFrom = 'house'; return; }
   if (cabinFrom === 'rv' && rvReturn) { mode = rvReturn.key; atv.x = rvReturn.x; atv.y = rvReturn.y; atv.angle = rvReturn.angle; atv.speed = 0; cabinFrom = 'house'; return; }
+  if (cabinFrom === 'myhouse' && myHouseReturn) { mode = 'foot'; atv.x = myHouseReturn.x; atv.y = myHouseReturn.y; atv.angle = -Math.PI/2; atv.speed = 0; cabinFrom = 'house'; currentMyHouse = null; return; }
   atv.x = HOUSE.x; atv.y = HOUSE.y + 290; atv.angle = Math.PI/2;
 }
 function doSleep() {
@@ -5956,6 +6148,37 @@ BIKES.forEach(([key, label, mph, cost, col]) => {
   b.addEventListener('click', () => { buyBike(key, label, mph, cost); startAudio(); });
   bikeList.appendChild(makeCard(b, () => showVehicleDetails(key, label, cost)));
 });
+// 🔨 Build Menu — what to build on this empty plot of your land
+const BUILD_OPTIONS = [
+  { label: '🚗 Garage', cost: BUILD_COST.garage, build: () => constructBuilding('garage') },
+  { label: '🏆 Trophy Room', cost: BUILD_COST.trophy, build: () => constructBuilding('trophy') },
+  { label: '🏡 Small House', cost: BUILD_COST.house_small, build: () => constructBuilding('house', 'small') },
+  { label: '🏡 Medium House', cost: BUILD_COST.house_medium, build: () => constructBuilding('house', 'medium') },
+  { label: '🏡 Huge House — 3 Bedrooms!', cost: BUILD_COST.house_huge, build: () => constructBuilding('house', 'huge') },
+];
+function renderBuildMenu() {
+  const list = document.getElementById('buildList'); list.innerHTML = '';
+  BUILD_OPTIONS.forEach(opt => {
+    const b = document.createElement('button'); b.className = 'dlCar';
+    b.innerHTML = opt.label + '<br><span style="font-size:11px;opacity:.85">$' + opt.cost.toLocaleString() + '</span>';
+    b.addEventListener('click', () => { opt.build(); startAudio(); });
+    list.appendChild(b);
+  });
+}
+function openBuildMenu(plotId, slot) { buildTarget = { plotId, slot }; renderBuildMenu(); document.getElementById('buildPanel').style.display = 'block'; }
+function closeBuildMenu() { buildTarget = null; document.getElementById('buildPanel').style.display = 'none'; }
+function constructBuilding(type, houseSize) {
+  if (!buildTarget) return;
+  const cost = type === 'house' ? BUILD_COST['house_' + houseSize] : BUILD_COST[type];
+  if (money < cost) { hint('💵 You need $' + cost.toLocaleString() + ' for that — keep saving up!'); return; }
+  addMoney(-cost);
+  const { plotId, slot } = buildTarget;
+  myLand[plotId].buildings.push({ slot, type, houseSize: houseSize || null });
+  saveMyLand();
+  closeBuildMenu();
+  hint('🎉 Built it! Your land is looking great!');
+}
+document.getElementById('buildCloseBtn').addEventListener('click', closeBuildMenu);
 document.getElementById('putHorseBtn').addEventListener('click', () => { putOnHorse(); startAudio(); });
 document.getElementById('rideHorseBtn').addEventListener('click', () => { rideHorse(); startAudio(); });
 function fillTruck() {
