@@ -852,10 +852,18 @@ for (let i = 0; i < 6; i++) {
 }
 const BUILD_COST = { garage: 3000, trophy: 3000, house_small: 4000, house_medium: 10000, house_huge: 25000 };
 const HOUSE_LABEL = { small: 'Small House', medium: 'Medium House', huge: 'Huge House' };
-function plotSlotPos(plot, slot) { return slot === 0 ? { x: plot.x, y: plot.y } : { x: plot.x + PLOT_SIZE * 0.55, y: plot.y }; }
+// ⬆️ Land upgrades — buy your way up through bigger and bigger plot sizes.
+const LAND_SIZE_MULT = [1, 1.35, 1.8, 2.3, 2.8];     // index = sizeLevel (0 = the size you start with after buying)
+const LAND_UPGRADE_COST = [8000, 15000, 25000, 40000];  // cost to go FROM level i TO i+1
+function plotCurrentSize(plotId) { return PLOT_SIZE * LAND_SIZE_MULT[myLand[plotId].sizeLevel || 0]; }
+function plotSlotPos(plot, slot) {
+  const sz = plotCurrentSize(plot.id);
+  return slot === 0 ? { x: plot.x, y: plot.y } : { x: plot.x + sz * 0.55, y: plot.y };
+}
+function upgradeMarkerPos(plot) { const sz = plotCurrentSize(plot.id); return { x: plot.x - sz * 0.55, y: plot.y }; }
 // Saved state: one entry per plot — you have to BUY it (owned) before you can build anything on it.
 // buildings: [{ slot, type: 'garage'|'trophy'|'house', houseSize, doorOpen }] (doorOpen only applies to garages)
-let myLand = LAND_PLOTS.map(p => ({ id: p.id, owned: false, buildings: [] }));
+let myLand = LAND_PLOTS.map(p => ({ id: p.id, owned: false, sizeLevel: 0, buildings: [] }));
 let buildTarget = null;   // { plotId, slot, landMode } — which empty Build shack (or unbought plot) the Build Menu is currently open for
 function saveMyLand() { try { localStorage.setItem('fwa_myland_v1', JSON.stringify(myLand)); } catch (e) {} }
 function loadMyLand() {
@@ -1366,8 +1374,18 @@ function nearestStand() {
 
 // 👆 Whatever you can hop into/onto right now (vehicle, tree stand, or the train) — for the glowing
 // "you can get in here!" bubble, and for tapping/clicking that same spot to hop in.
-const GLOW_RANGE = { vehicle: 170, stand: 110, train: 260, build: 150, myhouse: 150, buyland: 220 };    // start glowing this far away
-const READY_RANGE = { vehicle: 150, stand: 80, train: 240, build: 120, myhouse: 120, buyland: 180 };    // matches boardOrExit()/boardTrain()'s own real distance checks
+const GLOW_RANGE = { vehicle: 170, stand: 110, train: 260, build: 150, myhouse: 150, buyland: 220, upgrade: 150 };    // start glowing this far away
+const READY_RANGE = { vehicle: 150, stand: 80, train: 240, build: 120, myhouse: 120, buyland: 180, upgrade: 120 };    // matches boardOrExit()/boardTrain()'s own real distance checks
+// The "⬆️ Upgrade Land" marker on any land you own — always there, even once both build slots are full.
+function nearestUpgradeSpot() {
+  let best = null, bd = Infinity;
+  for (const plot of LAND_PLOTS) {
+    if (!myLand[plot.id].owned) continue;
+    const p = upgradeMarkerPos(plot), d = dist(atv.x, atv.y, p.x, p.y);
+    if (d < bd) { bd = d; best = { plotId: plot.id, x: p.x, y: p.y, d }; }
+  }
+  return best;
+}
 // Any land you haven't bought yet, nearby (walk up to the "For Sale" sign to buy it).
 function nearestBuyLandSpot() {
   let best = null, bd = Infinity;
@@ -1422,6 +1440,8 @@ function nearestInteractable() {
   if (mh && mh.d < GLOW_RANGE.myhouse && mh.d < bd) { bd = mh.d; best = { type: 'myhouse', x: mh.x, y: mh.y, d: mh.d, plotId: mh.plotId, slot: mh.slot, size: mh.size }; }
   const bl = nearestBuyLandSpot();
   if (bl && bl.d < GLOW_RANGE.buyland && bl.d < bd) { bd = bl.d; best = { type: 'buyland', x: bl.x, y: bl.y, d: bl.d, plotId: bl.plotId }; }
+  const ug = nearestUpgradeSpot();
+  if (ug && ug.d < GLOW_RANGE.upgrade && ug.d < bd) { bd = ug.d; best = { type: 'upgrade', x: ug.x, y: ug.y, d: ug.d, plotId: ug.plotId }; }
   return best;
 }
 // Draw the pulsing "you can hop in here!" ring + bouncing bubble over whatever's nearby.
@@ -1519,6 +1539,8 @@ function boardOrExit() {
     if (bs && bs.d < READY_RANGE.build) { openBuildMenu(bs.plotId, bs.slot); return; }
     const mh = nearestMyHouse();
     if (mh && mh.d < READY_RANGE.myhouse) { enterMyHouse(mh.plotId, mh.slot); return; }
+    const ug = nearestUpgradeSpot();
+    if (ug && ug.d < READY_RANGE.upgrade) { openUpgradeMenu(ug.plotId); return; }
   }
   if (mode === 'mount') { mode = 'foot'; riding = null; atv.speed = 0; hint('🤠 Hopped off the animal'); updateSwitchLabel(); return; }
   if (mode === 'train') {                                  // hop off → the train heads home to your fence
@@ -2253,10 +2275,10 @@ function update(dt) {
   else mh.style.display = 'none';
   document.getElementById('bucketPanel').style.display = (shopStop && mode === 'foot' && !inHouse && dist(atv.x, atv.y, BUCKETSHOP.x, BUCKETSHOP.y) < 150) ? 'block' : 'none';
   document.getElementById('bikePanel').style.display = (shopStop && mode === 'foot' && !inHouse && dist(atv.x, atv.y, BIKESTORE.x, BIKESTORE.y) < 160) ? 'block' : 'none';
-  if (buildTarget) {   // 🔨 walked away from the Build shack (or For Sale sign) while the menu was open — close it
+  if (buildTarget) {   // 🔨 walked away from the Build shack (or For Sale sign, or Upgrade marker) while the menu was open — close it
     const plot = LAND_PLOTS[buildTarget.plotId];
-    const p = buildTarget.landMode ? plot : plotSlotPos(plot, buildTarget.slot);
-    const range = buildTarget.landMode ? GLOW_RANGE.buyland : GLOW_RANGE.build;
+    const p = buildTarget.landMode ? plot : buildTarget.upgradeMode ? upgradeMarkerPos(plot) : plotSlotPos(plot, buildTarget.slot);
+    const range = buildTarget.landMode ? GLOW_RANGE.buyland : buildTarget.upgradeMode ? GLOW_RANGE.upgrade : GLOW_RANGE.build;
     if (mode !== 'foot' || inHouse || dist(atv.x, atv.y, p.x, p.y) > range) closeBuildMenu();
   }
   updateGarageButtons();   // 🚪 Open Garage / 🅿️ Park in the Garage — show whichever fits right now
@@ -4405,7 +4427,7 @@ function drawHouse() {
 function drawLandRoads(camX, camY) {
   for (const plot of LAND_PLOTS) {
     const dx = plot.x - pond.x, dy = plot.y - pond.y, len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
-    const startR = pond.r + 40, roadLen = len - startR - PLOT_SIZE * 0.6;
+    const startR = pond.r + 40, roadLen = len - startR - plotCurrentSize(plot.id) * 0.6;
     if (roadLen <= 0) continue;
     const sx = pond.x + Math.cos(ang) * startR, sy = pond.y + Math.sin(ang) * startR;
     const midX = sx + Math.cos(ang) * roadLen / 2, midY = sy + Math.sin(ang) * roadLen / 2;
@@ -4484,14 +4506,28 @@ function drawForSaleSign(x, y, cost) {
   ctx.fillStyle = '#14492a'; ctx.font = 'bold 15px Trebuchet MS'; ctx.fillText('$' + cost.toLocaleString(), 0, -28);
   ctx.restore();
 }
+function drawUpgradeMarker(x, y, level) {
+  const maxed = level >= LAND_UPGRADE_COST.length;
+  ctx.save(); ctx.translate(x, y);
+  ctx.globalAlpha = 0.16; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(0, 60, 20, 12, 0, 0, 6.28); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#8a6038'; ctx.fillRect(-4, -10, 8, 70);                                // post
+  ctx.fillStyle = maxed ? '#ffd23f' : '#7ad04a'; roundRect(-74, -76, 148, 66, 6); ctx.fill();
+  ctx.strokeStyle = '#5a3a14'; ctx.lineWidth = 4; ctx.strokeRect(-74, -76, 148, 66);
+  ctx.fillStyle = '#14492a'; ctx.font = 'bold 15px Trebuchet MS'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(maxed ? '🏆 MAX SIZE!' : '⬆️ UPGRADE LAND', 0, -52);
+  ctx.font = 'bold 13px Trebuchet MS';
+  ctx.fillText(maxed ? 'as big as it gets!' : '$' + LAND_UPGRADE_COST[level].toLocaleString(), 0, -30);
+  ctx.restore();
+}
 function drawLandPlots(camX, camY) {
   for (const plot of LAND_PLOTS) {
-    if (!onScreen(plot.x, plot.y, PLOT_SIZE, camX, camY)) continue;
+    const size = plotCurrentSize(plot.id);
+    if (!onScreen(plot.x, plot.y, size, camX, camY)) continue;
     if (!myLand[plot.id].owned) { drawForSaleSign(plot.x, plot.y, LAND_COST); continue; }   // not bought yet — just a sign, nothing else
     ctx.save(); ctx.globalAlpha = 0.45; ctx.fillStyle = '#8fce6a';                        // a lighter grassy clearing so it reads as "your land"
-    roundRect(plot.x - PLOT_SIZE / 2, plot.y - PLOT_SIZE / 2, PLOT_SIZE, PLOT_SIZE, 60); ctx.fill(); ctx.globalAlpha = 1; ctx.restore();
+    roundRect(plot.x - size / 2, plot.y - size / 2, size, size, 60); ctx.fill(); ctx.globalAlpha = 1; ctx.restore();
     ctx.fillStyle = '#14492a'; ctx.font = 'bold 15px Trebuchet MS'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('🏞️ Land #' + (plot.id + 1), plot.x, plot.y - PLOT_SIZE / 2 - 24);
+    ctx.fillText('🏞️ Land #' + (plot.id + 1), plot.x, plot.y - size / 2 - 24);
     const has0 = !!plotBuilding(plot.id, 0);
     for (const slot of (has0 ? [0, 1] : [0])) {
       const p = plotSlotPos(plot, slot), b = plotBuilding(plot.id, slot);
@@ -4500,6 +4536,8 @@ function drawLandPlots(camX, camY) {
       else if (b.type === 'trophy') drawGenericTrophyRoom(p.x, p.y);
       else if (b.type === 'house') drawGenericHouse(p.x, p.y, b.houseSize);
     }
+    const up = upgradeMarkerPos(plot);
+    drawUpgradeMarker(up.x, up.y, myLand[plot.id].sizeLevel || 0);   // always here, even once both slots are built
   }
 }
 
@@ -6254,6 +6292,23 @@ function renderBuildMenu() {
     list.appendChild(b);
     return;
   }
+  if (buildTarget && buildTarget.upgradeMode) {
+    const lvl = myLand[buildTarget.plotId].sizeLevel || 0;
+    if (lvl >= LAND_UPGRADE_COST.length) {
+      title.textContent = '🏞️ Your land is already the BIGGEST size!';
+      const b = document.createElement('button'); b.className = 'dlCar';
+      b.innerHTML = '🎉 Max Size!';
+      b.addEventListener('click', () => closeBuildMenu());
+      list.appendChild(b);
+      return;
+    }
+    title.textContent = '⬆️ Upgrade Land — make your plot bigger!';
+    const b = document.createElement('button'); b.className = 'dlCar';
+    b.innerHTML = '⬆️ Upgrade Land<br><span style="font-size:11px;opacity:.85">$' + LAND_UPGRADE_COST[lvl].toLocaleString() + '</span>';
+    b.addEventListener('click', () => { upgradeLand(); startAudio(); });
+    list.appendChild(b);
+    return;
+  }
   title.textContent = '🔨 Build on your land — what do you want here?';
   BUILD_OPTIONS.forEach(opt => {
     const b = document.createElement('button'); b.className = 'dlCar';
@@ -6264,6 +6319,19 @@ function renderBuildMenu() {
 }
 function openBuildMenu(plotId, slot) { buildTarget = { plotId, slot }; renderBuildMenu(); document.getElementById('buildPanel').style.display = 'block'; }
 function openBuyLandMenu(plotId) { buildTarget = { plotId, landMode: true }; renderBuildMenu(); document.getElementById('buildPanel').style.display = 'block'; }
+function openUpgradeMenu(plotId) { buildTarget = { plotId, upgradeMode: true }; renderBuildMenu(); document.getElementById('buildPanel').style.display = 'block'; }
+function upgradeLand() {
+  if (!buildTarget || !buildTarget.upgradeMode) return;
+  const plotId = buildTarget.plotId, lvl = myLand[plotId].sizeLevel || 0;
+  if (lvl >= LAND_UPGRADE_COST.length) return;
+  const cost = LAND_UPGRADE_COST[lvl];
+  if (money < cost) { hint('💵 You need $' + cost.toLocaleString() + ' to upgrade your land — keep saving up!'); return; }
+  addMoney(-cost);
+  myLand[plotId].sizeLevel = lvl + 1;
+  saveMyLand();
+  closeBuildMenu();
+  hint('🏞️ Your land just got BIGGER! 🎉');
+}
 function closeBuildMenu() { buildTarget = null; document.getElementById('buildPanel').style.display = 'none'; }
 function buyLand() {
   if (!buildTarget || !buildTarget.landMode) return;
@@ -6275,7 +6343,7 @@ function buyLand() {
   hint('🏞️ Land is yours! Now build something on it!');
 }
 function constructBuilding(type, houseSize) {
-  if (!buildTarget || buildTarget.landMode) return;
+  if (!buildTarget || buildTarget.landMode || buildTarget.upgradeMode) return;
   const cost = type === 'house' ? BUILD_COST['house_' + houseSize] : BUILD_COST[type];
   if (money < cost) { hint('💵 You need $' + cost.toLocaleString() + ' for that — keep saving up!'); return; }
   addMoney(-cost);
