@@ -28,8 +28,12 @@ function GameBoard() {
   // swipe-steered game (2026-07-10 audit, High).
   useEffect(() => {
     const update = () => {
-      const available =
-        wrapperRef.current?.parentElement?.clientWidth ?? window.innerWidth;
+      // The parent column sizes itself to fit the board, so its clientWidth
+      // can't be trusted alone (it grows to 400px right along with the
+      // overflow) — clamp against the viewport too, minus page padding.
+      const viewport = document.documentElement.clientWidth - 16;
+      const parent = wrapperRef.current?.parentElement?.clientWidth ?? Infinity;
+      const available = Math.min(parent, viewport);
       setScale(Math.min(1, available / boardSize));
     };
     update();
