@@ -426,11 +426,6 @@ export function QuoridorGame() {
       <IOSInstallPrompt />
 
 
-      <header className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">Quoridor</h1>
-        <p className="text-amber-200">Block your opponent, reach the other side!</p>
-      </header>
-
       {/* Turn indicator */}
       <div className="flex items-center justify-center gap-4 py-3 px-6 bg-gray-800 rounded-lg">
         <div

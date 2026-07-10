@@ -160,11 +160,6 @@ export function ChessGame() {
       <IOSInstallPrompt />
 
 
-      <header className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">Chess</h1>
-        <p className="text-emerald-200">Think ahead and capture the king!</p>
-      </header>
-
       {/* Turn indicator */}
       <div
         className={`px-6 py-3 rounded-lg font-bold text-xl text-white ${

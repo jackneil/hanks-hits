@@ -389,14 +389,6 @@ export function FlappyBirdGame() {
       <IOSInstallPrompt />
 
 
-      {/* Header */}
-      <header className="mb-4 text-center">
-        <h1 className="text-3xl font-bold text-white drop-shadow-lg">
-          Flappy Bird
-        </h1>
-        <p className="text-sky-100">Tap or press Space to fly!</p>
-      </header>
-
       {/* Game container */}
       <div
         ref={containerRef}

@@ -381,11 +381,6 @@ export function Game2048() {
         }
       `}</style>
 
-      <header className="text-center mb-4">
-        <h1 className="text-6xl font-bold text-[#776e65]">2048</h1>
-        <p className="text-[#776e65] mt-2">Join the tiles to get to 2048!</p>
-      </header>
-
       <ScoreBoard />
 
       <div

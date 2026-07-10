@@ -122,17 +122,15 @@ export function WordleGame() {
       <TutorialModal />
 
       <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
-        {/* Header with quit button (shown during gameplay) */}
+        {/* Quit button (shown during gameplay) */}
         {gameState !== "ready" && (
-          <div className="w-full flex justify-between items-center mb-4">
+          <div className="w-full flex justify-start items-center mb-4">
             <button
               onClick={reset}
               className="btn btn-ghost btn-sm text-slate-400"
             >
               ← Quit
             </button>
-            <h1 className="text-2xl font-bold">📝 Wordle</h1>
-            <div className="w-16" /> {/* Spacer for centering */}
           </div>
         )}
 

@@ -556,12 +556,6 @@ export function SnakeGame() {
       <IOSInstallPrompt />
 
 
-      {/* Header */}
-      <header className="text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">Snake</h1>
-        <p className="text-green-200">Eat food and grow longer!</p>
-      </header>
-
       {/* Game Board */}
       <div className="flex flex-col items-center">
         <GameBoard />

@@ -523,12 +523,6 @@ export function BreakoutGame() {
       <IOSInstallPrompt />
 
 
-      {/* Header */}
-      <header className="text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">Breakout</h1>
-        <p className="text-purple-200">Break all the bricks!</p>
-      </header>
-
       {/* Game Canvas */}
       <GameCanvas />
 

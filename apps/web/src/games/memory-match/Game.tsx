@@ -377,20 +377,9 @@ export function MemoryMatchGame() {
       store.currentTime <= previousBestTime);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-4 md:gap-6">
+    <div className="min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-3">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
-
-
-      {/* Header */}
-      <header className="text-center">
-        <h1 className="text-3xl md:text-5xl font-bold text-white mb-1">
-          &#129504; Memory Match
-        </h1>
-        <p className="text-blue-200 text-sm md:text-base">
-          Find all the matching pairs!
-        </p>
-      </header>
 
       {/* Difficulty selector */}
       <DifficultySelector
@@ -418,7 +407,7 @@ export function MemoryMatchGame() {
 
       {/* Card grid */}
       <div
-        className="w-full max-w-2xl mx-auto"
+        className="w-full max-w-2xl md:max-w-[min(42rem,calc(100vh_-_27rem))] mx-auto"
         style={{
           display: "grid",
           gridTemplateColumns: `repeat(${config.cols}, 1fr)`,
