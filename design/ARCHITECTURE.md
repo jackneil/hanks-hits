@@ -207,6 +207,38 @@ hanks-hits/
 
 ---
 
+## Shell Contract (chrome vs. play area)
+
+Every game and app route is wrapped by the shared **GameShell**
+(`src/shared/components/GameShell.tsx`). The split is strict:
+
+**The shell owns the chrome.** One fixed header bar per page: home button,
+the game/app name (rendered exactly once as chrome), leaderboard button
+(when the app id has leaderboard support), fullscreen button, and pause
+button (ESC + pause-on-blur via `useGameShell`). Modules must NOT render
+their own home/back buttons, title bars, page `<h1>`s naming themselves, or
+floating fullscreen buttons — that chrome comes from the shell or not at all.
+
+**Games own the play area and overlay content.** Start screens are DOM, not
+canvas: use **GameStartOverlay** (`src/shared/components/GameStartOverlay.tsx`)
+mounted inside the game's `relative` canvas container. It renders the title
+once (the only in-content heading, visible only pre-start), pointer-aware
+controls copy (`useCoarsePointer` / `matchMedia("(pointer: coarse)")` — touch
+viewports never see keyboard-only instructions), an optional
+difficulty/level picker slot (`GameStartOverlayButton`, the one approved
+start-button style), and a start button guarded to fire once. All targets
+are >= 44x44px. Never draw menu text or hit-boxes into the canvas.
+
+**Stacking order (z-index):** game HUDs/touch controls <= 50 →
+GameStartOverlay 40 → OrientationWarning 100 (phone-width portrait only) →
+GameShell header 1000 → PauseMenu 2000.
+
+**Layout under the shell:** content is offset by the header
+(`pt-12 md:pt-14`); full-height modules size against
+`calc(100vh - 3rem)` / `md:calc(100vh - 3.5rem)`, never `100vh`.
+
+---
+
 ## Next.js Configuration
 
 ```ts
