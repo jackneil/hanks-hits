@@ -9,7 +9,7 @@ import {
   type ValidAppId,
   type AppProgressData,
 } from "@hank-neil/db/schema";
-import { mergeProgress } from "@/lib/progress-merge";
+import { mergeForSave } from "@/lib/progress-merge";
 import { validateProgress } from "@/lib/progress-schemas";
 import { checkProgressDeleteRateLimit, checkProgressRateLimit } from "@/lib/rate-limit";
 import { generateUniqueHandle } from "@/lib/handle-generator";
@@ -160,8 +160,11 @@ export async function POST(request: Request, context: RouteContext) {
     let finalData: AppProgressData = validation.data as AppProgressData;
     let conflicts: string[] = [];
 
-    // If merging, fetch existing first and merge
-    // SECURITY: Server timestamp ALWAYS wins - we don't trust any client timestamps
+    // If merging, fetch existing first and merge. Ordering comes from the
+    // progress blobs' own lastModified (validated + bounded by the zod schema);
+    // the row's updatedAt only breaks ties when a blob carries no timestamp.
+    // Field-aware reconcile means a stale/default blob can never erase earned
+    // monotonic progress (see mergeForSave + the wipe regression tests).
     if (merge) {
       const existing = await db.query.appProgress.findFirst({
         where: and(
@@ -171,13 +174,10 @@ export async function POST(request: Request, context: RouteContext) {
       });
 
       if (existing) {
-        const serverTimestamp = existing.updatedAt.getTime();
-        const mergeResult = mergeProgress(
-          validation.data as AppProgressData,
-          existing.data as AppProgressData,
-          null,
-          serverTimestamp
-        );
+        const mergeResult = mergeForSave(validation.data as AppProgressData, {
+          data: existing.data as AppProgressData,
+          updatedAt: existing.updatedAt,
+        });
         finalData = mergeResult.data;
         conflicts = mergeResult.conflicts;
       }

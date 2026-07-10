@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useSession } from "next-auth/react";
 import type { ValidAppId, AppProgressData } from "@hank-neil/db/schema";
+import { extractTimestamp } from "@/lib/progress-merge";
 
 type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
@@ -49,6 +50,7 @@ export function useAuthSync<T extends AppProgressData>({
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedRef = useRef<string>("");
+  const pendingSaveRef = useRef<string>("");
   const initialSyncDoneRef = useRef(false);
 
   // Store getState/setState in refs to avoid callback instability
@@ -129,56 +131,33 @@ export function useAuthSync<T extends AppProgressData>({
       return getStateRef.current();
     }
 
-    // Parse localStorage to get expected state
-    let expectedState: T | null = null;
+    // Parse localStorage to get the persisted state we expect after hydration.
+    // Zustand persist stores data under "state"; games partialize to
+    // { progress } while getState() returns the progress object itself.
+    let expectedStr: string | null = null;
     try {
       const parsed = JSON.parse(stored);
-      // Zustand persist stores data under "state" key
-      expectedState = parsed.state || parsed;
+      const persisted = parsed?.state ?? parsed;
+      const expected = persisted?.progress ?? persisted;
+      expectedStr = JSON.stringify(expected);
     } catch {
       // If parse fails, just return current state
       return getStateRef.current();
     }
 
-    // Wait for Zustand to hydrate by comparing current state to localStorage
-    // Give it up to 500ms (typically happens in <50ms)
+    // Wait until the store's state actually EQUALS the persisted snapshot.
+    // (The old heuristic returned as soon as lastModified was defined — which
+    // the pre-hydration DEFAULT state satisfies, so default zeros could be
+    // uploaded as if they were the player's progress.)
     const maxWait = 500;
     const checkInterval = 25;
     let waited = 0;
 
     while (waited < maxWait) {
       const state = getStateRef.current();
-
-      // Check for indicators of real gameplay data (not defaults)
-      // These fields are common across most games and only increase with play
-      const hasPlayData =
-        (state as Record<string, unknown>).gamesPlayed !== undefined &&
-        (state as Record<string, unknown>).gamesPlayed !== 0;
-      const hasHighScore =
-        (state as Record<string, unknown>).highScore !== undefined &&
-        (state as Record<string, unknown>).highScore !== 0;
-      const hasLastModified =
-        (state as Record<string, unknown>).lastModified !== undefined;
-
-      // If state has any gameplay indicators, we're hydrated
-      if (hasPlayData || hasHighScore || hasLastModified) {
+      if (JSON.stringify(state) === expectedStr) {
         return state;
       }
-
-      // Also check if current state matches what's in localStorage (hydration complete)
-      if (expectedState) {
-        const expectedGamesPlayed = (expectedState as Record<string, unknown>)
-          .gamesPlayed;
-        const currentGamesPlayed = (state as Record<string, unknown>)
-          .gamesPlayed;
-        if (
-          expectedGamesPlayed !== undefined &&
-          expectedGamesPlayed === currentGamesPlayed
-        ) {
-          return state;
-        }
-      }
-
       await new Promise((r) => setTimeout(r, checkInterval));
       waited += checkInterval;
     }
@@ -239,14 +218,20 @@ export function useAuthSync<T extends AppProgressData>({
       return;
     }
 
-    // Both exist - merge (server takes precedence for now)
-    // This saves local to server with merge flag
+    // Both exist - upload local with merge flag; the server reconciles by
+    // the blobs' own lastModified with field-aware merging.
     const success = await saveToServer(localState, true);
     if (success) {
       // Re-fetch to get merged result
       const merged = await fetchFromServer();
       if (merged?.data) {
-        setStateRef.current(merged.data as T);
+        // Adopt the server result ONLY if it is at least as new as what we
+        // hold locally — never let a stale response overwrite live progress.
+        const mergedTs = extractTimestamp(merged.data as AppProgressData);
+        const localTs = extractTimestamp(localState as AppProgressData);
+        if (mergedTs === null || localTs === null || mergedTs >= localTs) {
+          setStateRef.current(merged.data as T);
+        }
         initialSyncDoneRef.current = true;
         onSyncComplete?.("server");
       }
@@ -260,19 +245,33 @@ export function useAuthSync<T extends AppProgressData>({
     (data: T) => {
       if (!isAuthenticated) return;
 
-      // Clear existing timeout
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
+      const dataStr = JSON.stringify(data);
+
+      // Nothing new since the last completed save: drop any stale pending
+      // timer and stop.
+      if (dataStr === lastSavedRef.current) {
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+          pendingSaveRef.current = "";
+        }
+        return;
       }
 
-      // Check if data actually changed
-      const dataStr = JSON.stringify(data);
-      if (dataStr === lastSavedRef.current) return;
+      // This exact payload is already scheduled: let the pending timer fire.
+      // (Clearing-and-rearming here is the bug that kept the save perpetually
+      // pending — the 1s poller re-entered before the 2s debounce elapsed.)
+      if (dataStr === pendingSaveRef.current && saveTimeoutRef.current) return;
 
-      // Schedule save
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      pendingSaveRef.current = dataStr;
       saveTimeoutRef.current = setTimeout(async () => {
+        saveTimeoutRef.current = null;
+        pendingSaveRef.current = "";
         lastSavedRef.current = dataStr;
-        await saveToServer(data, false);
+        // merge:true — the server folds this into any concurrent write from
+        // another tab/device instead of blind-overwriting it.
+        await saveToServer(data, true);
       }, debounceMs);
     },
     [isAuthenticated, debounceMs, saveToServer]
@@ -288,11 +287,12 @@ export function useAuthSync<T extends AppProgressData>({
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
+      pendingSaveRef.current = "";
     }
 
     const data = getStateRef.current();
     lastSavedRef.current = JSON.stringify(data);
-    await saveToServer(data, false);
+    await saveToServer(data, true);
   }, [isAuthenticated, saveToServer]);
 
   // Initial sync when authenticated
@@ -338,14 +338,18 @@ export function useAuthSync<T extends AppProgressData>({
   useEffect(() => {
     // Handler for beforeunload (tab close/navigate away)
     const handleBeforeUnload = () => {
-      if (!isAuthenticated || !saveTimeoutRef.current) return;
+      // Never beacon before the initial sync has completed — a pre-hydration
+      // or StrictMode-double-mount beacon would ship DEFAULT state and (before
+      // merge protection) erase real progress on the server.
+      if (!isAuthenticated || !initialSyncDoneRef.current) return;
 
-      // Use sendBeacon for reliable save on page unload
       const data = getStateRef.current();
-      const payload = JSON.stringify({
-        data,
-        merge: false,
-      });
+      const dataStr = JSON.stringify(data);
+      if (dataStr === lastSavedRef.current) return; // nothing unsaved
+
+      // merge:true so this best-effort write can never blind-overwrite a
+      // newer save that raced it.
+      const payload = JSON.stringify({ data, merge: true });
 
       // Must use Blob with Content-Type or API's request.json() fails
       const blob = new Blob([payload], { type: "application/json" });
@@ -360,17 +364,17 @@ export function useAuthSync<T extends AppProgressData>({
       // Also flush pending save on component unmount
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        pendingSaveRef.current = "";
 
-        // Try to save synchronously if we have pending changes
-        if (isAuthenticated) {
+        // Flush only after initial sync — a StrictMode unmount fires this
+        // with DEFAULT state before hydration, which must never be saved.
+        if (isAuthenticated && initialSyncDoneRef.current) {
           const data = getStateRef.current();
           const dataStr = JSON.stringify(data);
           if (dataStr !== lastSavedRef.current) {
-            // Use sendBeacon as it's more reliable for cleanup
-            const payload = JSON.stringify({
-              data,
-              merge: false,
-            });
+            // merge:true — same race protection as the unload beacon.
+            const payload = JSON.stringify({ data, merge: true });
             // Must use Blob with Content-Type or API's request.json() fails
             const blob = new Blob([payload], { type: "application/json" });
             navigator.sendBeacon(`/api/progress/${appId}`, blob);

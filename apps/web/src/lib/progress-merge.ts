@@ -1,8 +1,9 @@
 /**
  * Progress merge utilities for handling localStorage → DB sync
  *
- * Uses a simple "last write wins" strategy for MVP, with timestamp tracking.
- * The transaction log exists for future exploit-proof merge if needed.
+ * Strategy: "last write wins" on the progress blob's own lastModified,
+ * with field-aware reconciliation so divergent sessions can't destroy
+ * monotonic progress (high scores, totals, unlockables).
  */
 
 import type { AppProgressData } from "@hank-neil/db";
@@ -16,15 +17,65 @@ export type MergeResult = {
   conflicts: string[];
 };
 
+// Numeric fields that only ever grow with play. Balances that can be SPENT
+// (cookies, money, coins) deliberately do NOT match — max() would mint refunds.
+const MONOTONIC_KEY =
+  /^(total|high|best|max|longest|games)[A-Z0-9_]|(Score|Played|Baked|Clicks|Streak|Count|Distance|Wins|Deaths|Jumps|Pipes|Landings)$/;
+
+// Collections a player unlocks/earns — safe to union across sessions.
+const UNLOCKABLE_KEY = /(unlocked|purchased|achievement|badge|upgrade|trophies)/i;
+
+const isPrimitiveArray = (v: unknown): v is (string | number)[] =>
+  Array.isArray(v) && v.every((x) => typeof x === "string" || typeof x === "number");
+
 /**
- * Simple timestamp-based merge strategy
+ * Field-aware reconcile: the LWW winner's blob is the base; for fields present
+ * in BOTH blobs, monotonic counters take max and unlockable collections union.
+ * Returns [data, changed].
+ */
+function reconcileFields(
+  winner: AppProgressData,
+  loser: AppProgressData
+): [AppProgressData, boolean] {
+  const out: AppProgressData = { ...winner };
+  let changed = false;
+
+  for (const key of Object.keys(winner)) {
+    if (!(key in loser)) continue;
+    const w = winner[key];
+    const l = loser[key];
+
+    if (typeof w === "number" && typeof l === "number" && MONOTONIC_KEY.test(key)) {
+      if (l > w) {
+        out[key] = l;
+        changed = true;
+      }
+    } else if (isPrimitiveArray(w) && isPrimitiveArray(l) && UNLOCKABLE_KEY.test(key)) {
+      const extras = l.filter((x) => !w.includes(x));
+      if (extras.length > 0) {
+        out[key] = [...w, ...extras];
+        changed = true;
+      }
+    }
+  }
+
+  // Keep lastModified honest: the reconciled blob represents both sessions.
+  const wTs = winner.lastModified;
+  const lTs = loser.lastModified;
+  if (typeof wTs === "number" && typeof lTs === "number" && lTs > wTs) {
+    out.lastModified = lTs;
+  }
+
+  return [out, changed];
+}
+
+/**
+ * Timestamp-based merge with field-aware reconciliation.
  *
- * For MVP, we use "last modified wins" approach:
- * - If local has more recent changes, use local entirely
- * - If server has more recent changes, use server entirely
- * - User sees a warning if there's a conflict
- *
- * Future: Transaction replay for true merge without exploits
+ * - If only one side has data, it wins outright.
+ * - Otherwise the side with the newer timestamp is the base, and monotonic
+ *   counters / unlockables from the older side are folded in so a stale blob
+ *   can never erase earned progress.
  */
 export function mergeProgress(
   localData: AppProgressData | null,
@@ -54,27 +105,45 @@ export function mergeProgress(
   const localTime = localTimestamp || 0;
   const serverTime = serverTimestamp || 0;
 
-  // Server is newer or equal - prefer server
-  if (serverTime >= localTime) {
-    return {
-      data: serverData,
-      source: "server",
-      conflicts:
-        localTime > 0
-          ? ["Local progress was overwritten by newer server data"]
-          : [],
-    };
+  const serverWins = serverTime >= localTime;
+  const winner = serverWins ? serverData : localData;
+  const loser = serverWins ? localData : serverData;
+
+  const [data, reconciled] = reconcileFields(winner, loser);
+
+  const conflicts: string[] = [];
+  if (serverWins && localTime > 0) {
+    conflicts.push("Local progress was merged into newer server data");
+  } else if (!serverWins && serverTime > 0) {
+    conflicts.push("Server progress was merged into newer local data");
   }
 
-  // Local is newer - use local
   return {
-    data: localData,
-    source: "local",
-    conflicts:
-      serverTime > 0
-        ? ["Server progress was overwritten by newer local data"]
-        : [],
+    data,
+    source: reconciled ? "merged" : serverWins ? "server" : "local",
+    conflicts,
   };
+}
+
+/**
+ * Server-side merge entry point for POST /api/progress with merge=true.
+ *
+ * Timestamps come from the progress blobs' OWN lastModified — the row's
+ * updatedAt only breaks ties when a blob carries no timestamp, because
+ * updatedAt gets refreshed by every write (including no-op merges) and
+ * therefore cannot order client sessions.
+ */
+export function mergeForSave(
+  incomingData: AppProgressData,
+  existing: { data: AppProgressData; updatedAt: Date } | null
+): MergeResult {
+  if (!existing) {
+    return { data: incomingData, source: "local", conflicts: [] };
+  }
+  const incomingTs = extractTimestamp(incomingData);
+  const existingTs =
+    extractTimestamp(existing.data) ?? existing.updatedAt.getTime();
+  return mergeProgress(incomingData, existing.data, incomingTs, existingTs);
 }
 
 /**
