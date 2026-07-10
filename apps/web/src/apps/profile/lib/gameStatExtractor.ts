@@ -1,5 +1,6 @@
 import type { ValidAppId } from "@hank-neil/db/schema";
 import { getGameMetadata } from "@/shared/lib/gameMetadata.generated";
+import { plural } from "@/shared/lib/pluralize";
 
 /**
  * Extracted game display info for profile cards.
@@ -87,7 +88,7 @@ export function extractGameStats(
         secondaryStats: [
           data.totalClicks && { label: "Clicks", value: formatNumber(data.totalClicks as number) },
           data.unlockedAchievements && {
-            label: "Achievements",
+            label: plural((data.unlockedAchievements as unknown[]).length, "Achievement"),
             value: String((data.unlockedAchievements as unknown[]).length),
           },
         ].filter(Boolean) as { label: string; value: string }[],

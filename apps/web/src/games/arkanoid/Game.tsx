@@ -18,6 +18,7 @@ export function ArkanoidGame() {
     progress,
     wasNewHighScore,
     startGame,
+    launchBall,
     pauseGame,
     resumeGame,
     endGame,
@@ -62,6 +63,12 @@ export function ArkanoidGame() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === " " || e.key === "Escape") {
         e.preventDefault();
+        const ballsStuck = useArkanoidStore.getState().balls.some((b) => b.stuck);
+        // Space launches the resting balls; otherwise Space/Escape pause-toggle.
+        if (e.key === " " && gameState === "playing" && ballsStuck) {
+          launchBall();
+          return;
+        }
         if (gameState === "playing") {
           pauseGame();
         } else if (gameState === "paused") {
@@ -81,7 +88,7 @@ export function ArkanoidGame() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [gameState, pauseGame, resumeGame, setPaddleX]);
+  }, [gameState, launchBall, pauseGame, resumeGame, setPaddleX]);
 
   // Render function
   const render = useCallback((
@@ -186,6 +193,24 @@ export function ArkanoidGame() {
       // Get current state directly from store (avoid stale closures)
       const currentBalls = useArkanoidStore.getState().balls;
       const currentPaddleX = useArkanoidStore.getState().paddleX;
+
+      // Waiting to launch: keep the resting balls glued to the paddle (so the
+      // player can aim), render, and run no physics until they launch.
+      if (currentBalls.some((b) => b.stuck)) {
+        const pinned = currentBalls.map((ball) => {
+          if (!ball.stuck) return ball;
+          const radius = BALL_CONFIG[ball.type].radius;
+          return {
+            ...ball,
+            x: currentPaddleX + (ball.offsetX ?? 0),
+            y: PADDLE.y + PADDLE.height / 2 + radius,
+          };
+        });
+        updateBalls(pinned);
+        render(ctx, canvas, pinned);
+        animationFrameRef.current = requestAnimationFrame(gameLoop);
+        return;
+      }
 
       // Update physics
       const updatedBalls = currentBalls.map((ball) => {
@@ -339,6 +364,9 @@ export function ArkanoidGame() {
   const orangeBalls = balls.filter((b) => b.type === "orange").length;
   const yellowBalls = balls.filter((b) => b.type === "yellow-dot").length;
 
+  // Balls are resting on the paddle, waiting for the player to launch them.
+  const waitingToLaunch = gameState === "playing" && balls.some((b) => b.stuck);
+
   return (
     <div className="flex h-screen w-full flex-col bg-slate-900">
       {/* HUD */}
@@ -377,7 +405,18 @@ export function ArkanoidGame() {
           ref={canvasRef}
           className="h-full w-full cursor-none"
           style={{ touchAction: "none" }}
+          onClick={() => launchBall()}
+          onTouchStart={() => launchBall()}
         />
+
+        {/* Launch hint - shown while the balls rest on the paddle */}
+        {waitingToLaunch && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-28 flex justify-center px-4">
+            <div className="animate-pulse rounded-full bg-slate-800/90 px-5 py-2 text-center text-base font-bold text-white shadow-lg md:text-lg">
+              👆 Click or press Space to launch!
+            </div>
+          </div>
+        )}
 
         {/* Ball counters (left side) */}
         {gameState === "playing" && (

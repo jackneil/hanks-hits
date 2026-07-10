@@ -344,6 +344,17 @@ export function VirtualPet() {
         </button>
       </div>
 
+      {/* Empty-inventory hint - points kids to the shop when Feed/Toy are disabled */}
+      {(foodItems.length === 0 || toyItems.length === 0) && (
+        <div className="w-full max-w-md -mt-2 mb-4 text-center text-sm font-semibold text-amber-700">
+          {foodItems.length === 0 && toyItems.length === 0
+            ? "Out of food and toys? Buy some in the 🏪 Shop!"
+            : foodItems.length === 0
+              ? "Out of food? Buy some in the 🏪 Shop!"
+              : "Out of toys? Buy some in the 🏪 Shop!"}
+        </div>
+      )}
+
       {/* Shop button */}
       <button
         onClick={() => store.toggleShop()}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { plural } from "@/shared/lib/pluralize";
 
 export interface LeaderboardEntry {
   rank: number;
@@ -196,7 +197,7 @@ export function Leaderboard({
           <span className="font-bold text-lg">{formatScore(data.myEntry.score, scoreType)}</span>
         </div>
         <div className="text-xs opacity-80 mt-1">
-          Your rank: {data.myEntry.rank.toLocaleString()} of {data.totalPlayers.toLocaleString()} players
+          Your rank: {data.myEntry.rank.toLocaleString()} of {data.totalPlayers.toLocaleString()} {plural(data.totalPlayers, "player")}
         </div>
       </div>
     );
@@ -211,7 +212,7 @@ export function Leaderboard({
           <h2 className="text-xl font-bold">{gameName}</h2>
           {data && (
             <span className="text-sm text-slate-400">
-              ({data.totalPlayers.toLocaleString()} players)
+              ({data.totalPlayers.toLocaleString()} {plural(data.totalPlayers, "player")})
             </span>
           )}
         </div>
@@ -329,8 +330,8 @@ export function Leaderboard({
       {data && (
         <div className="sr-only" role="status" aria-live="polite">
           {data.myEntry
-            ? `Leaderboard showing ${data.leaderboard.length} of ${data.totalPlayers} players. Your rank is ${data.myEntry.rank}.`
-            : `Leaderboard showing ${data.leaderboard.length} of ${data.totalPlayers} players.`}
+            ? `Leaderboard showing ${data.leaderboard.length} of ${data.totalPlayers} ${plural(data.totalPlayers, "player")}. Your rank is ${data.myEntry.rank}.`
+            : `Leaderboard showing ${data.leaderboard.length} of ${data.totalPlayers} ${plural(data.totalPlayers, "player")}.`}
         </div>
       )}
     </div>

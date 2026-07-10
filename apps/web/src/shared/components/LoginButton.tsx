@@ -15,6 +15,7 @@ export function LoginButton() {
   const { data: session, status } = useSession();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -31,6 +32,21 @@ export function LoginButton() {
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
+  }, [dropdownOpen]);
+
+  // Close dropdown on Escape and return focus to the avatar button
+  useEffect(() => {
+    if (!dropdownOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDropdownOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [dropdownOpen]);
 
   // Loading state
@@ -83,6 +99,7 @@ export function LoginButton() {
   return (
     <div className="relative" ref={dropdownRef}>
       <div
+        ref={triggerRef}
         tabIndex={0}
         role="button"
         className="btn btn-ghost btn-circle avatar cursor-pointer"

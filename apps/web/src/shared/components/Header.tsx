@@ -57,8 +57,18 @@ export function Header({
           </div>
         )}
 
-        {/* Right: LoginButton */}
-        <LoginButton />
+        {/* Right: Leaderboards link (everyone) + LoginButton */}
+        <div className="flex items-center gap-2">
+          <Link
+            href="/leaderboards"
+            aria-label="Leaderboards"
+            className="group flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all duration-300 min-w-[44px] min-h-[44px] border border-white/10 hover:border-white/20"
+          >
+            <span className="text-xl" aria-hidden="true">🏆</span>
+            <span className="text-white/80 group-hover:text-white font-medium hidden sm:inline">Leaderboards</span>
+          </Link>
+          <LoginButton />
+        </div>
       </div>
     </header>
   );
