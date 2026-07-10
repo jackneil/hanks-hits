@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 
 /**
@@ -50,6 +50,20 @@ export function WebGLFallback({ gameName }: { gameName: string }) {
   );
 }
 
+// Detection result never changes within a page lifetime; cache it so the
+// snapshot is stable across renders (and cheap).
+let webglSupportCache: boolean | null = null;
+/** Test-only: clear the cached detection result between test cases. */
+export function resetWebGLSupportCache() {
+  webglSupportCache = null;
+}
+const subscribeNoop = () => () => {};
+const getWebGLSnapshot = () => {
+  if (webglSupportCache === null) webglSupportCache = detectWebGL();
+  return webglSupportCache;
+};
+const getServerSnapshot = () => null;
+
 /**
  * Wrap a 3D game's scene. Renders children only when a WebGL context can be
  * created; otherwise shows the friendly fallback.
@@ -61,12 +75,12 @@ export function WebGLGate({
   gameName: string;
   children: React.ReactNode;
 }) {
-  // null = not yet checked (SSR-safe: detection needs the DOM)
-  const [supported, setSupported] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    setSupported(detectWebGL());
-  }, []);
+  // null on the server (detection needs the DOM); real value after hydration.
+  const supported = useSyncExternalStore(
+    subscribeNoop,
+    getWebGLSnapshot,
+    getServerSnapshot
+  );
 
   if (supported === null) return null;
   if (!supported) return <WebGLFallback gameName={gameName} />;

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { WebGLGate, detectWebGL } from "../WebGLGate";
+import { WebGLGate, detectWebGL, resetWebGLSupportCache } from "../WebGLGate";
 
 // Simulated context-creation failure — the audit's black-void scenario.
 function stubGetContext(result: unknown) {
@@ -8,6 +8,10 @@ function stubGetContext(result: unknown) {
     .spyOn(HTMLCanvasElement.prototype, "getContext")
     .mockReturnValue(result as never);
 }
+
+beforeEach(() => {
+  resetWebGLSupportCache();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
