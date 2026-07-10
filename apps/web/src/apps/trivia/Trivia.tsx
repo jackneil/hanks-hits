@@ -8,12 +8,11 @@ import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   DIFFICULTY_SETTINGS,
   getDifficultySettings,
-  CATEGORIES,
   POINTS,
   type Difficulty,
 } from "./lib/constants";
 import {
-  fetchQuestions,
+  getQuestions,
   prepareQuestion,
   type PreparedQuestion,
 } from "./lib/api";
@@ -57,7 +56,6 @@ export function Trivia() {
 
   // Game state
   const [questions, setQuestions] = useState<PreparedQuestion[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -69,39 +67,25 @@ export function Trivia() {
   const diffSettings = getDifficultySettings(settings.difficulty);
   const currentQuestion = questions[questionIndex];
 
-  // Fetch questions when game starts - returns questions for checking
-  const loadQuestions = useCallback(async (): Promise<PreparedQuestion[]> => {
-    setLoading(true);
+  // Build this round's questions from the bundled bank - returns them for checking
+  const loadQuestions = useCallback((): PreparedQuestion[] => {
     setError(null);
     const diff = getDifficultySettings(settings.difficulty);
+    const rawQuestions = getQuestions(diff.questionsPerRound, diff.difficulty);
 
-    // Pick a random category from allowed ones
-    let category: number | undefined;
-    if (diff.categories !== "all") {
-      category = diff.categories[Math.floor(Math.random() * diff.categories.length)];
-    }
-
-    try {
-      const rawQuestions = await fetchQuestions(
-        diff.questionsPerRound,
-        diff.difficulty,
-        category
-      );
-
-      const prepared = rawQuestions.map(prepareQuestion);
-      setQuestions(prepared);
-      setLoading(false);
-      return prepared;
-    } catch {
-      setLoading(false);
-      setError("Failed to load questions. Please try again.");
+    if (rawQuestions.length === 0) {
+      setError("No questions available right now. Please try again!");
       return [];
     }
+
+    const prepared = rawQuestions.map(prepareQuestion);
+    setQuestions(prepared);
+    return prepared;
   }, [settings.difficulty]);
 
   // Start game
-  const handleStartGame = async () => {
-    const loadedQuestions = await loadQuestions();
+  const handleStartGame = () => {
+    const loadedQuestions = loadQuestions();
     if (loadedQuestions.length === 0) {
       // Error state will be shown
       return;
@@ -246,14 +230,9 @@ export function Trivia() {
             {/* Start Button */}
             <button
               onClick={handleStartGame}
-              disabled={loading}
               className="btn btn-primary btn-lg text-xl px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-transform"
             >
-              {loading ? (
-                <span className="loading loading-spinner"></span>
-              ) : (
-                "🎮 Start Quiz!"
-              )}
+              🎮 Start Quiz!
             </button>
           </div>
         )}
@@ -326,14 +305,6 @@ export function Trivia() {
                 );
               })}
             </div>
-          </div>
-        )}
-
-        {/* Loading */}
-        {gameState === "playing" && !currentQuestion && (
-          <div className="text-center py-20">
-            <span className="loading loading-spinner loading-lg"></span>
-            <div className="mt-4">Loading questions...</div>
           </div>
         )}
 
