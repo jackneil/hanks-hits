@@ -6,6 +6,7 @@ import { db, eq } from "@hank-neil/db";
 import * as schema from "@hank-neil/db/schema";
 import bcrypt from "bcryptjs";
 import { checkLoginRateLimit } from "@/lib/rate-limit";
+import { sanitizeSessionNameUpdate } from "@/lib/auth-session-update";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -87,9 +88,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
 
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
+      }
+      // Reflect profile-name edits into the JWT so the header avatar
+      // updates without re-login. Only the name is accepted, bounded to
+      // the same length the profile API allows.
+      if (trigger === "update") {
+        const name = sanitizeSessionNameUpdate(session?.name);
+        if (name) {
+          token.name = name;
+        }
       }
       return token;
     },

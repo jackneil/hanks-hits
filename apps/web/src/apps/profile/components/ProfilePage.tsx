@@ -45,7 +45,7 @@ interface MyRanksData {
  * Shows user info, game progress, and account actions.
  */
 export function ProfilePage() {
-  const { data: session, status } = useSession();
+  const { data: session, status, update } = useSession();
   const router = useRouter();
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -141,6 +141,9 @@ export function ProfilePage() {
 
       setProfile((prev) => prev ? { ...prev, name: data.name } : null);
       setIsEditingName(false);
+      // Push the new name into the session JWT so the header avatar
+      // initials update immediately instead of after the next login.
+      await update({ name: data.name });
     } catch (err) {
       setNameError(err instanceof Error ? err.message : "Couldn't save name");
     } finally {
