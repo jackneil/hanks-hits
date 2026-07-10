@@ -8,6 +8,7 @@ export { SyncIndicator } from "./SyncIndicator";
 export { FullscreenButton } from "./FullscreenButton";
 export { IOSInstallPrompt } from "./IOSInstallPrompt";
 export { OrientationWarning } from "./OrientationWarning";
+export { WebGLGate, WebGLFallback, detectWebGL } from "./WebGLGate";
 
 // Game shell components
 export { GameShell } from "./GameShell";

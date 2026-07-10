@@ -20,7 +20,7 @@ import { useAuthSync } from '@/shared/hooks/useAuthSync';
 import { sounds } from './lib/sounds';
 import { WORLD } from './lib/constants';
 import { getTerrainHeight } from './lib/terrainUtils';
-import { FullscreenButton, OrientationWarning } from '@/shared/components';
+import { FullscreenButton, OrientationWarning, WebGLGate } from '@/shared/components';
 
 // Loading screen component
 function LoadingScreen() {
@@ -209,25 +209,28 @@ export function MonsterTruckGame() {
         <FullscreenButton />
       </div>
 
-      {/* 3D Canvas */}
-      <Canvas
-        shadows
-        camera={{
-          fov: 75,
-          near: 0.5,  // Prevent z-fighting
-          far: 1000,
-          position: [0, 10, 20],
-        }}
-        style={{ touchAction: 'none' }}
-      >
-        <Suspense fallback={null}>
-          <GameScene
-            getControls={controls.getControlValues}
-            vehicleRef={vehicleRef}
-            onSpeedUpdate={handleSpeedUpdate}
-          />
-        </Suspense>
-      </Canvas>
+      {/* 3D Canvas - gated so a device without WebGL gets a friendly
+          explanation instead of a silent black void */}
+      <WebGLGate gameName="Monster Truck">
+        <Canvas
+          shadows
+          camera={{
+            fov: 75,
+            near: 0.5,  // Prevent z-fighting
+            far: 1000,
+            position: [0, 10, 20],
+          }}
+          style={{ touchAction: 'none' }}
+        >
+          <Suspense fallback={null}>
+            <GameScene
+              getControls={controls.getControlValues}
+              vehicleRef={vehicleRef}
+              onSpeedUpdate={handleSpeedUpdate}
+            />
+          </Suspense>
+        </Canvas>
+      </WebGLGate>
 
       {/* Game UI overlay */}
       <GameUI
