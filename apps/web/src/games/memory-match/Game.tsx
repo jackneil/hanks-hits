@@ -471,7 +471,7 @@ export function MemoryMatchGame() {
       {/* Sound toggle (placeholder for future) */}
       <button
         onClick={() => store.toggleSound()}
-        className="fixed bottom-2 left-2 text-2xl opacity-50 hover:opacity-100 transition-opacity"
+        className="fixed bottom-2 left-2 inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-2xl opacity-50 hover:opacity-100 transition-opacity"
         title={store.progress.soundEnabled ? "Sound On" : "Sound Off"}
       >
         {store.progress.soundEnabled ? "\u{1F50A}" : "\u{1F507}"}

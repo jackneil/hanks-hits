@@ -686,7 +686,7 @@ export function QuoridorGame() {
         >
           <div className="bg-white rounded-xl p-6 max-w-md text-center shadow-2xl">
             <h2 className="text-2xl font-bold mb-4 text-gray-800">
-              How to Play Quoridor
+              How to Play
             </h2>
 
             <div className="space-y-3 text-left text-gray-700">

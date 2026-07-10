@@ -1104,7 +1104,11 @@ export function HillClimbGame() {
   // Show Start screen
   if (showStartScreen) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex items-center justify-center">
+      // start-overlay layer: the title may render once here (measured by the battery)
+      <div
+        data-testid="game-start-overlay"
+        className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex items-center justify-center"
+      >
         <div className="text-center px-4 max-w-full">
           <h1 className="text-4xl sm:text-6xl font-bold text-white mb-4 drop-shadow-lg">
             🏔️ Hill Climb Racing

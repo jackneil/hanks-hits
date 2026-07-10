@@ -16,6 +16,7 @@ import {
   getBlockPosition,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // ============================================
@@ -219,6 +220,8 @@ export function HextrisGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
+  const isCoarse = useCoarsePointer();
 
   const store = useHextrisStore();
   const render = useCanvasRenderer(canvasRef);
@@ -447,8 +450,12 @@ export function HextrisGame() {
 
       {/* Instructions */}
       <div className="mt-4 text-slate-400 text-center text-sm">
-        <p>A/D or Arrow Keys to rotate | Tap left/right side</p>
-        <p>P or Escape to pause</p>
+        {isCoarse ? (
+          <p>Tap left/right side to rotate</p>
+        ) : (
+          <p>A/D or Arrow Keys to rotate | Tap left/right side</p>
+        )}
+        {!isCoarse && <p>P or Escape to pause</p>}
       </div>
     </div>
   );

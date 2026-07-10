@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { usePlatformerStore, type PlatformerProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
@@ -29,6 +30,8 @@ export function PlatformerGame() {
   const animationFrameRef = useRef<number | undefined>(undefined);
   const lastTimeRef = useRef<number>(0);
   const [scale, setScale] = useState(1);
+  // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
+  const isCoarse = useCoarsePointer();
 
   const store = usePlatformerStore();
 
@@ -837,9 +840,11 @@ export function PlatformerGame() {
 
       {/* Mobile controls hint */}
       <div className="mt-4 text-center text-white/80 text-sm">
-        <p>
-          <strong>Desktop:</strong> A/D or Arrows to move, Space to jump
-        </p>
+        {!isCoarse && (
+          <p>
+            <strong>Desktop:</strong> A/D or Arrows to move, Space to jump
+          </p>
+        )}
         <p className="md:hidden">
           <strong>Mobile:</strong> Use the buttons below to move and jump
         </p>

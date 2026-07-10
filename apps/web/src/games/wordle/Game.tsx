@@ -134,9 +134,9 @@ export function WordleGame() {
           </div>
         )}
 
-        {/* Ready Screen */}
+        {/* Ready Screen — start-overlay layer: the title may render once here (measured by the battery) */}
         {gameState === "ready" && (
-          <div className="text-center space-y-8 w-full">
+          <div data-testid="game-start-overlay" className="text-center space-y-8 w-full">
             <h1 className="text-5xl font-bold mb-4">📝 Wordle</h1>
             <p className="text-xl text-slate-300">Guess the word!</p>
 

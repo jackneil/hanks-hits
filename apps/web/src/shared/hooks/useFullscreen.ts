@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 
 /**
  * Platform-aware fullscreen hook
@@ -45,6 +45,9 @@ function detectPlatform() {
   return { isIPhone, isIPad, isPWA };
 }
 
+// Never fires — mounted-ness only changes across the server/client boundary
+const emptySubscribe = () => () => {};
+
 function isFullscreenSupported(): boolean {
   if (typeof document === 'undefined') return false;
 
@@ -62,8 +65,24 @@ function isFullscreenSupported(): boolean {
 
 export function useFullscreen(elementRef?: React.RefObject<HTMLElement>): UseFullscreenReturn {
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const { isIPhone, isIPad, isPWA } = detectPlatform();
-  const isSupported = isFullscreenSupported();
+
+  // Platform detection reads navigator/document, which the server doesn't
+  // have. GameShell renders this hook's consumers in SSR'd markup, so
+  // computing these during render made the server say "unsupported" (no
+  // button) while the client's first render said "supported" — a React #418
+  // hydration mismatch on every shell-wrapped page. useSyncExternalStore's
+  // server snapshot keeps the hydration render identical to SSR, then React
+  // re-renders with the real client values.
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+
+  const { isIPhone, isIPad, isPWA } = mounted
+    ? detectPlatform()
+    : { isIPhone: false, isIPad: false, isPWA: false };
+  const isSupported = mounted ? isFullscreenSupported() : false;
 
   // Sync fullscreen state with document
   useEffect(() => {

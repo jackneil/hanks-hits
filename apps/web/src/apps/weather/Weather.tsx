@@ -508,7 +508,7 @@ export function Weather() {
         <div className="flex-1 flex flex-col items-center justify-center">
           <div className="text-9xl mb-4 animate-bounce">&#x26C5;</div>
           <h2 className="text-3xl font-bold text-white mb-2 text-center">
-            Hey there, Weather Explorer!
+            Hey there, Sky Explorer!
           </h2>
           <p className="text-xl text-white/80 text-center max-w-md">
             Search for a city to see what the weather is like!

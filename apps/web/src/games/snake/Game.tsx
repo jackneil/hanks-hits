@@ -336,7 +336,7 @@ function SettingsPanel() {
     <div className="w-full max-w-md">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
+        className="w-full min-h-[44px] bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
       >
         <span>Settings</span>
         <span className="transform transition-transform" style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)" }}>

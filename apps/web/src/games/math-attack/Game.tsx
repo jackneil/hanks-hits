@@ -262,9 +262,9 @@ export function MathAttackGame() {
       <IOSInstallPrompt />
 
       <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
-        {/* Ready Screen */}
+        {/* Ready Screen — start-overlay layer: the title may render once here (measured by the battery) */}
         {gameState === "ready" && (
-          <div className="text-center space-y-8 w-full">
+          <div data-testid="game-start-overlay" className="text-center space-y-8 w-full">
             <h1 className="text-5xl font-bold mb-4">🔢 Math Attack</h1>
             <p className="text-xl text-purple-200">Solve problems before they hit the ground!</p>
 
