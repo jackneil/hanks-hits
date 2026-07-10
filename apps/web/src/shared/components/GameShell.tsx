@@ -3,6 +3,7 @@
 import { useGameShell } from "../hooks/useGameShell";
 import { PauseMenu } from "./PauseMenu";
 import { LeaderboardButton } from "./LeaderboardButton";
+import { FullscreenButton } from "./FullscreenButton";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 
 interface GameShellProps {
@@ -72,6 +73,10 @@ export function GameShell({
           {showLeaderboard && (
             <LeaderboardButton appId={appId} variant="icon" />
           )}
+
+          {/* Fullscreen lives IN the header row so it can never render
+              underneath it (games used to float their own copy at top-4) */}
+          <FullscreenButton variant="header" />
 
           {/* Pause button */}
           {showPauseButton && canPause && (
