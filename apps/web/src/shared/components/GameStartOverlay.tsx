@@ -97,9 +97,11 @@ export function GameStartOverlay({
   return (
     <div
       data-testid="game-start-overlay"
-      className="absolute inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/75 backdrop-blur-sm p-4"
+      className="absolute inset-0 z-40 flex overflow-y-auto bg-black/75 backdrop-blur-sm p-4"
     >
-      <div className="w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl">
+      {/* m-auto (not items-center on the parent) so a card taller than the
+          play area scrolls from its top instead of clipping the title off */}
+      <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl">
         {emoji && (
           <div className="mb-2 text-6xl" aria-hidden="true">
             {emoji}

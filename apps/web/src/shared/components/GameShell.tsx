@@ -91,8 +91,10 @@ export function GameShell({
           )}
         </div>
 
-        {/* Spacer if no buttons on right */}
-        {!showLeaderboard && (!showPauseButton || !canPause) && <div className="w-[44px]" />}
+        {/* No trailing spacer: the title centers itself absolutely, and the
+            right cluster always holds the fullscreen button now — a third
+            flex child pushed that cluster into the middle of the bar,
+            overlapping the title on pause-less pages (found by /qa). */}
       </div>
 
       {/* Game content - offset by header height */}
