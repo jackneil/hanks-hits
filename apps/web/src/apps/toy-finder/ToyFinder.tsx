@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useToyFinderStore, type WishlistItem } from "./lib/store";
 import {
   TOY_CATEGORIES,
@@ -101,20 +100,8 @@ export function ToyFinder() {
       <IOSInstallPrompt />
 
 
-      {/* Header */}
-      <header className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-2">
-          <Link
-            href="/"
-            className="text-3xl hover:scale-110 transition-transform"
-            aria-label="Back to home"
-          >
-            &#x1F3E0;
-          </Link>
-          <h1 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg">
-            &#x1F381; Toy Finder
-          </h1>
-        </div>
+      {/* Toolbar (home + title now live in the shared app shell header) */}
+      <div className="flex justify-end mb-4">
         <button
           onClick={() => store.setShowWishlist(true)}
           className="btn btn-lg bg-pink-500 hover:bg-pink-600 border-none text-white text-xl shadow-lg gap-2"
@@ -127,7 +114,7 @@ export function ToyFinder() {
             </span>
           )}
         </button>
-      </header>
+      </div>
 
       <div className="mb-4 border-l-4 border-white/80 bg-white/15 px-4 py-3 text-sm leading-relaxed text-white shadow-sm">
         <p className="font-bold">Idea list, not a store</p>

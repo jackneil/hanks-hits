@@ -91,4 +91,22 @@ describe("Weather", () => {
 
     expect(screen.queryByText("Boston")).not.toBeInTheDocument();
   });
+
+  it("defers home + title to the app shell (no in-app title or home link)", () => {
+    render(<Weather />);
+
+    // The shared GameShell owns the home button and centered app name now.
+    expect(
+      screen.queryByRole("heading", { name: /weather buddy/i })
+    ).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/"]')).toBeNull();
+
+    // Functional controls survived the header removal.
+    expect(
+      screen.getByRole("button", { name: /view saved locations/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /toggle temperature units/i })
+    ).toBeInTheDocument();
+  });
 });

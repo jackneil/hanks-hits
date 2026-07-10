@@ -116,12 +116,8 @@ export function DrawingApp() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Header */}
-      <header className="flex-shrink-0 flex justify-between items-center gap-2 p-2 md:p-4 bg-white/10 backdrop-blur-sm">
-        <h1 className="min-w-0 truncate text-lg md:text-2xl font-bold text-white drop-shadow-lg">
-          {"\uD83C\uDFA8"} Drawing App
-        </h1>
-
+      {/* Toolbar (home + title now live in the shared app shell header) */}
+      <div className="flex-shrink-0 flex justify-end items-center gap-2 p-2 md:p-4 bg-white/10 backdrop-blur-sm">
         <div className="flex shrink-0 items-center gap-1 md:gap-2">
           {/* Undo */}
           <button
@@ -172,7 +168,7 @@ export function DrawingApp() {
           </button>
 
         </div>
-      </header>
+      </div>
 
       {/* Main canvas area */}
       <div className="flex-1 p-2 md:p-4 min-h-0">
