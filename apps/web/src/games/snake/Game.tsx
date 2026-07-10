@@ -21,14 +21,36 @@ function GameBoard() {
   const { snake, food, foodType, gridSize, status } = useSnakeStore();
 
   const boardSize = gridSize * CELL_SIZE;
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  // Scale the fixed-pixel board down on narrow screens: at 375px the 400px
+  // board overflowed the viewport and the page scrolled sideways under a
+  // swipe-steered game (2026-07-10 audit, High).
+  useEffect(() => {
+    const update = () => {
+      const available =
+        wrapperRef.current?.parentElement?.clientWidth ?? window.innerWidth;
+      setScale(Math.min(1, available / boardSize));
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [boardSize]);
 
   return (
+    <div
+      ref={wrapperRef}
+      style={{ width: boardSize * scale, height: boardSize * scale }}
+    >
     <div
       className="relative border-4 border-green-700 rounded-lg shadow-xl overflow-hidden"
       style={{
         width: boardSize,
         height: boardSize,
         backgroundColor: COLORS.GRID_BG,
+        transform: `scale(${scale})`,
+        transformOrigin: "top left",
       }}
     >
       {/* Grid lines */}
@@ -109,6 +131,7 @@ function GameBoard() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
