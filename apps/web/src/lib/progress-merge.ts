@@ -17,13 +17,39 @@ export type MergeResult = {
   conflicts: string[];
 };
 
-// Numeric fields that only ever grow with play. Balances that can be SPENT
-// (cookies, money, coins) deliberately do NOT match — max() would mint refunds.
-// FOOTGUN: this matches by suffix (Count/Score/...). If a future game names a
-// SPENDABLE balance with a matching suffix (e.g. coinCount), merges would
-// refund spending. Name spendable balances without these suffixes.
-const MONOTONIC_KEY =
-  /^(total|high|best|max|longest|games)[A-Z0-9_]|(Score|Played|Baked|Clicks|Streak|Count|Distance|Wins|Deaths|Jumps|Pipes|Landings)$/;
+// Numeric fields that only ever grow with play, safe to max() across sessions.
+//
+// Two rules, both deliberately conservative (a missed field just falls back
+// to last-write-wins — safe; a wrong match corrupts data):
+// 1. Prefix rule: "high/best/max/longest/games" + capital = records and
+//    tallies, monotonic by construction (highScore, bestDistance, maxStreak,
+//    gamesPlayed, gamesWon...).
+// 2. Exact allowlist: every other monotonic counter, verified against its
+//    store's code. NOT listed on purpose: spendable wallets (totalCoins is
+//    DECREMENTED on character unlock), transient per-round values
+//    (currentStreak/currentScore/miniGameScore reset to 0), and timestamps.
+//    When adding a game, only list a field here after checking it never
+//    decreases in the store.
+const MONOTONIC_PREFIX = /^(high|best|max|longest|games)[A-Z0-9_]/;
+const MONOTONIC_ALLOWLIST = new Set([
+  "totalCookiesBaked",
+  "totalClicks",
+  "totalDistance",
+  "totalDeaths",
+  "totalJumps",
+  "totalPipes",
+  "totalFood",
+  "totalWins",
+  "totalGamesPlayed",
+  "successfulLandings",
+  "easyWins",
+  "mediumWins",
+  "hardWins",
+  "twoPlayerRedWins",
+  "twoPlayerBlackWins",
+]);
+const isMonotonicKey = (key: string) =>
+  MONOTONIC_PREFIX.test(key) || MONOTONIC_ALLOWLIST.has(key);
 
 // Collections a player unlocks/earns — safe to union across sessions.
 const UNLOCKABLE_KEY = /(unlocked|purchased|achievement|badge|upgrade|trophies)/i;
@@ -48,7 +74,7 @@ function reconcileFields(
     const w = winner[key];
     const l = loser[key];
 
-    if (typeof w === "number" && typeof l === "number" && MONOTONIC_KEY.test(key)) {
+    if (typeof w === "number" && typeof l === "number" && isMonotonicKey(key)) {
       if (l > w) {
         out[key] = l;
         changed = true;

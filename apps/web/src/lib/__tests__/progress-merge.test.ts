@@ -56,6 +56,41 @@ describe("mergeProgress", () => {
     expect(result.source).toBe("merged");
   });
 
+  it("never refunds a spent wallet: totalCoins is spendable, not monotonic", () => {
+    // endless-runner: 500 coins, kid unlocks a 400-coin character -> newer
+    // blob has 100 coins + the character. max() on totalCoins would refund
+    // the 400 (the dcr finding). The newer blob's wallet must stand.
+    const result = mergeProgress(
+      {
+        totalCoins: 100,
+        unlockedCharacters: ["dino", "robot"],
+        lastModified: 2000,
+      },
+      { totalCoins: 500, unlockedCharacters: ["dino"], lastModified: 1000 },
+      2000,
+      1000
+    );
+
+    expect(result.data.totalCoins).toBe(100);
+    expect(result.data.unlockedCharacters).toEqual(["dino", "robot"]);
+  });
+
+  it("never resurrects a broken streak: current streaks are transient", () => {
+    // wordle: 5-streak on the server, kid loses a game -> newer blob has
+    // currentStreak 0. max() would resurrect the broken streak; only the
+    // best/max records may take max.
+    const result = mergeProgress(
+      { currentStreak: 0, maxStreak: 5, gamesPlayed: 10, lastModified: 2000 },
+      { currentStreak: 5, maxStreak: 5, gamesPlayed: 9, lastModified: 1000 },
+      2000,
+      1000
+    );
+
+    expect(result.data.currentStreak).toBe(0);
+    expect(result.data.maxStreak).toBe(5);
+    expect(result.data.gamesPlayed).toBe(10);
+  });
+
   it("unions unlockable collections from both sides", () => {
     const result = mergeProgress(
       { purchasedUpgrades: ["a"], unlockedAchievements: ["x"], lastModified: 2000 },
