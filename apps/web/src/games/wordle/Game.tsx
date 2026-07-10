@@ -211,7 +211,7 @@ export function WordleGame() {
               </button>
               <button
                 onClick={openTutorial}
-                className="btn btn-ghost btn-sm text-slate-400 hover:text-white"
+                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full font-bold text-sm text-white bg-white/10 border-2 border-white/40 hover:bg-white/20 hover:border-white/60 transition-all"
               >
                 ❓ How to Play
               </button>

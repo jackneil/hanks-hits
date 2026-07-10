@@ -98,11 +98,11 @@ function ScoreBoard() {
 
   return (
     <div className="flex gap-4 justify-center mb-4">
-      <div className="bg-[#bbada0] rounded-lg px-6 py-3 text-center min-w-[100px]">
+      <div className="bg-[#655c52] rounded-lg px-6 py-3 text-center min-w-[100px]">
         <div className="text-[#eee4da] text-xs uppercase font-bold">Score</div>
         <div className="text-white text-2xl font-bold">{score}</div>
       </div>
-      <div className="bg-[#bbada0] rounded-lg px-6 py-3 text-center min-w-[100px]">
+      <div className="bg-[#655c52] rounded-lg px-6 py-3 text-center min-w-[100px]">
         <div className="text-[#eee4da] text-xs uppercase font-bold">Best</div>
         <div className="text-white text-2xl font-bold">{highScore}</div>
       </div>
@@ -126,8 +126,8 @@ function Controls() {
           min-w-[100px] min-h-[50px]
           transition-all duration-150
           ${canUndo
-            ? "bg-[#8f7a66] hover:bg-[#7a6658] active:scale-95"
-            : "bg-[#cdc1b4] cursor-not-allowed"
+            ? "bg-[#8f7a66] hover:bg-[#7a6658] active:scale-95 shadow-md"
+            : "bg-[#8f7a66] opacity-40 cursor-not-allowed"
           }
         `}
       >

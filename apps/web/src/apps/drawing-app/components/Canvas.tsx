@@ -32,7 +32,7 @@ export function Canvas({ onCanvasReady }: CanvasProps) {
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full bg-white rounded-lg overflow-hidden shadow-inner"
+      className="relative w-full h-full min-h-[240px] bg-white rounded-lg overflow-hidden shadow-inner"
     >
       {/* Optional grid overlay */}
       {settings.showGrid && (

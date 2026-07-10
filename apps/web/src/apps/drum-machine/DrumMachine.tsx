@@ -47,7 +47,7 @@ function DrumPad({
       className={`
         w-20 h-20 md:w-24 md:h-24 rounded-xl
         flex flex-col items-center justify-center
-        font-bold text-white
+        font-bold text-black
         transition-all duration-75
         shadow-lg
         ${isActive ? "scale-95 brightness-150" : "hover:scale-105"}
@@ -107,7 +107,7 @@ function SequencerGrid() {
           <div key={sound.id} className="flex items-center gap-1 mb-1">
             {/* Sound label */}
             <div
-              className="w-16 h-8 rounded flex items-center justify-center text-xs font-bold text-white truncate"
+              className="w-16 h-8 rounded flex items-center justify-center text-xs font-bold text-black truncate"
               style={{ backgroundColor: sound.color }}
             >
               {sound.name}
