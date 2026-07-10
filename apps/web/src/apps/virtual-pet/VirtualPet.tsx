@@ -10,7 +10,6 @@ import {
   getStage,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // ============================================
@@ -377,7 +376,6 @@ export function VirtualPet() {
         >
           📊
         </button>
-        <FullscreenButton />
         <IOSInstallPrompt />
       </div>
 

@@ -4,7 +4,6 @@ import { useEffect, useCallback, useRef } from "react";
 import { use2048Store } from "./lib/store";
 import { getTileColors, GRID_SIZE, TIMINGS, type Direction } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // Tile component with animations
@@ -347,10 +346,6 @@ export function Game2048() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
       {/* Inline styles for animations */}
       <style>{`

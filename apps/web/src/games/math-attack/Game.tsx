@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useMathAttackStore, type MathAttackProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   DIFFICULTY_SETTINGS,
@@ -261,7 +260,6 @@ export function MathAttackGame() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white">
       <IOSInstallPrompt />
-      <FullscreenButton />
 
       <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
         {/* Ready Screen */}

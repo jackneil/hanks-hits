@@ -10,7 +10,6 @@ import {
   COLORS,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // ============================================
@@ -463,7 +462,6 @@ export function DrumMachine() {
         >
           {store.progress.settings.soundEnabled ? "🔊" : "🔇"}
         </button>
-        <FullscreenButton />
         <IOSInstallPrompt />
       </div>
 

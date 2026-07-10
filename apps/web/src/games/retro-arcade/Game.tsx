@@ -12,7 +12,6 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { GameBrowser, type CatalogGame } from "./components/GameBrowser";
 import {
   SNES_CATALOG,
@@ -514,10 +513,6 @@ export function RetroArcadeGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
       <header className="text-center mb-8">
         <h1 className="text-5xl font-bold text-white mb-2">Retro Arcade</h1>

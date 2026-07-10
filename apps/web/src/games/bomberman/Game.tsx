@@ -12,7 +12,6 @@ import {
   type Direction,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 const CANVAS_WIDTH = GRID_WIDTH * TILE_SIZE;
@@ -520,7 +519,6 @@ export function BombermanGame() {
             ⏸️
           </button>
         )}
-        <FullscreenButton />
         <IOSInstallPrompt />
       </div>
 

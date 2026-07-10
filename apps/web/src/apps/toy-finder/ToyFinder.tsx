@@ -16,7 +16,6 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 
 const CONFETTI_SYMBOLS = ["&#x2B50;", "&#x1F389;", "&#x2728;", "&#x1F381;"];
 const CONFETTI_PIECES = Array.from({ length: 20 }, (_, i) => ({
@@ -101,10 +100,6 @@ export function ToyFinder() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
       {/* Header */}
       <header className="flex justify-between items-center mb-4">

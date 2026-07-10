@@ -3,7 +3,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useSpaceInvadersStore, type SpaceInvadersProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   CANVAS_WIDTH,
@@ -1031,10 +1030,6 @@ export function SpaceInvadersGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
       {/* Header */}
       <header className="text-center mb-4">

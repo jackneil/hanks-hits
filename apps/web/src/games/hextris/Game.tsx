@@ -16,7 +16,6 @@ import {
   getBlockPosition,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // ============================================
@@ -443,7 +442,6 @@ export function HextrisGame() {
         >
           {store.progress.soundEnabled ? "🔊" : "🔇"}
         </button>
-        <FullscreenButton />
         <IOSInstallPrompt />
       </div>
 

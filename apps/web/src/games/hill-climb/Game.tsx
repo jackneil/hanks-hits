@@ -31,7 +31,7 @@ import { MobileControls } from './ui/MobileControls';
 import { GameOverScreen } from './ui/GameOverScreen';
 import { PauseMenu } from './ui/PauseMenu';
 import { Garage } from './ui/Garage';
-import { FullscreenButton, OrientationWarning } from '@/shared/components';
+import { OrientationWarning } from '@/shared/components';
 
 // =============================================================================
 // TYPES
@@ -1146,10 +1146,6 @@ export function HillClimbGame() {
       {/* Orientation warning - shows in portrait mode */}
       <OrientationWarning />
 
-      {/* Fullscreen button - top right corner */}
-      <div className="absolute top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
       {isPlaying && (
         <>

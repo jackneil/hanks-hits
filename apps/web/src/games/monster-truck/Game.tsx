@@ -20,7 +20,7 @@ import { useAuthSync } from '@/shared/hooks/useAuthSync';
 import { sounds } from './lib/sounds';
 import { WORLD } from './lib/constants';
 import { getTerrainHeight } from './lib/terrainUtils';
-import { FullscreenButton, OrientationWarning, WebGLGate } from '@/shared/components';
+import { OrientationWarning, WebGLGate } from '@/shared/components';
 
 // Loading screen component
 function LoadingScreen() {
@@ -204,10 +204,6 @@ export function MonsterTruckGame() {
       {/* Orientation warning - shows in portrait mode */}
       <OrientationWarning />
 
-      {/* Fullscreen button - top right corner */}
-      <div className="absolute top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
       {/* 3D Canvas - gated so a device without WebGL gets a friendly
           explanation instead of a silent black void */}

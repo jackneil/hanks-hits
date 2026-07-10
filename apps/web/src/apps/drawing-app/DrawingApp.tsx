@@ -9,7 +9,6 @@ import { BrushSettings } from "./components/BrushSettings";
 import { Gallery } from "./components/Gallery";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import type { useCanvas } from "./hooks/useCanvas";
 
 /**
@@ -172,8 +171,6 @@ export function DrawingApp() {
             {"\uD83D\uDDBC\uFE0F"}
           </button>
 
-          {/* Fullscreen */}
-          <FullscreenButton />
         </div>
       </header>
 

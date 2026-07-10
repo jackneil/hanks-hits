@@ -2,7 +2,6 @@
 import { useEffect } from "react";
 import { useOregonTrailStore, type OregonTrailSyncData } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { TitleScreen } from "./components/TitleScreen";
 import { Store } from "./components/Store";
@@ -63,10 +62,6 @@ export default function OregonTrailGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
       {renderPhase()}
     </>

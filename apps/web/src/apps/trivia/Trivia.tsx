@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useTriviaStore, type TriviaProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   DIFFICULTY_SETTINGS,
@@ -168,7 +167,6 @@ export function Trivia() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-900 via-purple-900 to-pink-900 text-white">
       <IOSInstallPrompt />
-      <FullscreenButton />
 
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         {/* Ready Screen */}

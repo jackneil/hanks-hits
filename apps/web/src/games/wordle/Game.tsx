@@ -3,7 +3,6 @@
 import { useEffect, useCallback } from "react";
 import { useWordleStore, type WordleProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { TutorialModal } from "./components/TutorialModal";
 import {
@@ -120,7 +119,6 @@ export function WordleGame() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
       <IOSInstallPrompt />
-      <FullscreenButton />
       <TutorialModal />
 
       <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
