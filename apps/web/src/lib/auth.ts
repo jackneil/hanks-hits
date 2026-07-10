@@ -6,7 +6,6 @@ import { db, eq } from "@hank-neil/db";
 import * as schema from "@hank-neil/db/schema";
 import bcrypt from "bcryptjs";
 import { checkLoginRateLimit } from "@/lib/rate-limit";
-import { sanitizeSessionNameUpdate } from "@/lib/auth-session-update";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -88,17 +87,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
 
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
       }
       // Reflect profile-name edits into the JWT so the header avatar
-      // updates without re-login. Only the name is accepted, bounded to
-      // the same length the profile API allows.
-      if (trigger === "update") {
-        const name = sanitizeSessionNameUpdate(session?.name);
-        if (name) {
-          token.name = name;
+      // updates without re-login. The client's update() payload is
+      // deliberately IGNORED: the name is re-read from the DB, which the
+      // profile API already validated (length, charset, rate limit), so
+      // this channel can never carry weaker-validated input into the token.
+      if (trigger === "update" && token.id) {
+        const dbUser = await db.query.users.findFirst({
+          where: eq(schema.users.id, token.id as string),
+        });
+        if (dbUser?.name) {
+          token.name = dbUser.name;
         }
       }
       return token;

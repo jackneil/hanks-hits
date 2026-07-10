@@ -140,6 +140,35 @@ describe("mergeForSave — the audit wipe regression", () => {
     const result = mergeForSave(goodBlob, null);
     expect(result.data).toEqual(goodBlob);
   });
+
+  it("a forged far-future lastModified gets no lasting ordering advantage", () => {
+    // Attacker saved a blob stamped 23h in the future (schema allows +24h) 10
+    // minutes ago, trying to make their row un-overwritable. Its ordering
+    // timestamp is bounded by the row's server-recorded updatedAt (+5min
+    // skew), so an honest save stamped "now" wins non-monotonic fields.
+    const forged = {
+      cookies: 999,
+      soundEnabled: false,
+      totalCookiesBaked: 5,
+      lastModified: Date.now() + 23 * 60 * 60 * 1000,
+    };
+    const honest = {
+      cookies: 10,
+      soundEnabled: true,
+      totalCookiesBaked: 50,
+      lastModified: Date.now(),
+    };
+    const result = mergeForSave(honest, {
+      data: forged,
+      updatedAt: new Date(Date.now() - 10 * 60_000), // row written 10 min ago
+    });
+
+    // Honest blob wins LWW for non-monotonic fields...
+    expect(result.data.cookies).toBe(10);
+    expect(result.data.soundEnabled).toBe(true);
+    // ...while monotonic reconcile still keeps the max.
+    expect(result.data.totalCookiesBaked).toBe(50);
+  });
 });
 
 describe("extractTimestamp", () => {

@@ -19,6 +19,9 @@ export type MergeResult = {
 
 // Numeric fields that only ever grow with play. Balances that can be SPENT
 // (cookies, money, coins) deliberately do NOT match — max() would mint refunds.
+// FOOTGUN: this matches by suffix (Count/Score/...). If a future game names a
+// SPENDABLE balance with a matching suffix (e.g. coinCount), merges would
+// refund spending. Name spendable balances without these suffixes.
 const MONOTONIC_KEY =
   /^(total|high|best|max|longest|games)[A-Z0-9_]|(Score|Played|Baked|Clicks|Streak|Count|Distance|Wins|Deaths|Jumps|Pipes|Landings)$/;
 
@@ -133,6 +136,22 @@ export function mergeProgress(
  * updatedAt gets refreshed by every write (including no-op merges) and
  * therefore cannot order client sessions.
  */
+// A blob's ORDERING timestamp can never exceed the time the server actually
+// received it, plus a small skew allowance. The schema accepts generously-
+// future lastModified values (kids' devices have wrong clocks), but a forged
+// far-future timestamp must not make a row win last-write-wins forever:
+// the stored side is bounded by the row's server-recorded updatedAt, the
+// incoming side by the server's current clock.
+const MAX_ORDERING_CLOCK_SKEW_MS = 5 * 60_000;
+
+function clampOrderingTimestamp(
+  ts: number | null,
+  receivedAtMs: number
+): number | null {
+  if (ts === null) return null;
+  return Math.min(ts, receivedAtMs + MAX_ORDERING_CLOCK_SKEW_MS);
+}
+
 export function mergeForSave(
   incomingData: AppProgressData,
   existing: { data: AppProgressData; updatedAt: Date } | null
@@ -140,9 +159,14 @@ export function mergeForSave(
   if (!existing) {
     return { data: incomingData, source: "local", conflicts: [] };
   }
-  const incomingTs = extractTimestamp(incomingData);
-  const existingTs =
-    extractTimestamp(existing.data) ?? existing.updatedAt.getTime();
+  const incomingTs = clampOrderingTimestamp(
+    extractTimestamp(incomingData),
+    Date.now()
+  );
+  const existingTs = clampOrderingTimestamp(
+    extractTimestamp(existing.data) ?? existing.updatedAt.getTime(),
+    existing.updatedAt.getTime()
+  );
   return mergeProgress(incomingData, existing.data, incomingTs, existingTs);
 }
 
