@@ -76,7 +76,9 @@ export function FourWheelerAdventureGame() {
         />
       )}
 
-      <div className="absolute top-3 right-3 z-20">
+      {/* Bottom-right: the game draws its own Camera/map/race cluster in the
+          top-right, which this button used to cover (2026-07-10 audit). */}
+      <div className="absolute bottom-3 right-3 z-20">
         <FullscreenButton />
       </div>
     </div>
