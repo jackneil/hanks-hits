@@ -9,6 +9,8 @@ interface HeaderProps {
   showBackButton?: boolean;
   backPath?: string;
   className?: string;
+  /** Hide the sign-in control (e.g. on the login/signup pages themselves) */
+  showLoginButton?: boolean;
 }
 
 /**
@@ -26,6 +28,7 @@ export function Header({
   showBackButton = true,
   backPath = "/",
   className = "",
+  showLoginButton = true,
 }: HeaderProps) {
   return (
     <header className={`sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-white/10 ${className}`}>
@@ -67,7 +70,7 @@ export function Header({
             <span className="text-xl" aria-hidden="true">🏆</span>
             <span className="text-white/80 group-hover:text-white font-medium hidden sm:inline">Leaderboards</span>
           </Link>
-          <LoginButton />
+          {showLoginButton && <LoginButton />}
         </div>
       </div>
     </header>

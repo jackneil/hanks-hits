@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signInWithCredentials, signInWithGoogle } from "@/lib/auth-client";
+import { Header } from "@/shared/components/Header";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -77,8 +78,18 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-400 to-green-600 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+    <div className="relative min-h-screen overflow-hidden bg-slate-950">
+      {/* Soft glows to match the home page adventure vibe */}
+      <div className="pointer-events-none absolute left-1/2 top-1/3 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-green-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute left-1/4 top-2/3 h-[300px] w-[300px] rounded-full bg-yellow-500/10 blur-3xl" />
+
+      <Header showLoginButton={false} />
+
+      <main className="relative flex flex-col items-center px-4 py-8">
+        <div className="mb-4 text-6xl animate-bounce-slow" aria-hidden="true">
+          🚀
+        </div>
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">
@@ -207,21 +218,18 @@ export default function SignUpPage() {
           </button>
         </form>
 
-        {/* Sign In Link */}
-        <p className="text-center mt-6 text-gray-600">
-          Already have an account?{" "}
-          <Link href="/login" className="text-primary font-bold hover:underline">
-            Sign In
-          </Link>
-        </p>
-
-        {/* Back to Games Link */}
-        <div className="text-center mt-4">
-          <Link href="/" className="text-gray-500 hover:text-gray-700">
-            ← Back to Games
-          </Link>
+          {/* Sign In Link */}
+          <p className="text-center mt-6 text-gray-600">
+            Already have an account?{" "}
+            <Link
+              href="/login"
+              className="text-primary font-bold hover:underline"
+            >
+              Sign In
+            </Link>
+          </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

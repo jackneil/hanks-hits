@@ -25,6 +25,8 @@ interface LeaderboardProps {
   icon?: string;
   className?: string;
   showPeriodSelector?: boolean;
+  /** Hide the icon + game-name header when the surrounding page already names the game */
+  showTitle?: boolean;
   initialPeriod?: "all" | "week" | "month";
   limit?: number;
   compact?: boolean;
@@ -95,6 +97,7 @@ export function Leaderboard({
   icon = "🏆",
   className = "",
   showPeriodSelector = true,
+  showTitle = true,
   initialPeriod = "all",
   limit = 100,
   compact = false,
@@ -205,11 +208,16 @@ export function Leaderboard({
 
   return (
     <div className={`flex flex-col text-white ${className}`}>
-      {/* Header */}
+      {/* Header. showTitle=false when the surrounding page already names the
+          game (the leaderboards page banner) — the title must render once. */}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-2xl" aria-hidden="true">{icon}</span>
-          <h2 className="text-xl font-bold">{gameName}</h2>
+          {showTitle && (
+            <>
+              <span className="text-2xl" aria-hidden="true">{icon}</span>
+              <h2 className="text-xl font-bold">{gameName}</h2>
+            </>
+          )}
           {data && (
             <span className="text-sm text-slate-400">
               ({data.totalPlayers.toLocaleString()} {plural(data.totalPlayers, "player")})
