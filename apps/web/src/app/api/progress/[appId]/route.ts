@@ -178,8 +178,24 @@ export async function POST(request: Request, context: RouteContext) {
           data: existing.data as AppProgressData,
           updatedAt: existing.updatedAt,
         });
-        finalData = mergeResult.data;
-        conflicts = mergeResult.conflicts;
+        // SECURITY: re-validate the MERGED blob before persisting — max() and
+        // array-union combine two individually-valid blobs, and the result
+        // must still satisfy the schema's bounds. If it doesn't, fall back to
+        // the incoming validated payload rather than storing an unvalidated
+        // shape (both inputs passed validation at their own write time).
+        const mergedValidation = validateProgress(
+          appId as ValidAppId,
+          mergeResult.data
+        );
+        if (mergedValidation.success) {
+          finalData = mergedValidation.data as AppProgressData;
+          conflicts = mergeResult.conflicts;
+        } else {
+          console.warn(
+            `Merged progress for ${appId} failed re-validation; persisting incoming payload instead:`,
+            mergedValidation.error
+          );
+        }
       }
     }
 
