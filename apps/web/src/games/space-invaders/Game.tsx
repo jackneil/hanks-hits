@@ -5,6 +5,11 @@ import { useSpaceInvadersStore, type SpaceInvadersProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
+import { metadata } from "./metadata";
+import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   PLAYER,
@@ -479,31 +484,9 @@ export function SpaceInvadersGame() {
 
   const drawReadyScreen = useCallback(
     (ctx: CanvasRenderingContext2D) => {
-      // Title
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.font = "bold 36px monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("SPACE", CANVAS_WIDTH / 2, 180);
-      ctx.fillText("INVADERS", CANVAS_WIDTH / 2, 230);
-
-      // Instructions
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillText("TAP TO START", CANVAS_WIDTH / 2, 350);
-
-      // Desktop controls
-      ctx.font = "12px monospace";
-      ctx.fillStyle = "#888";
-      ctx.fillText("Desktop: A/D or Arrows to move", CANVAS_WIDTH / 2, 420);
-      ctx.fillText("SPACE to shoot, P to pause", CANVAS_WIDTH / 2, 440);
-
-      // High score
-      if (progress.highScore > 0) {
-        ctx.fillStyle = COLORS.HUD;
-        ctx.font = UI.SMALL_FONT;
-        ctx.fillText(`HIGH SCORE: ${progress.highScore}`, CANVAS_WIDTH / 2, 500);
-      }
-
-      // Draw sample aliens
+      // Ready state: the DOM start overlay owns all start UI (title, hints,
+      // age picker, start button). The canvas draws only the decorative
+      // sample aliens as a friendly backdrop — no text.
       const sampleAliens: Alien[] = [
         { id: 1, type: "squid", x: CANVAS_WIDTH / 2 - 80, y: 280, alive: true, animationFrame: 0 },
         { id: 2, type: "crab", x: CANVAS_WIDTH / 2 - 15, y: 280, alive: true, animationFrame: 0 },
@@ -512,15 +495,8 @@ export function SpaceInvadersGame() {
       for (const alien of sampleAliens) {
         drawAlien(ctx, alien, Math.floor(Date.now() / 500) % 2);
       }
-
-      // Point values
-      ctx.font = "10px monospace";
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.fillText("=30", CANVAS_WIDTH / 2 - 60, 310);
-      ctx.fillText("=20", CANVAS_WIDTH / 2 + 5, 310);
-      ctx.fillText("=10", CANVAS_WIDTH / 2 + 70, 310);
     },
-    [progress.highScore]
+    []
   );
 
   const drawPausedScreen = useCallback(
@@ -1030,13 +1006,6 @@ export function SpaceInvadersGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-
-      {/* Header */}
-      <header className="text-center mb-4">
-        <h1 className="text-3xl font-bold text-green-500">Space Invaders</h1>
-        <p className="text-gray-400 text-sm">Defend Earth from alien invasion!</p>
-      </header>
-
       {/* Game container */}
       <div
         ref={containerRef}
@@ -1060,42 +1029,40 @@ export function SpaceInvadersGame() {
             height: CANVAS_HEIGHT * scale,
           }}
         />
-      </div>
 
-      {/* Age-based difficulty selector - visible on start screen */}
-      {gameState === "ready" && (
-        <div className="w-full max-w-lg mx-auto mt-4 px-4">
-          <div className="text-center mb-3 text-white font-bold text-lg">How old are you?</div>
-          <div className="flex flex-wrap gap-2 justify-center">
+        {/* DOM start overlay: title, hints, age picker, and start button.
+            Replaces the in-canvas ready text and the old below-canvas picker. */}
+        {gameState === "ready" && (
+          <GameStartOverlay
+            title="Space Invaders"
+            emoji={metadata.emoji}
+            touchHints={["Tap ◀ ▶ to move", "Tap FIRE to shoot"]}
+            keyboardHints={[
+              "A/D or Arrows to move",
+              "SPACE or W to shoot (hold to auto-fire)",
+              "P to pause",
+            ]}
+            startLabel="▶ Start!"
+            onStart={startGame}
+          >
+            <p className="text-sm font-semibold opacity-80">How old are you?</p>
             {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => {
               const settings = DIFFICULTY_SETTINGS[diff];
               const isSelected = progress.settings.difficulty === diff;
               return (
-                <button
+                <GameStartOverlayButton
                   key={diff}
                   onClick={() => store.setDifficulty(diff)}
-                  className={`px-4 py-3 rounded-xl font-bold text-base transition-all flex flex-col items-center min-w-[70px] ${
-                    isSelected
-                      ? `${settings.color} text-white scale-110 ring-2 ring-white shadow-lg`
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                  }`}
+                  className={isSelected ? "btn-primary" : ""}
+                  aria-pressed={isSelected}
                 >
-                  <span className="text-2xl">{settings.emoji}</span>
-                  <span>{diff}</span>
-                </button>
+                  {settings.emoji} {settings.label}
+                </GameStartOverlayButton>
               );
             })}
-          </div>
-          {progress.settings.difficulty === "99yo" && (
-            <div className="text-center mt-2 text-purple-300 text-sm">
-              Grandpa mode: Big aliens, slow & easy!
-            </div>
-          )}
-          <div className="text-center mt-3 text-green-400 text-lg font-bold animate-pulse">
-            Tap the game to START!
-          </div>
-        </div>
-      )}
+          </GameStartOverlay>
+        )}
+      </div>
 
       {/* Mobile Controls */}
       <div className="md:hidden w-full">

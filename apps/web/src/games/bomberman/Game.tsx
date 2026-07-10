@@ -13,6 +13,8 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 const CANVAS_WIDTH = GRID_WIDTH * TILE_SIZE;
 const CANVAS_HEIGHT = GRID_HEIGHT * TILE_SIZE;
@@ -25,6 +27,11 @@ export function BombermanGame() {
   const keysRef = useRef<Set<string>>(new Set());
 
   const store = useBombermanStore();
+  const isCoarse = useCoarsePointer();
+  // Touch controls default ON: a coarse-pointer kid needs the D-pad to move.
+  // The isCoarse gate (below) is what keeps the D-pad off fine-pointer desktops,
+  // so this default no longer leaks controls onto every viewport; the 🎮 toggle
+  // then lets touch users hide them.
   const [showControls, setShowControls] = useState(true);
 
   // Auth sync
@@ -380,23 +387,20 @@ export function BombermanGame() {
           }}
         />
 
-        {/* Menu overlay */}
+        {/* Menu overlay: shared DOM start screen */}
         {store.gameState === "menu" && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center rounded-lg">
-            <h1 className="text-5xl font-bold text-white mb-4">💣 BOMBERMAN</h1>
-            <p className="text-gray-300 mb-8">Destroy blocks. Defeat enemies. Find the exit!</p>
-            <button
-              onClick={() => store.startGame()}
-              className="bg-green-500 hover:bg-green-400 text-white px-8 py-4 rounded-xl text-2xl font-bold"
-            >
-              START GAME
-            </button>
-            <div className="mt-8 text-gray-400 text-sm">
-              <p>WASD/Arrows: Move</p>
-              <p>Space: Place bomb</p>
-              <p>High Score: {store.progress.highScore}</p>
+          <GameStartOverlay
+            title="Bomberman"
+            emoji="💣"
+            subtitle="Destroy blocks. Defeat enemies. Find the exit!"
+            keyboardHints={["WASD or Arrows to move", "SPACE to drop bombs"]}
+            touchHints={["Tap the arrows to move", "Tap 💣 to drop bombs"]}
+            onStart={() => store.startGame()}
+          >
+            <div className="text-base font-medium opacity-90">
+              🏆 High Score: {store.progress.highScore}
             </div>
-          </div>
+          </GameStartOverlay>
         )}
 
         {/* Paused overlay */}
@@ -451,8 +455,8 @@ export function BombermanGame() {
         )}
       </div>
 
-      {/* Mobile controls */}
-      {showControls && (
+      {/* Mobile controls — touch (coarse-pointer) viewports only */}
+      {isCoarse && showControls && (
         <div className="mt-4 flex justify-between items-center w-full max-w-[624px]">
           {/* D-Pad */}
           <div className="relative w-36 h-36">
@@ -505,12 +509,14 @@ export function BombermanGame() {
         >
           {store.progress.settings.soundEnabled ? "🔊" : "🔇"}
         </button>
-        <button
-          onClick={() => setShowControls(!showControls)}
-          className="w-12 h-12 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center text-white md:hidden"
-        >
-          🎮
-        </button>
+        {isCoarse && (
+          <button
+            onClick={() => setShowControls(!showControls)}
+            className="w-12 h-12 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center text-white"
+          >
+            🎮
+          </button>
+        )}
         {store.gameState === "playing" && (
           <button
             onClick={() => store.pauseGame()}

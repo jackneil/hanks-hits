@@ -21,6 +21,8 @@ interface GameStartOverlayButtonProps {
   className?: string;
   /** Visual emphasis: "primary" for the main start action, "choice" for picker options */
   variant?: "primary" | "choice";
+  /** Toggle-state semantics for picker buttons (screen readers hear the selection) */
+  "aria-pressed"?: boolean;
 }
 
 /**
@@ -32,10 +34,12 @@ export function GameStartOverlayButton({
   children,
   className = "",
   variant = "choice",
+  "aria-pressed": ariaPressed,
 }: GameStartOverlayButtonProps) {
   return (
     <button
       onClick={onClick}
+      aria-pressed={ariaPressed}
       className={`btn ${
         // "choice" stays on the default (base-200/base-content) button: white
         // text on btn-secondary green is ~3.1:1 and fails the 4.5:1 contract
@@ -91,7 +95,10 @@ export function GameStartOverlay({
   const hints = isCoarse ? touchHints : keyboardHints;
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/75 backdrop-blur-sm p-4">
+    <div
+      data-testid="game-start-overlay"
+      className="absolute inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/75 backdrop-blur-sm p-4"
+    >
       <div className="w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl">
         {emoji && (
           <div className="mb-2 text-6xl" aria-hidden="true">

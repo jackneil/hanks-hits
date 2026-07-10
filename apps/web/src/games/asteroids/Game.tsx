@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { useAsteroidsStore, type AsteroidsProgress } from "./lib/store";
+import { useAsteroidsStore } from "./lib/store";
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   SHIP_SIZE,
-  ASTEROID_SIZES,
   UFO_SIZE,
   COLORS,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { metadata } from "./metadata";
 
 // ============================================
 // CANVAS RENDERER
@@ -164,23 +165,13 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
     }
 
     // Overlays
+    // The "ready" start screen is a DOM overlay (GameStartOverlay), not canvas
+    // text — so touch users get a real start button and pointer-aware hints.
+    // Keep only the dark backdrop here; all title/instruction text lives in the
+    // overlay component now.
     if (status === "ready") {
       ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#22c55e";
-      ctx.font = "bold 36px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("ASTEROIDS", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 50);
-
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.font = "16px Arial";
-      ctx.fillText("Rotate: A/D or ←→", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-      ctx.fillText("Thrust: W or ↑ | Fire: Space", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 25);
-      ctx.fillText("Hyperspace: Shift", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
-
-      ctx.font = "bold 20px Arial";
-      ctx.fillText("Press Space to Start", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 100);
     }
 
     if (status === "paused") {
@@ -478,6 +469,25 @@ export function AsteroidsGame() {
             height: CANVAS_HEIGHT * scale,
           }}
         />
+
+        {store.status === "ready" && (
+          <GameStartOverlay
+            title="Asteroids"
+            emoji={metadata.emoji}
+            keyboardHints={[
+              "A/D or ← → to rotate",
+              "W or ↑ to thrust",
+              "SPACE to fire",
+              "SHIFT for hyperspace",
+            ]}
+            touchHints={[
+              "Tap ⟲ ⟳ to rotate",
+              "Hold 🔥 to thrust",
+              "Tap ● to fire",
+            ]}
+            onStart={store.startGame}
+          />
+        )}
       </div>
 
       {/* Mobile controls */}
@@ -543,11 +553,6 @@ export function AsteroidsGame() {
           </button>
         )}
         <IOSInstallPrompt />
-      </div>
-
-      {/* Instructions */}
-      <div className="mt-4 text-gray-400 text-center text-sm">
-        <p>A/D = Rotate | W = Thrust | Space = Fire | Shift = Hyperspace</p>
       </div>
     </div>
   );

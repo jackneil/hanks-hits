@@ -6,6 +6,11 @@ import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
+import { metadata } from "./metadata";
+import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   PLAYER,
@@ -430,69 +435,6 @@ export function PlatformerGame() {
     [score, coinsThisRun, starsThisRun, currentLevel, timeElapsed]
   );
 
-  const drawReadyScreen = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      ctx.font = UI.TITLE_FONT;
-      ctx.textAlign = "center";
-      ctx.fillStyle = COLORS.SCORE_SHADOW;
-      ctx.fillText("Hank's Hopper", CANVAS_WIDTH / 2 + 2, 102);
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.fillText("Hank's Hopper", CANVAS_WIDTH / 2, 100);
-
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.fillText("A Platformer Adventure!", CANVAS_WIDTH / 2, 140);
-
-      // Level selection
-      ctx.font = "20px Arial, sans-serif";
-      LEVELS.forEach((level, index) => {
-        const y = 200 + index * 50;
-        const levelProgress = progress.levels[level.id];
-        const completed = levelProgress?.completed || false;
-        const stars = levelProgress?.starsCollected || 0;
-
-        // Highlight current level
-        if (index === currentLevelIndex) {
-          ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-          ctx.fillRect(CANVAS_WIDTH / 2 - 150, y - 20, 300, 40);
-        }
-
-        ctx.fillStyle = completed ? "#4CAF50" : COLORS.SCORE_TEXT;
-        ctx.fillText(
-          `${index + 1}. ${level.name}`,
-          CANVAS_WIDTH / 2 - 50,
-          y
-        );
-
-        // Stars indicator
-        for (let i = 0; i < 3; i++) {
-          ctx.fillStyle = i < stars ? STAR.COLOR : "#666";
-          ctx.fillText("*", CANVAS_WIDTH / 2 + 80 + i * 20, y);
-        }
-      });
-
-      // Tap to start
-      ctx.fillStyle = "rgba(34, 197, 94, 0.9)";
-      ctx.fillRect(CANVAS_WIDTH / 2 - 100, 370, 200, 50);
-      ctx.strokeStyle = "#166534";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(CANVAS_WIDTH / 2 - 100, 370, 200, 50);
-      ctx.font = "bold 24px Arial, sans-serif";
-      ctx.fillStyle = "#FFF";
-      ctx.fillText("TAP TO PLAY", CANVAS_WIDTH / 2, 402);
-
-      // Stats
-      ctx.font = "16px Arial, sans-serif";
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.fillText(
-        `Total Stars: ${progress.totalStars} | Coins: ${progress.totalCoins}`,
-        CANVAS_WIDTH / 2,
-        440
-      );
-    },
-    [progress, currentLevelIndex]
-  );
-
   const drawGameOver = useCallback(
     (ctx: CanvasRenderingContext2D) => {
       // Darken background
@@ -629,10 +571,9 @@ export function PlatformerGame() {
       drawPlayer(ctx, offsetX);
       drawParticles(ctx, offsetX);
 
-      // Draw UI based on state
-      if (gameState === "ready") {
-        drawReadyScreen(ctx);
-      } else if (gameState === "playing") {
+      // Draw UI based on state. The "ready" state draws only the level scene;
+      // the start menu is the shared DOM GameStartOverlay, not canvas text.
+      if (gameState === "playing") {
         drawHUD(ctx);
       } else if (gameState === "gameOver") {
         drawGameOver(ctx);
@@ -653,7 +594,6 @@ export function PlatformerGame() {
       drawPlayer,
       drawParticles,
       drawHUD,
-      drawReadyScreen,
       drawGameOver,
       drawLevelComplete,
     ]
@@ -802,15 +742,6 @@ export function PlatformerGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-
-      {/* Header */}
-      <header className="mb-4 text-center">
-        <h1 className="text-3xl font-bold text-white drop-shadow-lg">
-          Hank&apos;s Hopper
-        </h1>
-        <p className="text-sky-100">Jump, collect, and reach the goal!</p>
-      </header>
-
       {/* Game container */}
       <div
         ref={containerRef}
@@ -830,6 +761,37 @@ export function PlatformerGame() {
             height: CANVAS_HEIGHT * scale,
           }}
         />
+
+        {/* Start screen: shared DOM overlay with a real level picker */}
+        {gameState === "ready" && (
+          <GameStartOverlay
+            title="Hank's Hopper"
+            emoji={metadata.emoji}
+            subtitle="A Platformer Adventure!"
+            touchHints={["Tap ◀ ▶ to move", "Tap JUMP to jump"]}
+            keyboardHints={["A/D or Arrows to move", "SPACE to jump"]}
+            showStartButton={false}
+            onStart={() => startGame(currentLevelIndex)}
+          >
+            {LEVELS.map((level, index) => {
+              const stars = progress.levels[level.id]?.starsCollected ?? 0;
+              const starLabel =
+                "⭐".repeat(stars) + "☆".repeat(Math.max(0, 3 - stars));
+              return (
+                <GameStartOverlayButton
+                  key={level.id}
+                  onClick={() => startGame(index)}
+                >
+                  Level {index + 1}: {level.name} · {starLabel}
+                </GameStartOverlayButton>
+              );
+            })}
+            <div className="text-sm font-semibold opacity-80">
+              ⭐ Total Stars: {progress.totalStars} · 🪙 Coins:{" "}
+              {progress.totalCoins}
+            </div>
+          </GameStartOverlay>
+        )}
       </div>
 
       {/* Visible mobile controls */}
