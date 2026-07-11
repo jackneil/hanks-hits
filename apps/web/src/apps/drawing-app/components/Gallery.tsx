@@ -116,7 +116,7 @@ export function Gallery({ onLoadArtwork, onClose }: GalleryProps) {
                       e.stopPropagation();
                       setShowDeleteConfirm(artwork.id);
                     }}
-                    className={`absolute top-2 right-2 w-11 h-11 rounded-full bg-red-500 text-white transition-opacity flex items-center justify-center text-sm hover:bg-red-600 ${
+                    className={`absolute top-2 right-2 w-11 h-11 rounded-full bg-red-500 text-white transition-opacity flex items-center justify-center text-lg hover:bg-red-600 ${
                       isCoarsePointer
                         ? "opacity-100"
                         : "opacity-0 group-hover:opacity-100"

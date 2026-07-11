@@ -58,8 +58,11 @@ export function MobileControls({ setNitro }: MobileControlsProps) {
         </div>
       </div>
 
-      {/* Nitro button - positioned above the gas zone */}
-      <div className="absolute right-4 top-32 pointer-events-auto">
+      {/* Nitro button - above the gas zone, LEFT of the HUD's fuel/nitro/
+          speed column (which owns the right-4 lane from the header down to
+          ~y290 on a 390px-tall phone; sharing that lane buried this button
+          under the translucent gauges when the HUD moved below the header) */}
+      <div className="absolute right-56 top-32 pointer-events-auto">
         <button
           onTouchStart={handleNitroStart}
           onTouchEnd={handleNitroEnd}

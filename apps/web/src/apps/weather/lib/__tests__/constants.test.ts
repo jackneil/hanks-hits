@@ -28,3 +28,15 @@ describe("getRandomFact", () => {
     expect(WEATHER_FACTS).toContain(getRandomFact());
   });
 });
+
+describe("weather sync contract", () => {
+  it("getProgress syncs exactly the persisted keys - session state like currentFact must never leak in", async () => {
+    const { useWeatherStore } = await import("../store");
+    expect(Object.keys(useWeatherStore.getState().getProgress()).sort()).toEqual([
+      "lastLocation",
+      "lastModified",
+      "savedLocations",
+      "units",
+    ]);
+  });
+});

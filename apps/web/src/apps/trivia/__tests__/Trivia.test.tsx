@@ -11,6 +11,7 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 
 import { Trivia } from "../Trivia";
 import { useTriviaStore } from "../lib/store";
+import { DIFFICULTY_SETTINGS } from "../lib/constants";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -36,9 +37,13 @@ describe("trivia timer expiry", () => {
     expect(useTriviaStore.getState().gameState).toBe("playing");
     const answeredBefore = useTriviaStore.getState().totalAnswered;
 
-    // Default difficulty is 8yo -> 20s timer; run it out.
+    // Run out the default difficulty's clock (plus one spare tick) — derived
+    // from the settings so a tuned timer can't silently break this test.
     act(() => {
-      vi.advanceTimersByTime(21_000);
+      vi.advanceTimersByTime(
+        DIFFICULTY_SETTINGS[useTriviaStore.getState().settings.difficulty]
+          .timerSec * 1000 + 1000
+      );
     });
 
     expect(useTriviaStore.getState().totalAnswered).toBe(answeredBefore + 1);

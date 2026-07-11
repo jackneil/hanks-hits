@@ -61,6 +61,17 @@ describe("drum-machine pads on touch", () => {
     fireEvent.touchEnd(pad);
     expect(useDrumMachineStore.getState().activePads.size).toBe(0);
   });
+
+  it("releases the pad on touchcancel so an interrupted touch can't stick it active", () => {
+    render(<DrumMachine />);
+    const pad = screen.getByRole("button", { name: "Kick" });
+
+    fireEvent.touchStart(pad, { touches: [{ clientX: 10, clientY: 10 }] });
+    expect(useDrumMachineStore.getState().activePads.size).toBe(1);
+
+    fireEvent.touchCancel(pad);
+    expect(useDrumMachineStore.getState().activePads.size).toBe(0);
+  });
 });
 
 describe("drum-machine mobile layout", () => {
