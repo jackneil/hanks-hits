@@ -30,6 +30,19 @@ type UseAuthSyncReturn = {
   forceSync: () => Promise<void>;
 };
 
+// True from the moment a foreign-owner purge begins until the pending hard
+// reload lands. MODULE-level on purpose: it must survive client-side
+// navigation and remounts (a fresh hook instance would otherwise sail past
+// the now-matching marker and upload the foreign in-memory state), and it
+// dies automatically with the reload.
+let foreignPurgePending = false;
+
+/** Test-only escape hatch: jsdom never actually reloads, so tests must
+ * release the module-level lock between cases. Never call in app code. */
+export function __unsafeResetForeignPurgeLockForTests() {
+  foreignPurgePending = false;
+}
+
 /**
  * Hook for syncing game/app state between localStorage and database
  *
@@ -202,7 +215,7 @@ export function useAuthSync<T extends AppProgressData>({
    * Initial sync on login - merge localStorage with server
    */
   const performInitialSync = useCallback(async () => {
-    if (initialSyncDoneRef.current) return;
+    if (initialSyncDoneRef.current || foreignPurgePending) return;
 
     setSyncStatus("syncing");
 
@@ -224,8 +237,17 @@ export function useAuthSync<T extends AppProgressData>({
       const owner = localStorage.getItem(PROGRESS_OWNER_KEY);
       if (owner && owner !== userId) {
         foreignDataRef.current = true;
+        foreignPurgePending = true;
         clearGameStorage();
         localStorage.setItem(PROGRESS_OWNER_KEY, userId);
+        // The persist middleware can re-write the foreign blob from memory
+        // BEFORE the reload's navigation commits (cookie-clicker's ticker
+        // writes 20x/s). pagehide fires when the navigation commits, after
+        // the document's last timer — so this makes the clear the final
+        // write and the reload always boots from clean disk.
+        window.addEventListener("pagehide", () => clearGameStorage(), {
+          once: true,
+        });
         window.location.reload();
         return;
       }

@@ -16,7 +16,12 @@ vi.mock("next-auth/react", () => ({
   }),
 }));
 
-import { useAuthSync } from "../useAuthSync";
+import {
+  useAuthSync,
+  __unsafeResetForeignPurgeLockForTests,
+} from "../useAuthSync";
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 type FakeProgress = { highScore: number; lastModified: number };
 
@@ -50,6 +55,9 @@ describe("useAuthSync shared-device owner guard", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
+    // jsdom never actually reloads, so release the module-level purge lock
+    // the mismatch tests set (in a browser the reload clears it naturally).
+    __unsafeResetForeignPurgeLockForTests();
   });
 
   it("throws in dev/test when the key is not covered by signOutAndClear", () => {
@@ -86,6 +94,10 @@ describe("useAuthSync shared-device owner guard", () => {
       value: { ...originalLocation, reload: reloadSpy },
     });
 
+    // shouldAdvanceTime keeps waitFor's real-time polling alive while
+    // letting us jump the hook's 1s auto-save poller deterministically.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
     try {
       // Mutable so we can simulate the kid playing a move (trigger #1).
       let foreignState: FakeProgress = { highScore: 9999, lastModified: 123 };
@@ -111,10 +123,12 @@ describe("useAuthSync shared-device owner guard", () => {
         expect(localStorage.getItem(key)).toBeNull();
       }
 
-      // Even if the reload were blocked, the instance is locked: a state
-      // change plus the debounce window must NOT post A's data...
+      // Even if the reload were blocked, the instance is locked: mutate the
+      // state, then fire the 1s auto-save poller AND the debounce window so
+      // debouncedSave really runs against the foreignDataRef gate...
       foreignState = { highScore: 10000, lastModified: 999 };
-      await new Promise((r) => setTimeout(r, 50));
+      await vi.advanceTimersByTimeAsync(1100);
+      await vi.advanceTimersByTimeAsync(50);
       // ...and forceSync (the game-over flush every game calls) is a no-op.
       await result.current.forceSync();
 
@@ -123,11 +137,74 @@ describe("useAuthSync shared-device owner guard", () => {
       );
       expect(posts).toEqual([]);
 
-      // The beacon channels (beforeunload + unmount flush) stay silent too —
-      // "never uploads" means all three upload paths, not just fetch.
+      // The beacon channels (beforeunload + unmount flush) stay silent too.
+      // (Double-gated: initialSyncDone never completes in the mismatch branch
+      // AND the foreignData lock covers them — this asserts the outcome.)
       window.dispatchEvent(new Event("beforeunload"));
       unmount();
       expect(beaconSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      Object.defineProperty(window, "location", {
+        writable: true,
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
+
+  it("clears a persist write-back on pagehide (the reload-window race)", async () => {
+    // The real threat: zustand's persist middleware re-writes the foreign
+    // blob from memory AFTER clearGameStorage() but BEFORE the reload's
+    // navigation commits (cookie-clicker ticks 20x/s). The guard's pagehide
+    // listener must make the clear the FINAL write.
+    localStorage.setItem(PROGRESS_OWNER_KEY, "user-A");
+    localStorage.setItem(
+      "snake-game-state",
+      JSON.stringify({
+        state: { progress: { highScore: 9999, lastModified: 123 } },
+      })
+    );
+
+    // A real persist-backed store on a covered key, hydrated with A's data.
+    const useTestStore = create<{ progress: FakeProgress }>()(
+      persist(() => ({ progress: { highScore: 9999, lastModified: 123 } }), {
+        name: "snake-game-state",
+        partialize: (s) => ({ progress: s.progress }),
+      })
+    );
+
+    const reloadSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      configurable: true,
+      value: { ...originalLocation, reload: reloadSpy },
+    });
+
+    try {
+      renderHook(() =>
+        useAuthSync<FakeProgress>({
+          appId: "snake",
+          localStorageKey: "snake-game-state",
+          getState: () => useTestStore.getState().progress,
+          setState: () => {},
+        })
+      );
+
+      await waitFor(() => expect(reloadSpy).toHaveBeenCalled());
+      expect(localStorage.getItem("snake-game-state")).toBeNull();
+
+      // A ticking store writes the foreign blob straight back to disk —
+      // this is the race the reload alone cannot win.
+      useTestStore.setState({
+        progress: { highScore: 9999, lastModified: 124 },
+      });
+      expect(localStorage.getItem("snake-game-state")).not.toBeNull();
+
+      // pagehide (the navigation committing) makes the clear the final word.
+      window.dispatchEvent(new Event("pagehide"));
+      expect(localStorage.getItem("snake-game-state")).toBeNull();
     } finally {
       Object.defineProperty(window, "location", {
         writable: true,
