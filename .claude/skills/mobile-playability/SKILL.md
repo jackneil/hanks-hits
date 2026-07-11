@@ -13,22 +13,53 @@ Kids play on phones. A game that needs a keyboard, a mouse, or a hover state is 
 
 ## Step 1 — Set up the touch-only phone
 
-**Primary: Chrome DevTools MCP.** Open the game's URL, then emulate a phone with touch:
+**Primary (proven 2026-07-11): Playwright MCP + CDP touch emulation.** One `browser_run_code_unsafe` block sets up a real phone AND gives you genuine touch input:
 
+```js
+async (page) => {
+  const client = await page.context().newCDPSession(page);
+  await client.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+  await client.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await page.goto('<game url>', { waitUntil: 'load', timeout: 30000 });   // (re)load AFTER emulating
+  // tap = REAL touch events, what a finger actually does:
+  const tap = async (locator) => {
+    const b = await locator.boundingBox(); if (!b) throw new Error('no box');
+    const x = b.x + b.width / 2, y = b.y + b.height / 2;
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  const swipe = async (x1, y1, x2, y2) => {
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x1, y: y1 }] });
+    for (let i = 1; i <= 5; i++) await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x1 + (x2 - x1) * i / 5, y: y1 + (y2 - y1) * i / 5 }] });
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  // ... tap(page.getByRole('button', { name: 'START' })), swipe the board, read state via page.evaluate ...
+}
 ```
-mcp__chrome-devtools__new_page        url: <game url>
-mcp__chrome-devtools__emulate         viewport: "390x844x3,mobile,touch"
-mcp__chrome-devtools__navigate_page   type: "reload"        ← reload AFTER emulating so the page boots as a phone
+
+Verify the emulation took before judging anything: `page.evaluate(() => matchMedia('(pointer: coarse)').matches)` must be `true`.
+
+**Also override the user agent** - some libraries (EmulatorJS, learned 2026-07-11) detect "mobile" from the UA string, not from touch capability, and hide their touch UI without it:
+
+```js
+await client.send('Emulation.setUserAgentOverride', {
+  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  platform: 'iPhone'
+});
 ```
 
-The reload matters: `pointer: coarse`, `ontouchstart`, and mobile detection all evaluate at load time — emulating after load leaves the page thinking it's a desktop.
+**Two traps, learned the hard way:**
+- **Do NOT enable `Emulation.setEmitTouchEventsForMouse`** — it intercepts Playwright's own mouse input and `browser_click`/`locator.click()` hang forever.
+- **Do NOT use `locator.click()` / `browser_click` as your tap** — a mouse click never fires `touchstart`, so games with touch-only handlers (pedals, canvas swipes) false-FAIL or, worse, false-PASS on click-only paths a real finger also triggers differently. Tap = `Input.dispatchTouchEvent`, always.
+- If the game shows a "rotate your phone" prompt (OrientationWarning), that's a legitimate mobile posture, not a FAIL — re-emulate landscape (`width: 844, height: 390`), reload, and keep auditing.
 
-**Fallback: Playwright MCP** — `browser_resize` to 390x844; note it doesn't flip `pointer: coarse`, so prefer DevTools.
+**Alternative: Chrome DevTools MCP** (when that server is healthy): `new_page` → `emulate viewport: "390x844x3,mobile,touch"` → `navigate_page type: "reload"`. With its touch emulation on, its `click` dispatches as a tap.
+
+The reload-after-emulate matters in every recipe: `pointer: coarse`, `ontouchstart`, and mobile detection all evaluate at load time — emulating after load leaves the page thinking it's a desktop.
 
 **The rules while auditing (touch-only means touch-only):**
-- **NEVER send keyboard events.** No `press_key`, no typing shortcuts to move the game along (typing into a text input a kid could reach via the on-screen keyboard, e.g. Wordle letters, is allowed ONLY if the game shows a real text input or on-screen keys).
+- **NEVER send keyboard events.** No `press_key`, no `page.keyboard`, no typing shortcuts to move the game along (typing into a text input a kid could reach via the on-screen keyboard is allowed ONLY if the game shows a real text input or on-screen keys).
 - **NEVER rely on hover.** If a control only reveals itself on hover, that's a finding, not a path forward.
-- Tap = `click` on an element (with touch emulation on, this dispatches as a tap). Drag/swipe = the `drag` tool.
 - **Tilt cannot be emulated.** For tilt-steering games, verify the touch pedals by tap AND verify the tilt wiring in code (`deviceorientation` listener + iOS permission request). Don't fail a driving game for untestable tilt; DO fail it if the pedals don't work by tap.
 
 ## Step 2 — Play it like a kid with a phone
