@@ -11,6 +11,8 @@ Kids play on phones. A game that needs a keyboard, a mouse, or a hover state is 
 - **Gate mode** (inside make-a-game Step 5 / change-a-game Step 4 / remix-a-game Step 6): audit THE game you just built/changed against the local dev server before you show the kid. A game is NOT done until this passes.
 - **Audit mode** (standalone): audit one game or sweep many, usually against production. Record a verdict matrix.
 
+**Apps too, not just games.** Everything under `src/apps/` (drawing, drum machine, trivia, virtual pet, weather...) gates on the same recipe and checklist — an app's "core action" is whatever the kid opens it to DO (draw a stroke, tap a pad, answer a question, feed the pet). Two app-specific traps: hover-revealed controls (`opacity-0 group-hover:opacity-100` delete/edit buttons are invisible to fingers) and `preventDefault()` inside React's synthetic `onTouch*` props (React attaches them passive, so it silently fails and the tap ALSO fires the compatibility mouse events — double-triggering the action; attach native listeners with `{ passive: false }` instead).
+
 ## Step 1 — Set up the touch-only phone
 
 **Primary (proven 2026-07-11): Playwright MCP + CDP touch emulation.** One `browser_run_code_unsafe` block sets up a real phone AND gives you genuine touch input:

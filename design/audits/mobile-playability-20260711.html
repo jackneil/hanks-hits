@@ -56,6 +56,7 @@
 <h1>Mobile Playability Audit</h1>
 <p class="sub"><strong>Status: every FAIL and PARTIAL below was fixed and re-audited under the same touch emulation on 2026-07-11 (branch feat/mobile-playability)</strong> - green ✔ notes in each row carry the fix and the re-audit evidence. Two production outages surfaced beyond touch issues: the SNES emulator ROM proxy 404'd every ROM, and hill-climb never painted a frame for any user.</p>
 <p class="sub">All 25 games on Hank's Hits, audited in production (hanks-garage-production.up.railway.app) on 2026-07-11 under touch-only phone emulation. Method: the <code>mobile-playability</code> skill (390x844x3 mobile viewport, CDP touch emulation, taps and swipes dispatched as real touch events, zero keyboard input; retro-arcade additionally audited with an iPhone user-agent override).</p>
+<p class="sub"><strong>Extended the same day:</strong> the <a href="#apps">9 apps were audited under the identical recipe</a> (local dev on feat/mobile-playability, since the branch was not yet merged) — 7 PASS / 2 PARTIAL / 0 FAIL, every finding fixed and re-audited. The 4 LOW notes carried out of the games DCR were also closed — <strong>all four were real</strong>; the affected rows below carry green addendum notes.</p>
 
 <div class="tiles">
   <div class="tile ok"><div class="n">15</div>PASS</div>
@@ -89,7 +90,8 @@
   <td class="broken">On-screen move/jump controls (◀ ▶ JUMP) are hidden by Tailwind &#x27;md:hidden&#x27; (display:none at &gt;=768px) at the 844px landscape width the game forces via its rotate warning; and in portrait the Level buttons never start gameplay - so there is no touch control to move left/right or jump.</td>
   <td class="evidence"><details><summary>evidence</summary><p>Coarse pointer confirmed. Game shows a &#x27;Rotate Your Phone&#x27; warning in portrait. Re-emulated landscape (844x390) + reloaded: warning clears and tapping &#x27;Level 1&#x27; DOES start the game (pause button appears, canvas grows to 812x457). But the on-screen ◀ ▶ JUMP controls have a parent div classed &#x27;md:hidden fixed bottom-4 ...&#x27;; getComputedStyle(parent).display === &#x27;none&#x27; at 844px width because Tailwind md:hidden hides at &gt;=768px, and a landscape phone is 844px wide. So the only touch controls are display:none (buttons report 0x0). Tapping canvas move/jump zones did nothing (no canvas touch handler). In portrait (390px, where the controls would render) tapping a Level never launches the game (canvas stays at the 358x201 preview, no pause button). Net: no reachable way to move or jump by touch in either posture.</p>
     <p class="notes"><strong>Notes:</strong> Root cause is a responsive-breakpoint bug: the mobile control bar is gated on &#x27;md:hidden&#x27; which assumes phones are always &lt;768px, but landscape phones (and the game&#x27;s own forced-landscape posture) exceed that. Fix: gate the controls on useCoarsePointer() instead of a width breakpoint, and/or make portrait Level taps start the game. Instruction copy itself is already touch-correct (&#x27;Tap ◀ ▶ to move / Tap JUMP&#x27;).</p>
-    <p class="notes"><strong>Console:</strong> 3x &#x27;Unable to preventDefault inside passive event listener invocation&#x27; (non-fatal touch-listener noise)</p><p class="notes"><strong style="color:var(--ok)">✔ PASS after fix:</strong> Mobile controls gated on useCoarsePointer() instead of md:hidden, so they render at the game's own forced-landscape width; passive-preventDefault removed (touchAction: none). Re-audit at 844x390 coarse-pointer: all controls visible (80px arrows, 96px JUMP), moved and jumped by touch, 0 console errors. <a href="screenshots/platformer-fixed.png">after-fix screenshot</a></p></details></td>
+    <p class="notes"><strong>Console:</strong> 3x &#x27;Unable to preventDefault inside passive event listener invocation&#x27; (non-fatal touch-listener noise)</p><p class="notes"><strong style="color:var(--ok)">✔ PASS after fix:</strong> Mobile controls gated on useCoarsePointer() instead of md:hidden, so they render at the game's own forced-landscape width; passive-preventDefault removed (touchAction: none). Re-audit at 844x390 coarse-pointer: all controls visible (80px arrows, 96px JUMP), moved and jumped by touch, 0 console errors. <a href="screenshots/platformer-fixed.png">after-fix screenshot</a></p>
+    <p class="notes"><strong style="color:var(--ok)">✔ Carried notes closed (both real):</strong> (1) a middle-zone canvas tap fired jump() twice — the tap's compatibility click re-entered handleTap, and the airborne second call armed the jump buffer into a double-hop on landing; canvas touch handlers now attach natively with passive:false + preventDefault, and a live single tap increments totalJumps by exactly 1. (2) The white-on-white/30 ◀ ▶ chips over the pale sky were swapped to black/30 with a text shadow (<a href="screenshots/platformer-contrast-fix.jpeg">after-fix screenshot</a>). Touch-zone tests pin both behaviors.</p></details></td>
 </tr>
 <tr id="retro-arcade">
   <td class="game"><strong>retro-arcade</strong><br>
@@ -125,7 +127,8 @@
   <td class="broken">The &#x27;▶ Play!&#x27; start button is clipped below the undersized 4:3 board container and is only reachable by scrolling a small inner box, so the game cannot be started as presented on a phone.</td>
   <td class="evidence"><details><summary>evidence</summary><p>Touch copy (&#x27;Tap the arrows to move&#x27;, &#x27;Tap to drop bombs&#x27;) + full on-screen d-pad (up/down/left/right 48x48) and bomb button (96x96). On load the &#x27;▶ Play!&#x27; button is CLIPPED below the undersized board container (playInStack false at y448); after scrolling the overflow-y-auto overlay it became reachable (y299, in hit-test) and a touch tap started the game (Play button removed). In play: canvas hash changed on every d-pad direction (up/left/right/down all produced distinct board renders as the player moved between cells) and changed again after dropping a bomb (explosion). matchMedia coarse === true, no horizontal scroll, 0 gameplay console errors.</p>
     <p class="notes"><strong>Notes:</strong> Once started, controls are excellent for touch (all four d-pad directions + bomb verified moving the player and exploding). PARTIAL only for the clipped Play button. Same board-sizing fix as blitz-bomber.</p>
-    <p class="notes"><strong>Console:</strong> <span class="muted">clean</span></p><p class="notes"><strong style="color:var(--ok)">✔ PASS after fix:</strong> Menu overlay moved to the full-height container (was pinned inside the small canvas box, clipping the Play button below the fold). Re-audit: Play button at y584 fully in-viewport, tapped it, game started and played by touch. <a href="screenshots/bomberman-fixed.png">after-fix screenshot</a></p></details></td>
+    <p class="notes"><strong>Console:</strong> <span class="muted">clean</span></p><p class="notes"><strong style="color:var(--ok)">✔ PASS after fix:</strong> Menu overlay moved to the full-height container (was pinned inside the small canvas box, clipping the Play button below the fold). Re-audit: Play button at y584 fully in-viewport, tapped it, game started and played by touch. <a href="screenshots/bomberman-fixed.png">after-fix screenshot</a></p>
+    <p class="notes"><strong style="color:var(--ok)">✔ Carried note closed (real bug):</strong> the paused/won/lost overlays were still pinned to the 528px canvas box. Measured live at 844x390: after scrolling to the pause button (scrollY 554) and pausing, PAUSED/RESUME/Quit all rendered at negative viewport coords — entirely above the fold, so pausing looked like a freeze. All three overlays are now fixed viewport modals; re-audit shows RESUME at y173-233 and Quit at y249-289 in-viewport at the same scroll position. Regression test pins the positioning.</p></details></td>
 </tr>
 <tr id="breakout">
   <td class="game"><strong>breakout</strong><br>
@@ -161,7 +164,8 @@
   <td class="broken">Start/pre-game screen shows a keyboard-only control legend (&#x27;Controls: D/→ Gas | A/← Brake | W/↑ Lean Back | S/↓ Lean Forward | Space Nitro&#x27;) on a touch viewport, which is meaningless to a phone kid.</td>
   <td class="evidence"><details><summary>evidence</summary><p>Landscape driving game (re-emulated 844x390 after its &#x27;Rotate Your Phone&#x27; prompt, per skill). Live play renders excellent, huge touch pedals: a red BRAKE pad and a green GAS pad (~330-370px, labelled &#x27;Drag ↑ to lean back/forward&#x27;), plus fuel (⛽) and nitro (🚀) gauges, a km/h speedo and a pause. A live frame captured the truck at 17 km/h, and a fresh reload frame showed it launching to 130 km/h — the truck DOES move. Home/trophy/fullscreen 44px; menu buttons (Play Now/Try Again/Garage) 48px+.</p>
     <p class="notes"><strong>Notes:</strong> Two degradations, hence PARTIAL: (1) the start screen shows keyboard-only control copy on a touch viewport (checklist violation — should branch on useCoarsePointer); (2) in this headless/emulated session every run instant-crashes at a fixed 200m within ~100ms (&#x27;head hit the ground&#x27;), with the truck launching to 130 km/h on frame 1 — a first-frame physics dt spike typical of throttled headless rAF. [Post-fix correction: that theory was WRONG - the real causes were (a) the game re-initializing itself every render so the canvas never painted a frame for ANY user, and (b) the vehicle spawning embedded in un-flattened noise terrain, whose violent ejection produced the speed spike and instant head-hit. Both fixed and re-verified; see the green note below.] The pedals themselves are correctly built and the truck was observed moving, so this is likely an emulation artifact rather than a real-phone break; worth a real-device check.</p>
-    <p class="notes"><strong>Console:</strong> None game-breaking.</p><p class="notes"><strong style="color:var(--ok)">✔ PASS after fix (was broken for ALL users):</strong> Deeper than the audit found: (1) the lifecycle effect re-ran on every render (initGame identity churn via plain-function renderVehicle dep), tearing down and re-creating the whole game continuously, so the canvas never painted one frame in production on any device; render loop now reads logic through latest-refs, effect keys only on the run transition. (2) No spawn flattening: noise terrain could rise above the spawn, embedding the truck (instant crash ~200m every run); spawn zone now flat and smoothstep-blended (50-seed tests). (3) Keyboard-only legend branched via getControlsCopy(useCoarsePointer()). Re-audit: drove 670m to 1600m on held touch-gas, canvas painting 237 colors, no crash. <a href="screenshots/hill-climb-fixed.png">after-fix screenshot</a></p></details></td>
+    <p class="notes"><strong>Console:</strong> None game-breaking.</p><p class="notes"><strong style="color:var(--ok)">✔ PASS after fix (was broken for ALL users):</strong> Deeper than the audit found: (1) the lifecycle effect re-ran on every render (initGame identity churn via plain-function renderVehicle dep), tearing down and re-creating the whole game continuously, so the canvas never painted one frame in production on any device; render loop now reads logic through latest-refs, effect keys only on the run transition. (2) No spawn flattening: noise terrain could rise above the spawn, embedding the truck (instant crash ~200m every run); spawn zone now flat and smoothstep-blended (50-seed tests). (3) Keyboard-only legend branched via getControlsCopy(useCoarsePointer()). Re-audit: drove 670m to 1600m on held touch-gas, canvas painting 237 colors, no crash. <a href="screenshots/hill-climb-fixed.png">after-fix screenshot</a></p>
+    <p class="notes"><strong style="color:var(--ok)">✔ Carried note closed (real bug, worse than noted):</strong> the "how does a phone kid pause?" question uncovered that the HUD's own ⏸️ button was buried UNDER the GameShell's fixed 48px z-[1000] header — elementFromPoint at the button's center returned the header title, so pause was unreachable by touch AND mouse (desktop had Escape; phones had nothing). The fixed HUD layer now starts below the header (top-12 md:top-14). Live re-audit: ⏸️ at y72 opens the PauseMenu by tap, and the full touch chain start → pause → 🔧 Garage works (<a href="screenshots/hill-climb-garage-via-touch-pause.jpeg">screenshot</a>). The PauseMenu hint also branches on coarse pointer ("Tap Continue to keep driving" instead of "Press Escape to resume"). Regression tests pin the HUD offset and the copy.</p></details></td>
 </tr>
 <tr id="2048">
   <td class="game"><strong>2048</strong><br>
@@ -301,7 +305,82 @@
 </tbody>
 </table>
 
-<p class="sub" style="margin-top:1.5rem">Recurring defect classes: (1) React synthetic <code>onTouch*</code> handlers calling <code>preventDefault()</code> (React registers them passive) - asteroids, breakout, blitz-bomber; (2) start overlays clipped below <code>aspect-[4/3]</code> board containers on tall phones - blitz-bomber, bomberman; (3) keyboard-only instruction copy shown on touch viewports - hill-climb, endless-runner; (4) mobile controls gated on width breakpoints instead of <code>pointer: coarse</code> - platformer; (5) the ROM proxy redirect regression - retro-arcade.</p>
+<h2 id="apps" style="margin-top:2.5rem">Apps (same recipe, 2026-07-11, local dev on feat/mobile-playability)</h2>
+<p class="sub">All 9 apps, audited under the identical touch-only emulation (390x844x3, CDP touch dispatch, iPhone UA, reload after emulate) by a 3-batch sequential agent sweep, with every non-PASS finding hand-verified before fixing (one agent finding was a false positive — see weather). Signed-out guest state throughout.</p>
+
+<div class="tiles">
+  <div class="tile ok"><div class="n">7</div>PASS</div>
+  <div class="tile warn"><div class="n">2</div>PARTIAL (both fixed)</div>
+  <div class="tile danger"><div class="n">0</div>FAIL</div>
+  <div class="tile"><div class="n">9</div>audited</div>
+</div>
+
+<table>
+<thead><tr><th>App</th><th>Verdict</th><th>Broken interaction</th><th>Evidence</th></tr></thead>
+<tbody>
+<tr id="drum-machine">
+  <td class="game"><strong>drum-machine</strong><br><a href="screenshots/apps-drum-machine-touch.jpeg">screenshot</a></td>
+  <td><span class="badge warn">PARTIAL</span></td>
+  <td class="broken">Keyboard-only instruction copy ("Keys: 1-4 / Q-R = Drums | Space = Play/Stop") shown to phone kids; every pad tap logged a passive-preventDefault console error (and the failed preventDefault let the compatibility mousedown re-trigger the pad); 32x32 sequencer step cells; the sequencer transport (Play) rendered at y=845 on an 844px viewport — below the fold.</td>
+  <td class="evidence"><details><summary>evidence</summary><p>Pads give visible press feedback and all core actions (pads, kit select, sequencer step toggles, tempo, play/record/save/load) work by touch. The step grid scrolls in its own pane (no page horizontal scroll). But each pad tap fired 'Unable to preventDefault inside passive event listener invocation' — the preventDefault lived in React's synthetic onTouchStart, which React attaches passive.</p>
+  <p class="notes"><strong style="color:var(--ok)">✔ PASS after fix:</strong> Pad touch handlers attach natively with passive:false (preventDefault now really suppresses the compat mouse events); instruction copy branches on useCoarsePointer ("Tap the pads to play the drums!"); step cells are 32x44 (kid-finger height, 16-step pitch preserved); −/+ pattern buttons 44px; the transport is a sticky bottom dock. Re-audit: 2 taps = padsHit +2 exactly (no double-trigger), 0 console errors, Play docked in-viewport at y772-836. <a href="screenshots/apps-drum-machine-fixed.jpeg">after-fix screenshot</a>. Component tests pin the non-passive listeners, copy branch, and dock.</p></details></td>
+</tr>
+<tr id="weather">
+  <td class="game"><strong>weather</strong><br><a href="screenshots/apps-weather-touch.jpeg">screenshot</a></td>
+  <td><span class="badge warn">PARTIAL</span></td>
+  <td class="broken">Agent finding: the "Tell me another!" fun-fact button did nothing across 13 taps. <strong>Hand verification proved this a FALSE POSITIVE</strong> — the agent's taps missed (stale coords), not the button.</td>
+  <td class="evidence"><details><summary>evidence</summary><p>Every core action verified working by touch: city quick-picks load the forecast, the units toggle flips C/F across the whole view, tap-focused search with a tappable autocomplete works, favorites/refresh 44-48px. The fun-fact finding did not reproduce: an instrumented tap on "Tell me another!" fired touchstart → touchend → click and the fact changed ("Wind has no color…" → "Clouds look white…").</p>
+  <p class="notes"><strong style="color:var(--ok)">✔ PASS (finding refuted) + polish:</strong> getRandomFact() could legitimately repeat the current fact 1-in-N, which reads as a dead button; it now excludes the current fact so every tap always shows a new one (unit-tested). Lesson re-learned: verify agent findings by hand before fixing — this is the second false positive from stale tap coordinates (four-wheeler's iframe offset was the first).</p></details></td>
+</tr>
+<tr id="drawing-app">
+  <td class="game"><strong>drawing-app</strong><br><a href="screenshots/apps-drawing-app-touch.jpeg">screenshot</a></td>
+  <td><span class="badge ok">PASS</span></td>
+  <td class="broken"><span class="muted">agent-missed defect found by code sweep: the gallery's per-artwork delete button was opacity-0 group-hover:opacity-100 at 32x32 — invisible and undiscoverable on touch (verified live: computed opacity 0)</span></td>
+  <td class="evidence"><details><summary>evidence</summary><p>Core drawing verified by the sweep: touch-drag strokes render, color + brush size changes apply, undo/clear (with kid-safe confirm) work by tap. The agent PASSed it but never opened the gallery; the main-loop code sweep caught the hover-gated delete and a browser check confirmed opacity 0 at 32x32.</p>
+  <p class="notes"><strong style="color:var(--ok)">✔ Fixed:</strong> delete stays visible (opacity-100) on coarse pointers at 44x44 — hover reveal kept for mouse users; header Undo/Redo/Gallery, close button, and color swatches bumped from 40px (and 32px extended swatches) to 44px. Re-audit: delete button visible at 44x44, tap → "Delete Artwork?" confirm → artwork removed (2 → 1). Component tests pin the coarse-pointer visibility.</p></details></td>
+</tr>
+<tr id="trivia">
+  <td class="game"><strong>trivia</strong><br><a href="screenshots/apps-trivia-touch.jpeg">screenshot</a></td>
+  <td><span class="badge ok">PASS</span></td>
+  <td class="broken"><span class="muted">console defect: letting the question clock run out fired React's "Cannot update a component while rendering" warning</span></td>
+  <td class="evidence"><details><summary>evidence</summary><p>Full quiz loop by touch: age card → Start Quiz → 358x52 answer buttons register with score/streak feedback → Quiz Complete → Play Again, high score persisted. The countdown called handleAnswer(null) INSIDE the setTimeLeft updater — state updaters must be pure, so every timeout warned.</p>
+  <p class="notes"><strong style="color:var(--ok)">✔ Fixed:</strong> the updater only counts; the expiry side-effect moved to its own effect watching timeLeft. Live re-audit: let Q1's 20s clock expire → advanced to Question 2 with a clean console. Component test pins timeout-as-wrong-answer with zero render warnings.</p></details></td>
+</tr>
+<tr id="profile">
+  <td class="game"><strong>profile</strong><br><a href="screenshots/apps-profile-touch.jpeg">screenshot</a></td>
+  <td><span class="badge ok">PASS</span></td>
+  <td class="broken"><span class="muted">minor: the login gate's "Sign Up" text link measured 59x22px</span></td>
+  <td class="evidence"><details><summary>evidence</summary><p>As a guest, /profile redirects to the /login gate — audited as the flow. Inputs focus by tap, on-screen-keyboard entry registers, Google/Sign In buttons 294x48, layout holds at 390px, and the Sign Up link navigates to a kid-safe /signup with grown-up guidance.</p>
+  <p class="notes"><strong style="color:var(--ok)">✔ Fixed:</strong> the Sign Up link is padded to a 44px min-height touch target.</p></details></td>
+</tr>
+<tr id="leaderboards">
+  <td class="game"><strong>leaderboards</strong><br><a href="screenshots/apps-leaderboards-touch.jpeg">screenshot</a></td>
+  <td><span class="badge ok">PASS</span></td>
+  <td class="broken"><span class="muted">none (touch)</span></td>
+  <td class="evidence"><details><summary>evidence</summary><p>Game chips drive the board selection, time-period tabs switch active state, all targets 44px+, no horizontal scroll at 390px. Board rows never rendered locally because every /api/leaderboards/* returned 500 — the dev-server log shows the Drizzle query failing against the local Postgres (missing leaderboard tables). Environment-only: production serves these boards, and the UI degrades to a graceful "Try Again" state. No code change warranted.</p></details></td>
+</tr>
+<tr id="virtual-pet">
+  <td class="game"><strong>virtual-pet</strong><br><a href="screenshots/apps-virtual-pet-touch.jpeg">screenshot</a></td>
+  <td><span class="badge ok">PASS</span></td>
+  <td class="broken"><span class="muted">none</span></td>
+  <td class="evidence"><details><summary>evidence</summary><p>Full care loop by touch: Sleep/Wake flips mood, Shop buy (coins 50→40) → Feed (Hunger 80%→100%), minigame taps score 0→3, stats panel opens. Care buttons 62x62. The minigame's moving cookie sprite measures ~36x40 — a gameplay target (whack-a-mole), not a control; left as designed.</p></details></td>
+</tr>
+<tr id="joke-generator">
+  <td class="game"><strong>joke-generator</strong><br><a href="screenshots/apps-joke-generator-touch.jpeg">screenshot</a></td>
+  <td><span class="badge ok">PASS</span></td>
+  <td class="broken"><span class="muted">none</span></td>
+  <td class="evidence"><details><summary>evidence</summary><p>Five distinct jokes across five taps of the 226x64 button, Show Punchline toggles, category filter applies (Animals → animal joke). Chips 44-46px, icons 48px, clean console.</p></details></td>
+</tr>
+<tr id="toy-finder">
+  <td class="game"><strong>toy-finder</strong><br><a href="screenshots/apps-toy-finder-touch.jpeg">screenshot</a></td>
+  <td><span class="badge ok">PASS</span></td>
+  <td class="broken"><span class="muted">none</span></td>
+  <td class="evidence"><details><summary>evidence</summary><p>Category and age filters visibly swap the list (35 → 6 → 5 → 27 cards), Save Idea flips to SAVED with the header heart counting, swipe scroll works (scrollY 27→2956). All targets 44px+, no horizontal scroll, clean console.</p></details></td>
+</tr>
+</tbody>
+</table>
+
+<p class="sub" style="margin-top:1.5rem">Recurring defect classes: (1) React synthetic <code>onTouch*</code> handlers calling <code>preventDefault()</code> (React registers them passive) - asteroids, breakout, blitz-bomber, drum-machine; (2) start overlays clipped below <code>aspect-[4/3]</code> board containers on tall phones - blitz-bomber, bomberman; (3) keyboard-only instruction copy shown on touch viewports - hill-climb, endless-runner, drum-machine; (4) mobile controls gated on width breakpoints instead of <code>pointer: coarse</code> - platformer; (5) the ROM proxy redirect regression - retro-arcade; (6) hover-revealed controls invisible to fingers (<code>opacity-0 group-hover:opacity-100</code>) - drawing-app gallery; (7) end-state/pause overlays pinned to a canvas box the player has scrolled past - bomberman; (8) fixed HUD layers colliding with the GameShell's fixed header - hill-climb pause; (9) primary transport/start controls rendering just below the phone fold - drum-machine, blitz-bomber.</p>
 </main>
 </body>
 </html>
