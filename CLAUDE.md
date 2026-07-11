@@ -414,6 +414,7 @@ When building a new game or app, you MUST do ALL of these. **Steps 7 and 8 are t
 - [ ] `cd apps/web && pnpm test` passes — but note most games have NO tests, so a green run alone proves little
 - [ ] `cd apps/web && pnpm build` succeeds — this is the real gate: it typechecks (catches an unregistered `appId`, which `pnpm test` does NOT) and regenerates `gameMetadata.generated.ts`, the static name/emoji/color lookup the profile page **and leaderboards** read
 - [ ] You actually watched it render and respond in a browser (`/qa` or `pnpm dev`) — tests don't draw a pixel
+- [ ] **Playable on a touch-only phone** — run the **mobile-playability** skill (`.claude/skills/mobile-playability/`): emulate a phone viewport (390x844, touch), reload, then play every core action by tap/drag/on-screen controls only. Zero keyboard-only actions, nothing hover-gated, touch targets ≥44px. Kids play on phones; this gate is as mandatory as the build
 - [ ] It appears on the home page grid (discovered by a runtime scan of `metadata.ts`, so fields must be plain string literals)
 - [ ] You ran `pnpm build` at least once before judging the profile page — in `pnpm dev` a brand-new game shows on the home grid instantly but looks generic (gray 🎮, wrong name/category) on the profile/leaderboards until that build regenerates the lookup
 - [ ] Progress saves and survives a reload
