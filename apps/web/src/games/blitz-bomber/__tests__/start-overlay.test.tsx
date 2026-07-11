@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen, within, act, fireEvent } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // useAuthSync calls next-auth's useSession, which requires a SessionProvider.
 // Stub it to guest/unauthenticated so the Game can render standalone.
@@ -8,6 +8,7 @@ vi.mock("next-auth/react", () => ({
 }));
 
 import BlitzBomberGame from "../Game";
+import { useBlitzBomberStore } from "../lib/store";
 
 /**
  * The global setup installs a matchMedia stub that always returns
@@ -30,8 +31,22 @@ function mockPointer(coarse: boolean) {
   });
 }
 
+beforeEach(() => {
+  // Keep the rAF game loop from ticking during assertions.
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+  act(() => {
+    useBlitzBomberStore.setState({ gameState: "ready" });
+    useBlitzBomberStore.getState().setDifficulty("normal");
+  });
+});
+
 afterEach(() => {
   mockPointer(false);
+  vi.unstubAllGlobals();
+  act(() => {
+    useBlitzBomberStore.setState({ gameState: "ready" });
+  });
 });
 
 describe("Blitz Bomber start overlay", () => {
@@ -49,6 +64,20 @@ describe("Blitz Bomber start overlay", () => {
     expect(screen.getByRole("button", { name: /Easy/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Normal/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Hard/ })).toBeInTheDocument();
+  });
+
+  it("picking a difficulty sets it and starts the game", () => {
+    render(<BlitzBomberGame />);
+
+    expect(useBlitzBomberStore.getState().gameState).toBe("ready");
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /Hard/ }));
+    });
+
+    const state = useBlitzBomberStore.getState();
+    expect(state.progress.settings.difficulty).toBe("hard");
+    expect(state.gameState).toBe("playing");
   });
 
   // The below-canvas play hints (kept as-is) also contain touch copy, so scope

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AsteroidsGame } from "../Game";
@@ -77,5 +77,55 @@ describe("AsteroidsGame start overlay", () => {
     expect(screen.getByText("SPACE to fire")).toBeInTheDocument();
     expect(screen.getByText("A/D or ← → to rotate")).toBeInTheDocument();
     expect(screen.queryByText("Tap ● to fire")).not.toBeInTheDocument();
+  });
+});
+
+describe("AsteroidsGame touch controls", () => {
+  beforeEach(() => {
+    useAsteroidsStore.setState({
+      status: "playing",
+      rotatingLeft: false,
+      rotatingRight: false,
+      thrusting: false,
+      shooting: false,
+    });
+  });
+
+  it("press-and-hold sets the control active, release clears it", () => {
+    render(<AsteroidsGame />);
+
+    const rotateLeft = screen.getByRole("button", { name: "↺" });
+    const thrust = screen.getByRole("button", { name: "🔥" });
+    const fire = screen.getByRole("button", { name: "●" });
+    const rotateRight = screen.getByRole("button", { name: "↻" });
+
+    fireEvent.touchStart(rotateLeft);
+    expect(useAsteroidsStore.getState().rotatingLeft).toBe(true);
+    fireEvent.touchEnd(rotateLeft);
+    expect(useAsteroidsStore.getState().rotatingLeft).toBe(false);
+
+    fireEvent.touchStart(thrust);
+    expect(useAsteroidsStore.getState().thrusting).toBe(true);
+    fireEvent.touchEnd(thrust);
+    expect(useAsteroidsStore.getState().thrusting).toBe(false);
+
+    fireEvent.touchStart(fire);
+    expect(useAsteroidsStore.getState().shooting).toBe(true);
+    fireEvent.touchEnd(fire);
+    expect(useAsteroidsStore.getState().shooting).toBe(false);
+
+    fireEvent.touchStart(rotateRight);
+    expect(useAsteroidsStore.getState().rotatingRight).toBe(true);
+    fireEvent.touchEnd(rotateRight);
+    expect(useAsteroidsStore.getState().rotatingRight).toBe(false);
+  });
+
+  it("marks every touch control with touchAction:none so the page can't scroll mid-game", () => {
+    render(<AsteroidsGame />);
+
+    for (const label of ["↺", "🔥", "●", "↻"]) {
+      const button = screen.getByRole("button", { name: label });
+      expect(button.style.touchAction).toBe("none");
+    }
   });
 });

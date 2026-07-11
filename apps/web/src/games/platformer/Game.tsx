@@ -701,10 +701,11 @@ export function PlatformerGame() {
     };
   }, [gameState, jump, handleTap, setMovingLeft, setMovingRight]);
 
-  // Touch controls for mobile
+  // Touch controls for mobile. NOTE: no preventDefault here - React attaches
+  // synthetic touch handlers as PASSIVE (calling it just logs an error), and
+  // the canvas carries the touch-none class, which already stops scrolling.
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
-      e.preventDefault();
       const touch = e.touches[0];
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -728,14 +729,10 @@ export function PlatformerGame() {
     [gameState, jump, handleTap, setMovingLeft, setMovingRight, scale]
   );
 
-  const handleTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
-      e.preventDefault();
-      setMovingLeft(false);
-      setMovingRight(false);
-    },
-    [setMovingLeft, setMovingRight]
-  );
+  const handleTouchEnd = useCallback(() => {
+    setMovingLeft(false);
+    setMovingRight(false);
+  }, [setMovingLeft, setMovingRight]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
@@ -797,41 +794,31 @@ export function PlatformerGame() {
         )}
       </div>
 
-      {/* Visible mobile controls */}
-      {gameState === "playing" && (
-        <div className="md:hidden fixed bottom-4 left-0 right-0 flex justify-between px-4 pointer-events-none">
+      {/* Visible mobile controls — gated on a coarse (touch) pointer, not a
+          width breakpoint. The game forces landscape (844px wide), so
+          md:hidden would hide these on a phone and make it unplayable. */}
+      {gameState === "playing" && isCoarse && (
+        <div className="fixed bottom-4 left-0 right-0 flex justify-between px-4 pointer-events-none">
           <button
-            onTouchStart={(e) => {
-              e.preventDefault();
-              setMovingLeft(true);
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              setMovingLeft(false);
-            }}
-            className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto touch-manipulation"
+            onTouchStart={() => setMovingLeft(true)}
+            onTouchEnd={() => setMovingLeft(false)}
+            style={{ touchAction: "none" }}
+            className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto"
           >
             ◀
           </button>
           <button
-            onTouchStart={(e) => {
-              e.preventDefault();
-              jump();
-            }}
-            className="w-24 h-24 bg-green-500/60 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg active:bg-green-500/80 pointer-events-auto touch-manipulation"
+            onTouchStart={() => jump()}
+            style={{ touchAction: "none" }}
+            className="w-24 h-24 bg-green-500/60 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg active:bg-green-500/80 pointer-events-auto"
           >
             JUMP
           </button>
           <button
-            onTouchStart={(e) => {
-              e.preventDefault();
-              setMovingRight(true);
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              setMovingRight(false);
-            }}
-            className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto touch-manipulation"
+            onTouchStart={() => setMovingRight(true)}
+            onTouchEnd={() => setMovingRight(false)}
+            style={{ touchAction: "none" }}
+            className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto"
           >
             ▶
           </button>
@@ -847,9 +834,11 @@ export function PlatformerGame() {
               <strong>Desktop:</strong> A/D or Arrows to move, Space to jump
             </p>
           )}
-          <p className="md:hidden">
-            <strong>Mobile:</strong> Use the buttons below to move and jump
-          </p>
+          {isCoarse && (
+            <p>
+              <strong>Mobile:</strong> Use the buttons below to move and jump
+            </p>
+          )}
         </div>
       )}
 

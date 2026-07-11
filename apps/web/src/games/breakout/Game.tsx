@@ -242,6 +242,13 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
   return render;
 }
 
+// Convert a raw touch/pointer X (page pixels) into a canvas-space X the store
+// understands. The canvas is drawn at `scale`, so we undo that scaling and the
+// element's left offset. Exported so the paddle-position math is unit-tested.
+export function touchXToCanvasX(clientX: number, rectLeft: number, scale: number): number {
+  return (clientX - rectLeft) / scale;
+}
+
 // ============================================
 // GAME CANVAS COMPONENT
 // ============================================
@@ -319,15 +326,26 @@ function GameCanvas() {
     return () => window.removeEventListener("pointermove", handleWindowPointerMove);
   }, [movePaddle, scale]);
 
-  // Handle touch move for mobile
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!canvasRef.current) return;
-    e.preventDefault();
+  // Touch drag for mobile. React attaches its synthetic onTouchMove as a
+  // PASSIVE listener, so calling preventDefault there logs
+  // "Unable to preventDefault inside passive event listener" every frame and
+  // does nothing - the page scrolls / pull-to-refreshes mid-drag on a real
+  // phone. Attaching our own non-passive listener (like arkanoid does) lets
+  // preventDefault actually stop the scroll.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const touch = e.touches[0];
-    const x = (touch.clientX - rect.left) / scale;
-    movePaddle(x);
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      if (!touch) return;
+      const rect = canvas.getBoundingClientRect();
+      movePaddle(touchXToCanvasX(touch.clientX, rect.left, scale));
+    };
+
+    canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
+    return () => canvas.removeEventListener("touchmove", handleTouchMove);
   }, [movePaddle, scale]);
 
   // Handle clicks/taps
@@ -402,7 +420,6 @@ function GameCanvas() {
           width: CANVAS_WIDTH * scale,
           height: CANVAS_HEIGHT * scale,
         }}
-        onTouchMove={handleTouchMove}
         onClick={handleClick}
         onTouchStart={handleClick}
       />

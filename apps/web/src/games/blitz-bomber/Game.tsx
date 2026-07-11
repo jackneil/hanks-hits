@@ -507,6 +507,26 @@ export function BlitzBomberGame() {
     }
   }, [gameState, startGame, dropBomb, reset, nextLevel]);
 
+  // Touch controls. React attaches onTouch* at the root as PASSIVE, so calling
+  // e.preventDefault() inside a React onTouchStart logs "Unable to preventDefault
+  // inside passive event listener" and does nothing. Bind a NON-passive listener
+  // directly on the canvas instead (like arkanoid) so preventDefault actually
+  // works: it stops the page from scrolling/pull-to-refreshing on a tap AND
+  // suppresses the synthetic click, so a tap fires handleInput exactly once
+  // (no double bomb drop from touchstart + click both firing).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      handleInput();
+    };
+
+    canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
+    return () => canvas.removeEventListener("touchstart", handleTouchStart);
+  }, [handleInput]);
+
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -540,24 +560,26 @@ export function BlitzBomberGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Game container */}
+      {/* Game container. On a narrow/tall phone the 4:3 box is only ~270px
+          tall, which clips the full-height start overlay (all three difficulty
+          buttons). min-h-[34rem] on small screens gives the overlay room to
+          show every button inside the viewport with no inner scrolling; it is
+          reset on sm+ where the 4:3 height is already tall enough. The canvas
+          stays centered and width-limited, so its scale is unchanged. */}
       <div
         ref={containerRef}
-        className="relative w-full max-w-4xl aspect-[4/3] flex items-center justify-center"
+        className="relative w-full max-w-4xl aspect-[4/3] min-h-[34rem] sm:min-h-0 flex items-center justify-center"
       >
         <canvas
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
           onClick={handleInput}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            handleInput();
-          }}
-          className="rounded-lg shadow-2xl cursor-pointer touch-manipulation"
+          className="rounded-lg shadow-2xl cursor-pointer"
           style={{
             width: CANVAS_WIDTH * scale,
             height: CANVAS_HEIGHT * scale,
+            touchAction: "none",
           }}
         />
 

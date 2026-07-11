@@ -1537,17 +1537,12 @@ function startAudio() {
     sub.start(); osc1.start(); osc2.start(); lfo.start();
   } catch (e) { audioOn = false; }
 
-  // Also try to load a REAL recorded engine. If it loads, we use it instead of
-  // the synth; if we're offline or the browser can't play it, the synth stays.
-  if (!engineAudio) {
-    try {
-      engineAudio = new Audio('https://upload.wikimedia.org/wikipedia/commons/b/b1/5_cylinder_engine_sound.ogg');
-      engineAudio.loop = true; engineAudio.volume = 0; engineAudio.preload = 'auto';
-      engineAudio.addEventListener('canplaythrough', () => { engineReady = true; });
-      engineAudio.addEventListener('error', () => { engineReady = false; engineAudio = null; });
-      engineAudio.play().catch(() => {});   // begins (silently) on this click/keypress
-    } catch (e) { engineAudio = null; }
-  }
+  // The engine sound is the synth built above. (An earlier version also tried
+  // to stream a recorded engine from Wikimedia, but the site's Content Security
+  // Policy has always blocked cross-origin media in production, so that fetch
+  // never played anywhere and only logged a console error - removed. The
+  // engineAudio hooks below stay so a locally-hosted recording can be dropped
+  // in later by assigning engineAudio + engineReady.)
 }
 
 /* =========================================================================

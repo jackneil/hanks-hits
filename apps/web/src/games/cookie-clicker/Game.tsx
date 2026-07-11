@@ -513,7 +513,7 @@ function AchievementPopups() {
   if (displayedAchievements.length === 0) return null;
 
   return (
-    <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 space-y-2">
+    <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 space-y-2 pointer-events-none">
       {displayedAchievements.map((achievementId) => {
         const achievement = getAchievementById(achievementId);
         if (!achievement) return null;

@@ -77,3 +77,31 @@ describe("Platformer start overlay", () => {
     expect(usePlatformerStore.getState().currentLevelIndex).toBe(1);
   });
 });
+
+describe("Platformer on-screen mobile controls", () => {
+  it("renders the touch controls while playing on a coarse (touch) pointer", () => {
+    mockPointer(true);
+    act(() => {
+      usePlatformerStore.setState({ gameState: "playing" });
+    });
+    render(<PlatformerGame />);
+
+    // The move + jump buttons must exist regardless of viewport width, since
+    // the game forces a 844px-wide landscape posture.
+    expect(screen.getByRole("button", { name: "JUMP" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "◀" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▶" })).toBeInTheDocument();
+  });
+
+  it("hides the touch controls while playing on a fine (mouse) pointer", () => {
+    mockPointer(false);
+    act(() => {
+      usePlatformerStore.setState({ gameState: "playing" });
+    });
+    render(<PlatformerGame />);
+
+    expect(screen.queryByRole("button", { name: "JUMP" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "◀" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "▶" })).toBeNull();
+  });
+});

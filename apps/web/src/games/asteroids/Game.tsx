@@ -10,14 +10,19 @@ import {
   COLORS,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
+import { getOverlayCopy } from "./lib/overlayCopy";
 
 // ============================================
 // CANVAS RENDERER
 // ============================================
-function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
+function useCanvasRenderer(
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  isCoarse: boolean
+) {
   const store = useAsteroidsStore();
 
   const render = useCallback(() => {
@@ -26,6 +31,8 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    const copy = getOverlayCopy(isCoarse);
 
     const { ship, bullets, asteroids, ufo, particles, score, lives, wave, status } = store;
 
@@ -185,7 +192,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
 
       ctx.fillStyle = COLORS.TEXT;
       ctx.font = "18px Arial";
-      ctx.fillText("Press Escape or Click to Resume", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
+      ctx.fillText(copy.resume, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
     }
 
     if (status === "gameOver") {
@@ -203,7 +210,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
       ctx.fillText(`Wave: ${wave}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
 
       ctx.font = "18px Arial";
-      ctx.fillText("Press Space to Play Again", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 100);
+      ctx.fillText(copy.playAgain, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 100);
     }
 
     if (status === "waveComplete") {
@@ -217,9 +224,9 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
 
       ctx.fillStyle = COLORS.TEXT;
       ctx.font = "18px Arial";
-      ctx.fillText("Press Space for Next Wave", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
+      ctx.fillText(copy.nextWave, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
     }
-  }, [canvasRef, store]);
+  }, [canvasRef, store, isCoarse]);
 
   return render;
 }
@@ -233,7 +240,8 @@ export function AsteroidsGame() {
   const [scale, setScale] = useState(1);
 
   const store = useAsteroidsStore();
-  const render = useCanvasRenderer(canvasRef);
+  const isCoarse = useCoarsePointer();
+  const render = useCanvasRenderer(canvasRef, isCoarse);
 
   // Auth sync
   const { forceSync } = useAuthSync({
@@ -378,9 +386,13 @@ export function AsteroidsGame() {
     };
   }, [store.status, store]);
 
-  // Touch handlers for mobile buttons
-  const handleTouchStart = (action: string) => (e: React.TouchEvent) => {
-    e.preventDefault();
+  // Touch handlers for mobile buttons.
+  // No e.preventDefault() here: React attaches these synthetic touch listeners
+  // as PASSIVE, so preventDefault() logs "Unable to preventDefault inside
+  // passive event listener" and does nothing. Instead each button carries
+  // style={{ touchAction: 'none' }} to stop the page scrolling/pull-to-refresh
+  // (monster-truck MobileControls pattern).
+  const handleTouchStart = (action: string) => () => {
     switch (action) {
       case "left":
         store.setInput({ rotatingLeft: true });
@@ -397,8 +409,7 @@ export function AsteroidsGame() {
     }
   };
 
-  const handleTouchEnd = (action: string) => (e: React.TouchEvent) => {
-    e.preventDefault();
+  const handleTouchEnd = (action: string) => () => {
     switch (action) {
       case "left":
         store.setInput({ rotatingLeft: false });
@@ -493,6 +504,7 @@ export function AsteroidsGame() {
             onMouseDown={() => store.setInput({ rotatingLeft: true })}
             onMouseUp={() => store.setInput({ rotatingLeft: false })}
             onMouseLeave={() => store.setInput({ rotatingLeft: false })}
+            style={{ touchAction: "none" }}
             className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl"
           >
             ↺
@@ -503,6 +515,7 @@ export function AsteroidsGame() {
             onMouseDown={() => store.setInput({ thrusting: true })}
             onMouseUp={() => store.setInput({ thrusting: false })}
             onMouseLeave={() => store.setInput({ thrusting: false })}
+            style={{ touchAction: "none" }}
             className="w-16 h-16 bg-orange-600 active:bg-orange-500 text-white text-2xl font-bold rounded-xl"
           >
             🔥
@@ -513,6 +526,7 @@ export function AsteroidsGame() {
             onMouseDown={() => store.setInput({ shooting: true })}
             onMouseUp={() => store.setInput({ shooting: false })}
             onMouseLeave={() => store.setInput({ shooting: false })}
+            style={{ touchAction: "none" }}
             className="w-16 h-16 bg-yellow-600 active:bg-yellow-500 text-white text-2xl font-bold rounded-xl"
           >
             ●
@@ -523,6 +537,7 @@ export function AsteroidsGame() {
             onMouseDown={() => store.setInput({ rotatingRight: true })}
             onMouseUp={() => store.setInput({ rotatingRight: false })}
             onMouseLeave={() => store.setInput({ rotatingRight: false })}
+            style={{ touchAction: "none" }}
             className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl"
           >
             ↻

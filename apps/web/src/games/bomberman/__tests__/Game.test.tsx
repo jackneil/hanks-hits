@@ -53,6 +53,23 @@ describe("Bomberman start overlay", () => {
     ).toHaveLength(1);
   });
 
+  it("renders the Play button in the menu (not clipped inside the canvas box)", () => {
+    // Regression: the start overlay used to be pinned to the small canvas-sized
+    // wrapper, so on a 390x844 phone the Play button fell below the fold and was
+    // only reachable by scrolling a tiny inner box. It now spans the full-height
+    // container. Assert the built-in start button is present and rendered as a
+    // direct child of the full-height container, not the canvas wrapper.
+    render(<BombermanGame />);
+    const playButton = screen.getByRole("button", { name: "▶ Play!" });
+    expect(playButton).toBeInTheDocument();
+
+    const overlay = screen.getByTestId("game-start-overlay");
+    expect(overlay).toContainElement(playButton);
+    // The overlay is a sibling of the canvas wrapper (both children of the
+    // full-height container), so its parent must be the min-h-screen container.
+    expect(overlay.parentElement?.className).toContain("min-h-screen");
+  });
+
   it("names the on-screen controls in the touch hints on coarse pointers", () => {
     mockPointer(true);
     render(<BombermanGame />);

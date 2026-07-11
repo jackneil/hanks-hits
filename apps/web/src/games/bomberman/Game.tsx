@@ -342,7 +342,7 @@ export function BombermanGame() {
   return (
     <div
       ref={containerRef}
-      className="flex flex-col items-center min-h-screen bg-gray-900 p-4 select-none"
+      className="relative flex flex-col items-center min-h-screen bg-gray-900 p-4 select-none"
     >
       {/* HUD */}
       <div className="w-full max-w-[624px] flex justify-between items-center mb-2 text-white">
@@ -382,22 +382,6 @@ export function BombermanGame() {
             touchAction: "none",
           }}
         />
-
-        {/* Menu overlay: shared DOM start screen */}
-        {store.gameState === "menu" && (
-          <GameStartOverlay
-            title="Bomberman"
-            emoji="💣"
-            subtitle="Destroy blocks. Defeat enemies. Find the exit!"
-            keyboardHints={["WASD or Arrows to move", "SPACE to drop bombs"]}
-            touchHints={["Tap the arrows to move", "Tap 💣 to drop bombs"]}
-            onStart={() => store.startGame()}
-          >
-            <div className="text-base font-medium opacity-90">
-              🏆 High Score: {store.progress.highScore}
-            </div>
-          </GameStartOverlay>
-        )}
 
         {/* Paused overlay */}
         {store.gameState === "paused" && (
@@ -450,6 +434,27 @@ export function BombermanGame() {
           </div>
         )}
       </div>
+
+      {/* Menu overlay: shared DOM start screen. Rendered as a direct child of
+          the full-height container (not the canvas-sized wrapper above) so the
+          absolute inset-0 overlay spans the whole viewport. On a small phone
+          the canvas shrinks to ~300px tall, and an overlay pinned to that box
+          clipped the Play button below the fold. Full-height means the whole
+          start card, Play button included, is visible without inner scrolling. */}
+      {store.gameState === "menu" && (
+        <GameStartOverlay
+          title="Bomberman"
+          emoji="💣"
+          subtitle="Destroy blocks. Defeat enemies. Find the exit!"
+          keyboardHints={["WASD or Arrows to move", "SPACE to drop bombs"]}
+          touchHints={["Tap the arrows to move", "Tap 💣 to drop bombs"]}
+          onStart={() => store.startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 High Score: {store.progress.highScore}
+          </div>
+        </GameStartOverlay>
+      )}
 
       {/* Mobile controls — touch (coarse-pointer) viewports only */}
       {isCoarse && showControls && (

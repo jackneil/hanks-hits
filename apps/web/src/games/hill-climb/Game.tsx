@@ -11,6 +11,8 @@ import Matter from 'matter-js';
 import { useCombinedControls, useIsMobile, usePauseKeyboard } from './hooks/useControls';
 import { useHillClimbStore, type HillClimbProgress } from './lib/store';
 import { useAuthSync } from '@/shared/hooks/useAuthSync';
+import { useCoarsePointer } from '@/shared/hooks';
+import { clampDeltaTime, getControlsCopy } from './lib/gameHelpers';
 import {
   createVehicle,
   applyWheelTorque,
@@ -87,6 +89,7 @@ export function HillClimbGame() {
   const controls = useCombinedControls();
   const controlsRef = useRef(controls);
   const isMobile = useIsMobile();
+  const isCoarsePointer = useCoarsePointer();
   usePauseKeyboard(); // Handle Escape key for pause menu
 
   // Store
@@ -645,6 +648,16 @@ export function HillClimbGame() {
   // RENDER LOOP
   // ==========================================================================
 
+  // Latest-refs: the render loop always calls the freshest game logic without
+  // depending on the callbacks' identities (see the deps note at the bottom of
+  // startRenderLoop for why that identity churn was fatal).
+  const gameLoopRef = useRef(gameLoop);
+  const renderVehicleRef = useRef(renderVehicle);
+  useEffect(() => {
+    gameLoopRef.current = gameLoop;
+    renderVehicleRef.current = renderVehicle;
+  });
+
   const startRenderLoop = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -655,7 +668,9 @@ export function HillClimbGame() {
     let lastTime = performance.now();
 
     const render = (currentTime: number) => {
-      const deltaTime = (currentTime - lastTime) / 1000;
+      // Clamp dt so one huge frame (a throttled/slow first frame on a phone)
+      // can't spike the physics and insta-crash the truck.
+      const deltaTime = clampDeltaTime((currentTime - lastTime) / 1000);
       lastTime = currentTime;
 
       // Render sky background with gradient
@@ -766,7 +781,7 @@ export function HillClimbGame() {
 
       if (vehicleRef.current && isPlayingRef.current && !isPausedRef.current) {
         // Run game logic (skip when paused to prevent fuel drain, etc.)
-        gameLoop(deltaTime);
+        gameLoopRef.current(deltaTime);
 
         // Update screen shake
         updateShake(deltaTime);
@@ -931,7 +946,7 @@ export function HillClimbGame() {
         });
 
         // Render vehicle
-        renderVehicle(ctx, vehicle);
+        renderVehicleRef.current(ctx, vehicle);
 
         // Render particles
         renderParticles(ctx);
@@ -943,7 +958,13 @@ export function HillClimbGame() {
     };
 
     animationFrameRef.current = requestAnimationFrame(render);
-  }, [stageConfig, gameLoop, renderVehicle]);
+    // The loop reads gameLoop/renderVehicle through latest-refs, so their
+    // per-render identity churn must NOT recreate this callback: recreating it
+    // recreated initGame, whose identity re-ran the lifecycle effect, which
+    // tore down and re-created the ENTIRE game every render - the canvas never
+    // painted a frame and the truck never moved (2026-07-11 audit: hill-climb
+    // was fully broken in production, all devices).
+  }, [stageConfig]);
 
   // ==========================================================================
   // INITIALIZATION
@@ -1033,9 +1054,19 @@ export function HillClimbGame() {
   // LIFECYCLE
   // ==========================================================================
 
+  // Keyed ONLY on the actual run transition. initGame is reached through a
+  // latest-ref because its useCallback identity changes across renders, and
+  // re-running this effect mid-run destroys the engine, runner, and render
+  // loop (the everything-frozen, never-painted hill-climb of the 2026-07-11
+  // audit).
+  const initGameRef = useRef(initGame);
+  useEffect(() => {
+    initGameRef.current = initGame;
+  }, [initGame]);
+
   useEffect(() => {
     if (!showStartScreen && isPlaying) {
-      initGame();
+      initGameRef.current();
     }
 
     return () => {
@@ -1049,7 +1080,7 @@ export function HillClimbGame() {
         Matter.Engine.clear(engineRef.current);
       }
     };
-  }, [showStartScreen, isPlaying, initGame]);
+  }, [showStartScreen, isPlaying]);
 
   // Canvas resize - must run when canvas appears (not on mount when start screen is shown)
   useEffect(() => {
@@ -1135,7 +1166,7 @@ export function HillClimbGame() {
           </div>
           <div className="text-white/70">
             <p>
-              <strong>Controls:</strong> D/→ Gas | A/← Brake | W/↑ Lean Back | S/↓ Lean Forward | Space Nitro
+              <strong>Controls:</strong> {getControlsCopy(isCoarsePointer)}
             </p>
           </div>
         </div>
