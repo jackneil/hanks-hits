@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { Header } from "@/shared/components/Header";
 
 export default function NotFound() {
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center gap-8 overflow-hidden bg-slate-950 px-6 py-16 text-center">
+    <div className="flex min-h-screen flex-col bg-slate-950">
+      <Header />
+      <main className="relative flex flex-1 flex-col items-center justify-center gap-8 overflow-hidden px-6 py-16 text-center">
       {/* Soft glows to match the home page adventure vibe */}
       <div className="pointer-events-none absolute left-1/2 top-1/3 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-pink-500/20 blur-3xl" />
       <div className="pointer-events-none absolute left-1/4 top-2/3 h-[300px] w-[300px] rounded-full bg-cyan-500/10 blur-3xl" />
@@ -26,6 +29,7 @@ export default function NotFound() {
         <span aria-hidden="true">🎮</span>
         Back to Games
       </Link>
-    </main>
+      </main>
+    </div>
   );
 }

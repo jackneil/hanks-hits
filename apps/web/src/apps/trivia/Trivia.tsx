@@ -169,9 +169,9 @@ export function Trivia() {
       <IOSInstallPrompt />
 
       <div className="container mx-auto px-4 py-8 max-w-2xl">
-        {/* Ready Screen */}
+        {/* Ready Screen — start-overlay layer: the title may render once here (measured by the battery) */}
         {gameState === "ready" && (
-          <div className="text-center space-y-8">
+          <div data-testid="game-start-overlay" className="text-center space-y-8">
             <h1 className="text-5xl font-bold mb-4">🧠 Trivia Quiz</h1>
             <p className="text-xl text-purple-200">Test your knowledge!</p>
 

@@ -4,6 +4,7 @@ import { useEffect, useCallback, useRef } from "react";
 import { use2048Store } from "./lib/store";
 import { getTileColors, GRID_SIZE, TIMINGS, type Direction } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // Tile component with animations
@@ -320,6 +321,8 @@ export function Game2048() {
   const containerRef = useRef<HTMLDivElement>(null);
   const store = use2048Store();
   const { status } = store;
+  // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
+  const isCoarse = useCoarsePointer();
 
   // Set up controls
   useKeyboardControls();
@@ -381,11 +384,6 @@ export function Game2048() {
         }
       `}</style>
 
-      <header className="text-center mb-4">
-        <h1 className="text-6xl font-bold text-[#776e65]">2048</h1>
-        <p className="text-[#776e65] mt-2">Join the tiles to get to 2048!</p>
-      </header>
-
       <ScoreBoard />
 
       <div
@@ -401,9 +399,11 @@ export function Game2048() {
       <Controls />
 
       <div className="mt-6 text-center text-[#776e65] text-sm max-w-[400px]">
-        <p className="mb-2">
-          <strong>Desktop:</strong> Arrow keys or WASD to move
-        </p>
+        {!isCoarse && (
+          <p className="mb-2">
+            <strong>Desktop:</strong> Arrow keys or WASD to move
+          </p>
+        )}
         <p>
           <strong>Mobile:</strong> Swipe to move tiles
         </p>

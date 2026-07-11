@@ -46,6 +46,10 @@ export type GameState = {
   timeStarted: number | null;
   timeEnded: number | null;
   currentTime: number;
+  // Transient (never persisted): the wall-clock instant the GameShell paused
+  // the timer, or null when running. The elapsed time is anchored to
+  // timeStarted, so resuming shifts timeStarted to exclude the paused span.
+  pausedAt: number | null;
 
   // Settings
   difficulty: Difficulty;
@@ -68,6 +72,8 @@ type GameActions = {
   setTheme: (theme: ThemeId) => void;
   toggleSound: () => void;
   tick: () => void;
+  pauseTimer: () => void;
+  resumeTimer: () => void;
 
   // Progress
   getProgress: () => MemoryMatchProgress;
@@ -105,6 +111,7 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
       timeStarted: null,
       timeEnded: null,
       currentTime: 0,
+      pausedAt: null,
       difficulty: "medium",
       theme: "animals",
       isPlaying: false,
@@ -256,6 +263,7 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
           timeStarted: null,
           timeEnded: null,
           currentTime: 0,
+          pausedAt: null,
           difficulty: newDifficulty,
           theme: newTheme,
           isPlaying: false,
@@ -287,8 +295,46 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
 
       tick: () => {
         const state = get();
-        if (state.isPlaying && state.timeStarted && !state.isWon) {
+        // Freeze the displayed time while the GameShell has the timer paused.
+        if (
+          state.isPlaying &&
+          state.timeStarted &&
+          !state.isWon &&
+          state.pausedAt === null
+        ) {
           set({ currentTime: Date.now() - state.timeStarted });
+        }
+      },
+
+      // Driven by the GameShell (ESC, pause button, pause-on-blur). The timer is
+      // anchored to timeStarted (elapsed = now - timeStarted), so simply halting
+      // the tick interval would NOT pause it: on resume it would jump forward and
+      // the recorded time would include the pause. Instead we record pausedAt and,
+      // on resume, slide timeStarted forward by the paused duration.
+      pauseTimer: () => {
+        const state = get();
+        if (
+          state.isPlaying &&
+          state.timeStarted !== null &&
+          !state.isWon &&
+          state.pausedAt === null
+        ) {
+          set({ pausedAt: Date.now() });
+        }
+      },
+
+      resumeTimer: () => {
+        const state = get();
+        if (state.pausedAt === null) return;
+        if (state.timeStarted !== null) {
+          const newTimeStarted = state.timeStarted + (Date.now() - state.pausedAt);
+          set({
+            timeStarted: newTimeStarted,
+            pausedAt: null,
+            currentTime: Date.now() - newTimeStarted,
+          });
+        } else {
+          set({ pausedAt: null });
         }
       },
 

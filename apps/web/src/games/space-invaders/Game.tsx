@@ -5,6 +5,11 @@ import { useSpaceInvadersStore, type SpaceInvadersProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
+import { metadata } from "./metadata";
+import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   PLAYER,
@@ -479,31 +484,9 @@ export function SpaceInvadersGame() {
 
   const drawReadyScreen = useCallback(
     (ctx: CanvasRenderingContext2D) => {
-      // Title
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.font = "bold 36px monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("SPACE", CANVAS_WIDTH / 2, 180);
-      ctx.fillText("INVADERS", CANVAS_WIDTH / 2, 230);
-
-      // Instructions
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillText("TAP TO START", CANVAS_WIDTH / 2, 350);
-
-      // Desktop controls
-      ctx.font = "12px monospace";
-      ctx.fillStyle = "#888";
-      ctx.fillText("Desktop: A/D or Arrows to move", CANVAS_WIDTH / 2, 420);
-      ctx.fillText("SPACE to shoot, P to pause", CANVAS_WIDTH / 2, 440);
-
-      // High score
-      if (progress.highScore > 0) {
-        ctx.fillStyle = COLORS.HUD;
-        ctx.font = UI.SMALL_FONT;
-        ctx.fillText(`HIGH SCORE: ${progress.highScore}`, CANVAS_WIDTH / 2, 500);
-      }
-
-      // Draw sample aliens
+      // Ready state: the DOM start overlay owns all start UI (title, hints,
+      // age picker, start button). The canvas draws only the decorative
+      // sample aliens as a friendly backdrop — no text.
       const sampleAliens: Alien[] = [
         { id: 1, type: "squid", x: CANVAS_WIDTH / 2 - 80, y: 280, alive: true, animationFrame: 0 },
         { id: 2, type: "crab", x: CANVAS_WIDTH / 2 - 15, y: 280, alive: true, animationFrame: 0 },
@@ -512,15 +495,8 @@ export function SpaceInvadersGame() {
       for (const alien of sampleAliens) {
         drawAlien(ctx, alien, Math.floor(Date.now() / 500) % 2);
       }
-
-      // Point values
-      ctx.font = "10px monospace";
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.fillText("=30", CANVAS_WIDTH / 2 - 60, 310);
-      ctx.fillText("=20", CANVAS_WIDTH / 2 + 5, 310);
-      ctx.fillText("=10", CANVAS_WIDTH / 2 + 70, 310);
     },
-    [progress.highScore]
+    []
   );
 
   const drawPausedScreen = useCallback(
@@ -744,14 +720,9 @@ export function SpaceInvadersGame() {
         }
       }
 
-      if (e.code === "KeyP" || e.code === "Escape") {
-        e.preventDefault();
-        if (gameState === "playing") {
-          pauseGame();
-        } else if (gameState === "paused") {
-          resumeGame();
-        }
-      }
+      // Pause is owned by the GameShell now (it binds ESC and shows the pause
+      // button). Handling P/ESC here too is exactly what desynced the shell's
+      // pause menu from the game's own paused state.
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -770,7 +741,7 @@ export function SpaceInvadersGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [gameState, handleInput, handleShoot, pauseGame, resumeGame]);
+  }, [gameState, handleInput, handleShoot]);
 
   // ============================================
   // Mobile Controls Component
@@ -921,13 +892,13 @@ export function SpaceInvadersGame() {
   // ============================================
   const SettingsPanel = () => {
     const [isOpen, setIsOpen] = useState(false);
-    const { progress, setSoundEnabled, setDifficulty } = useSpaceInvadersStore();
+    const { progress, setSoundEnabled } = useSpaceInvadersStore();
 
     return (
       <div className="w-full max-w-md mx-auto mt-4">
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="w-full bg-gray-800 hover:bg-gray-700 text-white py-2 px-4 rounded-lg flex items-center justify-between"
+          className="w-full min-h-[44px] bg-gray-800 hover:bg-gray-700 text-white py-2 px-4 rounded-lg flex items-center justify-between"
         >
           <span>Settings</span>
           <span
@@ -957,30 +928,8 @@ export function SpaceInvadersGame() {
               </button>
             </div>
 
-            {/* Difficulty (only shown when not playing) */}
-            {gameState === "ready" && (
-              <div>
-                <label className="text-white font-bold mb-2 block">Age/Difficulty</label>
-                <div className="flex flex-wrap gap-2">
-                  {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => {
-                    const settings = DIFFICULTY_SETTINGS[diff];
-                    return (
-                      <button
-                        key={diff}
-                        onClick={() => setDifficulty(diff)}
-                        className={`px-3 py-2 rounded-lg font-bold transition-all ${
-                          progress.settings.difficulty === diff
-                            ? `${settings.color} text-white`
-                            : "bg-gray-600 text-gray-300 hover:bg-gray-500"
-                        }`}
-                      >
-                        {settings.emoji} {diff}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {/* Difficulty now lives ONLY in the start overlay's age picker —
+                this panel used to duplicate it on the same ready screen. */}
           </div>
         )}
       </div>
@@ -1030,13 +979,6 @@ export function SpaceInvadersGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-
-      {/* Header */}
-      <header className="text-center mb-4">
-        <h1 className="text-3xl font-bold text-green-500">Space Invaders</h1>
-        <p className="text-gray-400 text-sm">Defend Earth from alien invasion!</p>
-      </header>
-
       {/* Game container */}
       <div
         ref={containerRef}
@@ -1060,52 +1002,73 @@ export function SpaceInvadersGame() {
             height: CANVAS_HEIGHT * scale,
           }}
         />
-      </div>
 
-      {/* Age-based difficulty selector - visible on start screen */}
-      {gameState === "ready" && (
-        <div className="w-full max-w-lg mx-auto mt-4 px-4">
-          <div className="text-center mb-3 text-white font-bold text-lg">How old are you?</div>
-          <div className="flex flex-wrap gap-2 justify-center">
-            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => {
-              const settings = DIFFICULTY_SETTINGS[diff];
-              const isSelected = progress.settings.difficulty === diff;
-              return (
-                <button
-                  key={diff}
-                  onClick={() => store.setDifficulty(diff)}
-                  className={`px-4 py-3 rounded-xl font-bold text-base transition-all flex flex-col items-center min-w-[70px] ${
-                    isSelected
-                      ? `${settings.color} text-white scale-110 ring-2 ring-white shadow-lg`
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                  }`}
-                >
-                  <span className="text-2xl">{settings.emoji}</span>
-                  <span>{diff}</span>
-                </button>
-              );
-            })}
-          </div>
-          {progress.settings.difficulty === "99yo" && (
-            <div className="text-center mt-2 text-purple-300 text-sm">
-              Grandpa mode: Big aliens, slow & easy!
+        {/* DOM start overlay: title, hints, age picker, and start button.
+            Replaces the in-canvas ready text and the old below-canvas picker. */}
+        {gameState === "ready" && (
+          <GameStartOverlay
+            title="Space Invaders"
+            emoji={metadata.emoji}
+            touchHints={["Tap ◀ ▶ to move", "Tap FIRE to shoot"]}
+            keyboardHints={[
+              "A/D or Arrows to move",
+              "SPACE or W to shoot (hold to auto-fire)",
+              "ESC to pause",
+            ]}
+            showStartButton={false}
+            onStart={startGame}
+          >
+            {progress.highScore > 0 && (
+              <div className="text-sm font-semibold text-amber-700">
+                🏆 High Score: {progress.highScore}
+              </div>
+            )}
+            {/* Tap an age = start at that difficulty (same one-tap model as
+                blitz-bomber/platformer). A separate Start button pushed the
+                CTA below the overlay's scroll clip at common viewports while
+                these look-alike buttons only selected — a kid tapped an age
+                and nothing happened. Two columns keep all five on-screen. */}
+            <p className="text-sm font-semibold opacity-80">
+              How old are you? Tap to play!
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map(
+                (diff, index, all) => {
+                  const settings = DIFFICULTY_SETTINGS[diff];
+                  const isSelected = progress.settings.difficulty === diff;
+                  return (
+                    <GameStartOverlayButton
+                      key={diff}
+                      onClick={() => {
+                        store.setDifficulty(diff);
+                        startGame();
+                      }}
+                      className={`${isSelected ? "btn-primary" : ""} ${
+                        index === all.length - 1 ? "col-span-2" : ""
+                      }`}
+                    >
+                      {settings.emoji} {settings.label}
+                    </GameStartOverlayButton>
+                  );
+                }
+              )}
             </div>
-          )}
-          <div className="text-center mt-3 text-green-400 text-lg font-bold animate-pulse">
-            Tap the game to START!
-          </div>
-        </div>
-      )}
+          </GameStartOverlay>
+        )}
+      </div>
 
       {/* Mobile Controls */}
       <div className="md:hidden w-full">
         <MobileControls />
       </div>
 
-      {/* Desktop keyboard hint */}
-      <div className="hidden md:block text-gray-500 text-sm text-center mt-2">
-        A/D or Arrows to move | SPACE or W to shoot (hold to auto-fire) | P to pause
-      </div>
+      {/* Desktop keyboard hint — in-play reminder only; the start overlay
+          carries this copy on the ready screen */}
+      {gameState !== "ready" && (
+        <div className="hidden md:block text-gray-500 text-sm text-center mt-2">
+          A/D or Arrows to move | SPACE or W to shoot (hold to auto-fire) | ESC to pause
+        </div>
+      )}
 
       {/* Pause button for mobile */}
       {gameState === "playing" && (

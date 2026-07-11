@@ -126,8 +126,9 @@ export const UI = {
   BUTTON_MIN_SIZE: 60,
 } as const;
 
-// Game states
-export type GameState = "ready" | "playing" | "crashed" | "landed";
+// Game states. "paused" is a transient state owned by the GameShell (ESC /
+// pause button / pause-on-blur); it is never persisted.
+export type GameState = "ready" | "playing" | "paused" | "crashed" | "landed";
 
 // Difficulty type
 export type DifficultyLevel = "easy" | "normal" | "hard";

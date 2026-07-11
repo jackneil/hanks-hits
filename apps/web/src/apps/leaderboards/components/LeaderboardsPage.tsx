@@ -374,6 +374,7 @@ export function LeaderboardsPage() {
                 gameName={selectedGameMeta.name}
                 icon={selectedGameMeta.icon}
                 showPeriodSelector={true}
+                showTitle={false}
                 compact={false}
               />
             </div>

@@ -1,16 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signInWithCredentials, signInWithGoogle } from "@/lib/auth-client";
+import { Header } from "@/shared/components/Header";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Signup redirects here with ?message=... (e.g. "Account created! Please
+  // sign in.") — read it client-side so the static page needs no Suspense.
+  useEffect(() => {
+    const message = new URLSearchParams(window.location.search).get("message");
+    if (message) setNotice(message);
+  }, []);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,8 +55,18 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-400 to-blue-600 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+    <div className="relative min-h-screen overflow-hidden bg-slate-950">
+      {/* Soft glows, offset toward the edges so the card doesn't swallow them */}
+      <div className="pointer-events-none absolute -left-24 top-1/4 h-[400px] w-[400px] rounded-full bg-cyan-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 top-2/3 h-[300px] w-[300px] rounded-full bg-pink-500/15 blur-3xl" />
+
+      <Header showLoginButton={false} />
+
+      <main className="relative flex flex-col items-center px-4 py-8">
+        <div className="mb-4 text-6xl animate-bounce-slow" aria-hidden="true">
+          🎮
+        </div>
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">
@@ -57,6 +76,13 @@ export default function LoginPage() {
             Sign in to save your game progress
           </p>
         </div>
+
+        {/* Notice from signup redirect */}
+        {notice && !error && (
+          <div className="alert alert-success mb-6">
+            <span>{notice}</span>
+          </div>
+        )}
 
         {/* Error Alert */}
         {error && (
@@ -104,6 +130,7 @@ export default function LoginPage() {
             <input
               type="email"
               placeholder="your@email.com"
+              autoComplete="email"
               className="input input-bordered input-lg w-full"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -118,6 +145,7 @@ export default function LoginPage() {
             <input
               type="password"
               placeholder="Your password"
+              autoComplete="current-password"
               className="input input-bordered input-lg w-full"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -138,21 +166,18 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Sign Up Link */}
-        <p className="text-center mt-6 text-gray-600">
-          Don&apos;t have an account?{" "}
-          <Link href="/signup" className="text-primary font-bold hover:underline">
-            Sign Up
-          </Link>
-        </p>
-
-        {/* Back to Games Link */}
-        <div className="text-center mt-4">
-          <Link href="/" className="text-gray-500 hover:text-gray-700">
-            ← Back to Games
-          </Link>
+          {/* Sign Up Link */}
+          <p className="text-center mt-6 text-gray-600">
+            Don&apos;t have an account?{" "}
+            <Link
+              href="/signup"
+              className="text-primary font-bold hover:underline"
+            >
+              Sign Up
+            </Link>
+          </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

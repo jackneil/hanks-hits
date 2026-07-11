@@ -1,10 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { GameShell } from "@/shared/components";
 
-const SnakeGame = dynamic(
-  () => import("@/games/snake"),
+const SnakeGameShell = dynamic(
+  () => import("@/games/snake/SnakeGameShell"),
   {
     ssr: false,
     loading: () => (
@@ -21,9 +20,5 @@ const SnakeGame = dynamic(
 );
 
 export default function SnakePage() {
-  return (
-    <GameShell gameName="Snake" appId="snake" canPause>
-      <SnakeGame />
-    </GameShell>
-  );
+  return <SnakeGameShell />;
 }

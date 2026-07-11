@@ -250,7 +250,7 @@ function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const store = useBreakoutStore();
-  const { status, movePaddle, launchBall, pauseGame, resumeGame, startGame, nextLevel } = store;
+  const { status, movePaddle, launchBall, resumeGame, startGame, nextLevel } = store;
 
   const render = useCanvasRenderer(canvasRef);
 
@@ -355,9 +355,16 @@ function GameCanvas() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (["ArrowLeft", "ArrowRight", " ", "Escape", "p", "P"].includes(e.key)) {
+      if (["ArrowLeft", "ArrowRight", " "].includes(e.key)) {
         e.preventDefault();
       }
+
+      // Pause/resume is owned by the GameShell now (ESC + pause button), so we
+      // ignore game keys while paused instead of double-handling ESC/P — the
+      // old handler here is exactly what desynced the shell's pause menu from
+      // the game's own paused state (Space would resume the sim behind the
+      // still-open menu).
+      if (status === "paused") return;
 
       switch (e.key) {
         case "ArrowLeft":
@@ -373,21 +380,12 @@ function GameCanvas() {
         case " ":
           handleClick();
           break;
-        case "Escape":
-        case "p":
-        case "P":
-          if (status === "playing") {
-            pauseGame();
-          } else if (status === "paused") {
-            resumeGame();
-          }
-          break;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [movePaddle, store.paddle.x, store.paddle.width, status, handleClick, pauseGame, resumeGame]);
+  }, [movePaddle, store.paddle.x, store.paddle.width, status, handleClick]);
 
   return (
     <div
@@ -460,7 +458,7 @@ function SettingsPanel() {
     <div className="w-full max-w-lg mx-auto">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-gray-700/80 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
+        className="w-full min-h-[44px] bg-gray-700/80 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
       >
         <span>Settings</span>
         <span
@@ -523,18 +521,12 @@ export function BreakoutGame() {
       <IOSInstallPrompt />
 
 
-      {/* Header */}
-      <header className="text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">Breakout</h1>
-        <p className="text-purple-200">Break all the bricks!</p>
-      </header>
-
       {/* Game Canvas */}
       <GameCanvas />
 
       {/* Controls hint */}
       <div className="text-center text-purple-200 text-sm">
-        <span className="hidden md:inline">Slide mouse left/right to steer | Arrow keys work too | Space to launch/pause</span>
+        <span className="hidden md:inline">Slide mouse left/right to steer | Arrow keys work too | Space to launch | ESC to pause</span>
         <span className="md:hidden">Drag to move paddle | Tap to launch</span>
       </div>
 

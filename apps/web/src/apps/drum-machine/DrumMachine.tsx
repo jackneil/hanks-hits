@@ -268,9 +268,8 @@ export function DrumMachine() {
       ref={containerRef}
       className="flex flex-col items-center min-h-screen bg-slate-900 p-4 select-none"
     >
-      {/* Header */}
+      {/* Header — title now lives in the shell bar, so no in-app <h1> here */}
       <div className="text-center mb-4">
-        <h1 className="text-3xl font-bold text-white mb-2">Drum Machine</h1>
         <div className="flex items-center justify-center gap-4 text-slate-400 text-sm">
           <span>Beats: {store.progress.stats.beatsCreated}</span>
           <span>|</span>

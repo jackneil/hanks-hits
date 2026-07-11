@@ -377,20 +377,9 @@ export function MemoryMatchGame() {
       store.currentTime <= previousBestTime);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-4 md:gap-6">
+    <div className="min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-3">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
-
-
-      {/* Header */}
-      <header className="text-center">
-        <h1 className="text-3xl md:text-5xl font-bold text-white mb-1">
-          &#129504; Memory Match
-        </h1>
-        <p className="text-blue-200 text-sm md:text-base">
-          Find all the matching pairs!
-        </p>
-      </header>
 
       {/* Difficulty selector */}
       <DifficultySelector
@@ -416,9 +405,15 @@ export function MemoryMatchGame() {
         totalPairs={totalPairs}
       />
 
-      {/* Card grid */}
+      {/* Card grid. The square grid's width IS its height, so capping width
+          against viewport height keeps the default 4x4 board + New Game
+          button on-screen at 1366x900 with no page scroll. 27rem ~= the
+          chrome stacked around the grid: shell header offset (3.5rem) +
+          difficulty row + theme row + stats bar + New Game button + summary
+          line + the gap-3 gaps and p-4 padding. Re-derive if rows are
+          added or removed around the grid. */}
       <div
-        className="w-full max-w-2xl mx-auto"
+        className="w-full max-w-2xl md:max-w-[min(42rem,calc(100vh_-_27rem))] mx-auto"
         style={{
           display: "grid",
           gridTemplateColumns: `repeat(${config.cols}, 1fr)`,
@@ -482,7 +477,7 @@ export function MemoryMatchGame() {
       {/* Sound toggle (placeholder for future) */}
       <button
         onClick={() => store.toggleSound()}
-        className="fixed bottom-2 left-2 text-2xl opacity-50 hover:opacity-100 transition-opacity"
+        className="fixed bottom-2 left-2 inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-2xl opacity-50 hover:opacity-100 transition-opacity"
         title={store.progress.soundEnabled ? "Sound On" : "Sound Off"}
       >
         {store.progress.soundEnabled ? "\u{1F50A}" : "\u{1F507}"}

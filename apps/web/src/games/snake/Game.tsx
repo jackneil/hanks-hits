@@ -336,7 +336,7 @@ function SettingsPanel() {
     <div className="w-full max-w-md">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
+        className="w-full min-h-[44px] bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
       >
         <span>Settings</span>
         <span className="transform transition-transform" style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)" }}>
@@ -502,11 +502,10 @@ export function SnakeGame() {
           setDirection("right");
           break;
         case " ":
-          if (status === "playing") {
-            store.pauseGame();
-          } else if (status === "paused") {
-            store.resumeGame();
-          } else if (status === "idle" || status === "game-over") {
+          // Pause is owned by the GameShell now (ESC + pause button). Space is
+          // kept only as a start/restart shortcut so it can't resume the sim
+          // behind the shell's still-open pause menu (the desync we're fixing).
+          if (status === "idle" || status === "game-over") {
             store.startGame();
           }
           break;
@@ -514,11 +513,6 @@ export function SnakeGame() {
         case "R":
           if (status === "game-over") {
             store.startGame();
-          }
-          break;
-        case "Escape":
-          if (status === "playing") {
-            store.pauseGame();
           }
           break;
       }
@@ -556,12 +550,6 @@ export function SnakeGame() {
       <IOSInstallPrompt />
 
 
-      {/* Header */}
-      <header className="text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">Snake</h1>
-        <p className="text-green-200">Eat food and grow longer!</p>
-      </header>
-
       {/* Game Board */}
       <div className="flex flex-col items-center">
         <GameBoard />
@@ -577,7 +565,7 @@ export function SnakeGame() {
 
       {/* Desktop keyboard hint */}
       <div className="hidden md:block text-green-300 text-sm text-center">
-        Use WASD or Arrow Keys to move | Space to pause | R to restart
+        Use WASD or Arrow Keys to move | ESC to pause | R to restart
       </div>
 
       {/* Settings */}

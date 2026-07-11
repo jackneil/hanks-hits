@@ -25,7 +25,11 @@ import { OrientationWarning, WebGLGate } from '@/shared/components';
 // Loading screen component
 function LoadingScreen() {
   return (
-    <div className="fixed inset-0 bg-gradient-to-b from-orange-600 to-red-700 flex flex-col items-center justify-center z-50">
+    // start-overlay layer: the title may render once here (measured by the battery)
+    <div
+      data-testid="game-start-overlay"
+      className="fixed inset-0 bg-gradient-to-b from-orange-600 to-red-700 flex flex-col items-center justify-center z-50"
+    >
       <div className="text-6xl mb-4 animate-bounce">🚛</div>
       <h1 className="text-4xl font-bold text-white mb-4">Monster Truck Mayhem</h1>
       <div className="w-64 h-2 bg-black/30 rounded-full overflow-hidden">

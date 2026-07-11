@@ -5,10 +5,18 @@ import { useState, useEffect } from 'react';
 /**
  * Orientation warning overlay
  *
- * Shows "Rotate your phone" message when device is in portrait mode.
- * Games work best in landscape orientation.
- * Includes "Continue anyway" button for users who can't or don't want to rotate.
+ * Shows "Rotate your phone" message when a PHONE (viewport < 768px wide) is in
+ * portrait mode. Games work best in landscape orientation. Tablets in portrait
+ * (>= 768px) are fine, so the warning never fires there. Includes a
+ * "Continue anyway" button for users who can't or don't want to rotate.
+ *
+ * Stacking contract: z-[100] — above every game HUD/touch-control layer
+ * (games top out at z-50), below the GameShell header (z-[1000]) and
+ * PauseMenu (z-[2000]).
  */
+
+/** Tailwind md breakpoint: at/above this width we treat the device as a tablet */
+const TABLET_MIN_WIDTH = 768;
 
 interface OrientationWarningProps {
   /** Override to hide the warning even in portrait */
@@ -23,8 +31,11 @@ export function OrientationWarning({ disabled = false }: OrientationWarningProps
     if (typeof window === 'undefined') return;
 
     const checkOrientation = () => {
-      // Use matchMedia for more reliable detection
-      const portrait = window.matchMedia('(orientation: portrait)').matches;
+      // Use matchMedia for more reliable detection; only warn on phone-width
+      // viewports — a tablet held in portrait plays games just fine.
+      const portrait =
+        window.matchMedia('(orientation: portrait)').matches &&
+        window.innerWidth < TABLET_MIN_WIDTH;
       setIsPortrait(portrait);
       if (!portrait) {
         setDismissed(false);

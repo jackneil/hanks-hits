@@ -33,11 +33,6 @@ export function CheckersGame() {
       <IOSInstallPrompt />
 
 
-      <header className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">Checkers</h1>
-        <p className="text-amber-200">Jump over pieces to capture them!</p>
-      </header>
-
       <Board />
       <GameUI />
 

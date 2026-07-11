@@ -134,7 +134,7 @@ export function GameUI() {
             key={v}
             onClick={() => setVariant(v)}
             title={RULE_SETS[v].description}
-            className={`px-4 py-2 rounded-lg font-bold text-white transition-colors touch-manipulation text-sm ${getVariantColor(v)}`}
+            className={`min-h-[44px] px-4 py-2 rounded-lg font-bold text-white transition-colors touch-manipulation text-sm ${getVariantColor(v)}`}
           >
             {RULE_SETS[v].displayName}
           </button>

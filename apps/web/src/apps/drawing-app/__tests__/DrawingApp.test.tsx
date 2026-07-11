@@ -46,5 +46,9 @@ describe("DrawingApp", () => {
       "h-[calc(100vh-3rem)]"
     );
     expect(screen.queryByRole("link", { name: "Back to home" })).not.toBeInTheDocument();
+    // The shared GameShell owns the centered app name now - no in-app title.
+    expect(
+      screen.queryByRole("heading", { name: /drawing app/i })
+    ).not.toBeInTheDocument();
   });
 });

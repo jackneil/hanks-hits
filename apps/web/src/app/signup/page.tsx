@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signInWithCredentials, signInWithGoogle } from "@/lib/auth-client";
+import { Header } from "@/shared/components/Header";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -77,8 +78,18 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-400 to-green-600 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+    <div className="relative min-h-screen overflow-hidden bg-slate-950">
+      {/* Soft glows, offset toward the edges so the card doesn't swallow them */}
+      <div className="pointer-events-none absolute -left-24 top-1/4 h-[400px] w-[400px] rounded-full bg-green-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 top-2/3 h-[300px] w-[300px] rounded-full bg-yellow-500/10 blur-3xl" />
+
+      <Header showLoginButton={false} />
+
+      <main className="relative flex flex-col items-center px-4 py-8">
+        <div className="mb-4 text-6xl animate-bounce-slow" aria-hidden="true">
+          🚀
+        </div>
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">
@@ -144,6 +155,7 @@ export default function SignUpPage() {
             <input
               type="text"
               placeholder="What should we call you?"
+              autoComplete="nickname"
               className="input input-bordered input-lg w-full"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -158,6 +170,7 @@ export default function SignUpPage() {
             <input
               type="email"
               placeholder="your@email.com"
+              autoComplete="email"
               className="input input-bordered input-lg w-full"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -172,6 +185,7 @@ export default function SignUpPage() {
             <input
               type="password"
               placeholder="At least 6 characters"
+              autoComplete="new-password"
               className="input input-bordered input-lg w-full"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -187,6 +201,7 @@ export default function SignUpPage() {
             <input
               type="password"
               placeholder="Type it again"
+              autoComplete="new-password"
               className="input input-bordered input-lg w-full"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
@@ -207,21 +222,18 @@ export default function SignUpPage() {
           </button>
         </form>
 
-        {/* Sign In Link */}
-        <p className="text-center mt-6 text-gray-600">
-          Already have an account?{" "}
-          <Link href="/login" className="text-primary font-bold hover:underline">
-            Sign In
-          </Link>
-        </p>
-
-        {/* Back to Games Link */}
-        <div className="text-center mt-4">
-          <Link href="/" className="text-gray-500 hover:text-gray-700">
-            ← Back to Games
-          </Link>
+          {/* Sign In Link */}
+          <p className="text-center mt-6 text-gray-600">
+            Already have an account?{" "}
+            <Link
+              href="/login"
+              className="text-primary font-bold hover:underline"
+            >
+              Sign In
+            </Link>
+          </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

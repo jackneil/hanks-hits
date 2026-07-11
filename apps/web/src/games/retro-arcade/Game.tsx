@@ -514,11 +514,6 @@ export function RetroArcadeGame() {
       <IOSInstallPrompt />
 
 
-      <header className="text-center mb-8">
-        <h1 className="text-5xl font-bold text-white mb-2">Retro Arcade</h1>
-        <p className="text-white/70 text-xl">Pick a console to play!</p>
-      </header>
-
       {/* Console grid */}
       <div className="flex-1 flex items-center justify-center">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl">

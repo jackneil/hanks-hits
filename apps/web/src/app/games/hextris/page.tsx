@@ -1,9 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { GameShell } from "@/shared/components";
 
-const HextrisGame = dynamic(() => import("@/games/hextris"), {
+const HextrisGameShell = dynamic(() => import("@/games/hextris/HextrisGameShell"), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center min-h-screen bg-slate-900">
@@ -14,9 +13,5 @@ const HextrisGame = dynamic(() => import("@/games/hextris"), {
 });
 
 export default function HextrisPage() {
-  return (
-    <GameShell gameName="Hextris" appId="hextris" canPause>
-      <HextrisGame />
-    </GameShell>
-  );
+  return <HextrisGameShell />;
 }

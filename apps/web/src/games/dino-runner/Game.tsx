@@ -6,7 +6,6 @@ import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   GROUND_Y,
-  GROUND,
   DINO,
   CLOUD,
   UI,
@@ -16,6 +15,8 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { metadata } from "./metadata";
 
 // ============================================
 // DRAWING FUNCTIONS
@@ -308,38 +309,6 @@ function drawGameOver(
   ctx.fillText("Press Space or Tap to Restart", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 70);
 }
 
-/**
- * Draw idle/start screen
- */
-function drawIdleScreen(
-  ctx: CanvasRenderingContext2D,
-  dinoY: number,
-  legFrame: number,
-  color: string,
-  highScore: number
-) {
-  // Draw static dino
-  drawDino(ctx, dinoY, false, false, 0, color);
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = color;
-
-  ctx.font = "bold 28px Arial, sans-serif";
-  ctx.fillText("DINO RUNNER", CANVAS_WIDTH / 2, 80);
-
-  ctx.font = UI.INSTRUCTION_FONT;
-  ctx.fillText("Press Space or Tap to Start", CANVAS_WIDTH / 2, 130);
-
-  if (highScore > 0) {
-    ctx.fillText(`High Score: ${Math.floor(highScore)}`, CANVAS_WIDTH / 2, 170);
-  }
-
-  // Controls hint
-  ctx.font = "14px Arial, sans-serif";
-  ctx.fillText("Space / Tap = Jump (hold for higher)", CANVAS_WIDTH / 2, CANVAS_HEIGHT - 50);
-  ctx.fillText("Down Arrow / Swipe Down = Duck", CANVAS_WIDTH / 2, CANVAS_HEIGHT - 30);
-}
-
 // ============================================
 // MAIN GAME COMPONENT
 // ============================================
@@ -434,10 +403,10 @@ export function DinoRunnerGame() {
       // Draw dino (always visible)
       drawDino(ctx, dinoY, isDucking, isJumping, legFrame, colors.DINO);
 
-      // Draw UI based on state
-      if (gameState === "idle") {
-        drawIdleScreen(ctx, dinoY, legFrame, colors.DINO, progress.highScore);
-      } else if (gameState === "playing") {
+      // Draw UI based on state. In "idle" the canvas draws only the normal
+      // ground/dino scene — the start screen is now the DOM GameStartOverlay,
+      // so instruction text never overlaps the ground line again.
+      if (gameState === "playing") {
         drawScore(ctx, score, progress.highScore, colors.SCORE);
       } else if (gameState === "game-over") {
         drawScore(ctx, score, progress.highScore, colors.SCORE);
@@ -584,19 +553,12 @@ export function DinoRunnerGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-
-      {/* Header */}
-      <header className="mb-4 text-center">
-        <h1 className="text-3xl md:text-4xl font-bold text-gray-700 drop-shadow-sm">
-          Dino Runner
-        </h1>
-        <p className="text-gray-500">The classic Chrome dinosaur game!</p>
-      </header>
-
-      {/* Game container */}
+      {/* Game container. min-h keeps the DOM start overlay's card fully visible
+          even though the canvas is only 300px tall (and scales far smaller on
+          phones) — the card is centered here rather than shrunk. */}
       <div
         ref={containerRef}
-        className="relative w-full max-w-4xl flex items-center justify-center"
+        className="relative w-full max-w-4xl min-h-[360px] flex items-center justify-center"
       >
         <canvas
           ref={canvasRef}
@@ -613,6 +575,24 @@ export function DinoRunnerGame() {
             imageRendering: "pixelated",
           }}
         />
+
+        {gameState === "idle" && (
+          <GameStartOverlay
+            title="Dino Runner"
+            emoji={metadata.emoji ?? "🦖"}
+            subtitle={
+              progress.highScore > 0
+                ? `High Score: ${Math.floor(progress.highScore)}`
+                : undefined
+            }
+            keyboardHints={["SPACE or ↑ to jump (hold = higher)", "↓ to duck"]}
+            touchHints={[
+              "Tap to jump (hold = higher)",
+              "Swipe down or tap DUCK to duck",
+            ]}
+            onStart={startGame}
+          />
+        )}
       </div>
 
       {/* Mobile duck button */}
@@ -640,10 +620,13 @@ export function DinoRunnerGame() {
         </p>
       </div>
 
-      {/* Desktop controls hint */}
-      <div className="hidden md:block mt-2 text-gray-500 text-xs">
-        Space/Up = Jump | Down = Duck | Hold jump for height
-      </div>
+      {/* Desktop controls hint — in-play reminder only; the start overlay
+          carries this copy on the idle screen */}
+      {gameState !== "idle" && (
+        <div className="hidden md:block mt-2 text-gray-500 text-xs">
+          Space/Up = Jump | Down = Duck | Hold jump for height
+        </div>
+      )}
 
       {/* Sync status */}
       {isAuthenticated && (
