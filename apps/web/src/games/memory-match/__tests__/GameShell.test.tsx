@@ -96,4 +96,36 @@ describe("MemoryMatchGameShell pause wiring", () => {
     expect(useMemoryMatchStore.getState().isPlaying).toBe(true);
     expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
   });
+
+  it("excludes the paused span from the recorded time (timeStarted shifts on resume)", () => {
+    // The timer is wall-clock anchored (elapsed = now - timeStarted), so
+    // resumeTimer MUST slide timeStarted forward by the paused span — a
+    // resume that only clears pausedAt would silently inflate bestTime.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      useMemoryMatchStore.setState({
+        isPlaying: true,
+        isWon: false,
+        timeStarted: Date.now(),
+        pausedAt: null,
+      });
+
+      // Play 10s, then pause for 30s, then resume.
+      vi.advanceTimersByTime(10_000);
+      const startedBeforePause = useMemoryMatchStore.getState().timeStarted!;
+      useMemoryMatchStore.getState().pauseTimer();
+      vi.advanceTimersByTime(30_000);
+      useMemoryMatchStore.getState().resumeTimer();
+
+      const state = useMemoryMatchStore.getState();
+      expect(state.pausedAt).toBeNull();
+      // timeStarted slid forward by exactly the 30s paused span...
+      expect(state.timeStarted).toBe(startedBeforePause + 30_000);
+      // ...so the elapsed time still reads 10s of actual play.
+      expect(state.currentTime).toBe(10_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

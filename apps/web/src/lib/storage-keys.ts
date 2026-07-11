@@ -28,7 +28,7 @@ export const GAME_STORAGE_KEYS = [
   "monster-truck-save",
   "oregon-trail-storage",
   "quoridor-progress",
-  "retro-arcade-storage",
+  "retro-arcade-progress",
   "snake-game-state",
   // Apps
   "drum-machine-state",
@@ -37,6 +37,40 @@ export const GAME_STORAGE_KEYS = [
   "virtual-pet-state",
   "weather-app-progress",
 ] as const;
+
+/**
+ * Who the locally stored progress belongs to. Written on every authenticated
+ * initial sync; checked before any local blob is merge-uploaded, so a
+ * previous user's leftovers on a shared device can never flow into the next
+ * account even if the sign-out clear was defeated (e.g. a second open tab
+ * re-persisting from memory). Deliberately NOT matched by the clearing
+ * suffixes: it must survive logout to identify foreign data.
+ */
+export const PROGRESS_OWNER_KEY = "hanks-hits-progress-owner";
+
+/**
+ * Cross-tab sign-out signal. Other tabs listen for this key's storage event
+ * and hard-reload, killing their in-memory zustand stores (which would
+ * otherwise re-persist the just-cleared keys and leak into the next login).
+ */
+export const SIGNOUT_BROADCAST_KEY = "hanks-hits-signout-broadcast";
+
+/** Remove every game/app progress key (explicit registry + suffix scan). */
+export function clearGameStorage(): void {
+  for (const key of GAME_STORAGE_KEYS) {
+    localStorage.removeItem(key);
+  }
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && isClearedOnSignOut(key)) {
+      keysToRemove.push(key);
+    }
+  }
+  for (const key of keysToRemove) {
+    localStorage.removeItem(key);
+  }
+}
 
 /** Suffix safety net for keys that follow the common naming conventions */
 const CLEARED_SUFFIXES = ["-storage", "-progress", "-save", "-game-state"];

@@ -10,6 +10,10 @@ import { isClearedOnSignOut } from "../storage-keys";
  * computer inherits (and uploads) the previous kid's progress. This test scans
  * the real source tree so a new game can't silently reintroduce the leak
  * (2026-07-10 review: five "-state" keys had slipped through the suffix nets).
+ *
+ * Scope: the scan matches STRING-LITERAL localStorageKey values (every synced
+ * game today uses one). A key passed via a const/variable would evade the
+ * regex — if that pattern ever appears, extend the scan.
  */
 
 const SRC_ROOTS = [

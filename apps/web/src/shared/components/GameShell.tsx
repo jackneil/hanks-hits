@@ -95,10 +95,10 @@ export function GameShell({
           )}
         </div>
 
-        {/* No trailing spacer: the title centers itself absolutely, and the
-            right cluster always holds the fullscreen button now — a third
-            flex child pushed that cluster into the middle of the bar,
-            overlapping the title on pause-less pages (found by /qa). */}
+        {/* No trailing spacer: the flex-1 title fills the space between the
+            clusters, so a third flex child would just squeeze it (the old
+            spacer pushed the fullscreen button into the middle of the bar,
+            overlapping the then-absolutely-centered title — found by /qa). */}
       </div>
 
       {/* Game content - offset by header height */}

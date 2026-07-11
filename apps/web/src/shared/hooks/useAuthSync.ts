@@ -4,6 +4,12 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useSession } from "next-auth/react";
 import type { ValidAppId, AppProgressData } from "@hank-neil/db/schema";
 import { extractTimestamp } from "@/lib/progress-merge";
+import {
+  PROGRESS_OWNER_KEY,
+  SIGNOUT_BROADCAST_KEY,
+  clearGameStorage,
+  isClearedOnSignOut,
+} from "@/lib/storage-keys";
 
 type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
@@ -40,6 +46,16 @@ export function useAuthSync<T extends AppProgressData>({
   debounceMs = 2000,
   onSyncComplete,
 }: UseAuthSyncOptions<T>): UseAuthSyncReturn {
+  // Every synced key MUST be cleared by signOutAndClear, or the next kid on
+  // a shared device inherits (and uploads) this one's progress. The scan test
+  // only sees string literals, so catch every construction here at mount.
+  if (process.env.NODE_ENV !== "production" && !isClearedOnSignOut(localStorageKey)) {
+    throw new Error(
+      `useAuthSync localStorageKey "${localStorageKey}" is not covered by ` +
+        `signOutAndClear — add it to GAME_STORAGE_KEYS in src/lib/storage-keys.ts`
+    );
+  }
+
   const { data: session, status } = useSession();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
@@ -62,6 +78,19 @@ export function useAuthSync<T extends AppProgressData>({
     getStateRef.current = getState;
     setStateRef.current = setState;
   }, [getState, setState]);
+
+  // Another tab signing out clears localStorage, but THIS tab's in-memory
+  // store would re-persist it within seconds. Reload on the broadcast so the
+  // previous user's progress can't survive into the next login.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SIGNOUT_BROADCAST_KEY) {
+        window.location.reload();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   /**
    * Fetch progress from server
@@ -174,6 +203,37 @@ export function useAuthSync<T extends AppProgressData>({
 
     setSyncStatus("syncing");
 
+    // Shared-device guard: if the locally stored progress belongs to a
+    // DIFFERENT user (the previous kid on a family computer — possible when
+    // a second open tab re-persisted after sign-out cleared the keys), never
+    // merge-upload it into this account. Drop all local game data and adopt
+    // the server's state instead.
+    const userId = session?.user?.id;
+    if (userId) {
+      const owner = localStorage.getItem(PROGRESS_OWNER_KEY);
+      if (owner && owner !== userId) {
+        clearGameStorage();
+        localStorage.setItem(PROGRESS_OWNER_KEY, userId);
+        const foreignServer = await fetchFromServer();
+        if (!foreignServer) {
+          setSyncStatus("error");
+          return;
+        }
+        if (foreignServer.data) {
+          setStateRef.current(foreignServer.data as T);
+        }
+        // Poison the debounced saver against the foreign in-memory state:
+        // record the CURRENT state as "already saved" so only changes this
+        // user makes from here get uploaded.
+        lastSavedRef.current = JSON.stringify(getStateRef.current());
+        initialSyncDoneRef.current = true;
+        setSyncStatus("synced");
+        onSyncComplete?.("server");
+        return;
+      }
+      localStorage.setItem(PROGRESS_OWNER_KEY, userId);
+    }
+
     // Wait for Zustand to hydrate from localStorage first
     const localState = await waitForHydration();
 
@@ -236,7 +296,13 @@ export function useAuthSync<T extends AppProgressData>({
         onSyncComplete?.("server");
       }
     }
-  }, [waitForHydration, fetchFromServer, saveToServer, onSyncComplete]);
+  }, [
+    waitForHydration,
+    fetchFromServer,
+    saveToServer,
+    onSyncComplete,
+    session?.user?.id,
+  ]);
 
   /**
    * Debounced save - called on state changes
