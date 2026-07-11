@@ -44,8 +44,10 @@ beforeEach(() => {
   });
   // jsdom has no 2d context; the loop only needs a truthy handle because the
   // stubbed rAF never executes the render callback.
+  // `as never` sidesteps getContext's overload union (2d/webgl/webgpu) - the
+  // stub only needs to be truthy because the stubbed rAF never runs the loop.
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
-    {} as unknown as CanvasRenderingContext2D
+    {} as never
   );
   localStorage.clear();
   useHillClimbStore.setState({
