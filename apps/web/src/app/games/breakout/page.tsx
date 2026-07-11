@@ -1,10 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { GameShell } from "@/shared/components";
 
-const BreakoutGame = dynamic(
-  () => import("@/games/breakout"),
+const BreakoutGameShell = dynamic(
+  () => import("@/games/breakout/BreakoutGameShell"),
   {
     ssr: false,
     loading: () => (
@@ -21,9 +20,5 @@ const BreakoutGame = dynamic(
 );
 
 export default function BreakoutPage() {
-  return (
-    <GameShell gameName="Breakout" appId="breakout" canPause>
-      <BreakoutGame />
-    </GameShell>
-  );
+  return <BreakoutGameShell />;
 }

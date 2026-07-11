@@ -838,17 +838,20 @@ export function PlatformerGame() {
         </div>
       )}
 
-      {/* Mobile controls hint */}
-      <div className="mt-4 text-center text-white/80 text-sm">
-        {!isCoarse && (
-          <p>
-            <strong>Desktop:</strong> A/D or Arrows to move, Space to jump
+      {/* Controls hint — in-play reminder only; the start overlay carries
+          this copy on the ready screen */}
+      {gameState !== "ready" && (
+        <div className="mt-4 text-center text-white/80 text-sm">
+          {!isCoarse && (
+            <p>
+              <strong>Desktop:</strong> A/D or Arrows to move, Space to jump
+            </p>
+          )}
+          <p className="md:hidden">
+            <strong>Mobile:</strong> Use the buttons below to move and jump
           </p>
-        )}
-        <p className="md:hidden">
-          <strong>Mobile:</strong> Use the buttons below to move and jump
-        </p>
-      </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="mt-2 text-center text-white/60 text-xs">

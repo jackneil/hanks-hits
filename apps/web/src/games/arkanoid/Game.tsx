@@ -32,13 +32,21 @@ export function ArkanoidGame() {
   // Cloud-save progress like every other game (arkanoid predated the sync
   // wiring: it had getProgress/setProgress and a leaderboard extractor but
   // never mounted the hook, so scores silently stayed local-only).
-  useAuthSync({
+  const { forceSync } = useAuthSync({
     appId: "arkanoid",
     localStorageKey: "arkanoid-state",
     getState: useArkanoidStore.getState().getProgress,
     setState: useArkanoidStore.getState().setProgress,
     debounceMs: 3000,
   });
+
+  // Flush immediately on game over (same pattern as the other synced games)
+  // so a new high score survives tapping Home before the debounce fires.
+  useEffect(() => {
+    if (gameState === "gameOver") {
+      forceSync();
+    }
+  }, [gameState, forceSync]);
 
   // Mouse/touch handlers for paddle
   useEffect(() => {

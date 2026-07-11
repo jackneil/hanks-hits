@@ -50,8 +50,8 @@ export function GameShell({
       <div
         className={`fixed top-0 left-0 right-0 h-12 md:h-14 bg-black/70 backdrop-blur-md z-[1000] flex items-center justify-between px-3 md:px-4 ${headerClassName}`}
       >
-        {/* Home button */}
-        {showHomeButton && (
+        {/* Home button (spacer keeps the title balanced when hidden) */}
+        {showHomeButton ? (
           <button
             onClick={goHome}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl hover:scale-110 transition-transform active:scale-95"
@@ -60,15 +60,19 @@ export function GameShell({
           >
             🏠
           </button>
+        ) : (
+          <div className="w-11 shrink-0" />
         )}
 
-        {/* Game name - center */}
-        <div className="absolute left-1/2 transform -translate-x-1/2 text-white font-bold text-lg md:text-xl truncate max-w-[50%]">
+        {/* Game name — a flex child between the clusters (not absolutely
+            centered: a blind left-1/2 + max-w-[50%] title overlapped the
+            three-button cluster on long names at 375px) */}
+        <div className="flex-1 min-w-0 px-2 text-center text-white font-bold text-lg md:text-xl truncate">
           {gameName}
         </div>
 
         {/* Right side buttons */}
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {/* Leaderboard button */}
           {showLeaderboard && (
             <LeaderboardButton appId={appId} variant="icon" />

@@ -13,6 +13,15 @@ import { useCoarsePointer } from "../hooks/useCoarsePointer";
  * inside its relative, canvas-sized container. Stacking: z-40 — above
  * the play area, below OrientationWarning and the GameShell header/pause
  * layers.
+ *
+ * Mount contract: render it CONDITIONALLY on the menu/ready state
+ * (`{state === "ready" && <GameStartOverlay .../>}`), never permanently
+ * with CSS toggling — the fire-once guard is a per-mount ref, so an
+ * always-mounted overlay would have a dead start button on replay. Note
+ * the guard covers only the built-in start button; picker buttons in the
+ * children slot call the game's own start action directly (fine as long
+ * as that action is an idempotent state reset, which every current game's
+ * startGame is).
  */
 
 interface GameStartOverlayButtonProps {
@@ -108,9 +117,13 @@ export function GameStartOverlay({
           </div>
         )}
 
-        <h1 className="mb-1 text-3xl font-bold md:text-4xl">{title}</h1>
+        <h1 className="mb-1 break-words text-3xl font-bold md:text-4xl">
+          {title}
+        </h1>
 
-        {subtitle && <p className="mb-3 text-base opacity-80">{subtitle}</p>}
+        {subtitle && (
+          <p className="mb-3 break-words text-base opacity-80">{subtitle}</p>
+        )}
 
         {hints.length > 0 && (
           <ul className="mb-4 space-y-1 text-base font-medium opacity-90">

@@ -100,7 +100,9 @@ export const UI = {
 } as const;
 
 // Game states
-export type GameState = "ready" | "playing" | "gameOver" | "levelComplete";
+// "paused" is a transient state owned by the GameShell (ESC / pause button /
+// pause-on-blur); it is never persisted.
+export type GameState = "ready" | "playing" | "paused" | "gameOver" | "levelComplete";
 
 // Level definitions - MVP has 3 demo levels
 export interface PlatformDef {

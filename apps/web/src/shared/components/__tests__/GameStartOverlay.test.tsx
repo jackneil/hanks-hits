@@ -72,6 +72,39 @@ describe("GameStartOverlay", () => {
     expect(screen.getAllByText("Blitz Bomber")).toHaveLength(1);
   });
 
+  it("forwards aria-pressed on picker buttons so the selection is announced", () => {
+    render(
+      <GameStartOverlay title="Racer" onStart={() => {}} showStartButton={false}>
+        <GameStartOverlayButton onClick={() => {}} aria-pressed={true}>
+          Easy
+        </GameStartOverlayButton>
+        <GameStartOverlayButton onClick={() => {}} aria-pressed={false}>
+          Medium
+        </GameStartOverlayButton>
+        <GameStartOverlayButton onClick={() => {}}>Hard</GameStartOverlayButton>
+      </GameStartOverlay>
+    );
+
+    // aria-pressed={true} is forwarded verbatim: queryable as a pressed toggle.
+    expect(
+      screen.getByRole("button", { name: "Easy", pressed: true })
+    ).toBeInTheDocument();
+
+    // aria-pressed={false} is forwarded as an explicit unpressed toggle.
+    expect(
+      screen.getByRole("button", { name: "Medium", pressed: false })
+    ).toBeInTheDocument();
+    // ...and the pressed query is exclusive — it must not match the false one.
+    expect(
+      screen.queryByRole("button", { name: "Medium", pressed: true })
+    ).not.toBeInTheDocument();
+
+    // Omitting the prop leaves the attribute off entirely (not a toggle button).
+    expect(screen.getByRole("button", { name: "Hard" })).not.toHaveAttribute(
+      "aria-pressed"
+    );
+  });
+
   it("renders the picker slot between the hints and the start button", () => {
     render(
       <GameStartOverlay title="Platformer" onStart={() => {}}>

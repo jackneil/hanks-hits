@@ -116,8 +116,10 @@ export function DrawingApp() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Toolbar (home + title now live in the shared app shell header) */}
-      <div className="flex-shrink-0 flex justify-end items-center gap-2 p-2 md:p-4 bg-white/10 backdrop-blur-sm">
+      {/* Toolbar (home + title now live in the shared app shell header).
+          No full-width tinted band: with the title gone, right-aligned
+          buttons on a 1366px band read as a leftover header. */}
+      <div className="flex-shrink-0 flex justify-end items-center gap-2 p-2 md:p-3">
         <div className="flex shrink-0 items-center gap-1 md:gap-2">
           {/* Undo */}
           <button

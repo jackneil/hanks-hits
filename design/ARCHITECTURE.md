@@ -229,9 +229,10 @@ difficulty/level picker slot (`GameStartOverlayButton`, the one approved
 start-button style), and a start button guarded to fire once. All targets
 are >= 44x44px. Never draw menu text or hit-boxes into the canvas.
 
-**Stacking order (z-index):** game HUDs/touch controls <= 50 →
-GameStartOverlay 40 → OrientationWarning 100 (phone-width portrait only) →
-GameShell header 1000 → PauseMenu 2000.
+**Stacking order (z-index, low to high):** GameStartOverlay 40, game
+HUDs/touch controls <= 50 (never visible at the same time as the overlay —
+HUDs render while playing, the overlay pre-start), OrientationWarning 100
+(phone-width portrait only), GameShell header 1000, PauseMenu 2000.
 
 **Layout under the shell:** content is offset by the header
 (`pt-12 md:pt-14`); full-height modules size against

@@ -22,7 +22,7 @@ const JokeGenerator = dynamic(
 
 export default function JokeGeneratorPage() {
   return (
-    <GameShell gameName="Jokes" canPause={false}>
+    <GameShell gameName="Joke Generator" canPause={false}>
       <JokeGenerator />
     </GameShell>
   );

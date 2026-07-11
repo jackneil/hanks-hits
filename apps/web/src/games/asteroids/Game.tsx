@@ -185,7 +185,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
 
       ctx.fillStyle = COLORS.TEXT;
       ctx.font = "18px Arial";
-      ctx.fillText("Press P or Escape to Resume", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
+      ctx.fillText("Press Escape or Click to Resume", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
     }
 
     if (status === "gameOver") {
@@ -315,10 +315,8 @@ export function AsteroidsGame() {
       }
 
       if (store.status === "paused") {
-        if (e.code === "Escape" || e.code === "KeyP") {
-          e.preventDefault();
-          store.resumeGame();
-        }
+        // Pause/resume is owned by the GameShell now (ESC + pause button), so
+        // we ignore game keys while paused instead of double-handling ESC/P.
         return;
       }
 
@@ -347,11 +345,7 @@ export function AsteroidsGame() {
           e.preventDefault();
           store.hyperspace();
           break;
-        case "Escape":
-        case "KeyP":
-          e.preventDefault();
-          store.pauseGame();
-          break;
+        // Pause (ESC) is owned by the GameShell now — see the wrapper.
       }
     };
 

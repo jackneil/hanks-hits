@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Space Invaders builds an AudioContext at module load. jsdom has none, so
@@ -19,6 +19,8 @@ vi.mock("next-auth/react", () => ({
 }));
 
 import SpaceInvadersGame from "../Game";
+import { DIFFICULTY_SETTINGS, type Difficulty } from "../lib/constants";
+import { useSpaceInvadersStore } from "../lib/store";
 
 /**
  * The global setup installs a matchMedia stub that always returns
@@ -43,6 +45,9 @@ function mockPointer(coarse: boolean) {
 
 afterEach(() => {
   mockPointer(false);
+  // The one-tap test starts the game; put the module-global store back on
+  // the ready screen so later tests see the overlay.
+  useSpaceInvadersStore.setState({ gameState: "ready" });
 });
 
 describe("Space Invaders start overlay", () => {
@@ -66,6 +71,27 @@ describe("Space Invaders start overlay", () => {
     ]) {
       expect(screen.getByRole("button", { name })).toBeInTheDocument();
     }
+  });
+
+  it("starts the game at the tapped age's difficulty (one-tap model)", () => {
+    // Design review C1: a separate Start button sat below the overlay's
+    // scroll clip while the look-alike age buttons only selected — so the
+    // age buttons now start the game directly, like blitz-bomber/platformer.
+    render(<SpaceInvadersGame />);
+
+    const nameFor = (d: Difficulty) =>
+      `${DIFFICULTY_SETTINGS[d].emoji} ${DIFFICULTY_SETTINGS[d].label}`;
+
+    fireEvent.click(screen.getByRole("button", { name: nameFor("12yo") }));
+
+    const state = useSpaceInvadersStore.getState();
+    expect(state.progress.settings.difficulty).toBe("12yo");
+    expect(state.gameState).toBe("playing");
+
+    // No separate CTA exists to strand below the fold anymore.
+    expect(
+      screen.queryByRole("button", { name: /start/i })
+    ).not.toBeInTheDocument();
   });
 
   it("shows touch hints (not keyboard copy) on coarse-pointer viewports", () => {

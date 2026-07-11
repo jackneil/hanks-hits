@@ -30,8 +30,8 @@ Listed in priority order.
 > **Status: superseded by the clamped-ordering design.** Client timestamps are
 > no longer trusted as-is: merge-ordering timestamps are clamped to sane
 > server-side bounds before any comparison, the merged blob is re-validated
-> against the app's Zod schema before persisting, and monotonic merge keys are
-> a verified allowlist rather than suffix patterns (commits `781a181`,
+> against the app's Zod schema before persisting, and monotonic merge keys use
+> a conservative prefix rule plus a verified exact allowlist (commits `781a181`,
 > `bab096e`, `05e0784`). A client claiming a future timestamp can no longer
 > win the merge, which was this item's threat. The original "server time only"
 > proposal below is kept for history; it traded away legitimate offline-play

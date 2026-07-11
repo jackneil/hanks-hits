@@ -22,7 +22,7 @@ const Weather = dynamic(
 
 export default function WeatherPage() {
   return (
-    <GameShell gameName="Weather" canPause={false}>
+    <GameShell gameName="Weather Buddy" canPause={false}>
       <Weather />
     </GameShell>
   );

@@ -510,6 +510,12 @@ export function BlitzBomberGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Pause is owned by the GameShell (it binds ESC + the pause button). Let
+      // ESC through to the shell instead of treating it as an "any key" bomb
+      // drop, and ignore all game keys while paused so nothing runs behind the
+      // shell's pause menu.
+      if (e.code === "Escape" || gameState === "paused") return;
+
       if (e.code === "Space" || e.code === "Enter") {
         e.preventDefault();
         handleInput();
@@ -570,7 +576,7 @@ export function BlitzBomberGame() {
             onStart={startGame}
           >
             {progress.highScore > 0 && (
-              <div className="text-sm font-semibold text-amber-600">
+              <div className="text-sm font-semibold text-amber-700">
                 🏆 High Score: {progress.highScore}
               </div>
             )}
@@ -596,11 +602,14 @@ export function BlitzBomberGame() {
         </p>
       </div>
 
-      {/* Controls hint */}
-      <div className="mt-2 text-center text-white/60 text-xs">
-        <p className="hidden md:block">Press SPACE or any key to drop bombs | R to restart</p>
-        <p className="md:hidden">Tap anywhere to drop bombs</p>
-      </div>
+      {/* Controls hint — in-play reminder only; the start overlay carries
+          this copy on the ready screen, so don't show it twice */}
+      {gameState !== "ready" && (
+        <div className="mt-2 text-center text-white/60 text-xs">
+          <p className="hidden md:block">Press SPACE or any key to drop bombs | R to restart</p>
+          <p className="md:hidden">Tap anywhere to drop bombs</p>
+        </div>
+      )}
 
       {/* Sync status indicator */}
       {isAuthenticated && (

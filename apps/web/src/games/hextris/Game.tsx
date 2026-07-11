@@ -303,10 +303,11 @@ export function HextrisGame() {
       }
 
       if (store.status === "paused") {
-        if (e.code === "Space" || e.code === "Escape" || e.code === "KeyP") {
-          e.preventDefault();
-          store.resumeGame();
-        }
+        // Pause/resume is owned by the GameShell now (ESC + pause button), so
+        // we ignore game keys while paused instead of double-handling ESC/P —
+        // that double-handling is exactly what desynced the shell's pause menu
+        // from the game's own paused state. (The on-canvas "II" pause button
+        // still resumes via a tap on the canvas — see handleCanvasClick.)
         return;
       }
 
@@ -321,17 +322,13 @@ export function HextrisGame() {
           e.preventDefault();
           store.rotateRight();
           break;
-        case "Escape":
-        case "KeyP":
-          e.preventDefault();
-          store.pauseGame();
-          break;
+        // Pause (ESC) is owned by the GameShell now — see the wrapper.
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [store.status, store.startGame, store.pauseGame, store.resumeGame, store.rotateLeft, store.rotateRight]);
+  }, [store.status, store.startGame, store.rotateLeft, store.rotateRight]);
 
   // Touch controls
   const handleCanvasClick = useCallback(
@@ -455,7 +452,7 @@ export function HextrisGame() {
         ) : (
           <p>A/D or Arrow Keys to rotate | Tap left/right side</p>
         )}
-        {!isCoarse && <p>P or Escape to pause</p>}
+        {!isCoarse && <p>Escape to pause</p>}
       </div>
     </div>
   );

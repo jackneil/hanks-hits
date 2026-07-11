@@ -90,6 +90,8 @@ type PlatformerState = {
 
   // Actions
   startGame: (levelIndex?: number) => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
   jump: () => void;
   moveLeft: () => void;
   moveRight: () => void;
@@ -226,6 +228,19 @@ export const usePlatformerStore = create<PlatformerState>()(
           movingLeft: false,
           movingRight: false,
         });
+      },
+
+      // Pause / resume are driven by the GameShell (ESC, pause button, and
+      // pause-on-blur). They only flip between "playing" and "paused" so they
+      // can never disturb the ready / gameOver / levelComplete screens. The
+      // game loop freezes updates while "paused" but keeps rendering the last
+      // frame.
+      pauseGame: () => {
+        if (get().gameState === "playing") set({ gameState: "paused" });
+      },
+
+      resumeGame: () => {
+        if (get().gameState === "paused") set({ gameState: "playing" });
       },
 
       jump: () => {

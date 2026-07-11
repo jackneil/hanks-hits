@@ -405,7 +405,13 @@ export function MemoryMatchGame() {
         totalPairs={totalPairs}
       />
 
-      {/* Card grid */}
+      {/* Card grid. The square grid's width IS its height, so capping width
+          against viewport height keeps the default 4x4 board + New Game
+          button on-screen at 1366x900 with no page scroll. 27rem ~= the
+          chrome stacked around the grid: shell header offset (3.5rem) +
+          difficulty row + theme row + stats bar + New Game button + summary
+          line + the gap-3 gaps and p-4 padding. Re-derive if rows are
+          added or removed around the grid. */}
       <div
         className="w-full max-w-2xl md:max-w-[min(42rem,calc(100vh_-_27rem))] mx-auto"
         style={{

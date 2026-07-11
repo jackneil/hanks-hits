@@ -71,6 +71,8 @@ type BlitzBomberState = {
 
   // Actions
   startGame: () => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
   dropBomb: () => void;
   update: (delta: number) => void;
   crash: () => void;
@@ -127,6 +129,18 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
           isNewHighScore: false,
           passCount: 0,
         });
+      },
+
+      // Pause / resume are driven by the GameShell (ESC, pause button, and
+      // pause-on-blur). They only flip between "playing" and "paused" so they
+      // can never disturb the ready / crashed / landed screens. The game loop
+      // freezes updates while "paused" but keeps rendering the last frame.
+      pauseGame: () => {
+        if (get().gameState === "playing") set({ gameState: "paused" });
+      },
+
+      resumeGame: () => {
+        if (get().gameState === "paused") set({ gameState: "playing" });
       },
 
       dropBomb: () => {

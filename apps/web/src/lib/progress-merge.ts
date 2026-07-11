@@ -41,6 +41,10 @@ const MONOTONIC_ALLOWLIST = new Set([
   "totalFood",
   "totalWins",
   "totalGamesPlayed",
+  "totalBallsSpawned",
+  // "highestMultiplier" misses MONOTONIC_PREFIX: the prefix requires an
+  // uppercase char right after "high" ("highScore" matches, "highest…" not)
+  "highestMultiplier",
   "successfulLandings",
   "easyWins",
   "mediumWins",

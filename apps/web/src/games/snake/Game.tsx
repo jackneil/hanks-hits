@@ -502,11 +502,10 @@ export function SnakeGame() {
           setDirection("right");
           break;
         case " ":
-          if (status === "playing") {
-            store.pauseGame();
-          } else if (status === "paused") {
-            store.resumeGame();
-          } else if (status === "idle" || status === "game-over") {
+          // Pause is owned by the GameShell now (ESC + pause button). Space is
+          // kept only as a start/restart shortcut so it can't resume the sim
+          // behind the shell's still-open pause menu (the desync we're fixing).
+          if (status === "idle" || status === "game-over") {
             store.startGame();
           }
           break;
@@ -514,11 +513,6 @@ export function SnakeGame() {
         case "R":
           if (status === "game-over") {
             store.startGame();
-          }
-          break;
-        case "Escape":
-          if (status === "playing") {
-            store.pauseGame();
           }
           break;
       }
@@ -571,7 +565,7 @@ export function SnakeGame() {
 
       {/* Desktop keyboard hint */}
       <div className="hidden md:block text-green-300 text-sm text-center">
-        Use WASD or Arrow Keys to move | Space to pause | R to restart
+        Use WASD or Arrow Keys to move | ESC to pause | R to restart
       </div>
 
       {/* Settings */}

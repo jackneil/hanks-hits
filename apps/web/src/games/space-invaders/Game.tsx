@@ -720,14 +720,9 @@ export function SpaceInvadersGame() {
         }
       }
 
-      if (e.code === "KeyP" || e.code === "Escape") {
-        e.preventDefault();
-        if (gameState === "playing") {
-          pauseGame();
-        } else if (gameState === "paused") {
-          resumeGame();
-        }
-      }
+      // Pause is owned by the GameShell now (it binds ESC and shows the pause
+      // button). Handling P/ESC here too is exactly what desynced the shell's
+      // pause menu from the game's own paused state.
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -746,7 +741,7 @@ export function SpaceInvadersGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [gameState, handleInput, handleShoot, pauseGame, resumeGame]);
+  }, [gameState, handleInput, handleShoot]);
 
   // ============================================
   // Mobile Controls Component
@@ -897,7 +892,7 @@ export function SpaceInvadersGame() {
   // ============================================
   const SettingsPanel = () => {
     const [isOpen, setIsOpen] = useState(false);
-    const { progress, setSoundEnabled, setDifficulty } = useSpaceInvadersStore();
+    const { progress, setSoundEnabled } = useSpaceInvadersStore();
 
     return (
       <div className="w-full max-w-md mx-auto mt-4">
@@ -933,30 +928,8 @@ export function SpaceInvadersGame() {
               </button>
             </div>
 
-            {/* Difficulty (only shown when not playing) */}
-            {gameState === "ready" && (
-              <div>
-                <label className="text-white font-bold mb-2 block">Age/Difficulty</label>
-                <div className="flex flex-wrap gap-2">
-                  {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => {
-                    const settings = DIFFICULTY_SETTINGS[diff];
-                    return (
-                      <button
-                        key={diff}
-                        onClick={() => setDifficulty(diff)}
-                        className={`px-3 py-2 rounded-lg font-bold transition-all ${
-                          progress.settings.difficulty === diff
-                            ? `${settings.color} text-white`
-                            : "bg-gray-600 text-gray-300 hover:bg-gray-500"
-                        }`}
-                      >
-                        {settings.emoji} {diff}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {/* Difficulty now lives ONLY in the start overlay's age picker —
+                this panel used to duplicate it on the same ready screen. */}
           </div>
         )}
       </div>
@@ -1040,26 +1013,46 @@ export function SpaceInvadersGame() {
             keyboardHints={[
               "A/D or Arrows to move",
               "SPACE or W to shoot (hold to auto-fire)",
-              "P to pause",
+              "ESC to pause",
             ]}
-            startLabel="▶ Start!"
+            showStartButton={false}
             onStart={startGame}
           >
-            <p className="text-sm font-semibold opacity-80">How old are you?</p>
-            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => {
-              const settings = DIFFICULTY_SETTINGS[diff];
-              const isSelected = progress.settings.difficulty === diff;
-              return (
-                <GameStartOverlayButton
-                  key={diff}
-                  onClick={() => store.setDifficulty(diff)}
-                  className={isSelected ? "btn-primary" : ""}
-                  aria-pressed={isSelected}
-                >
-                  {settings.emoji} {settings.label}
-                </GameStartOverlayButton>
-              );
-            })}
+            {progress.highScore > 0 && (
+              <div className="text-sm font-semibold text-amber-700">
+                🏆 High Score: {progress.highScore}
+              </div>
+            )}
+            {/* Tap an age = start at that difficulty (same one-tap model as
+                blitz-bomber/platformer). A separate Start button pushed the
+                CTA below the overlay's scroll clip at common viewports while
+                these look-alike buttons only selected — a kid tapped an age
+                and nothing happened. Two columns keep all five on-screen. */}
+            <p className="text-sm font-semibold opacity-80">
+              How old are you? Tap to play!
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map(
+                (diff, index, all) => {
+                  const settings = DIFFICULTY_SETTINGS[diff];
+                  const isSelected = progress.settings.difficulty === diff;
+                  return (
+                    <GameStartOverlayButton
+                      key={diff}
+                      onClick={() => {
+                        store.setDifficulty(diff);
+                        startGame();
+                      }}
+                      className={`${isSelected ? "btn-primary" : ""} ${
+                        index === all.length - 1 ? "col-span-2" : ""
+                      }`}
+                    >
+                      {settings.emoji} {settings.label}
+                    </GameStartOverlayButton>
+                  );
+                }
+              )}
+            </div>
           </GameStartOverlay>
         )}
       </div>
@@ -1069,10 +1062,13 @@ export function SpaceInvadersGame() {
         <MobileControls />
       </div>
 
-      {/* Desktop keyboard hint */}
-      <div className="hidden md:block text-gray-500 text-sm text-center mt-2">
-        A/D or Arrows to move | SPACE or W to shoot (hold to auto-fire) | P to pause
-      </div>
+      {/* Desktop keyboard hint — in-play reminder only; the start overlay
+          carries this copy on the ready screen */}
+      {gameState !== "ready" && (
+        <div className="hidden md:block text-gray-500 text-sm text-center mt-2">
+          A/D or Arrows to move | SPACE or W to shoot (hold to auto-fire) | ESC to pause
+        </div>
+      )}
 
       {/* Pause button for mobile */}
       {gameState === "playing" && (

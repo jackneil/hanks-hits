@@ -56,16 +56,12 @@ export function BombermanGame() {
       keysRef.current.add(e.key.toLowerCase());
 
       if (store.gameState === "playing") {
-        if (e.key === "Escape" || e.key.toLowerCase() === "p") {
-          store.pauseGame();
-        }
+        // Pause (ESC) is owned by the GameShell now (it binds ESC and shows the
+        // pause button). Double-handling ESC/P here is what desynced the shell's
+        // pause menu from the game's own paused state.
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
           store.placeBomb();
-        }
-      } else if (store.gameState === "paused") {
-        if (e.key === "Escape" || e.key.toLowerCase() === "p") {
-          store.resumeGame();
         }
       } else if (store.gameState === "menu") {
         if (e.key === " " || e.key === "Enter") {

@@ -79,9 +79,9 @@ export default function SignUpPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-950">
-      {/* Soft glows to match the home page adventure vibe */}
-      <div className="pointer-events-none absolute left-1/2 top-1/3 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-green-500/15 blur-3xl" />
-      <div className="pointer-events-none absolute left-1/4 top-2/3 h-[300px] w-[300px] rounded-full bg-yellow-500/10 blur-3xl" />
+      {/* Soft glows, offset toward the edges so the card doesn't swallow them */}
+      <div className="pointer-events-none absolute -left-24 top-1/4 h-[400px] w-[400px] rounded-full bg-green-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 top-2/3 h-[300px] w-[300px] rounded-full bg-yellow-500/10 blur-3xl" />
 
       <Header showLoginButton={false} />
 
@@ -155,6 +155,7 @@ export default function SignUpPage() {
             <input
               type="text"
               placeholder="What should we call you?"
+              autoComplete="nickname"
               className="input input-bordered input-lg w-full"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -169,6 +170,7 @@ export default function SignUpPage() {
             <input
               type="email"
               placeholder="your@email.com"
+              autoComplete="email"
               className="input input-bordered input-lg w-full"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -183,6 +185,7 @@ export default function SignUpPage() {
             <input
               type="password"
               placeholder="At least 6 characters"
+              autoComplete="new-password"
               className="input input-bordered input-lg w-full"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -198,6 +201,7 @@ export default function SignUpPage() {
             <input
               type="password"
               placeholder="Type it again"
+              autoComplete="new-password"
               className="input input-bordered input-lg w-full"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}

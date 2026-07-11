@@ -620,10 +620,13 @@ export function DinoRunnerGame() {
         </p>
       </div>
 
-      {/* Desktop controls hint */}
-      <div className="hidden md:block mt-2 text-gray-500 text-xs">
-        Space/Up = Jump | Down = Duck | Hold jump for height
-      </div>
+      {/* Desktop controls hint — in-play reminder only; the start overlay
+          carries this copy on the idle screen */}
+      {gameState !== "idle" && (
+        <div className="hidden md:block mt-2 text-gray-500 text-xs">
+          Space/Up = Jump | Down = Duck | Hold jump for height
+        </div>
+      )}
 
       {/* Sync status */}
       {isAuthenticated && (
