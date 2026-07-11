@@ -68,6 +68,9 @@ export function useAuthSync<T extends AppProgressData>({
   const lastSavedRef = useRef<string>("");
   const pendingSaveRef = useRef<string>("");
   const initialSyncDoneRef = useRef(false);
+  // Set when the local/in-memory state belongs to a DIFFERENT user (shared
+  // device). Locks every upload path until the pending hard reload lands.
+  const foreignDataRef = useRef(false);
 
   // Store getState/setState in refs to avoid callback instability
   // (These are inline arrow functions that change every render)
@@ -206,29 +209,24 @@ export function useAuthSync<T extends AppProgressData>({
     // Shared-device guard: if the locally stored progress belongs to a
     // DIFFERENT user (the previous kid on a family computer — possible when
     // a second open tab re-persisted after sign-out cleared the keys), never
-    // merge-upload it into this account. Drop all local game data and adopt
-    // the server's state instead.
+    // let it reach this account. Clearing localStorage is NOT enough: the
+    // module-level zustand store already hydrated the foreign data into
+    // memory, where any later save path (debounce, forceSync, the unmount
+    // beacon, or a remount after client-side navigation) could upload it.
+    // A hard reload is the only thing that destroys that in-memory state;
+    // after it, stores hydrate to defaults, the marker matches, and the
+    // normal path adopts server state. Fail-closed by construction — even
+    // if the server is down post-reload, defaults are all that's left to
+    // upload. foreignDataRef locks every save path on THIS instance in the
+    // window before the reload lands (and in any context that blocks it).
     const userId = session?.user?.id;
     if (userId) {
       const owner = localStorage.getItem(PROGRESS_OWNER_KEY);
       if (owner && owner !== userId) {
+        foreignDataRef.current = true;
         clearGameStorage();
         localStorage.setItem(PROGRESS_OWNER_KEY, userId);
-        const foreignServer = await fetchFromServer();
-        if (!foreignServer) {
-          setSyncStatus("error");
-          return;
-        }
-        if (foreignServer.data) {
-          setStateRef.current(foreignServer.data as T);
-        }
-        // Poison the debounced saver against the foreign in-memory state:
-        // record the CURRENT state as "already saved" so only changes this
-        // user makes from here get uploaded.
-        lastSavedRef.current = JSON.stringify(getStateRef.current());
-        initialSyncDoneRef.current = true;
-        setSyncStatus("synced");
-        onSyncComplete?.("server");
+        window.location.reload();
         return;
       }
       localStorage.setItem(PROGRESS_OWNER_KEY, userId);
@@ -309,7 +307,7 @@ export function useAuthSync<T extends AppProgressData>({
    */
   const debouncedSave = useCallback(
     (data: T) => {
-      if (!isAuthenticated) return;
+      if (!isAuthenticated || foreignDataRef.current) return;
 
       const dataStr = JSON.stringify(data);
 
@@ -347,7 +345,7 @@ export function useAuthSync<T extends AppProgressData>({
    * Force immediate sync
    */
   const forceSync = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || foreignDataRef.current) return;
 
     // Clear pending debounce
     if (saveTimeoutRef.current) {
@@ -406,8 +404,14 @@ export function useAuthSync<T extends AppProgressData>({
     const handleBeforeUnload = () => {
       // Never beacon before the initial sync has completed — a pre-hydration
       // or StrictMode-double-mount beacon would ship DEFAULT state and (before
-      // merge protection) erase real progress on the server.
-      if (!isAuthenticated || !initialSyncDoneRef.current) return;
+      // merge protection) erase real progress on the server. Never beacon
+      // foreign (previous-user) state either.
+      if (
+        !isAuthenticated ||
+        !initialSyncDoneRef.current ||
+        foreignDataRef.current
+      )
+        return;
 
       const data = getStateRef.current();
       const dataStr = JSON.stringify(data);
@@ -435,7 +439,12 @@ export function useAuthSync<T extends AppProgressData>({
 
         // Flush only after initial sync — a StrictMode unmount fires this
         // with DEFAULT state before hydration, which must never be saved.
-        if (isAuthenticated && initialSyncDoneRef.current) {
+        // Foreign (previous-user) state must never flush either.
+        if (
+          isAuthenticated &&
+          initialSyncDoneRef.current &&
+          !foreignDataRef.current
+        ) {
           const data = getStateRef.current();
           const dataStr = JSON.stringify(data);
           if (dataStr !== lastSavedRef.current) {

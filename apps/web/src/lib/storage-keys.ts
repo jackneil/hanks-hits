@@ -45,6 +45,12 @@ export const GAME_STORAGE_KEYS = [
  * account even if the sign-out clear was defeated (e.g. a second open tab
  * re-persisting from memory). Deliberately NOT matched by the clearing
  * suffixes: it must survive logout to identify foreign data.
+ *
+ * Known fail-closed trade-off: after user A signs out, a kid who plays as a
+ * GUEST and then signs in for the first time loses that guest session's
+ * progress (the surviving marker says the local data was A's; we cannot
+ * tell one guest from another). Losing a guest round beats crediting one
+ * kid's progress to another's account.
  */
 export const PROGRESS_OWNER_KEY = "hanks-hits-progress-owner";
 
