@@ -248,6 +248,17 @@ export function useAuthSync<T extends AppProgressData>({
         window.addEventListener("pagehide", () => clearGameStorage(), {
           once: true,
         });
+        // bfcache escape: if a competing navigation preempts the reload and
+        // this document is later restored frozen, reload it then too.
+        window.addEventListener(
+          "pageshow",
+          (e) => {
+            if ((e as PageTransitionEvent).persisted) {
+              window.location.reload();
+            }
+          },
+          { once: true }
+        );
         window.location.reload();
         return;
       }
@@ -329,7 +340,8 @@ export function useAuthSync<T extends AppProgressData>({
    */
   const debouncedSave = useCallback(
     (data: T) => {
-      if (!isAuthenticated || foreignDataRef.current) return;
+      if (!isAuthenticated || foreignDataRef.current || foreignPurgePending)
+        return;
 
       const dataStr = JSON.stringify(data);
 
@@ -367,7 +379,8 @@ export function useAuthSync<T extends AppProgressData>({
    * Force immediate sync
    */
   const forceSync = useCallback(async () => {
-    if (!isAuthenticated || foreignDataRef.current) return;
+    if (!isAuthenticated || foreignDataRef.current || foreignPurgePending)
+      return;
 
     // Clear pending debounce
     if (saveTimeoutRef.current) {
