@@ -78,6 +78,95 @@ describe("Platformer start overlay", () => {
   });
 });
 
+describe("Platformer canvas touch zones", () => {
+  // The zone math divides by `scale`, which the resize handler derives from
+  // the container's clientWidth/clientHeight (zero in jsdom). Pin rects and
+  // client sizes to the canvas's natural 800x450 so scale resolves to 1 and
+  // clientX maps 1:1 onto canvas coordinates.
+  const realGetRect = HTMLElement.prototype.getBoundingClientRect;
+  beforeEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 450,
+        width: 800,
+        height: 450,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => 800,
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get: () => 450,
+    });
+    act(() => {
+      usePlatformerStore.setState({ movingLeft: false, movingRight: false });
+    });
+  });
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = realGetRect;
+    delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
+    delete (HTMLElement.prototype as { clientHeight?: unknown }).clientHeight;
+  });
+
+  function getCanvas(container: HTMLElement): HTMLCanvasElement {
+    const canvas = container.querySelector("canvas");
+    if (!canvas) throw new Error("canvas not rendered");
+    return canvas;
+  }
+
+  it("prevents touchstart's default so the tap's compatibility click can't double-fire jump", () => {
+    act(() => {
+      usePlatformerStore.setState({ gameState: "playing" });
+    });
+    const { container } = render(<PlatformerGame />);
+
+    // fireEvent returns false when preventDefault was called on the event.
+    const notPrevented = fireEvent.touchStart(getCanvas(container), {
+      touches: [{ clientX: 400, clientY: 200 }],
+    });
+    expect(notPrevented).toBe(false);
+  });
+
+  it("maps left/right zone touches to movement and releases on touchend", () => {
+    act(() => {
+      usePlatformerStore.setState({ gameState: "playing" });
+    });
+    const { container } = render(<PlatformerGame />);
+    const canvas = getCanvas(container);
+
+    fireEvent.touchStart(canvas, { touches: [{ clientX: 100, clientY: 200 }] });
+    expect(usePlatformerStore.getState().movingLeft).toBe(true);
+
+    fireEvent.touchEnd(canvas);
+    expect(usePlatformerStore.getState().movingLeft).toBe(false);
+
+    fireEvent.touchStart(canvas, { touches: [{ clientX: 700, clientY: 200 }] });
+    expect(usePlatformerStore.getState().movingRight).toBe(true);
+
+    fireEvent.touchCancel(canvas);
+    expect(usePlatformerStore.getState().movingRight).toBe(false);
+  });
+
+  it("still handles taps on non-playing states (game over -> ready) via touchstart", () => {
+    act(() => {
+      usePlatformerStore.setState({ gameState: "gameOver" });
+    });
+    const { container } = render(<PlatformerGame />);
+
+    fireEvent.touchStart(getCanvas(container), {
+      touches: [{ clientX: 400, clientY: 200 }],
+    });
+    expect(usePlatformerStore.getState().gameState).toBe("ready");
+  });
+});
+
 describe("Platformer on-screen mobile controls", () => {
   it("renders the touch controls while playing on a coarse (touch) pointer", () => {
     mockPointer(true);

@@ -701,11 +701,15 @@ export function PlatformerGame() {
     };
   }, [gameState, jump, handleTap, setMovingLeft, setMovingRight]);
 
-  // Touch controls for mobile. NOTE: no preventDefault here - React attaches
-  // synthetic touch handlers as PASSIVE (calling it just logs an error), and
-  // the canvas carries the touch-none class, which already stops scrolling.
+  // Touch controls for mobile, attached natively with { passive: false } so
+  // preventDefault actually works (React's synthetic touch handlers are
+  // passive). Canceling touchstart suppresses the compatibility click that
+  // re-entered handleTap after every tap: a middle-zone tap called jump()
+  // twice, and the airborne second call armed the jump buffer, so a single
+  // tap double-hopped the player on landing.
   const handleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
+    (e: TouchEvent) => {
+      e.preventDefault();
       const touch = e.touches[0];
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -734,6 +738,20 @@ export function PlatformerGame() {
     setMovingRight(false);
   }, [setMovingLeft, setMovingRight]);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
+    canvas.addEventListener("touchend", handleTouchEnd);
+    canvas.addEventListener("touchcancel", handleTouchEnd);
+    return () => {
+      canvas.removeEventListener("touchstart", handleTouchStart);
+      canvas.removeEventListener("touchend", handleTouchEnd);
+      canvas.removeEventListener("touchcancel", handleTouchEnd);
+    };
+  }, [handleTouchStart, handleTouchEnd]);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
       {/* Orientation warning for mobile */}
@@ -753,8 +771,6 @@ export function PlatformerGame() {
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
           onClick={handleTap}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
           className="rounded-lg shadow-2xl cursor-pointer touch-none"
           style={{
             width: CANVAS_WIDTH * scale,
@@ -809,7 +825,7 @@ export function PlatformerGame() {
               onTouchStart={() => setMovingLeft(true)}
               onTouchEnd={() => setMovingLeft(false)}
               style={{ touchAction: "none" }}
-              className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto"
+              className="w-20 h-20 bg-black/30 rounded-full flex items-center justify-center text-4xl font-bold text-white [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] shadow-lg active:bg-black/50 pointer-events-auto"
             >
               ◀
             </button>
@@ -817,7 +833,7 @@ export function PlatformerGame() {
               onTouchStart={() => setMovingRight(true)}
               onTouchEnd={() => setMovingRight(false)}
               style={{ touchAction: "none" }}
-              className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto"
+              className="w-20 h-20 bg-black/30 rounded-full flex items-center justify-center text-4xl font-bold text-white [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] shadow-lg active:bg-black/50 pointer-events-auto"
             >
               ▶
             </button>

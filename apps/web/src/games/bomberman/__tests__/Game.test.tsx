@@ -82,6 +82,31 @@ describe("Bomberman start overlay", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("renders paused/won/lost overlays as fixed viewport modals, not canvas-pinned", () => {
+    // Regression: these overlays were absolute-positioned inside the 528px
+    // canvas wrapper. On a phone the pause/dpad controls sit BELOW the canvas,
+    // so the player is scrolled past it when these fire and the overlay
+    // rendered entirely above the fold — pausing made the game look frozen.
+    // Fixed positioning centers them in the visible viewport regardless of
+    // scroll.
+    const states = [
+      { gameState: "paused" as const, heading: /PAUSED/ },
+      { gameState: "won" as const, heading: /LEVEL COMPLETE/ },
+      { gameState: "lost" as const, heading: /GAME OVER/ },
+    ];
+    for (const { gameState, heading } of states) {
+      act(() => {
+        useBombermanStore.setState({ gameState });
+      });
+      const { unmount } = render(<BombermanGame />);
+      const overlay = screen.getByRole("heading", { name: heading }).parentElement;
+      expect(overlay?.className).toContain("fixed");
+      expect(overlay?.className).toContain("inset-0");
+      expect(overlay?.className).not.toContain("absolute");
+      unmount();
+    }
+  });
+
   it("hides the D-pad on fine (desktop) pointers while playing", () => {
     mockPointer(false);
     act(() => {

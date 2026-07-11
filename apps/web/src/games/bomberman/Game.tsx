@@ -383,9 +383,13 @@ export function BombermanGame() {
           }}
         />
 
-        {/* Paused overlay */}
+        {/* Paused/won/lost overlays are FIXED viewport modals, not pinned to
+            the canvas box: the canvas is 528px tall and the pause/dpad
+            controls live below it, so on a phone the player is usually
+            scrolled past the canvas when these fire — a canvas-pinned overlay
+            renders entirely above the fold and the game just looks frozen. */}
         {store.gameState === "paused" && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center rounded-lg">
+          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
             <h2 className="text-4xl font-bold text-white mb-8">⏸️ PAUSED</h2>
             <button
               onClick={() => store.resumeGame()}
@@ -404,7 +408,7 @@ export function BombermanGame() {
 
         {/* Won overlay */}
         {store.gameState === "won" && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center rounded-lg">
+          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
             <h2 className="text-4xl font-bold text-green-400 mb-4">🎉 LEVEL COMPLETE!</h2>
             <p className="text-white text-xl mb-8">Score: {store.score}</p>
             <button
@@ -418,7 +422,7 @@ export function BombermanGame() {
 
         {/* Lost overlay */}
         {store.gameState === "lost" && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center rounded-lg">
+          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
             <h2 className="text-4xl font-bold text-red-400 mb-4">💀 GAME OVER</h2>
             <p className="text-white text-xl mb-2">Score: {store.score}</p>
             <p className="text-gray-400 mb-8">Level reached: {store.level}</p>
