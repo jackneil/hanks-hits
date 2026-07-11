@@ -13,7 +13,6 @@ import {
   type BuildingId,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // ============================================================================
@@ -106,32 +105,28 @@ export function CookieClickerGame() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col">
+    <div className="min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
-
       {/* Header with cookie count */}
-      <header className="bg-amber-600 text-white p-4 shadow-lg">
+      <header className="bg-amber-600 text-white px-4 py-2 shadow-lg">
         <div className="text-center">
-          <h1 className="text-4xl font-bold mb-2">Cookie Clicker</h1>
-          <div className="text-5xl font-bold text-yellow-200">
-            {formatNumber(store.cookies)} cookies
-          </div>
-          <div className="text-xl text-amber-200">
-            per second: {formatCps(store.cookiesPerSecond)}
+          <div className="flex items-baseline justify-center gap-2 flex-wrap">
+            <span className="text-3xl md:text-4xl font-bold text-yellow-200">
+              {formatNumber(store.cookies)} cookies
+            </span>
+            <span className="text-base md:text-lg text-amber-200">
+              {formatCps(store.cookiesPerSecond)}/sec
+            </span>
           </div>
           {store.frenzyMultiplier > 1 && (
-            <div className="text-lg text-green-300 animate-pulse">
+            <div className="text-base text-green-300 animate-pulse">
               FRENZY! x{store.frenzyMultiplier} CPS!
             </div>
           )}
           {store.clickFrenzyMultiplier > 1 && (
-            <div className="text-lg text-pink-300 animate-pulse">
+            <div className="text-base text-pink-300 animate-pulse">
               CLICK FRENZY! x{store.clickFrenzyMultiplier} per click!
             </div>
           )}

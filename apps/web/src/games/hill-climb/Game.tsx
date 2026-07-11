@@ -31,7 +31,7 @@ import { MobileControls } from './ui/MobileControls';
 import { GameOverScreen } from './ui/GameOverScreen';
 import { PauseMenu } from './ui/PauseMenu';
 import { Garage } from './ui/Garage';
-import { FullscreenButton, OrientationWarning } from '@/shared/components';
+import { OrientationWarning } from '@/shared/components';
 
 // =============================================================================
 // TYPES
@@ -1104,24 +1104,31 @@ export function HillClimbGame() {
   // Show Start screen
   if (showStartScreen) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-6xl font-bold text-white mb-4 drop-shadow-lg">
+      // start-overlay layer: the title may render once here (measured by the battery)
+      <div
+        data-testid="game-start-overlay"
+        className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex items-center justify-center"
+      >
+        <div className="text-center px-4 max-w-full">
+          <h1 className="text-4xl sm:text-6xl font-bold text-white mb-4 drop-shadow-lg">
             🏔️ Hill Climb Racing
           </h1>
           <p className="text-xl text-white/80 mb-8">
             Drive as far as you can without running out of fuel!
           </p>
-          <div className="flex gap-4 justify-center mb-8">
+          {/* flex-wrap + smaller mobile padding: at 375px the fixed-width
+              pair overflowed the viewport and the whole page scrolled
+              sideways (2026-07-10 audit, High) */}
+          <div className="flex flex-wrap gap-4 justify-center mb-8">
             <button
               onClick={handleStart}
-              className="btn btn-primary btn-lg text-2xl px-12"
+              className="btn btn-primary btn-lg text-2xl px-6 sm:px-12"
             >
               🚗 Play Now
             </button>
             <button
               onClick={handleGoToGarage}
-              className="btn btn-secondary btn-lg text-2xl px-8"
+              className="btn btn-secondary btn-lg text-2xl px-5 sm:px-8"
             >
               🔧 Garage
             </button>
@@ -1143,10 +1150,6 @@ export function HillClimbGame() {
       {/* Orientation warning - shows in portrait mode */}
       <OrientationWarning />
 
-      {/* Fullscreen button - top right corner */}
-      <div className="absolute top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
       {isPlaying && (
         <>

@@ -3,7 +3,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useFlappyStore } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   CANVAS_WIDTH,
@@ -389,18 +388,6 @@ export function FlappyBirdGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
-
-      {/* Header */}
-      <header className="mb-4 text-center">
-        <h1 className="text-3xl font-bold text-white drop-shadow-lg">
-          Flappy Bird
-        </h1>
-        <p className="text-sky-100">Tap or press Space to fly!</p>
-      </header>
 
       {/* Game container */}
       <div

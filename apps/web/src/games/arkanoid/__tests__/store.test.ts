@@ -50,6 +50,50 @@ describe("Arkanoid Store", () => {
     });
   });
 
+  describe("launch gate", () => {
+    it("starts with all balls stuck to the paddle (no auto-launch)", () => {
+      const store = useArkanoidStore.getState();
+      store.startGame();
+
+      const state = useArkanoidStore.getState();
+      expect(state.balls).toHaveLength(3);
+      expect(state.balls.every((b) => b.stuck)).toBe(true);
+      // Resting balls carry no velocity until launched.
+      expect(state.balls.every((b) => b.vx === 0 && b.vy === 0)).toBe(true);
+    });
+
+    it("launchBall releases every ball upward and clears the stuck flag", () => {
+      const store = useArkanoidStore.getState();
+      store.startGame();
+      store.launchBall();
+
+      const state = useArkanoidStore.getState();
+      expect(state.balls).toHaveLength(3);
+      expect(state.balls.every((b) => b.stuck === false)).toBe(true);
+      // Positive vy = moving up toward the walls/maze.
+      expect(state.balls.every((b) => b.vy > 0)).toBe(true);
+    });
+
+    it("launchBall does nothing when not playing", () => {
+      const store = useArkanoidStore.getState();
+      // From the menu there are no balls to launch.
+      store.launchBall();
+      expect(useArkanoidStore.getState().balls).toHaveLength(0);
+      expect(useArkanoidStore.getState().gameState).toBe("menu");
+    });
+
+    it("launchBall is idempotent once balls are already launched", () => {
+      const store = useArkanoidStore.getState();
+      store.startGame();
+      store.launchBall();
+      const afterFirst = useArkanoidStore.getState().balls.map((b) => ({ ...b }));
+
+      store.launchBall();
+      const afterSecond = useArkanoidStore.getState().balls;
+      expect(afterSecond).toEqual(afterFirst);
+    });
+  });
+
   describe("endGame", () => {
     it("sets wasNewHighScore to true when beating high score", () => {
       const store = useArkanoidStore.getState();

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useWeatherStore } from "./lib/store";
 import type { GeoLocation, CurrentWeather, ForecastDay } from "./lib/store";
 import {
@@ -15,7 +14,6 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 
 /**
  * Weather App - Kid-friendly weather checker
@@ -233,44 +231,26 @@ export function Weather() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
-      {/* Header */}
-      <header className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-2">
-          <Link
-            href="/"
-            className="text-3xl hover:scale-110 transition-transform"
-            aria-label="Back to home"
-          >
-            &#x1F3E0;
-          </Link>
-          <h1 className="text-2xl md:text-3xl font-bold text-white drop-shadow-lg">
-            Weather Buddy
-          </h1>
-        </div>
-        <div className="flex gap-2">
-          {/* Saved Locations Button */}
-          <button
-            onClick={() => setShowSavedLocations(true)}
-            className="btn btn-circle btn-lg bg-white/20 hover:bg-white/30 border-none text-white text-2xl shadow-lg backdrop-blur-sm"
-            aria-label="View saved locations"
-          >
-            &#x2B50;
-          </button>
-          {/* Settings Button (F/C Toggle) */}
-          <button
-            onClick={() => store.toggleUnits()}
-            className="btn btn-circle btn-lg bg-white/20 hover:bg-white/30 border-none text-white font-bold text-lg shadow-lg backdrop-blur-sm"
-            aria-label="Toggle temperature units"
-          >
-            {unitLabel}
-          </button>
-        </div>
-      </header>
+      {/* Toolbar (home + title now live in the shared app shell header) */}
+      <div className="flex justify-end gap-2 mb-4">
+        {/* Saved Locations Button */}
+        <button
+          onClick={() => setShowSavedLocations(true)}
+          className="btn btn-circle btn-lg bg-white/20 hover:bg-white/30 border-none text-white text-2xl shadow-lg backdrop-blur-sm"
+          aria-label="View saved locations"
+        >
+          &#x2B50;
+        </button>
+        {/* Settings Button (F/C Toggle) */}
+        <button
+          onClick={() => store.toggleUnits()}
+          className="btn btn-circle btn-lg bg-white/20 hover:bg-white/30 border-none text-white font-bold text-lg shadow-lg backdrop-blur-sm"
+          aria-label="Toggle temperature units"
+        >
+          {unitLabel}
+        </button>
+      </div>
 
       {/* Search Bar */}
       <div className="relative mb-6">
@@ -528,7 +508,7 @@ export function Weather() {
         <div className="flex-1 flex flex-col items-center justify-center">
           <div className="text-9xl mb-4 animate-bounce">&#x26C5;</div>
           <h2 className="text-3xl font-bold text-white mb-2 text-center">
-            Hey there, Weather Explorer!
+            Hey there, Sky Explorer!
           </h2>
           <p className="text-xl text-white/80 text-center max-w-md">
             Search for a city to see what the weather is like!

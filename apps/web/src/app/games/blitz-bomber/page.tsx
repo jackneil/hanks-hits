@@ -1,10 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { GameShell } from "@/shared/components";
 
-const BlitzBomberGame = dynamic(
-  () => import("@/games/blitz-bomber"),
+const BlitzBomberGameShell = dynamic(
+  () => import("@/games/blitz-bomber/BlitzBomberGameShell"),
   {
     ssr: false,
     loading: () => (
@@ -21,9 +20,5 @@ const BlitzBomberGame = dynamic(
 );
 
 export default function BlitzBomberPage() {
-  return (
-    <GameShell gameName="Blitz Bomber" appId="blitz-bomber" canPause>
-      <BlitzBomberGame />
-    </GameShell>
-  );
+  return <BlitzBomberGameShell />;
 }

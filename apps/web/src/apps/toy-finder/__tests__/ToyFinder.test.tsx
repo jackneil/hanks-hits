@@ -82,4 +82,19 @@ describe("ToyFinder", () => {
     expect(screen.queryByText(/I WANT THIS/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/NEED IT/i)).not.toBeInTheDocument();
   });
+
+  it("defers home + title to the app shell (no in-app title or home link)", () => {
+    render(<ToyFinder />);
+
+    // The shared GameShell owns the home button and centered app name now.
+    expect(
+      screen.queryByRole("heading", { name: /toy finder/i })
+    ).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/"]')).toBeNull();
+
+    // The idea-list (wishlist) button survived the header removal.
+    expect(
+      screen.getByRole("button", { name: /view idea list/i })
+    ).toBeInTheDocument();
+  });
 });

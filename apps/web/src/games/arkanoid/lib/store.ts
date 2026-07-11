@@ -3,6 +3,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { PADDLE, BALL_CONFIG } from "./constants";
 
 export type BallType = "blue" | "orange" | "yellow-dot";
 
@@ -13,6 +14,12 @@ export type Ball = {
   y: number;
   vx: number;
   vy: number;
+  // When true the ball rests on the paddle and waits for the player to launch
+  // it, instead of auto-launching the moment the game starts.
+  stuck?: boolean;
+  // Horizontal offset from the paddle center while stuck (keeps the resting
+  // balls spread out and following the paddle so the player can aim).
+  offsetX?: number;
 };
 
 export type GameState = "menu" | "playing" | "paused" | "gameOver";
@@ -46,6 +53,7 @@ type State = {
 type Actions = {
   // Game flow
   startGame: () => void;
+  launchBall: () => void;
   pauseGame: () => void;
   resumeGame: () => void;
   endGame: () => void;
@@ -89,41 +97,42 @@ export const useArkanoidStore = create<State & Actions>()(
 
       // Game flow
       startGame: () => {
+        // Balls rest on the paddle (stuck) until the player launches them, so a
+        // new game never auto-launches and burns through the balls with no input.
+        const restY = PADDLE.y + PADDLE.height / 2 + BALL_CONFIG.blue.radius;
         set({
           gameState: "playing",
           score: 0,
           multiplier: 1,
           wasNewHighScore: false,
+          paddleX: 0,
           balls: [
-            // Start with 3 blue balls
-            // Velocities ~1 unit/sec so balls take ~2 sec to cross screen
-            // Negative vy = moving DOWN toward paddle
-            {
-              id: "initial-1",
-              type: "blue",
-              x: -0.3,
-              y: 0.5,
-              vx: 0.8,
-              vy: -1.2,
-            },
-            {
-              id: "initial-2",
-              type: "blue",
-              x: 0,
-              y: 0.4,
-              vx: -1.0,
-              vy: -1.5,
-            },
-            {
-              id: "initial-3",
-              type: "blue",
-              x: 0.3,
-              y: 0.5,
-              vx: -0.6,
-              vy: -1.0,
-            },
+            // Start with 3 blue balls resting on the paddle, spread out.
+            { id: "initial-1", type: "blue", x: -0.06, y: restY, vx: 0, vy: 0, stuck: true, offsetX: -0.06 },
+            { id: "initial-2", type: "blue", x: 0, y: restY, vx: 0, vy: 0, stuck: true, offsetX: 0 },
+            { id: "initial-3", type: "blue", x: 0.06, y: restY, vx: 0, vy: 0, stuck: true, offsetX: 0.06 },
           ],
         });
+      },
+
+      // Release the resting balls upward off the paddle, with a slight outward
+      // spread. Positive vy = moving UP toward the walls/maze.
+      launchBall: () => {
+        const state = get();
+        if (state.gameState !== "playing") return;
+        if (!state.balls.some((b) => b.stuck)) return;
+
+        const launched = state.balls.map((ball) => {
+          if (!ball.stuck) return ball;
+          const offset = ball.offsetX ?? 0;
+          return {
+            ...ball,
+            stuck: false,
+            vx: offset * 8, // outward spread from the paddle center
+            vy: 1.4, // launch upward
+          };
+        });
+        set({ balls: launched });
       },
 
       pauseGame: () => {

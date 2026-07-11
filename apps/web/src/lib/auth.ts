@@ -87,9 +87,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
 
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         token.id = user.id;
+      }
+      // Reflect profile-name edits into the JWT so the header avatar
+      // updates without re-login. The client's update() payload is
+      // deliberately IGNORED: the name is re-read from the DB, which the
+      // profile API already validated (length, charset, rate limit), so
+      // this channel can never carry weaker-validated input into the token.
+      if (trigger === "update" && token.id) {
+        const dbUser = await db.query.users.findFirst({
+          where: eq(schema.users.id, token.id as string),
+        });
+        if (dbUser?.name) {
+          token.name = dbUser.name;
+        }
       }
       return token;
     },

@@ -24,8 +24,21 @@ Listed in priority order.
 
 ## High Priority
 
-### 1. Server Timestamps Only
+### 1. Server Timestamps Only — SUPERSEDED (2026-07-10)
 **File:** `apps/web/src/lib/progress-merge.ts`
+
+> **Status: superseded by the clamped-ordering design.** Client timestamps are
+> no longer trusted as-is: merge-ordering timestamps are clamped to sane
+> server-side bounds before any comparison, the merged blob is re-validated
+> against the app's Zod schema before persisting, and monotonic merge keys use
+> a conservative prefix rule plus a verified exact allowlist (commits `781a181`,
+> `bab096e`, `05e0784`). A client claiming a future timestamp can no longer
+> win the merge, which was this item's threat. The original "server time only"
+> proposal below is kept for history; it traded away legitimate offline-play
+> ordering and is not planned.
+
+<details>
+<summary>Original proposal (historical)</summary>
 
 Client-provided timestamps can still be manipulated (set the clock forward). `mergeProgress(...)` still accepts both `localTimestamp` and `serverTimestamp`, and `extractTimestamp()` reads `updatedAt` / `lastModified` / `timestamp` straight from the (client-controlled) progress blob — so a client can claim a future timestamp and win the merge.
 
@@ -38,6 +51,8 @@ mergeProgress(localData, serverData, localTimestamp, serverTimestamp)
 mergeProgress(localData, serverData, serverData?.updatedAt)
 // Always trust server time
 ```
+
+</details>
 
 ---
 

@@ -3,8 +3,12 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useBlitzBomberStore, type BlitzBomberProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
+import { metadata } from "./metadata";
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -19,6 +23,18 @@ import {
   type Explosion as ExplosionType,
   type DifficultyLevel,
 } from "./lib/constants";
+
+// Difficulty choices shown in the start overlay. Each starts the game
+// immediately at the chosen difficulty (same effect as the old canvas buttons).
+const DIFFICULTY_CHOICES: {
+  level: DifficultyLevel;
+  label: string;
+  emoji: string;
+}[] = [
+  { level: "easy", label: "Easy", emoji: "🟢" },
+  { level: "normal", label: "Normal", emoji: "🟡" },
+  { level: "hard", label: "Hard", emoji: "🔴" },
+];
 
 export function BlitzBomberGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -319,58 +335,6 @@ export function BlitzBomberGame() {
     [score, level, progress.highScore]
   );
 
-  const drawReadyScreen = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      // Title
-      ctx.font = UI.TITLE_FONT;
-      ctx.textAlign = "center";
-      ctx.fillStyle = COLORS.SCORE_SHADOW;
-      ctx.fillText("Blitz Bomber", CANVAS_WIDTH / 2 + 3, 153);
-      ctx.fillStyle = "#FF6B6B";
-      ctx.fillText("Blitz Bomber", CANVAS_WIDTH / 2, 150);
-
-      // Instructions
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.fillText("Drop bombs to destroy buildings!", CANVAS_WIDTH / 2, 220);
-      ctx.fillText("Clear the city to land safely!", CANVAS_WIDTH / 2, 250);
-
-      // Controls
-      ctx.font = "18px Arial, sans-serif";
-      ctx.fillText("Tap or Press SPACE to drop bombs", CANVAS_WIDTH / 2, 320);
-      ctx.fillText("Any key starts the game", CANVAS_WIDTH / 2, 350);
-
-      // Difficulty selector
-      const difficulties: DifficultyLevel[] = ["easy", "normal", "hard"];
-      const buttonWidth = 100;
-      const buttonGap = 20;
-      const totalWidth = difficulties.length * buttonWidth + (difficulties.length - 1) * buttonGap;
-      const startX = (CANVAS_WIDTH - totalWidth) / 2;
-
-      ctx.font = "16px Arial, sans-serif";
-      difficulties.forEach((diff, i) => {
-        const x = startX + i * (buttonWidth + buttonGap);
-        const y = 400;
-        const isSelected = progress.settings.difficulty === diff;
-
-        ctx.fillStyle = isSelected ? "#4ECDC4" : "#ddd";
-        ctx.fillRect(x, y, buttonWidth, 40);
-
-        ctx.fillStyle = isSelected ? "#fff" : "#333";
-        ctx.textAlign = "center";
-        ctx.fillText(diff.toUpperCase(), x + buttonWidth / 2, y + 26);
-      });
-
-      // High score
-      if (progress.highScore > 0) {
-        ctx.font = UI.SMALL_FONT;
-        ctx.fillStyle = "#FFD700";
-        ctx.fillText(`High Score: ${progress.highScore}`, CANVAS_WIDTH / 2, 500);
-      }
-    },
-    [progress.highScore, progress.settings.difficulty]
-  );
-
   const drawCrashedScreen = useCallback(
     (ctx: CanvasRenderingContext2D) => {
       // Overlay
@@ -466,10 +430,9 @@ export function BlitzBomberGame() {
       // Draw plane
       drawPlane(ctx);
 
-      // Draw UI based on state
-      if (gameState === "ready") {
-        drawReadyScreen(ctx);
-      } else if (gameState === "playing") {
+      // Draw UI based on state. In "ready" the DOM start overlay covers the
+      // canvas, so we draw only the scene/background here (no text or buttons).
+      if (gameState === "playing") {
         drawHUD(ctx);
       } else if (gameState === "crashed") {
         drawHUD(ctx);
@@ -487,7 +450,6 @@ export function BlitzBomberGame() {
       drawExplosions,
       drawBombs,
       drawPlane,
-      drawReadyScreen,
       drawHUD,
       drawCrashedScreen,
       drawLandedScreen,
@@ -545,44 +507,15 @@ export function BlitzBomberGame() {
     }
   }, [gameState, startGame, dropBomb, reset, nextLevel]);
 
-  // Handle difficulty click on ready screen
-  const handleCanvasClick = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
-      if (!canvas || gameState !== "ready") {
-        handleInput();
-        return;
-      }
-
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / scale;
-      const y = (e.clientY - rect.top) / scale;
-
-      // Check difficulty button clicks
-      const difficulties: DifficultyLevel[] = ["easy", "normal", "hard"];
-      const buttonWidth = 100;
-      const buttonGap = 20;
-      const totalWidth = difficulties.length * buttonWidth + (difficulties.length - 1) * buttonGap;
-      const startX = (CANVAS_WIDTH - totalWidth) / 2;
-      const buttonY = 400;
-
-      for (let i = 0; i < difficulties.length; i++) {
-        const bx = startX + i * (buttonWidth + buttonGap);
-        if (x >= bx && x <= bx + buttonWidth && y >= buttonY && y <= buttonY + 40) {
-          setDifficulty(difficulties[i]);
-          return;
-        }
-      }
-
-      // Otherwise start game
-      handleInput();
-    },
-    [gameState, scale, setDifficulty, handleInput]
-  );
-
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Pause is owned by the GameShell (it binds ESC + the pause button). Let
+      // ESC through to the shell instead of treating it as an "any key" bomb
+      // drop, and ignore all game keys while paused so nothing runs behind the
+      // shell's pause menu.
+      if (e.code === "Escape" || gameState === "paused") return;
+
       if (e.code === "Space" || e.code === "Enter") {
         e.preventDefault();
         handleInput();
@@ -607,19 +540,6 @@ export function BlitzBomberGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
-
-      {/* Header */}
-      <header className="mb-4 text-center">
-        <h1 className="text-3xl font-bold text-white drop-shadow-lg">
-          Blitz Bomber
-        </h1>
-        <p className="text-sky-100">Bomb the buildings, land safely!</p>
-      </header>
-
       {/* Game container */}
       <div
         ref={containerRef}
@@ -629,7 +549,7 @@ export function BlitzBomberGame() {
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
-          onClick={handleCanvasClick}
+          onClick={handleInput}
           onTouchStart={(e) => {
             e.preventDefault();
             handleInput();
@@ -640,6 +560,39 @@ export function BlitzBomberGame() {
             height: CANVAS_HEIGHT * scale,
           }}
         />
+
+        {/* DOM start overlay (replaces the old in-canvas ready screen) */}
+        {gameState === "ready" && (
+          <GameStartOverlay
+            title="Blitz Bomber"
+            emoji={metadata.emoji}
+            subtitle="Drop bombs to destroy buildings and land safely!"
+            touchHints={["Tap anywhere to drop bombs"]}
+            keyboardHints={[
+              "SPACE or any key drops bombs",
+              "R restarts from level 1",
+            ]}
+            showStartButton={false}
+            onStart={startGame}
+          >
+            {progress.highScore > 0 && (
+              <div className="text-sm font-semibold text-amber-700">
+                🏆 High Score: {progress.highScore}
+              </div>
+            )}
+            {DIFFICULTY_CHOICES.map((choice) => (
+              <GameStartOverlayButton
+                key={choice.level}
+                onClick={() => {
+                  setDifficulty(choice.level);
+                  startGame();
+                }}
+              >
+                {choice.emoji} {choice.label}
+              </GameStartOverlayButton>
+            ))}
+          </GameStartOverlay>
+        )}
       </div>
 
       {/* Stats */}
@@ -649,11 +602,14 @@ export function BlitzBomberGame() {
         </p>
       </div>
 
-      {/* Controls hint */}
-      <div className="mt-2 text-center text-white/60 text-xs">
-        <p className="hidden md:block">Press SPACE or any key to drop bombs | R to restart</p>
-        <p className="md:hidden">Tap anywhere to drop bombs</p>
-      </div>
+      {/* Controls hint — in-play reminder only; the start overlay carries
+          this copy on the ready screen, so don't show it twice */}
+      {gameState !== "ready" && (
+        <div className="mt-2 text-center text-white/60 text-xs">
+          <p className="hidden md:block">Press SPACE or any key to drop bombs | R to restart</p>
+          <p className="md:hidden">Tap anywhere to drop bombs</p>
+        </div>
+      )}
 
       {/* Sync status indicator */}
       {isAuthenticated && (

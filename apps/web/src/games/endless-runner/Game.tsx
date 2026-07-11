@@ -16,7 +16,6 @@ import {
   type CharacterId,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
@@ -609,18 +608,6 @@ export function EndlessRunnerGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
-
-      {/* Header */}
-      <header className="mb-4 text-center">
-        <h1 className="text-3xl font-bold text-white drop-shadow-lg">
-          Endless Runner
-        </h1>
-        <p className="text-sky-100">Jump over obstacles, collect coins!</p>
-      </header>
 
       {/* Game container */}
       <div

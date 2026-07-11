@@ -13,7 +13,11 @@ export function TitleScreen() {
 
   if (gamePhase === "title") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-900 text-amber-100 p-4">
+      // start-overlay layer: the title may render once here (measured by the battery)
+      <div
+        data-testid="game-start-overlay"
+        className="flex flex-col items-center justify-center min-h-screen bg-amber-900 text-amber-100 p-4"
+      >
         <h1 className="text-5xl font-bold mb-4">The Oregon Trail</h1>
         <p className="text-xl mb-8">Adventure awaits on the trail to Oregon!</p>
         <button onClick={() => setPhase("setup_name")} className="btn btn-primary btn-lg text-xl">Start Journey!</button>

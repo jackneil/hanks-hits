@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useJokeStore } from "./lib/store";
 import {
   JOKE_CATEGORIES,
@@ -12,7 +11,6 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 
 /**
  * Joke Generator - Kid-friendly joke app
@@ -149,29 +147,12 @@ export function JokeGenerator() {
   const isFav = store.currentJoke ? store.isFavorite(store.currentJoke.id) : false;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-yellow-300 via-yellow-400 to-orange-400 p-4 flex flex-col">
+    <div className="h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)] bg-gradient-to-b from-yellow-300 via-yellow-400 to-orange-400 p-3 md:p-4 flex flex-col overflow-hidden">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
-
-      {/* Header */}
-      <header className="flex justify-between items-center mb-4">
-        <div className="flex items-center gap-2">
-          <Link
-            href="/"
-            className="text-3xl hover:scale-110 transition-transform"
-            aria-label="Back to home"
-          >
-            &#x1F3E0;
-          </Link>
-          <h1 className="text-2xl md:text-3xl font-bold text-purple-800 drop-shadow-sm">
-            Joke Generator
-          </h1>
-        </div>
+      {/* Toolbar (home + title now live in the shared app shell header) */}
+      <div className="flex-shrink-0 flex justify-end mb-2 md:mb-3">
         <button
           onClick={() => store.setShowFavorites(true)}
           className="btn btn-circle btn-lg bg-pink-500 hover:bg-pink-600 border-none text-white text-2xl shadow-lg"
@@ -179,10 +160,10 @@ export function JokeGenerator() {
         >
           &#x2764;&#xFE0F;
         </button>
-      </header>
+      </div>
 
       {/* Category Pills */}
-      <div className="flex flex-wrap gap-2 justify-center mb-6">
+      <div className="flex-shrink-0 flex flex-wrap gap-2 justify-center mb-3 md:mb-4">
         {JOKE_CATEGORIES.map((cat) => (
           <button
             key={cat.id}
@@ -199,66 +180,74 @@ export function JokeGenerator() {
         ))}
       </div>
 
-      {/* Joke Card */}
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <div
-          className={`bg-white rounded-3xl shadow-2xl p-6 md:p-8 max-w-lg w-full mx-auto transform transition-all duration-300 ${
-            store.isLoading ? "scale-95 opacity-50" : "scale-100"
-          }`}
-        >
-          {store.currentJoke ? (
-            <>
-              {/* Setup */}
-              <p className="text-xl md:text-2xl font-bold text-gray-800 text-center mb-6 leading-relaxed">
-                {store.currentJoke.setup}
-              </p>
+      {/* Joke Card + rating (flexible middle - the card scrolls its own text) */}
+      <div className="flex-1 min-h-0 flex flex-col gap-3 md:gap-4">
+        {/* Card wrapper centers the card and caps its height */}
+        <div className="flex-1 min-h-0 flex items-center justify-center">
+          <div
+            className={`bg-white rounded-3xl shadow-2xl p-5 md:p-8 max-w-lg w-full mx-auto max-h-full flex flex-col transform transition-all duration-300 ${
+              store.isLoading ? "scale-95 opacity-50" : "scale-100"
+            }`}
+          >
+            {store.currentJoke ? (
+              <>
+                {/* Setup + punchline scroll inside the card if the joke is long */}
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  <div className="min-h-full flex flex-col justify-center">
+                    {/* Setup */}
+                    <p className="text-xl md:text-2xl font-bold text-gray-800 text-center mb-6 leading-relaxed">
+                      {store.currentJoke.setup}
+                    </p>
 
-              {/* Punchline - hidden until revealed (only if joke has a punchline) */}
-              {store.currentJoke.punchline && (
-                <div
-                  className={`transition-all duration-500 ease-out ${
-                    store.showPunchline
-                      ? "opacity-100 translate-y-0 max-h-40"
-                      : "opacity-0 translate-y-4 max-h-0 overflow-hidden"
-                  }`}
-                >
-                  <p className="text-xl md:text-2xl font-bold text-purple-600 text-center leading-relaxed">
-                    {store.currentJoke.punchline}
-                  </p>
-                  <div className="text-4xl text-center mt-2">
-                    &#x1F389;
+                    {/* Punchline - hidden until revealed (only if joke has a punchline) */}
+                    {store.currentJoke.punchline && (
+                      <div
+                        className={`transition-all duration-500 ease-out ${
+                          store.showPunchline
+                            ? "opacity-100 translate-y-0 max-h-40"
+                            : "opacity-0 translate-y-4 max-h-0 overflow-hidden"
+                        }`}
+                      >
+                        <p className="text-xl md:text-2xl font-bold text-purple-600 text-center leading-relaxed">
+                          {store.currentJoke.punchline}
+                        </p>
+                        <div className="text-4xl text-center mt-2">
+                          &#x1F389;
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Single-line jokes (no punchline) - show celebration immediately */}
+                    {!store.currentJoke.punchline && (
+                      <div className="text-4xl text-center mt-2">
+                        &#x1F389;
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
 
-              {/* Reveal Button - only show if joke has a punchline to reveal */}
-              {!store.showPunchline && store.currentJoke.punchline && (
-                <button
-                  onClick={() => store.revealPunchline()}
-                  className="btn btn-lg w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold text-lg rounded-full border-none hover:scale-105 transition-transform shadow-lg mt-4"
-                >
-                  &#x1F440; Show Punchline!
-                </button>
-              )}
-
-              {/* Single-line jokes (no punchline) - show celebration immediately */}
-              {!store.currentJoke.punchline && (
-                <div className="text-4xl text-center mt-2">
-                  &#x1F389;
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="text-center py-8">
-              <div className="text-6xl mb-4 animate-bounce">&#x1F921;</div>
-              <p className="text-lg text-gray-600">Loading joke...</p>
-            </div>
-          )}
+                {/* Reveal Button - only show if joke has a punchline to reveal */}
+                {!store.showPunchline && store.currentJoke.punchline && (
+                  <button
+                    onClick={() => store.revealPunchline()}
+                    className="flex-shrink-0 btn btn-lg w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold text-lg rounded-full border-none hover:scale-105 transition-transform shadow-lg mt-4"
+                  >
+                    &#x1F440; Show Punchline!
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <div className="text-6xl mb-4 animate-bounce">&#x1F921;</div>
+                <p className="text-lg text-gray-600">Loading joke...</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Rating Buttons (shown after punchline revealed, or immediately for single-line jokes) */}
         {store.currentJoke && (store.showPunchline || !store.currentJoke.punchline) && (
-          <div className="flex gap-4 mt-6 animate-fadeIn">
+          <div className="flex-shrink-0 flex gap-4 justify-center animate-fadeIn">
             <button
               onClick={() => handleRate("funny")}
               className={`btn btn-lg text-xl font-bold rounded-full ${
@@ -284,7 +273,7 @@ export function JokeGenerator() {
       </div>
 
       {/* Big "Tell Me A Joke" Button */}
-      <div className="mt-6 flex justify-center">
+      <div className="flex-shrink-0 mt-3 md:mt-4 flex justify-center">
         <button
           onClick={() => getNewJoke()}
           disabled={store.isLoading}
@@ -300,7 +289,7 @@ export function JokeGenerator() {
 
       {/* Action Buttons */}
       {store.currentJoke && (
-        <div className="flex justify-center gap-4 mt-4 mb-6">
+        <div className="flex-shrink-0 flex justify-center gap-4 mt-3">
           <button
             onClick={handleCopy}
             className="btn btn-circle btn-lg bg-blue-500 hover:bg-blue-600 text-white text-xl border-none shadow-lg"

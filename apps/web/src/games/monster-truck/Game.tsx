@@ -20,12 +20,16 @@ import { useAuthSync } from '@/shared/hooks/useAuthSync';
 import { sounds } from './lib/sounds';
 import { WORLD } from './lib/constants';
 import { getTerrainHeight } from './lib/terrainUtils';
-import { FullscreenButton, OrientationWarning } from '@/shared/components';
+import { OrientationWarning, WebGLGate } from '@/shared/components';
 
 // Loading screen component
 function LoadingScreen() {
   return (
-    <div className="fixed inset-0 bg-gradient-to-b from-orange-600 to-red-700 flex flex-col items-center justify-center z-50">
+    // start-overlay layer: the title may render once here (measured by the battery)
+    <div
+      data-testid="game-start-overlay"
+      className="fixed inset-0 bg-gradient-to-b from-orange-600 to-red-700 flex flex-col items-center justify-center z-50"
+    >
       <div className="text-6xl mb-4 animate-bounce">🚛</div>
       <h1 className="text-4xl font-bold text-white mb-4">Monster Truck Mayhem</h1>
       <div className="w-64 h-2 bg-black/30 rounded-full overflow-hidden">
@@ -204,30 +208,29 @@ export function MonsterTruckGame() {
       {/* Orientation warning - shows in portrait mode */}
       <OrientationWarning />
 
-      {/* Fullscreen button - top right corner */}
-      <div className="absolute top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
 
-      {/* 3D Canvas */}
-      <Canvas
-        shadows
-        camera={{
-          fov: 75,
-          near: 0.5,  // Prevent z-fighting
-          far: 1000,
-          position: [0, 10, 20],
-        }}
-        style={{ touchAction: 'none' }}
-      >
-        <Suspense fallback={null}>
-          <GameScene
-            getControls={controls.getControlValues}
-            vehicleRef={vehicleRef}
-            onSpeedUpdate={handleSpeedUpdate}
-          />
-        </Suspense>
-      </Canvas>
+      {/* 3D Canvas - gated so a device without WebGL gets a friendly
+          explanation instead of a silent black void */}
+      <WebGLGate gameName="Monster Truck">
+        <Canvas
+          shadows
+          camera={{
+            fov: 75,
+            near: 0.5,  // Prevent z-fighting
+            far: 1000,
+            position: [0, 10, 20],
+          }}
+          style={{ touchAction: 'none' }}
+        >
+          <Suspense fallback={null}>
+            <GameScene
+              getControls={controls.getControlValues}
+              vehicleRef={vehicleRef}
+              onSpeedUpdate={handleSpeedUpdate}
+            />
+          </Suspense>
+        </Canvas>
+      </WebGLGate>
 
       {/* Game UI overlay */}
       <GameUI

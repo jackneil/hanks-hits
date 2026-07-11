@@ -64,8 +64,8 @@ export const RULE_SETS: Record<GameVariant, RuleSet> = {
   },
   suicide: {
     variant: "suicide",
-    displayName: "Suicide",
-    description: "First to lose all pieces wins!",
+    displayName: "Giveaway",
+    description: "First to lose all your pieces wins!",
     forcedCaptures: true,
     backwardCapture: false,
     flyingKings: false,

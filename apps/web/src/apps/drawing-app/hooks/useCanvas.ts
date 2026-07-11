@@ -46,6 +46,7 @@ export function useCanvas({
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const isDrawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
+  const isInitializedRef = useRef(false);
 
   // History for undo/redo
   const [history, setHistory] = useState<ImageData[]>([]);
@@ -61,9 +62,18 @@ export function useCanvas({
     // Set canvas size to match container
     const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
+    const width = Math.floor(rect.width * dpr);
+    const height = Math.floor(rect.height * dpr);
 
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    // A zero-width or zero-height canvas cannot be initialized: getImageData
+    // throws IndexSizeError on a zero dimension (e.g. a short viewport where
+    // the container is laid out with 0 height before it gets its real size).
+    // Bail out and let the ResizeObserver retry once the container has real
+    // dimensions, instead of crashing the whole page.
+    if (width <= 0 || height <= 0) return;
+
+    canvas.width = width;
+    canvas.height = height;
     canvas.style.width = `${rect.width}px`;
     canvas.style.height = `${rect.height}px`;
 
@@ -81,19 +91,24 @@ export function useCanvas({
     const initialState = ctx.getImageData(0, 0, canvas.width, canvas.height);
     setHistory([initialState]);
     setHistoryIndex(0);
+    isInitializedRef.current = true;
   }, []);
 
-  // Handle window resize
+  // Initialize on mount, and retry if the container starts at zero size
+  // (short viewport / delayed layout) until it has real dimensions.
   useEffect(() => {
     initCanvas();
 
-    const handleResize = () => {
-      // Don't reinitialize on every resize - just once on mount
-      // This prevents losing the drawing on resize
-    };
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
 
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    const observer = new ResizeObserver(() => {
+      if (!isInitializedRef.current) {
+        initCanvas();
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
   }, [initCanvas]);
 
   // Save current state to history
@@ -101,6 +116,9 @@ export function useCanvas({
     const canvas = canvasRef.current;
     const ctx = ctxRef.current;
     if (!canvas || !ctx || isUndoRedoRef.current) return;
+    // Skip while the canvas has no drawable area - getImageData throws on a
+    // zero dimension. History is captured again once it has a real size.
+    if (canvas.width <= 0 || canvas.height <= 0) return;
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -126,6 +144,8 @@ export function useCanvas({
     const canvas = canvasRef.current;
     const ctx = ctxRef.current;
     if (!canvas || !ctx) return;
+    // A zero-dimension canvas can't accept image data; skip until it resizes.
+    if (canvas.width <= 0 || canvas.height <= 0) return;
 
     isUndoRedoRef.current = true;
     ctx.putImageData(imageData, 0, 0);
@@ -356,10 +376,12 @@ export function useCanvas({
       const y = (rect.height - img.height * scale) / 2;
       ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
 
-      // Save to history
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      setHistory([imageData]);
-      setHistoryIndex(0);
+      // Save to history (skip if the canvas has no drawable area yet)
+      if (canvas.width > 0 && canvas.height > 0) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        setHistory([imageData]);
+        setHistoryIndex(0);
+      }
     };
     img.src = dataUrl;
   }, []);

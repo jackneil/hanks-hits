@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import Link from "next/link";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useArkanoidStore, type Ball } from "./lib/store";
 import { BALL_CONFIG, PHYSICS, PADDLE, WALLS, GAME, GRID, getSpawnedBallType } from "./lib/constants";
 
@@ -18,8 +19,7 @@ export function ArkanoidGame() {
     progress,
     wasNewHighScore,
     startGame,
-    pauseGame,
-    resumeGame,
+    launchBall,
     endGame,
     setPaddleX,
     addBall,
@@ -28,6 +28,25 @@ export function ArkanoidGame() {
     updateMultiplier,
     toggleSound,
   } = useArkanoidStore();
+
+  // Cloud-save progress like every other game (arkanoid predated the sync
+  // wiring: it had getProgress/setProgress and a leaderboard extractor but
+  // never mounted the hook, so scores silently stayed local-only).
+  const { forceSync } = useAuthSync({
+    appId: "arkanoid",
+    localStorageKey: "arkanoid-state",
+    getState: useArkanoidStore.getState().getProgress,
+    setState: useArkanoidStore.getState().setProgress,
+    debounceMs: 3000,
+  });
+
+  // Flush immediately on game over (same pattern as the other synced games)
+  // so a new high score survives tapping Home before the debounce fires.
+  useEffect(() => {
+    if (gameState === "gameOver") {
+      forceSync();
+    }
+  }, [gameState, forceSync]);
 
   // Mouse/touch handlers for paddle
   useEffect(() => {
@@ -57,18 +76,20 @@ export function ArkanoidGame() {
     };
   }, [setPaddleX]);
 
-  // Keyboard controls
+  // Keyboard controls: Space launches the resting balls, arrows nudge the
+  // paddle. Pause / ESC is owned by the GameShell, so we don't handle it here
+  // (handling it too would double-toggle pause). State is read via getState()
+  // to avoid stale closures, so this listener binds once.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === " " || e.key === "Escape") {
-        e.preventDefault();
-        if (gameState === "playing") {
-          pauseGame();
-        } else if (gameState === "paused") {
-          resumeGame();
+      if (e.key === " ") {
+        const state = useArkanoidStore.getState();
+        if (state.gameState === "playing" && state.balls.some((b) => b.stuck)) {
+          e.preventDefault();
+          launchBall();
         }
+        return;
       }
-      // Use getState() to avoid stale closure - always gets current paddleX
       if (e.key === "ArrowLeft") {
         const current = useArkanoidStore.getState().paddleX;
         setPaddleX(Math.max(-0.85, current - 0.1));
@@ -81,7 +102,7 @@ export function ArkanoidGame() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [gameState, pauseGame, resumeGame, setPaddleX]);
+  }, [launchBall, setPaddleX]);
 
   // Render function
   const render = useCallback((
@@ -186,6 +207,24 @@ export function ArkanoidGame() {
       // Get current state directly from store (avoid stale closures)
       const currentBalls = useArkanoidStore.getState().balls;
       const currentPaddleX = useArkanoidStore.getState().paddleX;
+
+      // Waiting to launch: keep the resting balls glued to the paddle (so the
+      // player can aim), render, and run no physics until they launch.
+      if (currentBalls.some((b) => b.stuck)) {
+        const pinned = currentBalls.map((ball) => {
+          if (!ball.stuck) return ball;
+          const radius = BALL_CONFIG[ball.type].radius;
+          return {
+            ...ball,
+            x: currentPaddleX + (ball.offsetX ?? 0),
+            y: PADDLE.y + PADDLE.height / 2 + radius,
+          };
+        });
+        updateBalls(pinned);
+        render(ctx, canvas, pinned);
+        animationFrameRef.current = requestAnimationFrame(gameLoop);
+        return;
+      }
 
       // Update physics
       const updatedBalls = currentBalls.map((ball) => {
@@ -339,34 +378,33 @@ export function ArkanoidGame() {
   const orangeBalls = balls.filter((b) => b.type === "orange").length;
   const yellowBalls = balls.filter((b) => b.type === "yellow-dot").length;
 
+  // Balls are resting on the paddle, waiting for the player to launch them.
+  const waitingToLaunch = gameState === "playing" && balls.some((b) => b.stuck);
+
   return (
-    <div className="flex h-screen w-full flex-col bg-slate-900">
-      {/* HUD */}
-      <div className="relative z-10 flex items-center justify-between border-b-2 border-slate-700 bg-slate-800 px-4 py-3">
-        {/* Left: Home + Pause buttons */}
-        <div className="flex gap-2">
-          <Link href="/" className="btn btn-square btn-ghost text-2xl">
-            🏠
-          </Link>
-          <button
-            onClick={() => (gameState === "playing" ? pauseGame() : resumeGame())}
-            className="btn btn-square btn-primary text-2xl"
-            disabled={gameState === "menu" || gameState === "gameOver"}
-          >
-            {gameState === "paused" ? "▶" : "⏸"}
-          </button>
-        </div>
+    <div className="flex h-[calc(100vh-3rem)] w-full flex-col bg-slate-900 md:h-[calc(100vh-3.5rem)]">
+      {/* Score HUD — the GameShell owns home / title / pause, so this slim
+          strip only carries the live score and the sound toggle. */}
+      <div className="relative z-10 flex items-center justify-between px-4 py-2">
+        {/* Spacer balances the sound button so the score stays centered */}
+        <div className="w-11" aria-hidden="true" />
 
         {/* Center: Score */}
         <div className="text-center">
-          <div className="text-4xl font-bold text-white">{score.toLocaleString()}</div>
-          <div className="text-sm text-slate-400">
+          <div className="text-3xl font-bold text-white md:text-4xl">
+            {score.toLocaleString()}
+          </div>
+          <div className="text-xs text-slate-400 md:text-sm">
             {multiplier}x Multiplier • High: {progress.highScore.toLocaleString()}
           </div>
         </div>
 
         {/* Right: Sound toggle */}
-        <button onClick={toggleSound} className="btn btn-square btn-ghost text-2xl">
+        <button
+          onClick={toggleSound}
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center text-2xl"
+          aria-label={soundEnabled ? "Mute sound" : "Unmute sound"}
+        >
           {soundEnabled ? "🔊" : "🔇"}
         </button>
       </div>
@@ -377,7 +415,18 @@ export function ArkanoidGame() {
           ref={canvasRef}
           className="h-full w-full cursor-none"
           style={{ touchAction: "none" }}
+          onClick={() => launchBall()}
+          onTouchStart={() => launchBall()}
         />
+
+        {/* Launch hint - shown while the balls rest on the paddle */}
+        {waitingToLaunch && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-28 flex justify-center px-4">
+            <div className="animate-pulse rounded-full bg-slate-800/90 px-5 py-2 text-center text-base font-bold text-white shadow-lg md:text-lg">
+              👆 Click or press Space to launch!
+            </div>
+          </div>
+        )}
 
         {/* Ball counters (left side) */}
         {gameState === "playing" && (
@@ -403,36 +452,26 @@ export function ArkanoidGame() {
           </div>
         )}
 
-        {/* Menu overlay */}
+        {/* Menu overlay: shared DOM start screen (renders the title once) */}
         {gameState === "menu" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/95">
-            <div className="text-center">
-              <h1 className="mb-2 text-6xl font-bold text-white">Arkanoid</h1>
-              <p className="mb-8 text-xl text-slate-300">
-                Chain Reaction Mayhem
-              </p>
-              <button onClick={startGame} className="btn btn-primary btn-lg text-2xl">
-                🎮 Start Game
-              </button>
-              <div className="mt-8 space-y-2 text-sm text-slate-400">
-                <p>Move paddle with mouse/touch</p>
-                <p>Balls multiply when they hit walls!</p>
-                <p>Keep them from falling off the bottom</p>
-              </div>
+          <GameStartOverlay
+            title="Arkanoid"
+            emoji="🎱"
+            subtitle="Chain Reaction Mayhem"
+            keyboardHints={[
+              "Move the paddle with your mouse",
+              "Click to launch the ball",
+            ]}
+            touchHints={[
+              "Slide your finger to move the paddle",
+              "Tap to launch the ball",
+            ]}
+            onStart={() => startGame()}
+          >
+            <div className="text-base font-medium opacity-90">
+              🏆 High Score: {progress.highScore.toLocaleString()}
             </div>
-          </div>
-        )}
-
-        {/* Paused overlay */}
-        {gameState === "paused" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80">
-            <div className="text-center">
-              <h2 className="mb-4 text-5xl font-bold text-white">PAUSED</h2>
-              <button onClick={resumeGame} className="btn btn-primary btn-lg text-2xl">
-                ▶ Resume
-              </button>
-            </div>
-          </div>
+          </GameStartOverlay>
         )}
 
         {/* Game Over overlay */}

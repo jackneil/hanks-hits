@@ -11,7 +11,6 @@ import {
   getRandomMessage,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 export function ChessGame() {
@@ -156,19 +155,12 @@ export function ChessGame() {
   }), [store.fen, boardOrientation, customSquareStyles, store.status, store.isAIThinking, onPieceDrop, onSquareClick]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-emerald-800 to-emerald-950 p-4 flex flex-col items-center justify-center gap-4">
+    // px on the base breakpoint is trimmed so the 8-wide board keeps >=44px
+    // squares at a 375px viewport; full p-4 padding is restored at md+
+    <div className="min-h-screen bg-gradient-to-b from-emerald-800 to-emerald-950 px-2 py-4 md:px-4 flex flex-col items-center justify-center gap-4">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
-
-      <header className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">Chess</h1>
-        <p className="text-emerald-200">Think ahead and capture the king!</p>
-      </header>
 
       {/* Turn indicator */}
       <div

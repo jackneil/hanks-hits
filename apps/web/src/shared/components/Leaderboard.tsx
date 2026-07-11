@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { plural } from "@/shared/lib/pluralize";
 
 export interface LeaderboardEntry {
   rank: number;
@@ -24,6 +25,8 @@ interface LeaderboardProps {
   icon?: string;
   className?: string;
   showPeriodSelector?: boolean;
+  /** Hide the icon + game-name header when the surrounding page already names the game */
+  showTitle?: boolean;
   initialPeriod?: "all" | "week" | "month";
   limit?: number;
   compact?: boolean;
@@ -94,6 +97,7 @@ export function Leaderboard({
   icon = "🏆",
   className = "",
   showPeriodSelector = true,
+  showTitle = true,
   initialPeriod = "all",
   limit = 100,
   compact = false,
@@ -196,7 +200,7 @@ export function Leaderboard({
           <span className="font-bold text-lg">{formatScore(data.myEntry.score, scoreType)}</span>
         </div>
         <div className="text-xs opacity-80 mt-1">
-          Your rank: {data.myEntry.rank.toLocaleString()} of {data.totalPlayers.toLocaleString()} players
+          Your rank: {data.myEntry.rank.toLocaleString()} of {data.totalPlayers.toLocaleString()} {plural(data.totalPlayers, "player")}
         </div>
       </div>
     );
@@ -204,14 +208,19 @@ export function Leaderboard({
 
   return (
     <div className={`flex flex-col text-white ${className}`}>
-      {/* Header */}
+      {/* Header. showTitle=false when the surrounding page already names the
+          game (the leaderboards page banner) — the title must render once. */}
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-2xl" aria-hidden="true">{icon}</span>
-          <h2 className="text-xl font-bold">{gameName}</h2>
+          {showTitle && (
+            <>
+              <span className="text-2xl" aria-hidden="true">{icon}</span>
+              <h2 className="text-xl font-bold">{gameName}</h2>
+            </>
+          )}
           {data && (
             <span className="text-sm text-slate-400">
-              ({data.totalPlayers.toLocaleString()} players)
+              ({data.totalPlayers.toLocaleString()} {plural(data.totalPlayers, "player")})
             </span>
           )}
         </div>
@@ -329,8 +338,8 @@ export function Leaderboard({
       {data && (
         <div className="sr-only" role="status" aria-live="polite">
           {data.myEntry
-            ? `Leaderboard showing ${data.leaderboard.length} of ${data.totalPlayers} players. Your rank is ${data.myEntry.rank}.`
-            : `Leaderboard showing ${data.leaderboard.length} of ${data.totalPlayers} players.`}
+            ? `Leaderboard showing ${data.leaderboard.length} of ${data.totalPlayers} ${plural(data.totalPlayers, "player")}. Your rank is ${data.myEntry.rank}.`
+            : `Leaderboard showing ${data.leaderboard.length} of ${data.totalPlayers} ${plural(data.totalPlayers, "player")}.`}
         </div>
       )}
     </div>

@@ -3,7 +3,6 @@
 import { useEffect, useCallback } from "react";
 import { useWordleStore, type WordleProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { TutorialModal } from "./components/TutorialModal";
 import {
@@ -120,27 +119,24 @@ export function WordleGame() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
       <IOSInstallPrompt />
-      <FullscreenButton />
       <TutorialModal />
 
       <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
-        {/* Header with quit button (shown during gameplay) */}
+        {/* Quit button (shown during gameplay) */}
         {gameState !== "ready" && (
-          <div className="w-full flex justify-between items-center mb-4">
+          <div className="w-full flex justify-start items-center mb-4">
             <button
               onClick={reset}
               className="btn btn-ghost btn-sm text-slate-400"
             >
               ← Quit
             </button>
-            <h1 className="text-2xl font-bold">📝 Wordle</h1>
-            <div className="w-16" /> {/* Spacer for centering */}
           </div>
         )}
 
-        {/* Ready Screen */}
+        {/* Ready Screen — start-overlay layer: the title may render once here (measured by the battery) */}
         {gameState === "ready" && (
-          <div className="text-center space-y-8 w-full">
+          <div data-testid="game-start-overlay" className="text-center space-y-8 w-full">
             <h1 className="text-5xl font-bold mb-4">📝 Wordle</h1>
             <p className="text-xl text-slate-300">Guess the word!</p>
 
@@ -211,7 +207,7 @@ export function WordleGame() {
               </button>
               <button
                 onClick={openTutorial}
-                className="btn btn-ghost btn-sm text-slate-400 hover:text-white"
+                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full font-bold text-sm text-white bg-white/10 border-2 border-white/40 hover:bg-white/20 hover:border-white/60 transition-all"
               >
                 ❓ How to Play
               </button>

@@ -1,67 +1,19 @@
-// Open Trivia Database API - Free, no key required
+// Local trivia question provider.
+//
+// Questions are bundled with the app (see ./questions) so the game works fully
+// offline and never calls an external service. This replaces the old Open
+// Trivia DB fetch, which was serving adult questions to kids.
 
-const BASE_URL = "https://opentdb.com/api.php";
+import {
+  QUESTION_BANK,
+  type TriviaQuestion,
+  type QuestionDifficulty,
+} from "./questions";
 
-export interface TriviaQuestion {
-  category: string;
-  type: string;
-  difficulty: string;
-  question: string;
-  correct_answer: string;
-  incorrect_answers: string[];
-}
-
-interface ApiResponse {
-  response_code: number;
-  results: TriviaQuestion[];
-}
+export type { TriviaQuestion, QuestionDifficulty } from "./questions";
 
 /**
- * Fetch trivia questions from Open Trivia DB
- * @param amount Number of questions (max 50)
- * @param difficulty "easy" | "medium" | "hard"
- * @param category Optional category ID
- */
-export async function fetchQuestions(
-  amount: number,
-  difficulty: "easy" | "medium" | "hard",
-  category?: number
-): Promise<TriviaQuestion[]> {
-  const params = new URLSearchParams({
-    amount: String(Math.min(amount, 50)),
-    difficulty,
-    type: "multiple",
-  });
-
-  if (category) {
-    params.set("category", String(category));
-  }
-
-  const res = await fetch(`${BASE_URL}?${params}`);
-  const data: ApiResponse = await res.json();
-
-  if (data.response_code !== 0) {
-    throw new Error(`Trivia API error code: ${data.response_code}`);
-  }
-
-  if (data.results.length === 0) {
-    throw new Error("Trivia API returned no questions");
-  }
-
-  return data.results;
-}
-
-/**
- * Decode HTML entities in question/answer text
- */
-export function decodeHTML(html: string): string {
-  const txt = document.createElement("textarea");
-  txt.innerHTML = html;
-  return txt.value;
-}
-
-/**
- * Shuffle array using Fisher-Yates
+ * Shuffle an array using Fisher-Yates (returns a new array).
  */
 export function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
@@ -73,16 +25,32 @@ export function shuffleArray<T>(array: T[]): T[] {
 }
 
 /**
- * Prepare a question with shuffled answers
+ * Pick trivia questions from the bundled bank for one game.
+ * Filters by difficulty, shuffles, and returns up to `amount` questions.
+ * The returned questions are all unique, so none repeats within a single game.
+ * If fewer than `amount` exist for the difficulty, returns all of them.
+ */
+export function getQuestions(
+  amount: number,
+  difficulty: QuestionDifficulty
+): TriviaQuestion[] {
+  const pool = QUESTION_BANK.filter((q) => q.difficulty === difficulty);
+  const count = Math.max(0, Math.min(amount, pool.length));
+  return shuffleArray(pool).slice(0, count);
+}
+
+/**
+ * Prepare a question for display: shuffles the answer positions so the correct
+ * answer is not always in the same spot.
  */
 export function prepareQuestion(q: TriviaQuestion) {
-  const allAnswers = shuffleArray([q.correct_answer, ...q.incorrect_answers]);
+  const answers = shuffleArray([q.correct_answer, ...q.incorrect_answers]);
   return {
-    question: decodeHTML(q.question),
-    category: decodeHTML(q.category),
+    question: q.question,
+    category: q.category,
     difficulty: q.difficulty,
-    answers: allAnswers.map(decodeHTML),
-    correctAnswer: decodeHTML(q.correct_answer),
+    answers,
+    correctAnswer: q.correct_answer,
   };
 }
 

@@ -14,11 +14,24 @@ import { IOSInstallPrompt } from './IOSInstallPrompt';
 
 interface FullscreenButtonProps {
   className?: string;
+  /**
+   * "floating": the original dark circle for free placement in a game's own
+   * layout. "header": compact transparent style sized to sit inside the
+   * GameShell header row next to the leaderboard/pause buttons (the floating
+   * circle used to be absolutely positioned at top-4 and rendered half-under
+   * the sticky header on ~30 pages — 2026-07-10 audit, High).
+   */
+  variant?: 'floating' | 'header';
 }
 
-export function FullscreenButton({ className = '' }: FullscreenButtonProps) {
+export function FullscreenButton({ className = '', variant = 'floating' }: FullscreenButtonProps) {
   const { isSupported, isFullscreen, isIPhone, isPWA, toggle } = useFullscreen();
   const [showIOSPrompt, setShowIOSPrompt] = useState(false);
+
+  const baseClasses =
+    variant === 'header'
+      ? 'min-w-[44px] min-h-[44px] flex items-center justify-center text-white hover:scale-110 transition-transform active:scale-95'
+      : 'w-12 h-12 rounded-full flex items-center justify-center text-white shadow-lg active:scale-95 transition-all';
 
   // Hide if already in PWA mode (already fullscreen)
   if (isPWA) return null;
@@ -30,13 +43,9 @@ export function FullscreenButton({ className = '' }: FullscreenButtonProps) {
         <button
           onClick={() => setShowIOSPrompt(true)}
           className={`
-            w-12 h-12 rounded-full
-            bg-blue-600 hover:bg-blue-500
-            flex items-center justify-center
-            text-white text-2xl
-            shadow-lg
-            active:scale-95
-            transition-all
+            ${baseClasses}
+            ${variant === 'floating' ? 'bg-blue-600 hover:bg-blue-500' : ''}
+            text-2xl
             ${className}
           `}
           aria-label="Install app for fullscreen"
@@ -59,13 +68,8 @@ export function FullscreenButton({ className = '' }: FullscreenButtonProps) {
     <button
       onClick={toggle}
       className={`
-        w-12 h-12 rounded-full
-        bg-gray-800/80 hover:bg-gray-700
-        flex items-center justify-center
-        text-white
-        shadow-lg
-        active:scale-95
-        transition-all
+        ${baseClasses}
+        ${variant === 'floating' ? 'bg-gray-800/80 hover:bg-gray-700' : ''}
         ${className}
       `}
       aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}

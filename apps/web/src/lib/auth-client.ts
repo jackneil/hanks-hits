@@ -1,6 +1,7 @@
 "use client";
 
 import { signIn as nextAuthSignIn, signOut as nextAuthSignOut } from "next-auth/react";
+import { SIGNOUT_BROADCAST_KEY, clearGameStorage } from "./storage-keys";
 
 // Re-export NextAuth client functions with our customizations
 export { useSession, SessionProvider } from "next-auth/react";
@@ -27,58 +28,23 @@ export async function signInWithGoogle(callbackUrl: string = "/") {
 }
 
 /**
- * All localStorage keys used by games and apps.
- * CRITICAL: Keep this list updated when adding new games!
- */
-const GAME_STORAGE_KEYS = [
-  // Games with cloud sync
-  "2048-game-state",
-  "snake-game-state",
-  "checkers-progress",
-  "chess-storage",
-  "flappy-bird-progress",
-  "memory-match-progress",
-  "quoridor-progress",
-  "retro-arcade-storage",
-  // Games pending cloud sync
-  "hill-climb-storage",
-  "monster-truck-save",
-  "cookie-clicker-storage",
-  "endless-runner-storage",
-  "hank-platformer-progress",
-  "oregon-trail-storage",
-  // Apps
-  "joke-generator-progress",
-  "toy-finder-progress",
-  "weather-app-progress",
-];
-
-/**
  * Sign out and clear localStorage (security fix)
- * Prevents cross-user data contamination on shared devices.
+ * Prevents cross-user data contamination on shared devices. The key registry
+ * and matching rules live in storage-keys.ts so a test can prove every synced
+ * game's key gets cleared.
  */
 export async function signOutAndClear(callbackUrl: string = "/") {
   if (typeof window !== "undefined") {
-    // Clear all game/app localStorage keys
-    for (const key of GAME_STORAGE_KEYS) {
-      localStorage.removeItem(key);
-    }
-
-    // Also clear any keys matching common patterns (safety net)
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (
-        key.endsWith("-storage") ||
-        key.endsWith("-progress") ||
-        key.endsWith("-save") ||
-        key.endsWith("-game-state")
-      )) {
-        keysToRemove.push(key);
-      }
-    }
-    for (const key of keysToRemove) {
-      localStorage.removeItem(key);
+    // Never let a storage failure (blocked webviews) strand the user
+    // logged in — the sign-out itself must always proceed.
+    try {
+      clearGameStorage();
+      // Tell every OTHER open tab to reload: their in-memory zustand stores
+      // would otherwise re-persist the just-cleared keys within seconds and
+      // hand this user's progress to whoever signs in next.
+      localStorage.setItem(SIGNOUT_BROADCAST_KEY, String(Date.now()));
+    } catch (err) {
+      console.warn("Could not clear game storage on sign-out:", err);
     }
   }
 

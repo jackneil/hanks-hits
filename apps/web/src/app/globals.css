@@ -12,12 +12,16 @@
   --color-base-300: #e0f2fe;
   --color-base-content: #1e3a5f;
 
-  /* Primary - Fun Blue */
-  --color-primary: #3b82f6;
+  /* Primary - Fun Blue. blue-600: white text on primary measures 5.17:1
+     (AA); the old blue-500 was 3.68:1 and failed on buttons/links/pills
+     (2026-07-10 audit). */
+  --color-primary: #2563eb;
   --color-primary-content: #ffffff;
 
-  /* Secondary - Nature Green */
-  --color-secondary: #22c55e;
+  /* Secondary - Nature Green. green-600: white on it measures 3.26:1,
+     passing AA for the large bold button text where it's used (the old
+     green-500 was 2.28:1). */
+  --color-secondary: #16a34a;
   --color-secondary-content: #ffffff;
 
   /* Accent - Energetic Orange */

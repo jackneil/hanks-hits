@@ -9,6 +9,7 @@ import {
   getGameMetadata,
 } from "@/shared/lib/gameMetadata.generated";
 import { getPlayableHref } from "@/shared/lib/app-routing";
+import { plural } from "@/shared/lib/pluralize";
 import { LEADERBOARD_ENABLED_GAMES } from "@/lib/leaderboard-extractors";
 
 interface MyRank {
@@ -233,7 +234,7 @@ export function LeaderboardsPage() {
                               <span className="font-bold text-white text-lg">{rank.gameName}</span>
                             </div>
                             <div className="text-sm text-white/50 mt-0.5">
-                              Top {rank.totalPlayers > 0 ? Math.round((rank.rank / rank.totalPlayers) * 100) : 0}% of {rank.totalPlayers.toLocaleString()} players
+                              #{rank.rank.toLocaleString()} of {rank.totalPlayers.toLocaleString()} {plural(rank.totalPlayers, "player")}
                             </div>
                           </div>
 
@@ -373,6 +374,7 @@ export function LeaderboardsPage() {
                 gameName={selectedGameMeta.name}
                 icon={selectedGameMeta.icon}
                 showPeriodSelector={true}
+                showTitle={false}
                 compact={false}
               />
             </div>

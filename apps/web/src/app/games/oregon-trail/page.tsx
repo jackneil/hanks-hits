@@ -1,13 +1,11 @@
 "use client";
 import dynamic from "next/dynamic";
-import { GameShell } from "@/shared/components";
 
-const OregonTrailGame = dynamic(() => import("@/games/oregon-trail/Game"), { ssr: false });
+const OregonTrailGameShell = dynamic(
+  () => import("@/games/oregon-trail/OregonTrailGameShell"),
+  { ssr: false }
+);
 
 export default function OregonTrailPage() {
-  return (
-    <GameShell gameName="Oregon Trail" appId="oregon-trail" canPause>
-      <OregonTrailGame />
-    </GameShell>
-  );
+  return <OregonTrailGameShell />;
 }

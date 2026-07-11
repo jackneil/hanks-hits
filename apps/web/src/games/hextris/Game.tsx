@@ -16,7 +16,7 @@ import {
   getBlockPosition,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // ============================================
@@ -220,6 +220,8 @@ export function HextrisGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
+  const isCoarse = useCoarsePointer();
 
   const store = useHextrisStore();
   const render = useCanvasRenderer(canvasRef);
@@ -301,10 +303,11 @@ export function HextrisGame() {
       }
 
       if (store.status === "paused") {
-        if (e.code === "Space" || e.code === "Escape" || e.code === "KeyP") {
-          e.preventDefault();
-          store.resumeGame();
-        }
+        // Pause/resume is owned by the GameShell now (ESC + pause button), so
+        // we ignore game keys while paused instead of double-handling ESC/P —
+        // that double-handling is exactly what desynced the shell's pause menu
+        // from the game's own paused state. (The on-canvas "II" pause button
+        // still resumes via a tap on the canvas — see handleCanvasClick.)
         return;
       }
 
@@ -319,17 +322,13 @@ export function HextrisGame() {
           e.preventDefault();
           store.rotateRight();
           break;
-        case "Escape":
-        case "KeyP":
-          e.preventDefault();
-          store.pauseGame();
-          break;
+        // Pause (ESC) is owned by the GameShell now — see the wrapper.
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [store.status, store.startGame, store.pauseGame, store.resumeGame, store.rotateLeft, store.rotateRight]);
+  }, [store.status, store.startGame, store.rotateLeft, store.rotateRight]);
 
   // Touch controls
   const handleCanvasClick = useCallback(
@@ -443,14 +442,17 @@ export function HextrisGame() {
         >
           {store.progress.soundEnabled ? "🔊" : "🔇"}
         </button>
-        <FullscreenButton />
         <IOSInstallPrompt />
       </div>
 
       {/* Instructions */}
       <div className="mt-4 text-slate-400 text-center text-sm">
-        <p>A/D or Arrow Keys to rotate | Tap left/right side</p>
-        <p>P or Escape to pause</p>
+        {isCoarse ? (
+          <p>Tap left/right side to rotate</p>
+        ) : (
+          <p>A/D or Arrow Keys to rotate | Tap left/right side</p>
+        )}
+        {!isCoarse && <p>Escape to pause</p>}
       </div>
     </div>
   );

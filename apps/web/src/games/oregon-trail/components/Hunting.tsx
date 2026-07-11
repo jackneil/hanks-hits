@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useOregonTrailStore } from "../lib/store";
+import { useHuntPauseStore } from "../lib/huntPause";
 import { HUNTING_TIME, MAX_CARRY_WEIGHT } from "../lib/constants";
 
 // Animal configurations
@@ -82,6 +83,20 @@ export function Hunting() {
 
   const { supplies, hunt } = useOregonTrailStore();
 
+  // Paused by the GameShell (ESC / pause button / pause-on-blur). While paused,
+  // the countdown, the animal spawner, and the animation loop all freeze so the
+  // hunt does not run behind the shell's pause menu.
+  const paused = useHuntPauseStore((s) => s.paused);
+  const setPaused = useHuntPauseStore((s) => s.setPaused);
+
+  // A fresh hunt must never start paused, and leaving the hunt must not strand
+  // the flag as paused for the next one (the store is not persisted, so this is
+  // just belt-and-suspenders around the shell's onResume).
+  useEffect(() => {
+    setPaused(false);
+    return () => setPaused(false);
+  }, [setPaused]);
+
   const [food, setFood] = useState(0);
   const [ammo, setAmmo] = useState(0);
   const [time, setTime] = useState(HUNTING_TIME);
@@ -94,14 +109,14 @@ export function Hunting() {
 
   // Timer countdown
   useEffect(() => {
-    if (time <= 0) return;
+    if (time <= 0 || paused) return;
     const t = setInterval(() => setTime((p) => Math.max(0, p - 1)), 1000);
     return () => clearInterval(t);
-  }, [time]);
+  }, [time, paused]);
 
   // Spawn animals
   useEffect(() => {
-    if (time <= 0) return;
+    if (time <= 0 || paused) return;
 
     const spawn = setInterval(() => {
       const types = Object.keys(ANIMAL_CONFIG) as AnimalType[];
@@ -131,7 +146,7 @@ export function Hunting() {
     }, 800);
 
     return () => clearInterval(spawn);
-  }, [time]);
+  }, [time, paused]);
 
   // Update cursor position
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -234,6 +249,10 @@ export function Hunting() {
 
   // Animation loop
   useEffect(() => {
+    // While the shell has the hunt paused, don't schedule frames — the canvas
+    // keeps its last drawn frame, so the scene freezes in place under the menu.
+    if (paused) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -467,7 +486,7 @@ export function Hunting() {
       cancelAnimationFrame(animationRef.current);
       window.removeEventListener("resize", resize);
     };
-  }, [cursorPos, recoil]);
+  }, [cursorPos, recoil, paused]);
 
   // Game over screen
   if (time <= 0) {

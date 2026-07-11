@@ -11,7 +11,6 @@ import {
   getTickInterval,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // ============================================
@@ -21,14 +20,40 @@ function GameBoard() {
   const { snake, food, foodType, gridSize, status } = useSnakeStore();
 
   const boardSize = gridSize * CELL_SIZE;
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  // Scale the fixed-pixel board down on narrow screens: at 375px the 400px
+  // board overflowed the viewport and the page scrolled sideways under a
+  // swipe-steered game (2026-07-10 audit, High).
+  useEffect(() => {
+    const update = () => {
+      // The parent column sizes itself to fit the board, so its clientWidth
+      // can't be trusted alone (it grows to 400px right along with the
+      // overflow) — clamp against the viewport too, minus page padding.
+      const viewport = document.documentElement.clientWidth - 16;
+      const parent = wrapperRef.current?.parentElement?.clientWidth ?? Infinity;
+      const available = Math.min(parent, viewport);
+      setScale(Math.min(1, available / boardSize));
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [boardSize]);
 
   return (
+    <div
+      ref={wrapperRef}
+      style={{ width: boardSize * scale, height: boardSize * scale }}
+    >
     <div
       className="relative border-4 border-green-700 rounded-lg shadow-xl overflow-hidden"
       style={{
         width: boardSize,
         height: boardSize,
         backgroundColor: COLORS.GRID_BG,
+        transform: `scale(${scale})`,
+        transformOrigin: "top left",
       }}
     >
       {/* Grid lines */}
@@ -109,6 +134,7 @@ function GameBoard() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -310,7 +336,7 @@ function SettingsPanel() {
     <div className="w-full max-w-md">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
+        className="w-full min-h-[44px] bg-gray-700 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
       >
         <span>Settings</span>
         <span className="transform transition-transform" style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)" }}>
@@ -476,11 +502,10 @@ export function SnakeGame() {
           setDirection("right");
           break;
         case " ":
-          if (status === "playing") {
-            store.pauseGame();
-          } else if (status === "paused") {
-            store.resumeGame();
-          } else if (status === "idle" || status === "game-over") {
+          // Pause is owned by the GameShell now (ESC + pause button). Space is
+          // kept only as a start/restart shortcut so it can't resume the sim
+          // behind the shell's still-open pause menu (the desync we're fixing).
+          if (status === "idle" || status === "game-over") {
             store.startGame();
           }
           break;
@@ -488,11 +513,6 @@ export function SnakeGame() {
         case "R":
           if (status === "game-over") {
             store.startGame();
-          }
-          break;
-        case "Escape":
-          if (status === "playing") {
-            store.pauseGame();
           }
           break;
       }
@@ -529,16 +549,6 @@ export function SnakeGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
-
-      {/* Header */}
-      <header className="text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">Snake</h1>
-        <p className="text-green-200">Eat food and grow longer!</p>
-      </header>
 
       {/* Game Board */}
       <div className="flex flex-col items-center">
@@ -555,7 +565,7 @@ export function SnakeGame() {
 
       {/* Desktop keyboard hint */}
       <div className="hidden md:block text-green-300 text-sm text-center">
-        Use WASD or Arrow Keys to move | Space to pause | R to restart
+        Use WASD or Arrow Keys to move | ESC to pause | R to restart
       </div>
 
       {/* Settings */}

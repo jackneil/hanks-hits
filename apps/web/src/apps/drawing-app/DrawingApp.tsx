@@ -9,7 +9,6 @@ import { BrushSettings } from "./components/BrushSettings";
 import { Gallery } from "./components/Gallery";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import type { useCanvas } from "./hooks/useCanvas";
 
 /**
@@ -117,12 +116,10 @@ export function DrawingApp() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Header */}
-      <header className="flex-shrink-0 flex justify-between items-center gap-2 p-2 md:p-4 bg-white/10 backdrop-blur-sm">
-        <h1 className="min-w-0 truncate text-lg md:text-2xl font-bold text-white drop-shadow-lg">
-          {"\uD83C\uDFA8"} Drawing App
-        </h1>
-
+      {/* Toolbar (home + title now live in the shared app shell header).
+          No full-width tinted band: with the title gone, right-aligned
+          buttons on a 1366px band read as a leftover header. */}
+      <div className="flex-shrink-0 flex justify-end items-center gap-2 p-2 md:p-3">
         <div className="flex shrink-0 items-center gap-1 md:gap-2">
           {/* Undo */}
           <button
@@ -172,10 +169,8 @@ export function DrawingApp() {
             {"\uD83D\uDDBC\uFE0F"}
           </button>
 
-          {/* Fullscreen */}
-          <FullscreenButton />
         </div>
-      </header>
+      </div>
 
       {/* Main canvas area */}
       <div className="flex-1 p-2 md:p-4 min-h-0">

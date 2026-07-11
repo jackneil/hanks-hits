@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuoridorStore } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   type Position,
@@ -426,15 +425,6 @@ export function QuoridorGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Fullscreen button */}
-      <div className="fixed top-4 right-4 z-50">
-        <FullscreenButton />
-      </div>
-
-      <header className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">Quoridor</h1>
-        <p className="text-amber-200">Block your opponent, reach the other side!</p>
-      </header>
 
       {/* Turn indicator */}
       <div className="flex items-center justify-center gap-4 py-3 px-6 bg-gray-800 rounded-lg">
@@ -696,7 +686,7 @@ export function QuoridorGame() {
         >
           <div className="bg-white rounded-xl p-6 max-w-md text-center shadow-2xl">
             <h2 className="text-2xl font-bold mb-4 text-gray-800">
-              How to Play Quoridor
+              How to Play
             </h2>
 
             <div className="space-y-3 text-left text-gray-700">

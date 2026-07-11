@@ -1,10 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { GameShell } from "@/shared/components";
 
-const SpaceInvadersGame = dynamic(
-  () => import("@/games/space-invaders"),
+const SpaceInvadersGameShell = dynamic(
+  () => import("@/games/space-invaders/SpaceInvadersGameShell"),
   {
     ssr: false,
     loading: () => (
@@ -21,9 +20,5 @@ const SpaceInvadersGame = dynamic(
 );
 
 export default function SpaceInvadersPage() {
-  return (
-    <GameShell gameName="Space Invaders" appId="space-invaders" canPause>
-      <SpaceInvadersGame />
-    </GameShell>
-  );
+  return <SpaceInvadersGameShell />;
 }

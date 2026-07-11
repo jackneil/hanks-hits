@@ -137,7 +137,7 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
   return (
     <div className="fixed inset-0 pointer-events-none z-40">
       {/* Top left - Coins */}
-      <div className="absolute top-4 left-4 flex flex-col gap-2">
+      <div className="absolute top-14 md:top-16 left-4 flex flex-col gap-2">
         {/* Coin counter */}
         <div className="bg-black/60 backdrop-blur-sm rounded-xl px-4 py-2 flex items-center gap-2">
           <span className="text-3xl">🪙</span>
@@ -174,7 +174,7 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
       </div>
 
       {/* Top right - NOS and Speed */}
-      <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
+      <div className="absolute top-14 md:top-16 right-4 flex flex-col gap-2 items-end">
         {/* NOS meter */}
         <div className="bg-black/60 backdrop-blur-sm rounded-xl px-4 py-2 w-40">
           <div className="flex items-center justify-between mb-1">
@@ -235,7 +235,7 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
 
       {/* Mobile pause button */}
       {isMobile && (
-        <div className="absolute top-4 right-20 pointer-events-auto">
+        <div className="absolute top-14 md:top-16 right-20 pointer-events-auto">
           <button
             onClick={onPause}
             className="bg-gray-600/80 text-white w-12 h-12 rounded-full flex items-center justify-center text-xl"

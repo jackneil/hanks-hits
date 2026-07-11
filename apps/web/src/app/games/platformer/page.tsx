@@ -1,9 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { GameShell } from "@/shared/components";
 
-const PlatformerGame = dynamic(() => import("@/games/platformer"), {
+const PlatformerGameShell = dynamic(() => import("@/games/platformer/PlatformerGameShell"), {
   ssr: false,
   loading: () => (
     <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center">
@@ -21,9 +20,5 @@ const PlatformerGame = dynamic(() => import("@/games/platformer"), {
 });
 
 export default function PlatformerPage() {
-  return (
-    <GameShell gameName="Hank's Hopper" appId="platformer" canPause>
-      <PlatformerGame />
-    </GameShell>
-  );
+  return <PlatformerGameShell />;
 }

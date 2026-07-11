@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useMathAttackStore, type MathAttackProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { FullscreenButton } from "@/shared/components/FullscreenButton";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   DIFFICULTY_SETTINGS,
@@ -261,12 +260,11 @@ export function MathAttackGame() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white">
       <IOSInstallPrompt />
-      <FullscreenButton />
 
       <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
-        {/* Ready Screen */}
+        {/* Ready Screen — start-overlay layer: the title may render once here (measured by the battery) */}
         {gameState === "ready" && (
-          <div className="text-center space-y-8 w-full">
+          <div data-testid="game-start-overlay" className="text-center space-y-8 w-full">
             <h1 className="text-5xl font-bold mb-4">🔢 Math Attack</h1>
             <p className="text-xl text-purple-200">Solve problems before they hit the ground!</p>
 

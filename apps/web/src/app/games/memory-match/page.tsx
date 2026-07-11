@@ -1,10 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { GameShell } from "@/shared/components";
 
-const MemoryMatchGame = dynamic(
-  () => import("@/games/memory-match"),
+const MemoryMatchGameShell = dynamic(
+  () => import("@/games/memory-match/MemoryMatchGameShell"),
   {
     ssr: false,
     loading: () => (
@@ -21,9 +20,5 @@ const MemoryMatchGame = dynamic(
 );
 
 export default function MemoryMatchPage() {
-  return (
-    <GameShell gameName="Memory Match" appId="memory-match" canPause>
-      <MemoryMatchGame />
-    </GameShell>
-  );
+  return <MemoryMatchGameShell />;
 }

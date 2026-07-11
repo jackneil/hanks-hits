@@ -9,7 +9,7 @@ import {
   type ValidAppId,
   type AppProgressData,
 } from "@hank-neil/db/schema";
-import { mergeProgress } from "@/lib/progress-merge";
+import { mergeForSave } from "@/lib/progress-merge";
 import { validateProgress } from "@/lib/progress-schemas";
 import { checkProgressDeleteRateLimit, checkProgressRateLimit } from "@/lib/rate-limit";
 import { generateUniqueHandle } from "@/lib/handle-generator";
@@ -160,8 +160,11 @@ export async function POST(request: Request, context: RouteContext) {
     let finalData: AppProgressData = validation.data as AppProgressData;
     let conflicts: string[] = [];
 
-    // If merging, fetch existing first and merge
-    // SECURITY: Server timestamp ALWAYS wins - we don't trust any client timestamps
+    // If merging, fetch existing first and merge. Ordering comes from the
+    // progress blobs' own lastModified (validated + bounded by the zod schema);
+    // the row's updatedAt only breaks ties when a blob carries no timestamp.
+    // Field-aware reconcile means a stale/default blob can never erase earned
+    // monotonic progress (see mergeForSave + the wipe regression tests).
     if (merge) {
       const existing = await db.query.appProgress.findFirst({
         where: and(
@@ -171,15 +174,28 @@ export async function POST(request: Request, context: RouteContext) {
       });
 
       if (existing) {
-        const serverTimestamp = existing.updatedAt.getTime();
-        const mergeResult = mergeProgress(
-          validation.data as AppProgressData,
-          existing.data as AppProgressData,
-          null,
-          serverTimestamp
+        const mergeResult = mergeForSave(validation.data as AppProgressData, {
+          data: existing.data as AppProgressData,
+          updatedAt: existing.updatedAt,
+        });
+        // SECURITY: re-validate the MERGED blob before persisting — max() and
+        // array-union combine two individually-valid blobs, and the result
+        // must still satisfy the schema's bounds. If it doesn't, fall back to
+        // the incoming validated payload rather than storing an unvalidated
+        // shape (both inputs passed validation at their own write time).
+        const mergedValidation = validateProgress(
+          appId as ValidAppId,
+          mergeResult.data
         );
-        finalData = mergeResult.data;
-        conflicts = mergeResult.conflicts;
+        if (mergedValidation.success) {
+          finalData = mergedValidation.data as AppProgressData;
+          conflicts = mergeResult.conflicts;
+        } else {
+          console.warn(
+            `Merged progress for ${appId} failed re-validation; persisting incoming payload instead:`,
+            mergedValidation.error
+          );
+        }
       }
     }
 
