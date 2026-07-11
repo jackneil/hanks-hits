@@ -47,6 +47,19 @@ export async function GET(
       const location = response.headers.get("location");
       const target = location ? safeRedirectTarget(location) : null;
       if (!target) {
+        // OBSERVABILITY: this branch fires when the CDN changes its redirect
+        // target (host rotation, relative Location, http downgrade). Without a
+        // log it is indistinguishable from a missing ROM, and the whole
+        // library can die silently for days (exactly how the pre-2026-07-11
+        // outage went unnoticed). Log the rejected HOST only - never the full
+        // signed URL, which carries credentials.
+        let rejectedHost = "unparseable-location";
+        try {
+          if (location) rejectedHost = new URL(location).host;
+        } catch {}
+        console.error(
+          `ROM proxy: CDN redirect rejected (host: ${rejectedHost}) for /${romPath} - if the CDN moved, update ALLOWED_REDIRECT_HOST in lib/rom-redirect.ts`
+        );
         return new NextResponse("ROM not found", { status: 404 });
       }
       response = await fetch(target, {
@@ -56,17 +69,43 @@ export async function GET(
     }
 
     if (!response.ok) {
+      // OBSERVABILITY: distinguishes upstream failures (expired signed URL ->
+      // 403, second redirect -> 3xx, genuinely missing ROM -> 404) in Railway
+      // logs so a library-wide outage is a one-line grep, not a mystery.
+      console.error(
+        `ROM proxy: upstream returned ${response.status} for /${romPath}`
+      );
       return new NextResponse("ROM not found", { status: 404 });
     }
 
-    // Defensive size cap (ROMs are small; reject absurd payloads)
+    // Defensive size cap (ROMs are small; reject absurd payloads). The header
+    // check fast-rejects honest oversized responses, but content-length can be
+    // absent - so the stream itself is also metered and aborted at the cap.
+    const MAX_ROM_BYTES = 64 * 1024 * 1024;
     const contentLength = Number(response.headers.get("content-length") || "0");
-    if (contentLength > 64 * 1024 * 1024) {
+    if (contentLength > MAX_ROM_BYTES) {
       return new NextResponse("ROM too large", { status: 413 });
     }
 
-    // Stream the response body
-    return new NextResponse(response.body, {
+    // Stream the response body, enforcing the byte cap for real (an upstream
+    // that omits content-length must not be able to stream unbounded data
+    // through this single instance).
+    let streamed = 0;
+    const meter = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, ctrl) {
+        streamed += chunk.byteLength;
+        if (streamed > MAX_ROM_BYTES) {
+          console.error(
+            `ROM proxy: aborted /${romPath} - stream exceeded ${MAX_ROM_BYTES} bytes (no/false content-length)`
+          );
+          ctrl.error(new Error("ROM stream exceeded size cap"));
+          return;
+        }
+        ctrl.enqueue(chunk);
+      },
+    });
+
+    return new NextResponse(response.body?.pipeThrough(meter) ?? null, {
       headers: {
         "Content-Type": "application/octet-stream",
         // Cache for 1 year - ROMs don't change
@@ -74,7 +113,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error("Failed to fetch ROM:", error);
+    console.error(`Failed to fetch ROM /${romPath}:`, error);
     return new NextResponse("Failed to fetch ROM", { status: 500 });
   } finally {
     clearTimeout(timeout);

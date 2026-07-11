@@ -66,6 +66,20 @@ describe("Blitz Bomber start overlay", () => {
     expect(screen.getByRole("button", { name: /Hard/ })).toBeInTheDocument();
   });
 
+  it("start overlay cannot clip on tall phones: board container keeps its small-screen min-height", () => {
+    // 2026-07-11 mobile audit: the aspect-[4/3] board is only ~270px tall on
+    // a 390x844 phone, which clipped the Easy/Normal/Hard buttons below the
+    // fold (the game looked unstartable). min-h-[34rem] on small screens gives
+    // the overlay room; sm:min-h-0 resets it where 4:3 is already tall enough.
+    render(<BlitzBomberGame />);
+
+    const easy = screen.getByRole("button", { name: /Easy/ });
+    const container = easy.closest(".aspect-\\[4\\/3\\]");
+    expect(container).not.toBeNull();
+    expect(container!.className).toContain("min-h-[34rem]");
+    expect(container!.className).toContain("sm:min-h-0");
+  });
+
   it("picking a difficulty sets it and starts the game", () => {
     render(<BlitzBomberGame />);
 

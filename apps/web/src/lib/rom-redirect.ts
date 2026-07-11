@@ -17,5 +17,7 @@ export function safeRedirectTarget(location: string): string | null {
   }
   if (url.protocol !== "https:") return null;
   if (url.hostname !== ALLOWED_REDIRECT_HOST) return null;
+  if (url.port !== "") return null; // default https port only
+  if (url.username || url.password) return null; // no credentialed URLs
   return url.toString();
 }

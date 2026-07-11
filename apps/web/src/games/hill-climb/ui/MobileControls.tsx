@@ -32,9 +32,13 @@ export function MobileControls({ setNitro }: MobileControlsProps) {
 
   return (
     <div className="fixed inset-0 pointer-events-none z-30">
+      {/* Zone indicators sit in the LOWER portion of each half so they stay
+          clear of the HUD (fuel/nitro gauges top-right, coins top-left) on a
+          390px-tall landscape phone. The touch ZONES themselves are still the
+          full half-screen (see useControls) - only the visual hint moved. */}
       {/* Left zone indicator (brake/lean back) */}
-      <div className="absolute left-0 top-0 bottom-0 w-1/2 flex items-center justify-center">
-        <div className="bg-red-500/50 rounded-3xl p-8 border-2 border-red-500/50">
+      <div className="absolute left-0 top-0 bottom-0 w-1/2 flex items-end justify-center pb-[max(1.5rem,env(safe-area-inset-bottom))] pointer-events-none">
+        <div className="bg-red-500/50 rounded-3xl p-6 border-2 border-red-500/50">
           <div className="text-center text-white/90 [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)]">
             <div className="text-4xl mb-2">◀</div>
             <div className="text-sm font-bold">BRAKE</div>
@@ -44,8 +48,8 @@ export function MobileControls({ setNitro }: MobileControlsProps) {
       </div>
 
       {/* Right zone indicator (gas/lean forward) */}
-      <div className="absolute right-0 top-0 bottom-0 w-1/2 flex items-center justify-center">
-        <div className="bg-green-500/50 rounded-3xl p-8 border-2 border-green-500/50">
+      <div className="absolute right-0 top-0 bottom-0 w-1/2 flex items-end justify-center pb-[max(1.5rem,env(safe-area-inset-bottom))] pointer-events-none">
+        <div className="bg-green-500/50 rounded-3xl p-6 border-2 border-green-500/50">
           <div className="text-center text-white/90 [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)]">
             <div className="text-4xl mb-2">▶</div>
             <div className="text-sm font-bold">GAS</div>

@@ -3,7 +3,8 @@ import { clampDeltaTime, getControlsCopy, MAX_DELTA_TIME } from '../lib/gameHelp
 
 describe('clampDeltaTime', () => {
   it('clamps a huge frame gap down to the max (throttled/slow first frame)', () => {
-    // 2000ms gap -> would spike the physics if left un-clamped
+    // 2000ms gap -> would over-drain fuel/nitro and falsely credit airtime
+    // if left un-clamped (physics is unaffected: it steps on Matter.Runner)
     expect(clampDeltaTime(2000 / 1000)).toBe(MAX_DELTA_TIME);
   });
 

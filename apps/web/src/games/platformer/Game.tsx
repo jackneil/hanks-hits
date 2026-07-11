@@ -798,29 +798,36 @@ export function PlatformerGame() {
           width breakpoint. The game forces landscape (844px wide), so
           md:hidden would hide these on a phone and make it unplayable. */}
       {gameState === "playing" && isCoarse && (
-        <div className="fixed bottom-4 left-0 right-0 flex justify-between px-4 pointer-events-none">
-          <button
-            onTouchStart={() => setMovingLeft(true)}
-            onTouchEnd={() => setMovingLeft(false)}
-            style={{ touchAction: "none" }}
-            className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto"
-          >
-            ◀
-          </button>
+        /* Two-thumb layout: ◀ ▶ clustered under the LEFT thumb, JUMP under the
+           RIGHT thumb - run-right-and-jump is the core verb, so JUMP must be
+           reachable while a movement button is held (a centered JUMP is out of
+           reach for both thumbs). Safe-area padding keeps the row clear of the
+           home indicator on installed-PWA phones. */
+        <div className="fixed bottom-4 left-0 right-0 flex justify-between items-end px-4 pb-[env(safe-area-inset-bottom)] pointer-events-none">
+          <div className="flex gap-4 pointer-events-none">
+            <button
+              onTouchStart={() => setMovingLeft(true)}
+              onTouchEnd={() => setMovingLeft(false)}
+              style={{ touchAction: "none" }}
+              className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto"
+            >
+              ◀
+            </button>
+            <button
+              onTouchStart={() => setMovingRight(true)}
+              onTouchEnd={() => setMovingRight(false)}
+              style={{ touchAction: "none" }}
+              className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto"
+            >
+              ▶
+            </button>
+          </div>
           <button
             onTouchStart={() => jump()}
             style={{ touchAction: "none" }}
             className="w-24 h-24 bg-green-500/60 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg active:bg-green-500/80 pointer-events-auto"
           >
             JUMP
-          </button>
-          <button
-            onTouchStart={() => setMovingRight(true)}
-            onTouchEnd={() => setMovingRight(false)}
-            style={{ touchAction: "none" }}
-            className="w-20 h-20 bg-white/30 rounded-full flex items-center justify-center text-4xl font-bold text-white shadow-lg active:bg-white/50 pointer-events-auto"
-          >
-            ▶
           </button>
         </div>
       )}

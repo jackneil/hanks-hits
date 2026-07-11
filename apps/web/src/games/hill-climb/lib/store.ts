@@ -212,6 +212,10 @@ export const useHillClimbStore = create<GameState & GameActions>()(
 
         set({
           isPlaying: true,
+          // A run can be started while paused (pause -> Quit to Garage ->
+          // start): without clearing the flag the new run renders frozen
+          // under a PauseMenu (2026-07-11 DCR finding).
+          isPaused: false,
           isGameOver: false,
           gameOverReason: null,
           distance: 0,

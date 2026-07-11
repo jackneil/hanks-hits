@@ -9,10 +9,15 @@ import { useCoarsePointer } from "../hooks/useCoarsePointer";
  * viewport, and stay readable. Renders the game title exactly once —
  * games using it must not paint their own menu/title into the canvas.
  *
- * Position contract: renders absolute inset-0, so the game mounts it
- * inside its relative, canvas-sized container. Stacking: z-40 — above
- * the play area, below OrientationWarning and the GameShell header/pause
- * layers.
+ * Position contract: renders absolute inset-0 and fills its nearest
+ * POSITIONED ancestor. Two blessed mounts:
+ *   (a) inside the game's relative, canvas-sized container (most games), or
+ *   (b) as a direct child of the game's relative full-height page container
+ *       (bomberman) — use this when the canvas box is smaller than the start
+ *       card on a phone, or the card's buttons clip below the fold
+ *       (2026-07-11 mobile audit). Either way the ancestor must be
+ *       `relative`. Stacking: z-40 — above the play area, below
+ * OrientationWarning and the GameShell header/pause layers.
  *
  * Mount contract: render it CONDITIONALLY on the menu/ready state
  * (`{state === "ready" && <GameStartOverlay .../>}`), never permanently

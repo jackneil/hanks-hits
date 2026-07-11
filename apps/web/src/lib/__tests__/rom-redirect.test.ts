@@ -45,4 +45,22 @@ describe("safeRedirectTarget", () => {
       safeRedirectTarget("https://storage.railway.app@evil.com/rom.smc")
     ).toBeNull();
   });
+
+  it("rejects non-default ports on the allowlisted host", () => {
+    expect(
+      safeRedirectTarget("https://storage.railway.app:8443/rom.smc")
+    ).toBeNull();
+    expect(
+      safeRedirectTarget("https://storage.railway.app:443/rom.smc")
+    ).toBe("https://storage.railway.app/rom.smc"); // :443 normalizes to default
+  });
+
+  it("rejects userinfo on the allowlisted host itself", () => {
+    expect(
+      safeRedirectTarget("https://user:pass@storage.railway.app/rom.smc")
+    ).toBeNull();
+    expect(
+      safeRedirectTarget("https://user@storage.railway.app/rom.smc")
+    ).toBeNull();
+  });
 });
