@@ -18,9 +18,11 @@ export interface CatalogGame {
   favorite: boolean;
 }
 
-// ROM base URL - uses env var in production, falls back for local dev
+// ROM base URL - env var can override, but the default is the same-origin
+// /api/roms proxy (works in every environment; the old "/roms" fallback
+// 404'd all of local dev)
 export const ROM_BASE_URL =
-  process.env.NEXT_PUBLIC_ROM_CDN_URL || "/roms";
+  process.env.NEXT_PUBLIC_ROM_CDN_URL || "/api/roms";
 
 export function getRomUrl(game: CatalogGame): string {
   return `${ROM_BASE_URL}/atari2600/${game.filename}`;

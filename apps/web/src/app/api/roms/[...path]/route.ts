@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { safeRedirectTarget } from "@/lib/rom-redirect";
+
 // Railway CDN URL for ROMs
 const ROM_CDN_URL = "https://cdn-hankshits.up.railway.app/roms";
 
@@ -27,16 +29,31 @@ export async function GET(
   const romPath = path.join("/");
   const bucketUrl = `${ROM_CDN_URL}/${romPath}`;
 
-  // SECURITY: bound the upstream fetch — no redirect-following (so the hardcoded
-  // host can't 3xx us elsewhere → SSRF) and a timeout so a slow/hung CDN can't
-  // tie up the single instance.
+  // SECURITY: bound the upstream fetch — no blind redirect-following (so the
+  // hardcoded host can't 3xx us anywhere → SSRF) and a timeout so a slow/hung
+  // CDN can't tie up the single instance. The Railway CDN serves bucket objects
+  // via a 302 to a signed storage.railway.app URL, so we follow EXACTLY ONE
+  // redirect hop, and only after validating the target host against a pinned
+  // allowlist.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(bucketUrl, {
+    let response = await fetch(bucketUrl, {
       redirect: "manual",
       signal: controller.signal,
     });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      const target = location ? safeRedirectTarget(location) : null;
+      if (!target) {
+        return new NextResponse("ROM not found", { status: 404 });
+      }
+      response = await fetch(target, {
+        redirect: "manual", // one hop only — a second redirect is a failure
+        signal: controller.signal,
+      });
+    }
 
     if (!response.ok) {
       return new NextResponse("ROM not found", { status: 404 });
