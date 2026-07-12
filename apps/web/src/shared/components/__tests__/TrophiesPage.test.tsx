@@ -39,6 +39,17 @@ describe("TrophiesPage (guest-visible /trophies)", () => {
     expect(signIn.className).toContain("min-h-[44px]");
   });
 
+  it("is one tap away everywhere: the shared header links 🏅 Trophies to /trophies", () => {
+    // Discoverability regression: /trophies shipped as an orphan route once —
+    // nothing in the UI navigated there, and the header 🏆 misdirected to
+    // Leaderboards. The shared header now carries a distinct Trophies link.
+    render(<TrophiesPage />);
+    const trophies = screen.getByRole("link", { name: /Trophy Case/ });
+    expect(trophies.getAttribute("href")).toBe("/trophies");
+    const leaderboards = screen.getByRole("link", { name: "Leaderboards" });
+    expect(leaderboards.getAttribute("href")).toBe("/leaderboards");
+  });
+
   it("hides the sign-in nudge for signed-in kids", () => {
     sessionMock.status = "authenticated";
     render(<TrophiesPage />);
