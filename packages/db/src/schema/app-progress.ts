@@ -88,6 +88,8 @@ export const VALID_APP_IDS = [
   "wordle",
   "math-attack",
   "arkanoid",
+  // Platform-level synced blob (not a game): the cross-game Trophy Case.
+  "achievements",
 ] as const;
 
 export type ValidAppId = (typeof VALID_APP_IDS)[number];

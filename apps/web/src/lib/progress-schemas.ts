@@ -674,6 +674,24 @@ const arkanoidSchema = z.object({
 }).strict();
 
 // ============================================================================
+// Achievements (Trophy Case — platform-level, not a game)
+// ============================================================================
+// The full derivable catalog is ~220 ids (6 per app x 34 apps + globals), so
+// the generic MAX_RECORD_KEYS (100) is too small; 500 leaves generous room
+// for new games while still bounding a hostile payload.
+const MAX_ACHIEVEMENT_KEYS = 500;
+const achievementsSchema = z.object({
+  unlocked: z.record(boundedString, z.number().min(0).refine(
+    (val) => val <= Date.now() + 86400000,
+    { message: "Timestamp cannot be more than 1 day in the future" }
+  )).refine(
+    (obj) => Object.keys(obj).length <= MAX_ACHIEVEMENT_KEYS,
+    { message: `Too many entries (max ${MAX_ACHIEVEMENT_KEYS})` }
+  ),
+  lastModified: timestampSchema,
+}).strict();
+
+// ============================================================================
 // Schema Registry
 // ============================================================================
 
@@ -709,6 +727,7 @@ export const PROGRESS_SCHEMAS: Partial<Record<ValidAppId, z.ZodSchema>> = {
   wordle: wordleSchema,
   "math-attack": mathAttackSchema,
   arkanoid: arkanoidSchema,
+  achievements: achievementsSchema,
 };
 
 /**

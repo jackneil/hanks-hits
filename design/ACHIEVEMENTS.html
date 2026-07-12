@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--
+  jacked artifact template — for plans, specs, research, checkpoints.
+  Replace placeholders, keep what you need, delete sections you don't.
+  Opens cleanly in any browser, offline. Mermaid diagrams load from CDN.
+-->
+<title>Trophy Case — Cross-Game Achievements & Celebrations</title>
+
+<!-- Metadata block — adjust fields per artifact type -->
+<meta name="jacked:type" content="plan">
+<meta name="jacked:status" content="in-progress">
+<meta name="jacked:branch" content="feat/trophy-case">
+<meta name="jacked:date" content="2026-07-12">
+<meta name="jacked:project" content="hanks-hits">
+
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-muted: #555;
+    --bg: #fafaf7;
+    --bg-card: #fff;
+    --accent: #2266aa;
+    --accent-bg: #e7f0fa;
+    --warn: #b3681c;
+    --warn-bg: #fcf3e7;
+    --danger: #b32424;
+    --danger-bg: #fbe9e7;
+    --ok: #1f7a3f;
+    --ok-bg: #e8f4ec;
+    --border: #d8d4cc;
+    --code-bg: #f3efe8;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1;
+      --fg-muted: #a8a5a0;
+      --bg: #161616;
+      --bg-card: #1f1f1f;
+      --accent: #6aa8e8;
+      --accent-bg: #1a2935;
+      --warn: #e0a85b;
+      --warn-bg: #3a2d18;
+      --danger: #ea7670;
+      --danger-bg: #3a1f1c;
+      --ok: #6acd8e;
+      --ok-bg: #1c3327;
+      --border: #2e2e2e;
+      --code-bg: #232323;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 .25rem;
+    line-height: 1.2;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin: 2.5rem 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 .5rem;
+    color: var(--fg-muted);
+  }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  /* Metadata strip under title */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin: .5rem 0 2rem;
+    padding: .75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: .9rem;
+  }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+
+  /* Status badges — drop into a <span class="badge X"> */
+  .badge {
+    display: inline-block;
+    padding: .15rem .6rem;
+    border-radius: 99px;
+    font-size: .8rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .badge.ok       { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn     { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger   { background: var(--danger-bg); color: var(--danger); }
+  .badge.info     { background: var(--accent-bg); color: var(--accent); }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+  }
+  nav.toc h2 {
+    margin: 0 0 .5rem;
+    font-size: .9rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--fg-muted);
+    border: none;
+    padding: 0;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+  nav.toc li { margin: .15rem 0; }
+
+  /* Callouts — drop into <aside class="callout warn"> ... </aside> */
+  aside.callout {
+    margin: 1rem 0;
+    padding: .9rem 1.1rem;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  aside.callout.warn   { border-color: var(--warn);   background: var(--warn-bg); }
+  aside.callout.danger { border-color: var(--danger); background: var(--danger-bg); }
+  aside.callout.ok     { border-color: var(--ok);     background: var(--ok-bg); }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child  { margin-bottom: 0; }
+
+  /* Code */
+  code {
+    font-family: var(--mono);
+    font-size: .92em;
+    background: var(--code-bg);
+    padding: .12em .35em;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: .88rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left;
+    padding: .55rem .8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: .9rem;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Task checklist — use <ul class="tasks"> + <li><input type="checkbox" disabled> ...</li> */
+  ul.tasks { list-style: none; padding-left: 0; }
+  ul.tasks li {
+    padding: .25rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+  }
+  ul.tasks input[type="checkbox"] { margin-top: .4rem; }
+
+  /* Mermaid diagram wrappers */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  /* If mermaid fails (no network), fall back to showing the source in a code block */
+  .diagram pre.mermaid-source {
+    text-align: left;
+    display: none;
+  }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+
+  blockquote {
+    border-left: 3px solid var(--border);
+    padding: .2rem 1rem;
+    margin: 1rem 0;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  /* Print: paginate cleanly, drop the dark-mode flip, expand TOC */
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    nav.toc { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Trophy Case — Cross-Game Achievements &amp; Celebrations</h1>
+
+<div class="meta">
+  <div class="kv"><span class="k">Status:</span><span class="v"><span class="badge info">in-progress</span></span></div>
+  <div class="kv"><span class="k">Date:</span><span class="v">2026-07-12</span></div>
+  <div class="kv"><span class="k">Branch:</span><span class="v">feat/trophy-case</span></div>
+  <div class="kv"><span class="k">Type:</span><span class="v">plan</span></div>
+</div>
+
+<h2 id="goal">Goal</h2>
+<p>One shared achievements engine that lifts every game and app at once: universal, auto-derived achievements (first play, play-count tiers, personal bests, streaks, cross-game explorer tiers) unlocked from the progress data all 34 modules already keep, celebrated with a confetti toast, and displayed in a trophy case on the profile page. Zero per-island edits: detection rides the one hook every synced module already mounts (useAuthSync).</p>
+
+<aside class="callout info"><strong>Context:</strong> design/FRAMEWORK_ROADMAP.md fun-mechanics items; CLAUDE.md "Make it FUN first"; cookie-clicker's island-local achievements stay as-is and coexist. Works for guests AND signed-in kids; syncs across devices for the signed-in ones.</aside>
+
+<h2 id="design">Design</h2>
+<p><strong>Engine (pure, shared):</strong> <code>shared/lib/achievements/</code> holds typed definitions and a pure evaluator. Normalization is alias-based (PLAYS/BEST/STREAK field alias tables scanned against each app's progress blob) — deliberately NOT importing the profile island's gameStatExtractor, because shared code must never depend on an island; aliases also cover future games automatically.</p>
+<p><strong>Detection:</strong> a new ALWAYS-ON 1s change-poll effect inside useAuthSync (the existing poll is auth-gated, which would exclude guest kids) reports <code>(appId, state)</code> to the store's <code>reportProgress</code>. It skips <code>appId === "achievements"</code> (no feedback loop). Unlocks are idempotent: an id already in the unlocked set never fires again; personal-best fires only on an OBSERVED increase past a persisted per-app watermark (first report just seeds the watermark), while play-count tiers unlock retroactively on first evaluation (a delightful trophy burst for existing progress).</p>
+<p><strong>State:</strong> Zustand persist store, key <code>achievements-progress</code> (suffix-covered by signOutAndClear). Synced shape: <code>{ unlocked: Record&lt;id, unlockedAt&gt;, lastModified }</code> — registered in VALID_APP_IDS and PROGRESS_SCHEMAS (<code>.strict()</code>, boundedRecord + timestampSchema). Watermarks persist locally but are partialized OUT of the synced blob. Celebration queue is session-only (never persisted): reload never re-celebrates.</p>
+<p><strong>Surfaces:</strong> <code>&lt;AchievementCelebrations /&gt;</code> mounted once in the root layout — confetti toast (CSS only, no new deps), pointer-events-none wrapper so it never eats gameplay taps, queues multiple unlocks, auto-advance + a &ge;44px dismiss. Trophy case section on the profile page: unlocked + locked (🔒) grouped per app via gameMetadata.generated, header count, kid-warm empty state. The profile progress list must SKIP the "achievements" row (it feeds the trophy case, not a game card).</p>
+
+<h2 id="files">Files</h2>
+<table>
+  <thead><tr><th>File</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>apps/web/src/shared/lib/achievements/definitions.ts</code></td><td>Types, alias tables, UNIVERSAL_DEFS (ids, kid copy, emoji, tiers)</td></tr>
+    <tr><td><code>apps/web/src/shared/lib/achievements/evaluate.ts</code></td><td>Pure evaluator: (appId, blob, unlocked, watermarks) → new unlocks + next watermarks</td></tr>
+    <tr><td><code>apps/web/src/shared/lib/achievements/store.ts</code></td><td>Zustand persist store: progress, watermarks, celebration queue, reportProgress, getProgress/setProgress/lastModified</td></tr>
+    <tr><td><code>apps/web/src/shared/components/AchievementCelebrations.tsx</code></td><td>Confetti toast + queue + the achievements useAuthSync mount</td></tr>
+    <tr><td><code>apps/web/src/apps/profile/components/TrophyCase.tsx</code></td><td>Profile trophy case section</td></tr>
+    <tr><td><code>apps/web/src/shared/hooks/useAuthSync.ts</code></td><td>EDIT: always-on observer effect → reportProgress</td></tr>
+    <tr><td><code>packages/db/src/schema/app-progress.ts</code></td><td>EDIT: register "achievements" in VALID_APP_IDS</td></tr>
+    <tr><td><code>apps/web/src/lib/progress-schemas.ts</code></td><td>EDIT: .strict() achievements schema in PROGRESS_SCHEMAS</td></tr>
+    <tr><td><code>apps/web/src/app/layout.tsx</code></td><td>EDIT: mount AchievementCelebrations</td></tr>
+    <tr><td><code>apps/web/src/apps/profile/*</code></td><td>EDIT: mount TrophyCase; skip "achievements" in the game-card list</td></tr>
+  </tbody>
+</table>
+
+<h2 id="tasks">Milestones</h2>
+<h3>M1 — Engine + registry + schema (tests first)</h3>
+<ul class="tasks">
+  <li><input type="checkbox" disabled> Evaluator unit tests: first-play, tier bursts, watermark seeding vs increase, streaks, explorer, unknown app, empty blob, idempotence</li>
+  <li><input type="checkbox" disabled> definitions/evaluate/store + registrations; schema test</li>
+</ul>
+<h3>M2 — Central detection</h3>
+<ul class="tasks">
+  <li><input type="checkbox" disabled> useAuthSync observer (guest + authed), self-skip; tests: simulated save unlocks exactly once, survives reload</li>
+</ul>
+<h3>M3 — Celebration toast</h3>
+<ul class="tasks">
+  <li><input type="checkbox" disabled> AchievementCelebrations component + layout mount; tap-through + queue tests</li>
+</ul>
+<h3>M4 — Trophy case</h3>
+<ul class="tasks">
+  <li><input type="checkbox" disabled> TrophyCase section + profile wiring + empty state; tests</li>
+</ul>
+<h3>M5 — Gates</h3>
+<ul class="tasks">
+  <li><input type="checkbox" disabled> Full local gate; browser QA (unlock moment, tap-through, reload persistence); 390x844 touch audit of new surfaces; /dcr; land per automerge directive</li>
+</ul>
+
+<h2 id="questions">Open Questions</h2>
+<ul>
+  <li>Cross-device merge is last-write-wins on the whole blob (platform default). A union-merge of unlocked sets would be strictly better; acceptable v1 because unlocks re-derive from progress on the next play. Revisit if kids report lost trophies.</li>
+</ul>
+
+</body>
+</html>
