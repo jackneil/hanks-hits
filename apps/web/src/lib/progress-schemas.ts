@@ -390,24 +390,61 @@ const retroArcadeSchema = z.object({
 // ============================================================================
 // Apps (non-games)
 // ============================================================================
+// Matches WeatherProgress in apps/weather/lib/store.ts (savedLocations of
+// GeoLocation objects, nullable lastLocation) — the old schema described
+// fields the store never synced, 400ing every signed-in save.
+const geoLocationSchema = z.object({
+  name: boundedString,
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  country: boundedString.optional(),
+  admin1: boundedString.optional(),
+}).strict();
+
 const weatherSchema = z.object({
-  favoriteLocations: z.array(boundedString).max(50),
-  lastLocation: boundedString.optional(),
-  temperatureUnit: z.enum(["celsius", "fahrenheit"]).optional(),
+  savedLocations: z.array(geoLocationSchema).max(50),
+  units: z.enum(["celsius", "fahrenheit"]),
+  lastLocation: geoLocationSchema.nullable(),
   lastModified: timestampSchema,
-});
+}).strict();
 
+// Matches JokeGeneratorProgress in apps/joke-generator/lib/store.ts. The old
+// schema here described a shape the store never synced (favoriteJokes), so
+// EVERY signed-in save 400'd since validation landed — keep these in lockstep.
 const jokeGeneratorSchema = z.object({
-  favoriteJokes: z.array(z.string().max(2000)).max(500), // Jokes can be longer
+  favorites: z.array(z.object({
+    id: boundedString,
+    setup: z.string().max(2000),
+    punchline: z.string().max(2000),
+    category: boundedString,
+    savedAt: z.number().min(0),
+  }).strict()).max(500),
+  ratings: z.array(z.object({
+    jokeId: boundedString,
+    rating: z.enum(["funny", "not-funny"]),
+    ratedAt: z.number().min(0),
+  }).strict()).max(2000),
+  seenJokeIds: z.array(boundedString).max(5000),
+  lastCategory: boundedString,
   jokesViewed: z.number().min(0).max(MAX_COUNT),
+  jokesCopied: z.number().min(0).max(MAX_COUNT),
+  jokesShared: z.number().min(0).max(MAX_COUNT),
   lastModified: timestampSchema,
-});
+}).strict();
 
+// Matches ToyFinderProgress in apps/toy-finder/lib/store.ts — the old
+// wishlist/viewedToys shape was never what the store synced (same drift
+// class as joke-generator and weather; caught by the contract test).
 const toyFinderSchema = z.object({
-  wishlist: z.array(boundedString).max(500),
-  viewedToys: z.array(boundedString).max(1000),
+  wishlistItems: z.array(z.object({
+    toyId: boundedString,
+    priority: boundedString,
+    addedAt: z.number().min(0),
+    notes: z.string().max(500).optional(),
+  }).strict()).max(500),
+  recentlyViewed: z.array(boundedString).max(1000),
   lastModified: timestampSchema,
-});
+}).strict();
 
 // ============================================================================
 // Space Invaders
