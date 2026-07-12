@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import {
@@ -33,8 +33,8 @@ const CONFETTI = [
  */
 export function AchievementCelebrations() {
   const dequeueCelebration = useAchievementsStore((s) => s.dequeueCelebration);
-  const queueLength = useAchievementsStore((s) => s.celebrationQueue.length);
-  const [current, setCurrent] = useState<AchievementInfo | null>(null);
+  // The queue head IS the current celebration — no mirrored local state.
+  const currentId = useAchievementsStore((s) => s.celebrationQueue[0] ?? null);
 
   // Cloud sync for the achievements blob itself (guests stay local-only).
   useAuthSync<AchievementsProgress>({
@@ -44,21 +44,15 @@ export function AchievementCelebrations() {
     setState: (data) => useAchievementsStore.getState().setProgress(data),
   });
 
-  // Pull the next unlock whenever idle and the queue has one.
+  // Auto-advance: each unlock gets its show window, then the queue shifts.
   useEffect(() => {
-    if (current !== null || queueLength === 0) return;
-    const id = dequeueCelebration();
-    if (id) setCurrent(getAchievementInfo(id));
-  }, [current, queueLength, dequeueCelebration]);
-
-  // Auto-advance.
-  useEffect(() => {
-    if (current === null) return;
-    const timer = setTimeout(() => setCurrent(null), SHOW_MS);
+    if (currentId === null) return;
+    const timer = setTimeout(() => dequeueCelebration(), SHOW_MS);
     return () => clearTimeout(timer);
-  }, [current]);
+  }, [currentId, dequeueCelebration]);
 
-  if (current === null) return null;
+  if (currentId === null) return null;
+  const current: AchievementInfo = getAchievementInfo(currentId);
 
   return (
     <div
@@ -94,7 +88,7 @@ export function AchievementCelebrations() {
             </div>
           </div>
           <button
-            onClick={() => setCurrent(null)}
+            onClick={() => dequeueCelebration()}
             className="pointer-events-auto shrink-0 min-w-[44px] min-h-[44px] rounded-xl bg-white/40 hover:bg-white/60 active:scale-95 font-bold text-yellow-950 px-3 transition-all"
             aria-label="Dismiss celebration"
           >
