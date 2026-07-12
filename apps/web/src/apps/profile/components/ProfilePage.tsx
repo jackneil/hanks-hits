@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { signOutAndClear } from "@/lib/auth-client";
 import { GameProgressCard } from "./GameProgressCard";
-import { TrophyCase } from "./TrophyCase";
+import { TrophyCase } from "@/shared/components/TrophyCase";
 import { extractGameStats, type GameDisplayInfo } from "../lib/gameStatExtractor";
 import Link from "next/link";
 import { Header } from "@/shared/components/Header";

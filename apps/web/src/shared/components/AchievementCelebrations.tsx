@@ -101,7 +101,7 @@ export function AchievementCelebrations() {
             </div>
             <div className="text-sm text-yellow-950 truncate">
               {summary
-                ? "Check your Trophy Case on your profile!"
+                ? "See them all in your Trophy Case!"
                 : current.description}
             </div>
           </div>

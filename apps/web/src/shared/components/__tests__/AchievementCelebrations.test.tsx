@@ -62,13 +62,35 @@ describe("AchievementCelebrations", () => {
     render(<AchievementCelebrations />);
 
     expect(screen.getByText("You earned 5 trophies!")).toBeInTheDocument();
+    // The pointer must work for a GUEST too — the Trophy Case is the
+    // guest-visible /trophies page, never a login-walled destination.
     expect(
-      screen.getByText("Check your Trophy Case on your profile!")
+      screen.getByText("See them all in your Trophy Case!")
     ).toBeInTheDocument();
 
     // Dismissing the summary drains the whole batch at once.
     act(() => {
       screen.getByRole("button", { name: "Dismiss celebration" }).click();
+    });
+    expect(screen.queryByTestId("achievement-celebration")).toBeNull();
+    expect(useAchievementsStore.getState().celebrationQueue).toEqual([]);
+  });
+
+  it("summarizes at exactly one past the threshold (queue of 4) and the summary's own timer drains everything", () => {
+    resetAchievements([
+      "first-play:snake",
+      "plays:snake:5",
+      "plays:snake:25",
+      "explorer:3",
+    ]);
+    render(<AchievementCelebrations />);
+
+    // boundary: 4 > SUMMARY_THRESHOLD(3) -> summary, not individual toasts
+    expect(screen.getByText("You earned 4 trophies!")).toBeInTheDocument();
+
+    // the AUTO-ADVANCE path (not the button) must clear the whole batch too
+    act(() => {
+      vi.advanceTimersByTime(4100);
     });
     expect(screen.queryByTestId("achievement-celebration")).toBeNull();
     expect(useAchievementsStore.getState().celebrationQueue).toEqual([]);

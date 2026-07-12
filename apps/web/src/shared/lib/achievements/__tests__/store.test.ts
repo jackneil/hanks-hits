@@ -68,6 +68,29 @@ describe("achievements store", () => {
     expect(useAchievementsStore.getState().celebrationQueue).toEqual(q.slice(1));
   });
 
+  it("persists watermark movement even when nothing unlocks (rising best), without bumping lastModified", () => {
+    // Earn record-breaker:1 so the NEXT best-increase unlocks nothing new.
+    reportProgressToAchievements("snake", { gamesPlayed: 1, highScore: 40 });
+    reportProgressToAchievements("snake", { gamesPlayed: 2, highScore: 60 });
+    expect(useAchievementsStore.getState().progress.unlocked["record-breaker:1"]).toBeDefined();
+    const lastModified = useAchievementsStore.getState().progress.lastModified;
+
+    // No new unlock here (record tier 10 is far away) — but the best AND the
+    // increase counter must still advance or future records mis-fire.
+    reportProgressToAchievements("snake", { gamesPlayed: 3, highScore: 80 });
+    const s = useAchievementsStore.getState();
+    expect(s.watermarks.apps["snake"].best).toBe(80);
+    expect(s.watermarks.bestIncreases).toBe(2);
+    expect(s.progress.lastModified).toBe(lastModified);
+  });
+
+  it("skips the persist write entirely for a no-change report (same store reference)", () => {
+    reportProgressToAchievements("snake", { gamesPlayed: 2, highScore: 40 });
+    const before = useAchievementsStore.getState().watermarks;
+    reportProgressToAchievements("snake", { gamesPlayed: 2, highScore: 40 });
+    expect(useAchievementsStore.getState().watermarks).toBe(before);
+  });
+
   it("watermarks persist across evaluations so records break correctly", () => {
     reportProgressToAchievements("snake", { gamesPlayed: 1, highScore: 50 });
     reportProgressToAchievements("snake", { gamesPlayed: 2, highScore: 90 });

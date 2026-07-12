@@ -131,6 +131,19 @@ describe("mergeProgress", () => {
     expect(result.data.ratings).toEqual({ j1: 1 });
   });
 
+  it("never min-merges purchased/upgrade-named numeric maps (count maps, not timestamps)", () => {
+    // The record-union takes the MINIMUM per key — right for unlock
+    // timestamps, corrupting for a count/level map. purchased/upgrade names
+    // stay last-write-wins by design.
+    const result = mergeProgress(
+      { upgradeLevels: { turbo: 3 }, lastModified: 2000 },
+      { upgradeLevels: { turbo: 1, wheels: 2 }, lastModified: 1000 },
+      2000,
+      1000
+    );
+    expect(result.data.upgradeLevels).toEqual({ turbo: 3 });
+  });
+
   it("a hostile __proto__ trophy id cannot pollute Object.prototype through the union", () => {
     const hostile = JSON.parse(
       '{"unlocked":{"__proto__":1,"first-play:snake":2},"lastModified":1000}'
