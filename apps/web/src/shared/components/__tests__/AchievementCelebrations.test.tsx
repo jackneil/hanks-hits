@@ -48,6 +48,48 @@ describe("AchievementCelebrations", () => {
     expect(dismiss.className).toContain("min-h-[44px]");
   });
 
+  it("collapses a deep queue into ONE summary toast instead of a toast parade", () => {
+    // Retroactive burst: an existing player's first evaluation can award
+    // first-play + several tiers at once — 4+ queued unlocks would stack
+    // 16s+ of toasts over gameplay.
+    resetAchievements([
+      "first-play:snake",
+      "plays:snake:5",
+      "plays:snake:25",
+      "streak:snake:3",
+      "explorer:3",
+    ]);
+    render(<AchievementCelebrations />);
+
+    expect(screen.getByText("You earned 5 trophies!")).toBeInTheDocument();
+    expect(
+      screen.getByText("Check your Trophy Case on your profile!")
+    ).toBeInTheDocument();
+
+    // Dismissing the summary drains the whole batch at once.
+    act(() => {
+      screen.getByRole("button", { name: "Dismiss celebration" }).click();
+    });
+    expect(screen.queryByTestId("achievement-celebration")).toBeNull();
+    expect(useAchievementsStore.getState().celebrationQueue).toEqual([]);
+  });
+
+  it("a stale auto-advance timer racing a tap cannot swallow the next toast", () => {
+    resetAchievements(["first-play:snake", "plays:snake:5"]);
+    render(<AchievementCelebrations />);
+    expect(screen.getByText(/First Play!/)).toBeInTheDocument();
+
+    // Simulate the race: the timer's dequeue fires for an id that is no
+    // longer the head (the tap already advanced it) — it must no-op.
+    act(() => {
+      screen.getByRole("button", { name: "Dismiss celebration" }).click();
+      // stale timer callback for the ALREADY-DISMISSED head
+      useAchievementsStore.getState().dequeueCelebration("first-play:snake");
+    });
+    // The second toast still gets its window instead of being skipped.
+    expect(screen.getByText(/Regular!/)).toBeInTheDocument();
+  });
+
   it("advances through a multi-unlock queue: dismiss, then auto-advance", () => {
     resetAchievements(["first-play:snake", "plays:snake:5", "explorer:3"]);
     render(<AchievementCelebrations />);

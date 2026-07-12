@@ -284,6 +284,52 @@ describe("useAuthSync shared-device owner guard", () => {
     expect(localStorage.getItem("snake-game-state")).not.toBeNull();
   });
 
+  it("the achievements observer never awards a previous user's leftovers during the purge window", async () => {
+    const { useAchievementsStore } = await import("@/shared/lib/achievements");
+    useAchievementsStore.setState({
+      progress: { unlocked: {}, lastModified: 0 },
+      watermarks: { apps: {}, playedApps: [], bestIncreases: 0 },
+      celebrationQueue: [],
+    });
+
+    // User A's leftovers, rich enough that the observer WOULD unlock
+    // several trophies if it evaluated them.
+    localStorage.setItem(PROGRESS_OWNER_KEY, "user-A");
+    const foreignState = { highScore: 500, gamesPlayed: 30, lastModified: 123 };
+
+    const reloadSpy = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, reload: reloadSpy },
+    });
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderHook(() =>
+        useAuthSync<typeof foreignState>({
+          appId: "snake",
+          localStorageKey: "snake-game-state",
+          getState: () => foreignState,
+          setState: () => {},
+        })
+      );
+
+      // Past the purge trigger (setTimeout 0) and several observer ticks.
+      await vi.advanceTimersByTimeAsync(3500);
+
+      expect(reloadSpy).toHaveBeenCalled(); // purge engaged
+      expect(useAchievementsStore.getState().progress.unlocked).toEqual({});
+      expect(localStorage.getItem("achievements-progress")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
+
   it("claims ownership for the signing-in user when no marker exists", async () => {
     renderHook(() =>
       useAuthSync<FakeProgress>({

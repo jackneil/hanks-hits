@@ -37,6 +37,30 @@ describe("achievements progress schema", () => {
     ).toBe(false);
   });
 
+  it("rejects an empty-string achievement key", () => {
+    expect(
+      validateProgress("achievements", {
+        unlocked: { "": Date.now() },
+        lastModified: Date.now(),
+      }).success
+    ).toBe(false);
+  });
+
+  it("a __proto__ key can never pollute Object.prototype (pins the Zod record behavior we rely on)", () => {
+    const hostile = JSON.parse(
+      `{"unlocked":{"__proto__":${Date.now()},"first-play:snake":${Date.now()}},"lastModified":${Date.now()}}`
+    );
+    const result = validateProgress("achievements", hostile);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    if (result.success) {
+      const unlocked = (result.data as { unlocked: Record<string, number> }).unlocked;
+      // zod's record must not carry __proto__ through as an own key that
+      // could later hit a [[Set]] path; a future zod major changing this
+      // should fail here loudly.
+      expect(Object.prototype.hasOwnProperty.call(unlocked, "__proto__")).toBe(false);
+    }
+  });
+
   it("accepts a catalog-sized unlocked set but rejects a hostile one", () => {
     const big: Record<string, number> = {};
     for (let i = 0; i < 250; i++) big[`plays:app-${i}:5`] = Date.now();

@@ -76,6 +76,18 @@ describe("progress schema contract: every store's getProgress() validates", () =
     expect(result).toEqual(expect.objectContaining({ success: true }));
   });
 
+  it("toy-finder with a real wishlist entry (regression for the wishlist drift)", async () => {
+    const result = validateProgress("toy-finder", {
+      wishlistItems: [
+        { toyId: "toy-42", priority: "high", addedAt: Date.now(), notes: "birthday!" },
+        { toyId: "toy-7", priority: "low", addedAt: Date.now() },
+      ],
+      recentlyViewed: ["toy-42", "toy-7", "toy-9"],
+      lastModified: Date.now(),
+    });
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+  });
+
   it("weather with a real saved location (regression for the favoriteLocations drift)", async () => {
     const result = validateProgress("weather", {
       savedLocations: [

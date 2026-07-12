@@ -78,6 +78,38 @@ describe("achievements evaluate", () => {
     expect(newUnlocks).toContain("plays:drum-machine:5");
   });
 
+  it("records capability flags: which alias fields the blob actually carries", () => {
+    const withBoth = evaluate("wordle", { gamesPlayed: 1, longestStreak: 0 }, none, emptyWatermarks());
+    expect(withBoth.watermarks.apps["wordle"]).toMatchObject({ hasPlays: true, hasStreak: true });
+
+    const playsOnly = evaluate("snake", { gamesPlayed: 1, highScore: 5 }, none, emptyWatermarks());
+    expect(playsOnly.watermarks.apps["snake"]).toMatchObject({ hasPlays: true, hasStreak: false });
+
+    const neither = evaluate("hill-climb", { bestDistance: 300 }, none, emptyWatermarks());
+    expect(neither.watermarks.apps["hill-climb"]).toMatchObject({ hasPlays: false, hasStreak: false });
+  });
+
+  it("ignores string-typed alias values instead of coercing them", () => {
+    const { newUnlocks, watermarks } = evaluate(
+      "snake",
+      { gamesPlayed: "5", highScore: "40" },
+      none,
+      emptyWatermarks()
+    );
+    expect(newUnlocks).toEqual([]);
+    expect(watermarks.apps["snake"]).toMatchObject({ plays: 0, hasPlays: false });
+  });
+
+  it("pins reset semantics: a best that drops to zero never fires a record on the climb back from nothing", () => {
+    const seeded = evaluate("snake", { gamesPlayed: 3, highScore: 80 }, none, emptyWatermarks());
+    // progress reset (store cleared): best drops to 0, watermark follows
+    const reset = evaluate("snake", { gamesPlayed: 0, highScore: 0 }, new Set(seeded.newUnlocks), seeded.watermarks);
+    expect(reset.watermarks.apps["snake"].best).toBe(0);
+    // first score after the reset: prev.best === 0 -> no record award
+    const reclimb = evaluate("snake", { gamesPlayed: 1, highScore: 50 }, new Set(seeded.newUnlocks), reset.watermarks);
+    expect(reclimb.newUnlocks).not.toContain("record-breaker:1");
+  });
+
   it("handles unknown apps and junk blobs without throwing", () => {
     expect(evaluate("future-game", {}, none, emptyWatermarks()).newUnlocks).toEqual([]);
     expect(
@@ -90,12 +122,13 @@ describe("achievements evaluate", () => {
 });
 
 describe("achievement display info", () => {
-  it("builds kid-friendly info for every id shape", () => {
+  it("builds kid-friendly info for every id shape, with goal-phrased locked copy", () => {
     for (const id of ["first-play:snake", "plays:snake:25", "streak:wordle:3", "explorer:10", "record-breaker:1"]) {
       const info = getAchievementInfo(id);
       expect(info.id).toBe(id);
       expect(info.name.length).toBeGreaterThan(0);
       expect(info.description.length).toBeGreaterThan(0);
+      expect(info.lockedDescription).toContain("unlock");
       expect(info.emoji.length).toBeGreaterThan(0);
     }
   });

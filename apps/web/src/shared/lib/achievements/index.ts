@@ -1,15 +1,13 @@
 // Trophy Case — cross-game achievements engine (shared: every game/app rides it)
+// Public surface only; internals (evaluate, tier tables) import from their
+// submodules directly (tests do the same).
 
 export {
   getAchievementInfo,
-  catalogFor,
+  appCatalog,
+  globalCatalog,
   type AchievementInfo,
-  PLAYS_TIERS,
-  STREAK_TIERS,
-  EXPLORER_TIERS,
-  RECORD_TIERS,
 } from "./definitions";
-export { evaluate, emptyWatermarks, type Watermarks } from "./evaluate";
 export {
   useAchievementsStore,
   reportProgressToAchievements,

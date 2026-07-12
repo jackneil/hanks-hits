@@ -20,7 +20,11 @@ export interface AchievementInfo {
   /** null for global (cross-game) achievements */
   appId: string | null;
   name: string;
+  /** past-tense, for an EARNED trophy ("Played Snake 5 times!") */
   description: string;
+  /** goal-phrased, for a LOCKED teaser ("Play Snake 5 times to unlock!") —
+   * a locked row must state the goal, not claim the accomplishment */
+  lockedDescription: string;
   emoji: string;
 }
 
@@ -60,26 +64,28 @@ export const STREAK_TIERS = [3, 7] as const;
 export const EXPLORER_TIERS = [3, 10, 25] as const;
 export const RECORD_TIERS = [1, 10] as const;
 
-const PLAYS_COPY: Record<number, { name: string; emoji: string; blurb: string }> = {
-  5: { name: "Regular!", emoji: "🎮", blurb: "Played {game} 5 times!" },
-  25: { name: "Super Fan!", emoji: "🌟", blurb: "Played {game} 25 times!" },
-  100: { name: "Legend!", emoji: "👑", blurb: "Played {game} 100 times! WOW!" },
+type Copy = { name: string; emoji: string; blurb: string; goal: string };
+
+const PLAYS_COPY: Record<number, Copy> = {
+  5: { name: "Regular!", emoji: "🎮", blurb: "Played {game} 5 times!", goal: "Play {game} 5 times to unlock!" },
+  25: { name: "Super Fan!", emoji: "🌟", blurb: "Played {game} 25 times!", goal: "Play {game} 25 times to unlock!" },
+  100: { name: "Legend!", emoji: "👑", blurb: "Played {game} 100 times! WOW!", goal: "Play {game} 100 times to unlock!" },
 };
 
-const STREAK_COPY: Record<number, { name: string; emoji: string; blurb: string }> = {
-  3: { name: "On Fire!", emoji: "🔥", blurb: "A 3-in-a-row streak in {game}!" },
-  7: { name: "Streak Master!", emoji: "⚡", blurb: "A 7-in-a-row streak in {game}!" },
+const STREAK_COPY: Record<number, Copy> = {
+  3: { name: "On Fire!", emoji: "🔥", blurb: "A 3-in-a-row streak in {game}!", goal: "Get 3 in a row in {game} to unlock!" },
+  7: { name: "Streak Master!", emoji: "⚡", blurb: "A 7-in-a-row streak in {game}!", goal: "Get 7 in a row in {game} to unlock!" },
 };
 
-const EXPLORER_COPY: Record<number, { name: string; emoji: string; blurb: string }> = {
-  3: { name: "Explorer!", emoji: "🗺️", blurb: "You tried 3 different games!" },
-  10: { name: "Adventurer!", emoji: "🚀", blurb: "You tried 10 different games!" },
-  25: { name: "Completionist!", emoji: "🏆", blurb: "You tried 25 different games!" },
+const EXPLORER_COPY: Record<number, Copy> = {
+  3: { name: "Explorer!", emoji: "🗺️", blurb: "You tried 3 different games!", goal: "Try 3 different games to unlock!" },
+  10: { name: "Adventurer!", emoji: "🚀", blurb: "You tried 10 different games!", goal: "Try 10 different games to unlock!" },
+  25: { name: "Completionist!", emoji: "🏆", blurb: "You tried 25 different games!", goal: "Try 25 different games to unlock!" },
 };
 
-const RECORD_COPY: Record<number, { name: string; emoji: string; blurb: string }> = {
-  1: { name: "Record Breaker!", emoji: "🏅", blurb: "You beat your own best score!" },
-  10: { name: "Unstoppable!", emoji: "💪", blurb: "Beat your own records 10 times!" },
+const RECORD_COPY: Record<number, Copy> = {
+  1: { name: "Record Breaker!", emoji: "🏅", blurb: "You beat your own best score!", goal: "Beat your own best score to unlock!" },
+  10: { name: "Unstoppable!", emoji: "💪", blurb: "Beat your own records 10 times!", goal: "Beat your own records 10 times to unlock!" },
 };
 
 function gameName(appId: string): string {
@@ -98,6 +104,7 @@ export function getAchievementInfo(id: string): AchievementInfo {
       appId,
       name: "First Play!",
       description: `You tried ${gameName(appId)}!`,
+      lockedDescription: `Try ${gameName(appId)} to unlock!`,
       emoji: "🎉",
     };
   }
@@ -112,6 +119,7 @@ export function getAchievementInfo(id: string): AchievementInfo {
         appId,
         name: copy.name,
         description: copy.blurb.replace("{game}", gameName(appId)),
+        lockedDescription: copy.goal.replace("{game}", gameName(appId)),
         emoji: copy.emoji,
       };
     }
@@ -121,24 +129,50 @@ export function getAchievementInfo(id: string): AchievementInfo {
     const tier = Number(parts[1]);
     const copy = (kind === "explorer" ? EXPLORER_COPY : RECORD_COPY)[tier];
     if (copy) {
-      return { id, appId: null, name: copy.name, description: copy.blurb, emoji: copy.emoji };
+      return {
+        id,
+        appId: null,
+        name: copy.name,
+        description: copy.blurb,
+        lockedDescription: copy.goal,
+        emoji: copy.emoji,
+      };
     }
   }
 
-  return { id, appId: null, name: "Trophy!", description: "You earned a trophy!", emoji: "🏆" };
+  return {
+    id,
+    appId: null,
+    name: "Trophy!",
+    description: "You earned a trophy!",
+    lockedDescription: "Keep playing to unlock!",
+    emoji: "🏆",
+  };
 }
 
 /**
- * The full catalog of ids attainable for a set of appIds — used by the
- * trophy case to render locked achievements alongside unlocked ones.
+ * Which trophy tiers an app can HONESTLY offer, per its observed capability
+ * flags (from the achievements watermarks). Tiers an app cannot award are
+ * never teased — a locked "streak" trophy in a game with no streak field
+ * would be a goal a kid could grind at forever without unlocking.
  */
-export function catalogFor(appIds: string[]): AchievementInfo[] {
-  const ids: string[] = [];
-  for (const appId of appIds) {
-    ids.push(`first-play:${appId}`);
+export function appCatalog(
+  appId: string,
+  caps?: { hasPlays?: boolean; hasStreak?: boolean }
+): AchievementInfo[] {
+  const ids: string[] = [`first-play:${appId}`];
+  if (caps?.hasPlays) {
     for (const tier of PLAYS_TIERS) ids.push(`plays:${appId}:${tier}`);
+  }
+  if (caps?.hasStreak) {
     for (const tier of STREAK_TIERS) ids.push(`streak:${appId}:${tier}`);
   }
+  return ids.map(getAchievementInfo);
+}
+
+/** The cross-game (global) trophy catalog: explorer + record-breaker tiers. */
+export function globalCatalog(): AchievementInfo[] {
+  const ids: string[] = [];
   for (const tier of EXPLORER_TIERS) ids.push(`explorer:${tier}`);
   for (const tier of RECORD_TIERS) ids.push(`record-breaker:${tier}`);
   return ids.map(getAchievementInfo);

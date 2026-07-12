@@ -718,7 +718,7 @@ const arkanoidSchema = z.object({
 // for new games while still bounding a hostile payload.
 const MAX_ACHIEVEMENT_KEYS = 500;
 const achievementsSchema = z.object({
-  unlocked: z.record(boundedString, z.number().min(0).refine(
+  unlocked: z.record(boundedString.min(1), z.number().min(0).refine(
     (val) => val <= Date.now() + 86400000,
     { message: "Timestamp cannot be more than 1 day in the future" }
   )).refine(

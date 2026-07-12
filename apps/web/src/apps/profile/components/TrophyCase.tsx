@@ -1,7 +1,9 @@
 "use client";
 
 import {
-  catalogFor,
+  appCatalog,
+  getAchievementInfo,
+  globalCatalog,
   useAchievementsStore,
   type AchievementInfo,
 } from "@/shared/lib/achievements";
@@ -16,12 +18,15 @@ interface TrophyGroup {
 
 /**
  * The Trophy Case: every achievement the kid has earned, grouped per game,
- * with the still-locked ones dimmed as a tease of what's next. Games only
- * appear once they've been played (first-play unlocked) — plus the
- * cross-game group, which always shows.
+ * with the still-locked ones shown as goal teasers. Games appear once
+ * they've been played (first-play unlocked) — plus the cross-game group,
+ * which always shows. Locked tiers are filtered by each app's observed
+ * capability (watermarks), so the case never teases a trophy the app
+ * cannot actually award; unlocked trophies always show regardless.
  */
 export function TrophyCase() {
   const unlocked = useAchievementsStore((s) => s.progress.unlocked);
+  const watermarks = useAchievementsStore((s) => s.watermarks);
 
   const playedAppIds = [
     ...new Set(
@@ -31,15 +36,35 @@ export function TrophyCase() {
     ),
   ].sort();
 
+  const buildRows = (catalog: AchievementInfo[], appId: string | null) => {
+    const rows = catalog.map((info) => ({
+      info,
+      unlockedAt: unlocked[info.id] ?? null,
+    }));
+    // Unlocked ids the capability filter would hide (e.g. earned on another
+    // device whose blob carried richer fields) still belong in the case.
+    const shown = new Set(catalog.map((i) => i.id));
+    for (const id of Object.keys(unlocked)) {
+      if (shown.has(id)) continue;
+      const info = getAchievementInfo(id);
+      if (info.appId === appId) {
+        rows.push({ info, unlockedAt: unlocked[id] });
+      }
+    }
+    return rows;
+  };
+
   const groups: TrophyGroup[] = playedAppIds.map((appId) => {
     const meta = getGameMetadata(appId);
+    const caps = watermarks.apps[appId];
     return {
       appId,
       title: meta.name,
       icon: meta.icon,
-      achievements: catalogFor([appId])
-        .filter((info) => info.appId === appId)
-        .map((info) => ({ info, unlockedAt: unlocked[info.id] ?? null })),
+      achievements: buildRows(
+        appCatalog(appId, { hasPlays: caps?.hasPlays, hasStreak: caps?.hasStreak }),
+        appId
+      ),
     };
   });
 
@@ -48,10 +73,7 @@ export function TrophyCase() {
     appId: null,
     title: "All Games",
     icon: "🌈",
-    achievements: catalogFor([]).map((info) => ({
-      info,
-      unlockedAt: unlocked[info.id] ?? null,
-    })),
+    achievements: buildRows(globalCatalog(), null),
   });
 
   const totalUnlocked = Object.keys(unlocked).length;
@@ -71,7 +93,7 @@ export function TrophyCase() {
         <div className="bg-white/10 rounded-3xl p-8 text-center border-2 border-dashed border-white/20">
           <div className="text-6xl mb-4">🏆</div>
           <p className="text-white/80 text-lg">
-            No trophies yet — play any game to earn your first one!
+            No trophies yet! Play any game to earn your first one!
           </p>
         </div>
       ) : (
@@ -89,20 +111,33 @@ export function TrophyCase() {
                   <li
                     key={info.id}
                     className={`flex items-center gap-3 rounded-xl px-3 py-2 ${
-                      unlockedAt !== null
-                        ? "bg-yellow-400/20"
-                        : "bg-white/5 opacity-60"
+                      unlockedAt !== null ? "bg-yellow-400/20" : "bg-white/5"
                     }`}
                   >
-                    <span className="text-2xl" aria-hidden="true">
+                    {/* Locked state lives in the dimmed lock + bg, never the
+                        text — the goal line is exactly what a kid must READ */}
+                    <span
+                      className={`text-2xl ${unlockedAt === null ? "opacity-60" : ""}`}
+                      aria-hidden="true"
+                    >
                       {unlockedAt !== null ? info.emoji : "🔒"}
                     </span>
                     <div className="min-w-0">
-                      <div className="font-bold text-white text-sm truncate">
+                      <div
+                        className={`font-bold text-sm truncate ${
+                          unlockedAt !== null ? "text-white" : "text-white/85"
+                        }`}
+                      >
                         {info.name}
                       </div>
-                      <div className="text-white/70 text-xs truncate">
-                        {info.description}
+                      <div
+                        className={`text-xs truncate ${
+                          unlockedAt !== null ? "text-white/70" : "text-white/60"
+                        }`}
+                      >
+                        {unlockedAt !== null
+                          ? info.description
+                          : info.lockedDescription}
                       </div>
                     </div>
                   </li>

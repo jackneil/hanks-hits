@@ -31,10 +31,18 @@ const CONFETTI = [
  * eat a mid-game tap (the cookie-clicker toast lesson); the single
  * interactive element is the >=44px "Yay!" dismiss button.
  */
+// More queued unlocks than this collapses into one summary toast — a
+// retroactive burst (existing progress evaluated for the first time) would
+// otherwise stack toasts over gameplay for minutes.
+const SUMMARY_THRESHOLD = 3;
+
 export function AchievementCelebrations() {
   const dequeueCelebration = useAchievementsStore((s) => s.dequeueCelebration);
+  const clearCelebrations = useAchievementsStore((s) => s.clearCelebrations);
   // The queue head IS the current celebration — no mirrored local state.
   const currentId = useAchievementsStore((s) => s.celebrationQueue[0] ?? null);
+  const queueLength = useAchievementsStore((s) => s.celebrationQueue.length);
+  const summary = queueLength > SUMMARY_THRESHOLD;
 
   // Cloud sync for the achievements blob itself (guests stay local-only).
   useAuthSync<AchievementsProgress>({
@@ -45,11 +53,17 @@ export function AchievementCelebrations() {
   });
 
   // Auto-advance: each unlock gets its show window, then the queue shifts.
+  // The timer passes the id it was armed for, so a tap racing the timeout
+  // can't double-shift and swallow the next toast. A summary toast clears
+  // the whole batch when its window ends.
   useEffect(() => {
     if (currentId === null) return;
-    const timer = setTimeout(() => dequeueCelebration(), SHOW_MS);
+    const timer = setTimeout(() => {
+      if (summary) clearCelebrations();
+      else dequeueCelebration(currentId);
+    }, SHOW_MS);
     return () => clearTimeout(timer);
-  }, [currentId, dequeueCelebration]);
+  }, [currentId, summary, dequeueCelebration, clearCelebrations]);
 
   if (currentId === null) return null;
   const current: AchievementInfo = getAchievementInfo(currentId);
@@ -74,21 +88,25 @@ export function AchievementCelebrations() {
           </span>
         ))}
 
-        {/* Toast card */}
-        <div className="achievement-pop rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 shadow-2xl px-4 py-3 flex items-center gap-3">
+        {/* Toast card. ring-white/70 keeps the card's edge visible over
+            same-hue (yellow) game backgrounds; yellow-950 text holds AA
+            contrast across the whole yellow->orange gradient. */}
+        <div className="achievement-pop rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 ring-2 ring-white/70 shadow-2xl px-4 py-3 flex items-center gap-3">
           <span className="text-4xl" aria-hidden="true">
-            {current.emoji}
+            {summary ? "🏆" : current.emoji}
           </span>
           <div className="min-w-0 flex-1">
             <div className="font-bold text-lg text-yellow-950 truncate">
-              🏆 {current.name}
+              {summary ? `You earned ${queueLength} trophies!` : `🏆 ${current.name}`}
             </div>
-            <div className="text-sm text-yellow-900 truncate">
-              {current.description}
+            <div className="text-sm text-yellow-950 truncate">
+              {summary
+                ? "Check your Trophy Case on your profile!"
+                : current.description}
             </div>
           </div>
           <button
-            onClick={() => dequeueCelebration()}
+            onClick={() => (summary ? clearCelebrations() : dequeueCelebration(currentId))}
             className="pointer-events-auto shrink-0 min-w-[44px] min-h-[44px] rounded-xl bg-white/40 hover:bg-white/60 active:scale-95 font-bold text-yellow-950 px-3 transition-all"
             aria-label="Dismiss celebration"
           >

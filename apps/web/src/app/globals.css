@@ -149,3 +149,13 @@ html, body {
   pointer-events: none;
   animation: confetti-fall 1.4s ease-in forwards;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .achievement-pop {
+    animation: none;
+  }
+  .confetti-piece {
+    animation: none;
+    opacity: 0;
+  }
+}

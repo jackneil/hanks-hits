@@ -10,12 +10,18 @@ import {
 
 /** Last-seen normalized stats per app. `seeded` marks that we've observed the
  * app at least once, so a pre-existing high score never fires record-breaker
- * on first sight — only an increase we actually WATCHED counts. */
+ * on first sight — only an increase we actually WATCHED counts. `hasPlays` /
+ * `hasStreak` record whether the app's blob CARRIES those fields at all, so
+ * the trophy case never teases a tier the app can't award (7 apps have no
+ * plays counter and most have no streak field — a locked "streak" trophy in
+ * Cookie Clicker would be a lie a kid could grind at forever). */
 export interface AppWatermark {
   plays: number;
   best: number;
   streak: number;
   seeded: boolean;
+  hasPlays: boolean;
+  hasStreak: boolean;
 }
 
 export interface Watermarks {
@@ -30,13 +36,22 @@ export function emptyWatermarks(): Watermarks {
   return { apps: {}, playedApps: [], bestIncreases: 0 };
 }
 
-/** Max finite non-negative value across aliases, scanning one level deep. */
-function readMax(blob: Record<string, unknown>, aliases: readonly string[]): number {
+/** Max finite non-negative value across aliases (scanning one level deep),
+ * plus whether ANY alias field is present — presence drives which trophy
+ * tiers the app can honestly offer, independent of the current value. */
+function readMax(
+  blob: Record<string, unknown>,
+  aliases: readonly string[]
+): { value: number; present: boolean } {
   let max = 0;
+  let present = false;
   const scan = (obj: Record<string, unknown>) => {
     for (const alias of aliases) {
       const v = obj[alias];
-      if (typeof v === "number" && Number.isFinite(v) && v > max) max = v;
+      if (typeof v === "number" && Number.isFinite(v)) {
+        present = true;
+        if (v > max) max = v;
+      }
     }
   };
   scan(blob);
@@ -45,7 +60,7 @@ function readMax(blob: Record<string, unknown>, aliases: readonly string[]): num
       scan(value as Record<string, unknown>);
     }
   }
-  return max;
+  return { value: max, present };
 }
 
 export interface EvaluateResult {
@@ -64,9 +79,12 @@ export function evaluate(
   unlockedIds: ReadonlySet<string>,
   wm: Watermarks
 ): EvaluateResult {
-  const plays = readMax(blob, PLAYS_ALIASES);
-  const best = readMax(blob, BEST_ALIASES);
-  const streak = readMax(blob, STREAK_ALIASES);
+  const playsRead = readMax(blob, PLAYS_ALIASES);
+  const bestRead = readMax(blob, BEST_ALIASES);
+  const streakRead = readMax(blob, STREAK_ALIASES);
+  const plays = playsRead.value;
+  const best = bestRead.value;
+  const streak = streakRead.value;
   const evidence = plays > 0 || best > 0 || streak > 0;
 
   const earned: string[] = [];
@@ -106,7 +124,17 @@ export function evaluate(
   return {
     newUnlocks: earned,
     watermarks: {
-      apps: { ...wm.apps, [appId]: { plays, best, streak, seeded: true } },
+      apps: {
+        ...wm.apps,
+        [appId]: {
+          plays,
+          best,
+          streak,
+          seeded: true,
+          hasPlays: playsRead.present,
+          hasStreak: streakRead.present,
+        },
+      },
       playedApps,
       bestIncreases,
     },

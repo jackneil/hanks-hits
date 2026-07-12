@@ -320,7 +320,7 @@
 
 <h2 id="questions">Open Questions</h2>
 <ul>
-  <li>Cross-device merge is last-write-wins on the whole blob (platform default). A union-merge of unlocked sets would be strictly better; acceptable v1 because unlocks re-derive from progress on the next play. Revisit if kids report lost trophies.</li>
+  <li><strong>Resolved (DCR):</strong> the original plan accepted last-write-wins across devices on the claim that unlocks re-derive on next play — review proved that claim only 3/5 true (explorer and record-breaker depend on LOCAL-ONLY watermarks and do not re-derive). The merge reconciler now UNIONS unlockable id->timestamp records (earliest unlock time wins per id), so a trophy in <code>unlocked</code> survives any merge direction; a server-side tripwire logs if a merge ever shrinks the set. Locked teasers are additionally filtered by per-app capability flags (hasPlays/hasStreak in the watermarks) so the case never teases a tier an app cannot award.</li>
 </ul>
 
 </body>

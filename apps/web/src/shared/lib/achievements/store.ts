@@ -24,7 +24,12 @@ type AchievementsState = {
   getProgress: () => AchievementsProgress;
   setProgress: (data: AchievementsProgress) => void;
   reportProgress: (appId: string, blob: Record<string, unknown>) => void;
-  dequeueCelebration: () => string | undefined;
+  /** Pops the queue head. Pass the id you EXPECT to be the head — a stale
+   * auto-advance timer racing a tap then no-ops instead of double-shifting
+   * (which silently skipped the next toast's window). */
+  dequeueCelebration: (expectedId?: string) => string | undefined;
+  /** Drains the whole queue at once (the "N new trophies!" summary path). */
+  clearCelebrations: () => void;
 };
 
 export const useAchievementsStore = create<AchievementsState>()(
@@ -50,8 +55,22 @@ export const useAchievementsStore = create<AchievementsState>()(
 
         if (result.newUnlocks.length === 0) {
           // Watermarks may still have moved (seeding, higher last-seen best):
-          // record them WITHOUT touching lastModified — nothing synced changed.
-          set({ watermarks: result.watermarks });
+          // record them WITHOUT touching lastModified — nothing synced
+          // changed. Skip the set() entirely when this app's entry is
+          // identical, or a per-second-churn game (cookie-clicker) would
+          // rewrite localStorage every observer tick for nothing.
+          const prev = watermarks.apps[appId];
+          const next = result.watermarks.apps[appId];
+          const unchanged =
+            prev !== undefined &&
+            prev.plays === next.plays &&
+            prev.best === next.best &&
+            prev.streak === next.streak &&
+            prev.hasPlays === next.hasPlays &&
+            prev.hasStreak === next.hasStreak &&
+            watermarks.playedApps.length === result.watermarks.playedApps.length &&
+            watermarks.bestIncreases === result.watermarks.bestIncreases;
+          if (!unchanged) set({ watermarks: result.watermarks });
           return;
         }
 
@@ -66,11 +85,15 @@ export const useAchievementsStore = create<AchievementsState>()(
         });
       },
 
-      dequeueCelebration: () => {
+      dequeueCelebration: (expectedId) => {
         const [next, ...rest] = get().celebrationQueue;
-        if (next !== undefined) set({ celebrationQueue: rest });
+        if (next === undefined) return undefined;
+        if (expectedId !== undefined && next !== expectedId) return undefined;
+        set({ celebrationQueue: rest });
         return next;
       },
+
+      clearCelebrations: () => set({ celebrationQueue: [] }),
     }),
     {
       name: "achievements-progress",
