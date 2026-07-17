@@ -444,7 +444,15 @@ export function extractGameStats(
       const plots = Array.isArray(data.items)
         ? (data.items as Record<string, unknown>[])
         : [];
-      const owned = plots.filter((plot) => plot.owned === true);
+      // Mirror the game's own legacy backfill (index.html loadMyLand):
+      // saves from before the "buy the land first" mechanic have no owned
+      // flag, but a plot with buildings on it is obviously owned. The
+      // shelf must agree with what the game shows for the same blob.
+      const owned = plots.filter(
+        (plot) =>
+          plot.owned === true ||
+          (Array.isArray(plot.buildings) && plot.buildings.length > 0)
+      );
       const buildings = owned.reduce(
         (total, plot) =>
           total + (Array.isArray(plot.buildings) ? plot.buildings.length : 0),

@@ -224,6 +224,39 @@ describe("HomeClient", () => {
       );
     });
 
+    it("counts legacy pre-ownership plots with buildings as owned, like the game does", () => {
+      // Saves from before the "buy the land first" mechanic have no owned
+      // flag; the game backfills owned=true for any plot with buildings.
+      // The shelf must agree with the game about the same blob.
+      window.localStorage.setItem(
+        "fwa_myland_v1",
+        JSON.stringify([
+          { id: 1, owned: false, sizeLevel: 1, buildings: [{ type: "garage" }] },
+          { id: 2, owned: false, sizeLevel: 0, buildings: [] },
+        ])
+      );
+      const withFourWheeler: DisplayCategory[] = [
+        {
+          ...categories[0],
+          items: [
+            {
+              id: "four-wheeler-adventure",
+              name: "Four-Wheeler Adventure",
+              emoji: "🐕",
+              href: "/games/four-wheeler-adventure",
+              madeByKid: true,
+            },
+          ],
+        },
+      ];
+
+      render(<HomeClient categories={withFourWheeler} />);
+
+      expect(screen.getByTestId("my-games-shelf")).toHaveTextContent(
+        "My Land: 1 plot"
+      );
+    });
+
     it("keeps the device-owned My Land stat visible even when signed out with a marker present", () => {
       // Device-owned saves never sync to an account; the game itself
       // would show this state to anyone at the computer, so the owner
