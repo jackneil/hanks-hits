@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/shared/components/Header";
 import type { DisplayCategory, DisplayItem } from "@/shared/lib/game-registry";
+import { extractGameStats } from "@/shared/lib/gameStatExtractor";
+import { findLocalProgress } from "@/shared/lib/localProgress";
 import { SITE } from "@/config/site";
 
 // Floating emojis for hero background
@@ -54,18 +56,63 @@ function saveRecentItem(item: DisplayItem, current: RecentItem[]) {
   return next;
 }
 
+/**
+ * Personal-best line for a My Games card, from locally saved progress.
+ * Pure decoration: any missing or unreadable save just reads as "never
+ * played", so a broken blob can never take down the home page.
+ */
+function loadMyGameStat(appId: string): string | null {
+  try {
+    const progress = findLocalProgress(appId);
+    if (!progress) return null;
+
+    const lastModified =
+      typeof progress.lastModified === "number"
+        ? progress.lastModified
+        : Date.now();
+    const info = extractGameStats(
+      appId,
+      progress,
+      new Date(lastModified).toISOString()
+    );
+    return info.primaryStat
+      ? `${info.primaryStat.label}: ${info.primaryStat.value}`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function HomeClient({ categories }: HomeClientProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+  const [myGameStats, setMyGameStats] = useState<Record<string, string | null>>(
+    {}
+  );
 
   const allItems = useMemo(
     () => categories.flatMap((category) => category.items),
     [categories]
   );
 
+  // The kid's own creations, marked madeByKid: true in their metadata.
+  const myGames = useMemo(
+    () => allItems.filter((item) => item.madeByKid),
+    [allItems]
+  );
+
   useEffect(() => {
     setRecentItems(loadRecentItems(allItems));
   }, [allItems]);
+
+  // localStorage only exists in the browser, so stats load after mount.
+  useEffect(() => {
+    const stats: Record<string, string | null> = {};
+    for (const item of myGames) {
+      stats[item.id] = loadMyGameStat(item.id);
+    }
+    setMyGameStats(stats);
+  }, [myGames]);
 
   const filteredCategories = useMemo(() => {
     const query = normalizeSearch(searchQuery);
@@ -154,6 +201,55 @@ export function HomeClient({ categories }: HomeClientProps) {
           />
         </div>
       </section>
+
+      {/* My Games shelf - the kid's own creations, top billing. Always
+          visible outside search: with creations it is their trophy shelf,
+          without any it invites them to make their first one. */}
+      {!hasSearch && (
+        <section
+          className="bg-slate-950 px-4 pb-10"
+          data-testid="my-games-shelf"
+        >
+          <div className="mx-auto max-w-6xl">
+            <h2 className="mb-4 text-xl font-bold text-white">
+              🌟 My Games
+            </h2>
+            {myGames.length > 0 ? (
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+                {myGames.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => handleGameClick(item)}
+                    className="group rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/15 active:scale-95"
+                  >
+                    <span className="mb-2 block text-5xl transition-transform duration-300 group-hover:scale-110">
+                      {item.emoji}
+                    </span>
+                    <span className="block font-bold text-white/90">
+                      {item.name}
+                    </span>
+                    <span className="mt-1 block text-sm font-semibold text-cyan-300/90">
+                      {myGameStats[item.id] ?? "Brand new!"}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center md:p-8">
+                <span className="mb-3 block text-5xl">🎨</span>
+                <p className="text-lg font-bold text-white">
+                  This shelf is waiting for YOUR first game!
+                </p>
+                <p className="mt-1 text-white/60">
+                  Dream one up and tell Claude to build it. A soccer game? A
+                  dino race? Anything you can imagine shows up right here.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {!hasSearch && recentItems.length > 0 && (
         <section className="bg-slate-950 px-4 pb-10">

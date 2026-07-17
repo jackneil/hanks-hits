@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { GameDisplayInfo } from "../lib/gameStatExtractor";
+import type { GameDisplayInfo } from "@/shared/lib/gameStatExtractor";
 import { GameDetailView } from "./game-details";
 import { getGameGradient } from "@/shared/lib/gameMetadata.generated";
 

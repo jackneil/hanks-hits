@@ -32,6 +32,24 @@ const categories: DisplayCategory[] = [
   },
 ];
 
+// Same catalog, but the kid built one of the games themselves.
+const categoriesWithCreation: DisplayCategory[] = [
+  {
+    ...categories[0],
+    items: [
+      ...categories[0].items,
+      {
+        id: "donut-catch",
+        name: "Donut Catch",
+        emoji: "🍩",
+        href: "/games/donut-catch",
+        madeByKid: true,
+      },
+    ],
+  },
+  categories[1],
+];
+
 describe("HomeClient", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -55,5 +73,58 @@ describe("HomeClient", () => {
 
     expect(screen.getByText("Recently Played")).toBeInTheDocument();
     expect(screen.getAllByText("Snake").length).toBeGreaterThan(1);
+  });
+
+  describe("My Games shelf", () => {
+    it("shows kid-made games on the shelf, and built-ins stay off it", () => {
+      render(<HomeClient categories={categoriesWithCreation} />);
+
+      const shelf = screen.getByTestId("my-games-shelf");
+      expect(shelf).toHaveTextContent("My Games");
+      expect(shelf).toHaveTextContent("Donut Catch");
+      expect(shelf).not.toHaveTextContent("Snake");
+      // The creation ALSO stays in its normal category (dual listing).
+      expect(screen.getAllByText("Donut Catch").length).toBe(2);
+    });
+
+    it("shows a personal-best stat from locally saved progress", () => {
+      window.localStorage.setItem(
+        "donut-catch-state",
+        JSON.stringify({
+          state: { progress: { highScore: 950, lastModified: 1 } },
+          version: 0,
+        })
+      );
+
+      render(<HomeClient categories={categoriesWithCreation} />);
+
+      expect(screen.getByTestId("my-games-shelf")).toHaveTextContent("950");
+    });
+
+    it("marks a never-played creation as brand new instead of showing a stat", () => {
+      render(<HomeClient categories={categoriesWithCreation} />);
+
+      expect(screen.getByTestId("my-games-shelf")).toHaveTextContent(
+        "Brand new!"
+      );
+    });
+
+    it("invites the kid to make their first game when nothing is on the shelf", () => {
+      render(<HomeClient categories={categories} />);
+
+      const shelf = screen.getByTestId("my-games-shelf");
+      expect(shelf).toHaveTextContent(/waiting for YOUR first game/i);
+    });
+
+    it("hides the shelf while searching but keeps creations findable", () => {
+      render(<HomeClient categories={categoriesWithCreation} />);
+
+      fireEvent.change(screen.getByLabelText("Search games and apps"), {
+        target: { value: "donut" },
+      });
+
+      expect(screen.queryByTestId("my-games-shelf")).not.toBeInTheDocument();
+      expect(screen.getByText("Donut Catch")).toBeInTheDocument();
+    });
   });
 });
