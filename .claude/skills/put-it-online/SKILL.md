@@ -60,7 +60,7 @@ If you see edits to **other** games, `CLAUDE.md`, schemas, the README, `.claude/
 git add apps/web/src/games/<name> apps/web/src/app/games/<name> \
         apps/web/src/lib/progress-schemas.ts \
         packages/db/src/schema/app-progress.ts \
-        apps/web/src/apps/profile/lib/gameStatExtractor.ts
+        apps/web/src/shared/lib/gameStatExtractor.ts
 ```
 (Only the paths that actually belong to this game.) If you're unsure which files belong, stop and figure it out before committing.
 

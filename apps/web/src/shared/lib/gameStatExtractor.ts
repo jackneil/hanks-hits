@@ -436,6 +436,42 @@ export function extractGameStats(
         secondaryStats: [],
       };
 
+    case "four-wheeler-adventure": {
+      // My Land save (device-owned alias key fwa_myland_v1): an array of
+      // land plots that localProgress wraps as { items }. Owned plots and
+      // their buildings are the kid's visible progress; nothing owned yet
+      // reads as no stat, which the shelf renders as its invite copy.
+      const plots = Array.isArray(data.items)
+        ? (data.items as Record<string, unknown>[])
+        : [];
+      // Mirror the game's own legacy backfill (index.html loadMyLand):
+      // saves from before the "buy the land first" mechanic have no owned
+      // flag, but a plot with buildings on it is obviously owned. The
+      // shelf must agree with what the game shows for the same blob.
+      const owned = plots.filter(
+        (plot) =>
+          plot.owned === true ||
+          (Array.isArray(plot.buildings) && plot.buildings.length > 0)
+      );
+      const buildings = owned.reduce(
+        (total, plot) =>
+          total + (Array.isArray(plot.buildings) ? plot.buildings.length : 0),
+        0
+      );
+      return {
+        ...baseInfo,
+        primaryStat: owned.length
+          ? {
+              label: "My Land",
+              value: `${owned.length} ${plural(owned.length, "plot")}`,
+            }
+          : null,
+        secondaryStats: buildings
+          ? [{ label: "Buildings", value: String(buildings) }]
+          : [],
+      };
+    }
+
     default:
       // Unknown game - try generic extraction
       return {

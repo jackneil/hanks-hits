@@ -302,8 +302,18 @@ export const metadata: GameMetadata = {
   category: "arcade",         // Where it appears on home page
   description: "Short desc",  // Optional tooltip
   hidden: false,              // Set true to hide from home page
+  madeByKid: true,            // REQUIRED on games/apps the kid built or remixed
 };
 ```
+
+### The `madeByKid` marker
+Set **`madeByKid: true`** on every game/app the kid builds or remixes (make-a-game
+and remix-a-game already do this). It powers the **"🌟 My Games" shelf** at the top
+of the home page (with a personal-best stat per card) and the **"🛠️ Games I Made"**
+section on the profile page. Like every metadata field it must be a **plain literal**
+(`true`, never a computed value) or the scan won't see it. Leave it off (or `false`)
+for built-in catalog games. The profile section reads the build-time lookup, so it
+shows up there after the next `pnpm build` (the home shelf sees it immediately in dev).
 
 ### Valid Categories
 - `"racing"` - Racing & Driving
@@ -393,8 +403,8 @@ export type { MyGameProgress } from "./lib/store";
 When building a new game or app, you MUST do ALL of these. **Steps 7 and 8 are the ones that get forgotten — skip them and the game will silently fail to save progress.** (Swap `my-game` for the real id everywhere.)
 
 **Create these files** (under `apps/web/`):
-1. **`src/games/my-game/metadata.ts`** — home-page discovery (`id`, `name`, `emoji`, `category`)
-2. **`src/games/my-game/lib/store.ts`** — Zustand `persist` store with the `Progress` type, `getProgress`, `setProgress`, and `lastModified`
+1. **`src/games/my-game/metadata.ts`** — home-page discovery (`id`, `name`, `emoji`, `category`); **kid-built or kid-remixed games also need `madeByKid: true`** or they silently never appear on the home "My Games" shelf / profile "Games I Made" (everything stays green — no error tells you)
+2. **`src/games/my-game/lib/store.ts`** — Zustand `persist` store with the `Progress` type, `getProgress`, `setProgress`, and `lastModified`. The persist `name` MUST end in a standard suffix (`-storage`, `-progress`, `-save`, `-game-state`; the template's `"my-game-state"` is fine) — a novel suffix (e.g. `-store`) means sign-out won't clear it AND the My Games shelf will never show its personal-best stat
 3. **`src/games/my-game/index.ts`** — exports the `default` component + the store + the Progress type
 4. **`src/games/my-game/Game.tsx`** — main component (`"use client"`, `default` export, wires `useAuthSync`)
 5. **`src/app/games/my-game/page.tsx`** — thin route: `dynamic(() => import("@/games/my-game"), { ssr: false })` inside `<GameShell>`
@@ -403,7 +413,7 @@ When building a new game or app, you MUST do ALL of these. **Steps 7 and 8 are t
 **Edit these existing files** (do step 7 *first* — `Game.tsx` and the route won't typecheck until the id is in `VALID_APP_IDS`):
 7. **`packages/db/src/schema/app-progress.ts`** — add `"my-game"` to the `VALID_APP_IDS` array. **MANDATORY, and do it before the code in 1–6 will compile.** `appId` is typed `ValidAppId`; an unregistered id is a hard TypeScript error, and the API rejects every save. (Apps need this too.)
 8. **`apps/web/src/lib/progress-schemas.ts`** — add a Zod schema (use `.strict()`) and register it in `PROGRESS_SCHEMAS` under `"my-game"`. Without it, all progress saves are rejected.
-9. **`apps/web/src/apps/profile/lib/gameStatExtractor.ts`** — add a `case "my-game":` so the profile page shows real stats.
+9. **`apps/web/src/shared/lib/gameStatExtractor.ts`** — add a `case "my-game":` so the profile page shows real stats.
 
 **Optional:**
 10. **`apps/web/src/lib/leaderboard-extractors.ts`** — add a `my-game` entry to turn on the in-game leaderboard button + leaderboard pages.
@@ -432,7 +442,7 @@ When building a new game or app, you MUST do ALL of these. **Steps 7 and 8 are t
 - Generic fallback only shows highScore - missing rich stats like accuracy, streaks, etc.
 
 ### Where It Lives
-`apps/web/src/apps/profile/lib/gameStatExtractor.ts`
+`apps/web/src/shared/lib/gameStatExtractor.ts` (shared: the profile page and the home My Games shelf both read it)
 
 ### When Building a New Game/App
 
@@ -586,12 +596,14 @@ before anything hits GitHub (whether opening a PR or committing into one). Run e
 step, in order, and STOP on the first failure — never push red:
 
 ```bash
-cd apps/web
+# From the REPO ROOT (mirrors .githooks/pre-push). Do NOT cd into apps/web
+# for the install step - pnpm can't find the workspace lockfile from there
+# and fails with ERR_PNPM_NO_LOCKFILE.
 pnpm install --frozen-lockfile   # deps match the lockfile
-pnpm lint                        # eslint (0 errors; warnings are OK)
-pnpm typecheck                   # tsc --noEmit
-pnpm test                        # vitest run
-pnpm build                       # authoritative typecheck + regenerates game metadata
+pnpm --filter web lint           # eslint (0 errors; warnings are OK)
+pnpm --filter web typecheck      # tsc --noEmit
+pnpm --filter web test           # vitest run
+pnpm --filter web build          # authoritative typecheck + regenerates game metadata
 ```
 
 A **pre-push git hook enforces this automatically** (`.githooks/pre-push`) — it runs

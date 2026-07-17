@@ -1,6 +1,6 @@
 "use client";
 
-import type { GameDisplayInfo } from "../../lib/gameStatExtractor";
+import type { GameDisplayInfo } from "@/shared/lib/gameStatExtractor";
 import { MonsterTruckDetails } from "./MonsterTruckDetails";
 import { HillClimbDetails } from "./HillClimbDetails";
 import { OregonTrailDetails } from "./OregonTrailDetails";

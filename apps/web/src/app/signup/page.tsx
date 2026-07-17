@@ -26,8 +26,8 @@ export default function SignUpPage() {
     }
 
     // Validate password length
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
       return;
     }
 
@@ -184,13 +184,13 @@ export default function SignUpPage() {
             </label>
             <input
               type="password"
-              placeholder="At least 6 characters"
+              placeholder="At least 8 characters"
               autoComplete="new-password"
               className="input input-bordered input-lg w-full"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={8}
             />
           </div>
 

@@ -15,9 +15,13 @@ interface ParsedMetadata {
   emoji: string;
   category: string;
   description?: string;
+  madeByKid: boolean;
 }
 
-function parseMetadataFile(filePath: string): ParsedMetadata | null {
+function parseMetadataFile(
+  filePath: string,
+  dirName: string
+): ParsedMetadata | null {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
 
@@ -26,18 +30,23 @@ function parseMetadataFile(filePath: string): ParsedMetadata | null {
     const emojiMatch = content.match(/emoji:\s*["']([^"']+)["']/);
     const categoryMatch = content.match(/category:\s*["']([^"']+)["']/);
     const descMatch = content.match(/description:\s*["']([^"']+)["']/);
+    const madeByKidMatch = content.match(/madeByKid:\s*(true|false)/);
 
-    if (!idMatch || !nameMatch || !emojiMatch || !categoryMatch) {
+    if (!nameMatch || !emojiMatch || !categoryMatch) {
       console.warn(`Missing required fields in ${filePath}`);
       return null;
     }
 
     return {
-      id: idMatch[1],
+      // Same id fallback as the runtime scan (game-registry parseMetadata),
+      // so a missing explicit id can't make home and profile disagree on
+      // whether a game exists.
+      id: idMatch ? idMatch[1] : dirName,
       name: nameMatch[1],
       emoji: emojiMatch[1],
       category: categoryMatch[1],
       description: descMatch?.[1],
+      madeByKid: madeByKidMatch ? madeByKidMatch[1] === "true" : false,
     };
   } catch (err) {
     console.error(`Error parsing ${filePath}:`, err);
@@ -61,7 +70,7 @@ function scanDirectory(type: "games" | "apps"): ParsedMetadata[] {
 
     const metadataPath = path.join(dir, entry.name, "metadata.ts");
     if (fs.existsSync(metadataPath)) {
-      const metadata = parseMetadataFile(metadataPath);
+      const metadata = parseMetadataFile(metadataPath, entry.name);
       if (metadata) {
         items.push(metadata);
       }
@@ -92,6 +101,7 @@ function generateOutput(items: ParsedMetadata[]): string {
     color: "${color}",
     description: "${item.description || ""}",
     category: "${item.category}",
+    madeByKid: ${item.madeByKid},
   }`;
     })
     .join(",\n");
@@ -110,6 +120,7 @@ export interface GameMetadata {
   color: string;
   description: string;
   category: CategoryId;
+  madeByKid: boolean;
 }
 
 export const GAME_METADATA: Record<string, GameMetadata> = {
@@ -131,6 +142,7 @@ export function getGameMetadata(appId: string): GameMetadata {
       color: "gray",
       description: "A game",
       category: "arcade" as CategoryId,
+      madeByKid: false,
     }
   );
 }
