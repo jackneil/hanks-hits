@@ -246,8 +246,11 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
  * Returns a default if game not found.
  */
 export function getGameMetadata(appId: string): GameMetadata {
+  // Object.hasOwn: appId can be attacker-choosable (achievement ids embed
+  // it), and an inherited key like "constructor" is truthy — the plain
+  // GAME_METADATA[appId] lookup would skip the fallback and render junk.
   return (
-    GAME_METADATA[appId] || {
+    (Object.hasOwn(GAME_METADATA, appId) ? GAME_METADATA[appId] : undefined) || {
       name: appId,
       icon: "🎮",
       color: "gray",

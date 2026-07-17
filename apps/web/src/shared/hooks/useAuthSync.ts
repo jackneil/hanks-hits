@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useSession } from "next-auth/react";
 import type { ValidAppId, AppProgressData } from "@hank-neil/db/schema";
 import { extractTimestamp } from "@/lib/progress-merge";
+import { reportProgressToAchievements } from "@/shared/lib/achievements";
 import {
   PROGRESS_OWNER_KEY,
   SIGNOUT_BROADCAST_KEY,
@@ -413,6 +414,28 @@ export function useAuthSync<T extends AppProgressData>({
       if (syncTimer) clearTimeout(syncTimer);
     };
   }, [isAuthenticated, status, performInitialSync]);
+
+  // Achievements observer — ALWAYS on (the auto-save poll below is
+  // auth-gated, which would lock guest kids out of trophies). Every synced
+  // module already mounts this hook, so this one effect gives the Trophy
+  // Case cross-game detection with zero per-island edits. The achievements
+  // blob itself is skipped (feedback loop), and foreign (previous-user)
+  // state must never earn the next kid's trophies.
+  useEffect(() => {
+    if (appId === "achievements") return;
+
+    let lastReported = "";
+    const interval = setInterval(() => {
+      if (foreignDataRef.current || foreignPurgePending) return;
+      const state = getStateRef.current();
+      const stateStr = JSON.stringify(state);
+      if (stateStr === lastReported) return;
+      lastReported = stateStr;
+      reportProgressToAchievements(appId, state as Record<string, unknown>);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [appId]);
 
   // Subscribe to state changes for auto-save
   useEffect(() => {

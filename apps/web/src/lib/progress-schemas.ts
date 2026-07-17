@@ -390,24 +390,61 @@ const retroArcadeSchema = z.object({
 // ============================================================================
 // Apps (non-games)
 // ============================================================================
+// Matches WeatherProgress in apps/weather/lib/store.ts (savedLocations of
+// GeoLocation objects, nullable lastLocation) — the old schema described
+// fields the store never synced, 400ing every signed-in save.
+const geoLocationSchema = z.object({
+  name: boundedString,
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  country: boundedString.optional(),
+  admin1: boundedString.optional(),
+}).strict();
+
 const weatherSchema = z.object({
-  favoriteLocations: z.array(boundedString).max(50),
-  lastLocation: boundedString.optional(),
-  temperatureUnit: z.enum(["celsius", "fahrenheit"]).optional(),
+  savedLocations: z.array(geoLocationSchema).max(50),
+  units: z.enum(["celsius", "fahrenheit"]),
+  lastLocation: geoLocationSchema.nullable(),
   lastModified: timestampSchema,
-});
+}).strict();
 
+// Matches JokeGeneratorProgress in apps/joke-generator/lib/store.ts. The old
+// schema here described a shape the store never synced (favoriteJokes), so
+// EVERY signed-in save 400'd since validation landed — keep these in lockstep.
 const jokeGeneratorSchema = z.object({
-  favoriteJokes: z.array(z.string().max(2000)).max(500), // Jokes can be longer
+  favorites: z.array(z.object({
+    id: boundedString,
+    setup: z.string().max(2000),
+    punchline: z.string().max(2000),
+    category: boundedString,
+    savedAt: z.number().min(0),
+  }).strict()).max(500),
+  ratings: z.array(z.object({
+    jokeId: boundedString,
+    rating: z.enum(["funny", "not-funny"]),
+    ratedAt: z.number().min(0),
+  }).strict()).max(2000),
+  seenJokeIds: z.array(boundedString).max(5000),
+  lastCategory: boundedString,
   jokesViewed: z.number().min(0).max(MAX_COUNT),
+  jokesCopied: z.number().min(0).max(MAX_COUNT),
+  jokesShared: z.number().min(0).max(MAX_COUNT),
   lastModified: timestampSchema,
-});
+}).strict();
 
+// Matches ToyFinderProgress in apps/toy-finder/lib/store.ts — the old
+// wishlist/viewedToys shape was never what the store synced (same drift
+// class as joke-generator and weather; caught by the contract test).
 const toyFinderSchema = z.object({
-  wishlist: z.array(boundedString).max(500),
-  viewedToys: z.array(boundedString).max(1000),
+  wishlistItems: z.array(z.object({
+    toyId: boundedString,
+    priority: boundedString,
+    addedAt: z.number().min(0),
+    notes: z.string().max(500).optional(),
+  }).strict()).max(500),
+  recentlyViewed: z.array(boundedString).max(1000),
   lastModified: timestampSchema,
-});
+}).strict();
 
 // ============================================================================
 // Space Invaders
@@ -674,6 +711,24 @@ const arkanoidSchema = z.object({
 }).strict();
 
 // ============================================================================
+// Achievements (Trophy Case — platform-level, not a game)
+// ============================================================================
+// The full derivable catalog is ~220 ids (6 per app x 34 apps + globals), so
+// the generic MAX_RECORD_KEYS (100) is too small; 500 leaves generous room
+// for new games while still bounding a hostile payload.
+const MAX_ACHIEVEMENT_KEYS = 500;
+const achievementsSchema = z.object({
+  unlocked: z.record(boundedString.min(1), z.number().min(0).refine(
+    (val) => val <= Date.now() + 86400000,
+    { message: "Timestamp cannot be more than 1 day in the future" }
+  )).refine(
+    (obj) => Object.keys(obj).length <= MAX_ACHIEVEMENT_KEYS,
+    { message: `Too many entries (max ${MAX_ACHIEVEMENT_KEYS})` }
+  ),
+  lastModified: timestampSchema,
+}).strict();
+
+// ============================================================================
 // Schema Registry
 // ============================================================================
 
@@ -709,6 +764,7 @@ export const PROGRESS_SCHEMAS: Partial<Record<ValidAppId, z.ZodSchema>> = {
   wordle: wordleSchema,
   "math-attack": mathAttackSchema,
   arkanoid: arkanoidSchema,
+  achievements: achievementsSchema,
 };
 
 /**

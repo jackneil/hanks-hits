@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { signOutAndClear } from "@/lib/auth-client";
 import { GameProgressCard } from "./GameProgressCard";
+import { TrophyCase } from "@/shared/components/TrophyCase";
 import { extractGameStats, type GameDisplayInfo } from "../lib/gameStatExtractor";
 import Link from "next/link";
 import { Header } from "@/shared/components/Header";
@@ -99,8 +100,11 @@ export function ProfilePage() {
         setProfile(profileData);
         setNewName(profileData.name || "");
 
-        // Extract game stats from progress
+        // Extract game stats from progress. The "achievements" blob is
+        // platform state, not a game — it feeds the Trophy Case section,
+        // never a game card.
         const gameInfos: GameDisplayInfo[] = (progressData.progress || [])
+          .filter((p: ProgressItem) => p.appId !== "achievements")
           .filter((p: ProgressItem) => p.data && Object.keys(p.data).length > 0)
           .map((p: ProgressItem) => extractGameStats(p.appId, p.data, p.updatedAt));
 
@@ -370,6 +374,9 @@ export function ProfilePage() {
           )}
         </section>
       )}
+
+      {/* Trophy Case */}
+      <TrophyCase />
 
       {/* Games Section */}
       <section id="games" className="mx-4 mb-6">

@@ -71,6 +71,10 @@ describe("CookieClickerGame golden cookie", () => {
     });
   });
 
+  // Mounting the full game (ticker + floating-text machinery) legitimately
+  // exceeds vitest's 5s default under full-suite parallel load — this was
+  // the suite's other documented flake (with monster-truck's import), so it
+  // gets a generous timeout. The assertions themselves are synchronous.
   it("lets users click a visible golden cookie to activate its effect", () => {
     render(<CookieClickerGame />);
 
@@ -83,7 +87,7 @@ describe("CookieClickerGame golden cookie", () => {
     expect(
       screen.queryByRole("button", { name: "Golden cookie" })
     ).not.toBeInTheDocument();
-  });
+  }, 30_000);
 });
 
 describe("CookieClickerGame achievement toast tap-through", () => {

@@ -61,6 +61,27 @@ const UNLOCKABLE_KEY = /(unlocked|purchased|achievement|badge|upgrade|trophies)/
 const isPrimitiveArray = (v: unknown): v is (string | number)[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string" || typeof x === "number");
 
+// Unlockable OBJECT maps (id -> unlockedAt epoch ms), e.g. the Trophy Case's
+// `unlocked` record. These must UNION like unlockable arrays do — pure
+// last-write-wins would let a stale device's whole map replace the server's
+// and silently drop trophies earned elsewhere (found by DCR: explorer and
+// record-breaker never re-derive, so the loss was permanent).
+//
+// The record variant deliberately uses a NARROWER name set than the array
+// variant: union takes the MINIMUM per key (earliest unlock time), which is
+// right for timestamp maps but would corrupt a future count/level map like
+// `upgradeLevels: Record<id, number>` to the cross-device minimum. Fields
+// named purchased/upgrade are the likely shape of such maps, so they are
+// excluded here and stay last-write-wins unless someone consciously adds
+// them.
+const UNLOCKABLE_RECORD_KEY = /(unlocked|achievement|badge|trophies)/i;
+
+const isTimestampRecord = (v: unknown): v is Record<string, number> =>
+  typeof v === "object" &&
+  v !== null &&
+  !Array.isArray(v) &&
+  Object.values(v).every((x) => typeof x === "number");
+
 /**
  * Field-aware reconcile: the LWW winner's blob is the base; for fields present
  * in BOTH blobs, monotonic counters take max and unlockable collections union.
@@ -87,6 +108,23 @@ function reconcileFields(
       const extras = l.filter((x) => !w.includes(x));
       if (extras.length > 0) {
         out[key] = [...w, ...extras];
+        changed = true;
+      }
+    } else if (isTimestampRecord(w) && isTimestampRecord(l) && UNLOCKABLE_RECORD_KEY.test(key)) {
+      // Union ids across sessions; a trophy both sides know keeps its
+      // EARLIEST unlock time. Built via Map + fromEntries (define-own-property
+      // semantics) so a hostile "__proto__" id can never reach a [[Set]] path.
+      const entries = new Map(Object.entries(w));
+      let unionChanged = false;
+      for (const [id, ts] of Object.entries(l)) {
+        const existing = entries.get(id);
+        if (existing === undefined || ts < existing) {
+          entries.set(id, ts);
+          unionChanged = true;
+        }
+      }
+      if (unionChanged) {
+        out[key] = Object.fromEntries(entries);
         changed = true;
       }
     }

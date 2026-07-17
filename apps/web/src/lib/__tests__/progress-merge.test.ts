@@ -102,6 +102,64 @@ describe("mergeProgress", () => {
     expect(result.data.purchasedUpgrades).toEqual(["a", "b"]);
     expect(result.data.unlockedAchievements).toEqual(["x", "y"]);
   });
+
+  it("unions unlockable OBJECT maps (trophy records) instead of last-write-wins", () => {
+    // Regression: two devices playing concurrently — the loser's trophies
+    // must survive the merge, keeping the EARLIEST unlock time for shared ids.
+    const result = mergeProgress(
+      { unlocked: { "first-play:snake": 5000, "explorer:3": 8000 }, lastModified: 9000 },
+      { unlocked: { "first-play:snake": 3000, "record-breaker:1": 7000 }, lastModified: 7500 },
+      9000,
+      7500
+    );
+
+    expect(result.data.unlocked).toEqual({
+      "first-play:snake": 3000, // earliest wins for shared ids
+      "explorer:3": 8000,
+      "record-breaker:1": 7000, // loser-only trophy survives
+    });
+    expect(result.source).toBe("merged");
+  });
+
+  it("does not union object maps whose key is not unlockable-named", () => {
+    const result = mergeProgress(
+      { ratings: { j1: 1 }, lastModified: 2000 },
+      { ratings: { j2: 2 }, lastModified: 1000 },
+      2000,
+      1000
+    );
+    expect(result.data.ratings).toEqual({ j1: 1 });
+  });
+
+  it("never min-merges purchased/upgrade-named numeric maps (count maps, not timestamps)", () => {
+    // The record-union takes the MINIMUM per key — right for unlock
+    // timestamps, corrupting for a count/level map. purchased/upgrade names
+    // stay last-write-wins by design.
+    const result = mergeProgress(
+      { upgradeLevels: { turbo: 3 }, lastModified: 2000 },
+      { upgradeLevels: { turbo: 1, wheels: 2 }, lastModified: 1000 },
+      2000,
+      1000
+    );
+    expect(result.data.upgradeLevels).toEqual({ turbo: 3 });
+  });
+
+  it("a hostile __proto__ trophy id cannot pollute Object.prototype through the union", () => {
+    const hostile = JSON.parse(
+      '{"unlocked":{"__proto__":1,"first-play:snake":2},"lastModified":1000}'
+    );
+    const result = mergeProgress(
+      { unlocked: { "explorer:3": 3 }, lastModified: 2000 },
+      hostile,
+      2000,
+      1000
+    );
+
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.keys(result.data.unlocked as object)).toContain("first-play:snake");
+    // the merged record is a plain data object, prototype untouched
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  });
 });
 
 describe("mergeForSave — the audit wipe regression", () => {

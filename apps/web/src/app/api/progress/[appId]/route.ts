@@ -190,6 +190,31 @@ export async function POST(request: Request, context: RouteContext) {
         if (mergedValidation.success) {
           finalData = mergedValidation.data as AppProgressData;
           conflicts = mergeResult.conflicts;
+
+          // TRIPWIRE: a merge must never SHRINK an unlockable set — the
+          // reconciler unions them (arrays and id->timestamp records). If
+          // this ever logs, trophies/unlocks are being dropped and the 3am
+          // "my kid's trophies vanished" report has its trail.
+          if (appId === "achievements") {
+            const count = (blob: AppProgressData | undefined | null) => {
+              const u = blob?.unlocked;
+              return u && typeof u === "object" && !Array.isArray(u)
+                ? Object.keys(u).length
+                : 0;
+            };
+            const merged = count(finalData);
+            const inputs = Math.max(
+              count(validation.data as AppProgressData),
+              count(existing.data as AppProgressData)
+            );
+            if (merged < inputs) {
+              console.warn(
+                `[achievements] merge SHRANK unlocked set for user ${userId}: ` +
+                  `incoming=${count(validation.data as AppProgressData)} ` +
+                  `existing=${count(existing.data as AppProgressData)} merged=${merged}`
+              );
+            }
+          }
         } else {
           console.warn(
             `Merged progress for ${appId} failed re-validation; persisting incoming payload instead:`,

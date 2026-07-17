@@ -26,17 +26,20 @@ vi.mock('@react-three/drei', () => ({
   Cloud: () => null,
 }));
 
-// We test the store separately, so just test that the Game module loads
+// We test the store separately, so just test that the Game module loads.
+// The first import pulls the whole three.js/R3F chain, which legitimately
+// exceeds vitest's default 5s under full-suite parallel load — this was the
+// suite's one documented flake, so the import tests get a generous timeout.
 describe('Monster Truck Game Module', () => {
   it('exports MonsterTruckGame component', async () => {
     const gameModule = await import('../index');
     expect(gameModule.MonsterTruckGame).toBeDefined();
-  });
+  }, 30_000);
 
   it('exports useGameStore hook', async () => {
     const gameModule = await import('../index');
     expect(gameModule.useGameStore).toBeDefined();
-  });
+  }, 30_000);
 
   it('keeps physics colliders out of the ambient environment', async () => {
     const { Environment, EnvironmentColliders } = await import('../components/Environment');

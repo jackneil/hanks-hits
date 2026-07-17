@@ -46,22 +46,34 @@ export function Header({
           <div className="w-20" />
         )}
 
-        {/* Center: Title with icon */}
+        {/* Center: Title with icon. The icon hides below sm: (the page
+            content carries its own identity there) and the title never
+            wraps — a two-line header title crowded 390px phones. */}
         {title && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             {titleIcon && (
-              <span className="text-3xl md:text-4xl animate-bounce-slow drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]">
+              <span className="hidden sm:inline text-3xl md:text-4xl animate-bounce-slow drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]">
                 {titleIcon}
               </span>
             )}
-            <h1 className="text-xl md:text-2xl font-black bg-gradient-to-r from-yellow-300 via-pink-400 to-cyan-400 bg-clip-text text-transparent">
+            <h1 className="text-xl md:text-2xl font-black bg-gradient-to-r from-yellow-300 via-pink-400 to-cyan-400 bg-clip-text text-transparent whitespace-nowrap truncate">
               {title}
             </h1>
           </div>
         )}
 
-        {/* Right: Leaderboards link (everyone) + LoginButton */}
+        {/* Right: Trophies + Leaderboards links (everyone) + LoginButton.
+            🏅 for the Trophy Case, 🏆 stays Leaderboards — same glyph for
+            both would misdirect a kid hunting their trophies. */}
         <div className="flex items-center gap-2">
+          <Link
+            href="/trophies"
+            aria-label="Trophy Case"
+            className="group flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all duration-300 min-w-[44px] min-h-[44px] border border-white/10 hover:border-white/20"
+          >
+            <span className="text-xl" aria-hidden="true">🏅</span>
+            <span className="text-white/80 group-hover:text-white font-medium hidden sm:inline">Trophies</span>
+          </Link>
           <Link
             href="/leaderboards"
             aria-label="Leaderboards"
