@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { signOutAndClear } from "@/lib/auth-client";
 import { GameProgressCard } from "./GameProgressCard";
+import { GamesIMade } from "./GamesIMade";
 import { TrophyCase } from "@/shared/components/TrophyCase";
 import { extractGameStats, type GameDisplayInfo } from "@/shared/lib/gameStatExtractor";
 import Link from "next/link";
@@ -378,10 +379,15 @@ export function ProfilePage() {
       {/* Trophy Case */}
       <TrophyCase />
 
-      {/* Games Section */}
+      {/* The kid's own creations */}
+      <GamesIMade />
+
+      {/* Played-games section. "Games I've Played", not "My Games" - the
+          home page's My Games shelf means games the kid MADE, and one label
+          must not mean two different things. */}
       <section id="games" className="mx-4 mb-6">
         <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-          <span>🎮</span> My Games
+          <span>🎮</span> Games I&apos;ve Played
         </h2>
 
         {games.length === 0 ? (
