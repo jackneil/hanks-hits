@@ -46,15 +46,17 @@ export function Header({
           <div className="w-20" />
         )}
 
-        {/* Center: Title with icon */}
+        {/* Center: Title with icon. The icon hides below sm: (the page
+            content carries its own identity there) and the title never
+            wraps — a two-line header title crowded 390px phones. */}
         {title && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             {titleIcon && (
-              <span className="text-3xl md:text-4xl animate-bounce-slow drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]">
+              <span className="hidden sm:inline text-3xl md:text-4xl animate-bounce-slow drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]">
                 {titleIcon}
               </span>
             )}
-            <h1 className="text-xl md:text-2xl font-black bg-gradient-to-r from-yellow-300 via-pink-400 to-cyan-400 bg-clip-text text-transparent">
+            <h1 className="text-xl md:text-2xl font-black bg-gradient-to-r from-yellow-300 via-pink-400 to-cyan-400 bg-clip-text text-transparent whitespace-nowrap truncate">
               {title}
             </h1>
           </div>

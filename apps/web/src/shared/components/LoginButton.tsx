@@ -58,10 +58,16 @@ export function LoginButton() {
     );
   }
 
-  // Not logged in - show sign in button
+  // Not logged in - show sign in button. The text label collapses below sm:
+  // like every other header control, or the header's right cluster overflows
+  // a 390px phone and wraps the page title.
   if (!session?.user) {
     return (
-      <Link href="/login" className="btn btn-primary btn-sm gap-2">
+      <Link
+        href="/login"
+        aria-label="Sign In"
+        className="btn btn-primary btn-sm gap-2 min-h-[44px]"
+      >
         <svg
           xmlns="http://www.w3.org/2000/svg"
           className="h-5 w-5"
@@ -76,7 +82,7 @@ export function LoginButton() {
             d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"
           />
         </svg>
-        Sign In
+        <span className="hidden sm:inline">Sign In</span>
       </Link>
     );
   }
