@@ -11,6 +11,8 @@ import Matter from 'matter-js';
 import { useCombinedControls, useIsMobile, usePauseKeyboard } from './hooks/useControls';
 import { useHillClimbStore, type HillClimbProgress } from './lib/store';
 import { useAuthSync } from '@/shared/hooks/useAuthSync';
+import { useCoarsePointer } from '@/shared/hooks';
+import { clampDeltaTime, getControlsCopy } from './lib/gameHelpers';
 import {
   createVehicle,
   applyWheelTorque,
@@ -87,6 +89,7 @@ export function HillClimbGame() {
   const controls = useCombinedControls();
   const controlsRef = useRef(controls);
   const isMobile = useIsMobile();
+  const isCoarsePointer = useCoarsePointer();
   usePauseKeyboard(); // Handle Escape key for pause menu
 
   // Store
@@ -645,6 +648,16 @@ export function HillClimbGame() {
   // RENDER LOOP
   // ==========================================================================
 
+  // Latest-refs: the render loop always calls the freshest game logic without
+  // depending on the callbacks' identities (see the deps note at the bottom of
+  // startRenderLoop for why that identity churn was fatal).
+  const gameLoopRef = useRef(gameLoop);
+  const renderVehicleRef = useRef(renderVehicle);
+  useEffect(() => {
+    gameLoopRef.current = gameLoop;
+    renderVehicleRef.current = renderVehicle;
+  });
+
   const startRenderLoop = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -652,10 +665,21 @@ export function HillClimbGame() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Defense-in-depth: never allow two concurrent loops. If a previous loop
+    // is still scheduled (e.g. an init path that bypassed the lifecycle
+    // effect's cleanup), kill it before starting a new chain.
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+
     let lastTime = performance.now();
 
     const render = (currentTime: number) => {
-      const deltaTime = (currentTime - lastTime) / 1000;
+      // Clamp dt so one huge frame (slow phone, backgrounded tab) can't
+      // distort the dt-driven accumulators (fuel/nitro drain, airtime bonus,
+      // particles). Physics itself steps on Matter.Runner's own clock and is
+      // unaffected either way.
+      const deltaTime = clampDeltaTime((currentTime - lastTime) / 1000);
       lastTime = currentTime;
 
       // Render sky background with gradient
@@ -766,7 +790,7 @@ export function HillClimbGame() {
 
       if (vehicleRef.current && isPlayingRef.current && !isPausedRef.current) {
         // Run game logic (skip when paused to prevent fuel drain, etc.)
-        gameLoop(deltaTime);
+        gameLoopRef.current(deltaTime);
 
         // Update screen shake
         updateShake(deltaTime);
@@ -931,7 +955,7 @@ export function HillClimbGame() {
         });
 
         // Render vehicle
-        renderVehicle(ctx, vehicle);
+        renderVehicleRef.current(ctx, vehicle);
 
         // Render particles
         renderParticles(ctx);
@@ -943,7 +967,13 @@ export function HillClimbGame() {
     };
 
     animationFrameRef.current = requestAnimationFrame(render);
-  }, [stageConfig, gameLoop, renderVehicle]);
+    // The loop reads gameLoop/renderVehicle through latest-refs, so their
+    // per-render identity churn must NOT recreate this callback: recreating it
+    // recreated initGame, whose identity re-ran the lifecycle effect, which
+    // tore down and re-created the ENTIRE game every render - the canvas never
+    // painted a frame and the truck never moved (2026-07-11 audit: hill-climb
+    // was fully broken in production, all devices).
+  }, [stageConfig]);
 
   // ==========================================================================
   // INITIALIZATION
@@ -1033,9 +1063,25 @@ export function HillClimbGame() {
   // LIFECYCLE
   // ==========================================================================
 
+  // Keyed ONLY on the actual run transition. initGame is reached through a
+  // latest-ref because its useCallback identity changes across renders, and
+  // re-running this effect mid-run destroys the engine, runner, and render
+  // loop (the everything-frozen, never-painted hill-climb of the 2026-07-11
+  // audit).
+  const initGameRef = useRef(initGame);
   useEffect(() => {
-    if (!showStartScreen && isPlaying) {
-      initGame();
+    initGameRef.current = initGame;
+  }, [initGame]);
+
+  useEffect(() => {
+    // showGarage must be a dep: the Garage screen UNMOUNTS the canvas, and
+    // pause -> Garage -> Play never flips isPlaying (it stays true), so
+    // without this dep the effect would never re-init and the freshly
+    // remounted canvas would stay blank while the old engine kept running
+    // (2026-07-11 DCR wave-2 CRITICAL). Entering the garage now also tears
+    // the old run down (cleanup), which stops its background fuel drain.
+    if (!showStartScreen && !showGarage && isPlaying) {
+      initGameRef.current();
     }
 
     return () => {
@@ -1049,11 +1095,13 @@ export function HillClimbGame() {
         Matter.Engine.clear(engineRef.current);
       }
     };
-  }, [showStartScreen, isPlaying, initGame]);
+  }, [showStartScreen, showGarage, isPlaying]);
 
-  // Canvas resize - must run when canvas appears (not on mount when start screen is shown)
+  // Canvas resize - must run when the canvas appears: not on mount while the
+  // start screen shows, and AGAIN after the Garage closes (the Garage unmounts
+  // the canvas, so leaving it mounts a brand-new element at default size)
   useEffect(() => {
-    if (showStartScreen) return; // Canvas doesn't exist yet
+    if (showStartScreen || showGarage) return; // Canvas doesn't exist yet
 
     const handleResize = () => {
       if (canvasRef.current) {
@@ -1065,7 +1113,7 @@ export function HillClimbGame() {
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [showStartScreen]);
+  }, [showStartScreen, showGarage]);
 
   // ==========================================================================
   // HANDLERS
@@ -1078,8 +1126,11 @@ export function HillClimbGame() {
   };
 
   const handleRestart = () => {
+    // startRun() flips isPlaying false->true, and THAT transition drives
+    // exactly one clean init via the lifecycle effect (cleanup cancels the old
+    // loop first). Calling initGame() here as well double-initialized the
+    // engine on every retry (2026-07-11 DCR finding).
     startRun();
-    initGame();
   };
 
   const handleGoToGarage = () => {
@@ -1135,7 +1186,7 @@ export function HillClimbGame() {
           </div>
           <div className="text-white/70">
             <p>
-              <strong>Controls:</strong> D/→ Gas | A/← Brake | W/↑ Lean Back | S/↓ Lean Forward | Space Nitro
+              <strong>Controls:</strong> {getControlsCopy(isCoarsePointer)}
             </p>
           </div>
         </div>

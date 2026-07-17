@@ -22,7 +22,7 @@ export function ColorPicker() {
             key={c.hex}
             onClick={() => setColor(c.hex)}
             className={`
-              w-10 h-10 md:w-12 md:h-12 rounded-full transition-all touch-manipulation
+              w-11 h-11 md:w-12 md:h-12 rounded-full transition-all touch-manipulation
               ${
                 color === c.hex
                   ? "ring-4 ring-blue-500 ring-offset-2 scale-110"
@@ -40,7 +40,7 @@ export function ColorPicker() {
         <button
           onClick={() => setShowExtended(!showExtended)}
           className={`
-            w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
+            w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center
             bg-gradient-to-br from-red-400 via-yellow-400 to-blue-400
             text-white font-bold text-xl
             transition-all touch-manipulation hover:scale-105
@@ -56,7 +56,7 @@ export function ColorPicker() {
         <div className="relative">
           <button
             onClick={() => setShowCustomPicker(!showCustomPicker)}
-            className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-gray-100 hover:bg-gray-200 transition-all touch-manipulation text-2xl"
+            className="w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-gray-100 hover:bg-gray-200 transition-all touch-manipulation text-2xl"
             aria-label="Custom color"
             title="Pick any color"
           >
@@ -82,7 +82,7 @@ export function ColorPicker() {
 
         {/* Current color preview */}
         <div
-          className="w-10 h-10 md:w-12 md:h-12 rounded-full shadow-inner border-2 border-gray-200"
+          className="w-11 h-11 md:w-12 md:h-12 rounded-full shadow-inner border-2 border-gray-200"
           style={{ backgroundColor: color }}
           aria-label={`Current color: ${color}`}
         />
@@ -100,7 +100,7 @@ export function ColorPicker() {
                   setShowExtended(false);
                 }}
                 className={`
-                  w-8 h-8 md:w-10 md:h-10 rounded-full transition-all touch-manipulation
+                  w-11 h-11 md:w-12 md:h-12 rounded-full transition-all touch-manipulation
                   ${
                     color === hex
                       ? "ring-4 ring-blue-500 ring-offset-2 scale-110"

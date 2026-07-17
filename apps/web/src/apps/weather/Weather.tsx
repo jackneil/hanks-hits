@@ -494,7 +494,7 @@ export function Weather() {
             </h3>
             <p className="text-gray-700 font-medium">{store.currentFact}</p>
             <button
-              onClick={() => store.setCurrentFact(getRandomFact())}
+              onClick={() => store.setCurrentFact(getRandomFact(store.currentFact))}
               className="btn btn-md mt-3 bg-blue-500 text-white border-none rounded-full hover:bg-blue-600 touch-manipulation"
             >
               Tell me another!

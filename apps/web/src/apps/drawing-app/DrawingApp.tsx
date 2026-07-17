@@ -126,7 +126,7 @@ export function DrawingApp() {
             onClick={handleUndo}
             disabled={!canUndo}
             className={`
-              w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
+              w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center
               text-xl md:text-2xl transition-all touch-manipulation
               ${
                 canUndo
@@ -145,7 +145,7 @@ export function DrawingApp() {
             onClick={handleRedo}
             disabled={!canRedo}
             className={`
-              w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center
+              w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center
               text-xl md:text-2xl transition-all touch-manipulation
               ${
                 canRedo
@@ -162,7 +162,7 @@ export function DrawingApp() {
           {/* Gallery */}
           <button
             onClick={() => setShowGallery(true)}
-            className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-xl md:text-2xl shadow-lg transition-all touch-manipulation"
+            className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-xl md:text-2xl shadow-lg transition-all touch-manipulation"
             aria-label="Gallery"
             title="My Gallery"
           >

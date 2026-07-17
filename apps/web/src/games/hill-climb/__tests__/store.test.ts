@@ -54,6 +54,16 @@ describe('Hill Climb store', () => {
     expect(state.unlockedStages).toContain('arctic');
   });
 
+  it('startRun clears a stale pause (pause -> garage -> start must not freeze)', () => {
+    useHillClimbStore.setState({ isPaused: true, isPlaying: false });
+
+    useHillClimbStore.getState().startRun();
+
+    const state = useHillClimbStore.getState();
+    expect(state.isPlaying).toBe(true);
+    expect(state.isPaused).toBe(false);
+  });
+
   it('records newly distance-unlocked stages when a run ends', () => {
     useHillClimbStore.setState({
       isPlaying: true,

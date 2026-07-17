@@ -52,9 +52,27 @@ export class TerrainGenerator {
   }
 
   /**
-   * Get terrain height at a given X position
+   * Get terrain height at a given X position.
+   *
+   * The spawn zone (x < SPAWN_FLAT_UNTIL, including the negative-x chunk) is
+   * perfectly flat at SPAWN_Y and blends smoothly into the noise terrain over
+   * SPAWN_BLEND_OVER pixels, so the vehicle can never spawn inside a hill.
    */
   getHeightAt(x: number): number {
+    const rawHeight = this.getNoiseHeightAt(x);
+    const blendStart = TERRAIN.SPAWN_FLAT_UNTIL;
+    const blendEnd = TERRAIN.SPAWN_FLAT_UNTIL + TERRAIN.SPAWN_BLEND_OVER;
+    if (x <= blendStart) return TERRAIN.SPAWN_Y;
+    if (x >= blendEnd) return rawHeight;
+    const t = (x - blendStart) / TERRAIN.SPAWN_BLEND_OVER;
+    const smooth = t * t * (3 - 2 * t); // smoothstep - no kink at either end
+    return TERRAIN.SPAWN_Y * (1 - smooth) + rawHeight * smooth;
+  }
+
+  /**
+   * Raw noise terrain height, before spawn-zone flattening
+   */
+  private getNoiseHeightAt(x: number): number {
     // Base noise for large rolling hills
     const baseNoise = this.noise2D(x * TERRAIN.NOISE_SCALE, 0);
 

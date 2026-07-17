@@ -58,6 +58,7 @@ If you add a brand-new saved value, remember the save plumbing from **make-a-gam
 1. `cd apps/web && pnpm test` — **but most games (flappy, snake, etc.) have NO test**, so green here often proves nothing about your change. If the game you changed has no test, **add one** for the logic you changed (copy `src/games/arkanoid/__tests__/store.test.ts`). Then make sure your new test passes.
 2. `cd apps/web && pnpm build` — typecheck gate; must pass.
 3. **Run the actual game** (via **play-my-game**) and watch your change: did the rainbow really render? Is the harder version still **beatable by a 9-year-old**? If you stacked changes and it's brutal, dial it back. Judge the **running game**, not the numbers in `constants.ts`.
+4. **If the change touched gameplay, controls, or UI: re-prove it on a phone** (→ **mobile-playability**): emulate a touch-only phone (390x844, touch, reload after emulating) and play the changed part by tap only. A change that quietly requires a keyboard broke the game for every kid on a phone.
 
 ## Step 5 — Show it (automatically) + offer more
 **Re-open the game and bring it to the front right away** so the change pops up on their screen — don't make them go hunting for it. Use **play-my-game** (it refocuses the window). Then: *"Like it? Want it even harder, or put it online?"*

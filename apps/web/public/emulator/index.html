@@ -191,15 +191,14 @@
       }
     };
 
-    // Enable virtual gamepad on mobile
-    window.EJS_VirtualGamepadSettings = {
-      enabled: true,
-      leftHandLayout: false,
-      leftHandDeadzone: 0.1,
-      rightHandDeadzone: 0.1,
-      opacity: 0.7,
-      size: 1.2
-    };
+    // Virtual gamepad on mobile: EmulatorJS shows its built-in touch gamepad
+    // automatically on mobile devices, with a per-core default layout (SNES gets
+    // d-pad + A/B/X/Y + start/select + shoulders). EJS_VirtualGamepadSettings
+    // exists only to REPLACE that layout and must be an ARRAY of button/zone/dpad
+    // definitions (https://emulatorjs.org/docs4devs/virtual-gamepad-settings).
+    // A previous version set it to an options OBJECT ({enabled, opacity, ...}),
+    // which is not a real EmulatorJS API and risks breaking the gamepad, so it
+    // is deliberately NOT set: the defaults are what we want.
 
     // Notify parent when emulator is ready
     // SECURITY: Use specific origin instead of wildcard '*'

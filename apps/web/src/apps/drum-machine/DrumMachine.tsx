@@ -10,6 +10,7 @@ import {
   COLORS,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 // ============================================
@@ -20,29 +21,57 @@ function DrumPad({
   name,
   color,
   isActive,
-  onTrigger,
-  onRelease,
 }: {
   soundId: string;
   name: string;
   color: string;
   isActive: boolean;
-  onTrigger: () => void;
-  onRelease: () => void;
 }) {
+  const padRef = useRef<HTMLButtonElement>(null);
+
+  // Stable handlers keyed on soundId: reading the store via getState() keeps
+  // the native-listener effect below from re-attaching on every parent
+  // render (the sequencer re-renders every 16th note during playback).
+  const onTrigger = useCallback(() => {
+    useDrumMachineStore.getState().triggerPad(soundId);
+  }, [soundId]);
+  const onRelease = useCallback(() => {
+    useDrumMachineStore.getState().releasePad(soundId);
+  }, [soundId]);
+
+  // Touch handlers attach natively with { passive: false } so preventDefault
+  // actually runs — React's synthetic onTouch* props are passive, so the old
+  // inline preventDefault silently failed: every tap logged a console error
+  // AND still fired the compatibility mousedown, double-triggering the pad.
+  useEffect(() => {
+    const pad = padRef.current;
+    if (!pad) return;
+
+    const handleStart = (e: TouchEvent) => {
+      e.preventDefault();
+      onTrigger();
+    };
+    const handleEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      onRelease();
+    };
+
+    pad.addEventListener("touchstart", handleStart, { passive: false });
+    pad.addEventListener("touchend", handleEnd, { passive: false });
+    pad.addEventListener("touchcancel", handleEnd, { passive: false });
+    return () => {
+      pad.removeEventListener("touchstart", handleStart);
+      pad.removeEventListener("touchend", handleEnd);
+      pad.removeEventListener("touchcancel", handleEnd);
+    };
+  }, [onTrigger, onRelease]);
+
   return (
     <button
+      ref={padRef}
       onMouseDown={onTrigger}
       onMouseUp={onRelease}
       onMouseLeave={onRelease}
-      onTouchStart={(e) => {
-        e.preventDefault();
-        onTrigger();
-      }}
-      onTouchEnd={(e) => {
-        e.preventDefault();
-        onRelease();
-      }}
       className={`
         w-20 h-20 md:w-24 md:h-24 rounded-xl
         flex flex-col items-center justify-center
@@ -106,7 +135,7 @@ function SequencerGrid() {
           <div key={sound.id} className="flex items-center gap-1 mb-1">
             {/* Sound label */}
             <div
-              className="w-16 h-8 rounded flex items-center justify-center text-xs font-bold text-black truncate"
+              className="w-16 h-11 rounded flex items-center justify-center text-xs font-bold text-black truncate"
               style={{ backgroundColor: sound.color }}
             >
               {sound.name}
@@ -122,7 +151,7 @@ function SequencerGrid() {
                   key={step}
                   onClick={() => store.toggleStep(sound.id, step)}
                   className={`
-                    w-8 h-8 rounded
+                    w-8 h-11 rounded
                     transition-all duration-75
                     ${isActive
                       ? "scale-95"
@@ -157,6 +186,7 @@ export function DrumMachine() {
 
   const store = useDrumMachineStore();
   const kit = DRUM_KITS.find(k => k.id === store.currentKitId);
+  const isCoarsePointer = useCoarsePointer();
 
   // Auth sync
   useAuthSync({
@@ -310,7 +340,7 @@ export function DrumMachine() {
             <button
               onClick={() => store.shrinkPattern()}
               disabled={store.patternLength <= 16}
-              className={`w-8 h-8 rounded font-bold ${
+              className={`w-11 h-11 rounded font-bold ${
                 store.patternLength <= 16
                   ? "bg-slate-800 text-slate-600 cursor-not-allowed"
                   : "bg-slate-600 hover:bg-slate-500 text-white"
@@ -323,7 +353,7 @@ export function DrumMachine() {
             </span>
             <button
               onClick={() => store.extendPattern()}
-              className="w-8 h-8 bg-slate-600 hover:bg-slate-500 rounded font-bold text-white"
+              className="w-11 h-11 bg-slate-600 hover:bg-slate-500 rounded font-bold text-white"
             >
               +
             </button>
@@ -362,8 +392,6 @@ export function DrumMachine() {
               name={sound.name}
               color={sound.color}
               isActive={store.activePads.has(sound.id)}
-              onTrigger={() => store.triggerPad(sound.id)}
-              onRelease={() => store.releasePad(sound.id)}
             />
           ))}
         </div>
@@ -385,8 +413,6 @@ export function DrumMachine() {
                   name={sound.name}
                   color={sound.color}
                   isActive={store.activePads.has(sound.id)}
-                  onTrigger={() => store.triggerPad(sound.id)}
-                  onRelease={() => store.releasePad(sound.id)}
                 />
               ))}
             </div>
@@ -402,8 +428,32 @@ export function DrumMachine() {
         </div>
       )}
 
-      {/* Transport controls */}
-      <div className="flex items-center gap-4 mt-4">
+      {/* Bottom controls */}
+      <div className="flex items-center gap-4 mt-6">
+        <button
+          onClick={toggleSound}
+          className="w-12 h-12 bg-slate-700 hover:bg-slate-600 text-white rounded-full flex items-center justify-center"
+        >
+          {store.progress.settings.soundEnabled ? "🔊" : "🔇"}
+        </button>
+        <IOSInstallPrompt />
+      </div>
+
+      {/* Control hints — keyboard copy only where a keyboard exists */}
+      <div className="mt-4 text-slate-400 text-center text-sm">
+        <p>
+          {isCoarsePointer
+            ? "Tap the pads to play the drums!"
+            : "Keys: 1-4 / Q-R = Drums | Space = Play/Stop"}
+        </p>
+        <p className="text-slate-500">Hit ⏺ Record then tap pads to build your beat!</p>
+      </div>
+
+      {/* Transport controls — sticky dock so Play/Record never fall below
+          the fold on a phone (in sequencer view they rendered at y=845 on a
+          844px-tall viewport, invisible until the kid discovered scrolling).
+          Kept as the LAST flow child so nothing lives "beyond the dock". */}
+      <div className="sticky bottom-0 z-10 w-full flex items-center justify-center gap-4 mt-4 py-2 bg-slate-900/95">
         <button
           onClick={() => store.isPlaying ? store.stopPlayback() : store.startPlayback()}
           className={`
@@ -451,23 +501,6 @@ export function DrumMachine() {
         >
           📂
         </button>
-      </div>
-
-      {/* Bottom controls */}
-      <div className="flex items-center gap-4 mt-6">
-        <button
-          onClick={toggleSound}
-          className="w-12 h-12 bg-slate-700 hover:bg-slate-600 text-white rounded-full flex items-center justify-center"
-        >
-          {store.progress.settings.soundEnabled ? "🔊" : "🔇"}
-        </button>
-        <IOSInstallPrompt />
-      </div>
-
-      {/* Keyboard hints */}
-      <div className="mt-4 text-slate-400 text-center text-sm">
-        <p>Keys: 1-4 / Q-R = Drums | Space = Play/Stop</p>
-        <p className="text-slate-500">Hit ⏺ Record then tap pads to build your beat!</p>
       </div>
 
       {/* Save modal */}

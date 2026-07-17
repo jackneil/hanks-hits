@@ -69,6 +69,7 @@ Big buttons (44px+), bright colors, touch AND keyboard, celebrations on score/wi
 1. `cd apps/web && pnpm test` — runs vitest. (If `node_modules` is missing, run `pnpm install` first.) **A green run proves little on its own** — most games have no tests.
 2. `cd apps/web && pnpm build` — this is the **real gate**: it runs the TypeScript compiler (catches the unregistered-`appId` build failure that vitest cannot) and regenerates `gameMetadata.generated.ts` (the static name/emoji/color lookup the profile page **and leaderboards** read). Must pass. Heads-up: in `pnpm dev` a new game shows on the home grid right away but looks generic (gray 🎮, wrong name/category) on the profile/leaderboards until this build runs once — expected, not a bug.
 3. **Watch it actually run.** Hand to **play-my-game** (or `/qa`) and SEE the game render and respond to a tap/keypress in a browser. Passing tests + a green build is the **floor, not the finish line** — unit tests don't draw a pixel. If you haven't watched it move and score, it is not done.
+4. **Prove it works on a phone** (→ **mobile-playability**): emulate a touch-only phone (390x844, touch, reload after emulating) and PLAY it — every core action by tap/drag/on-screen controls, zero keyboard. Kids play on phones; a keyboard-only game is a broken game. FAIL/PARTIAL = not done — fix and re-audit before Step 6.
 
 ## Step 6 — Show the kid (automatically) + celebrate
 **Open it on their screen and bring it to the front right away — don't wait to be asked.** Use **play-my-game** to start the dev server and pop the game to the front so they see it running the instant it's done. Celebrate big 🎉, then offer: *"Want it harder? Add something? Put it on the internet for your friends?"* (→ **change-a-game** / **put-it-online**).
@@ -96,6 +97,7 @@ Big buttons (44px+), bright colors, touch AND keyboard, celebrations on score/wi
 
 ## Red flags — you're about to ship a known failure
 - Telling the kid it's ready without ever watching it render/respond.
+- Skipping the **mobile-playability** gate — shipping a game that was never played under touch-only emulation.
 - Citing "tests pass" or "build green" as proof it's fun or even visible.
 - `Game.tsx` written with an `appId` not yet in `VALID_APP_IDS`.
 - `metadata.ts` present but the game missing from the home page (non-literal value or category typo).

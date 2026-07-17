@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useCoarsePointer } from "@/shared/hooks";
 import { useDrawingStore, type SavedArtwork } from "../lib/store";
 
 interface GalleryProps {
@@ -13,6 +14,7 @@ interface GalleryProps {
  * Grid of thumbnails with load/delete options
  */
 export function Gallery({ onLoadArtwork, onClose }: GalleryProps) {
+  const isCoarsePointer = useCoarsePointer();
   const { savedArtworks, deleteArtwork } = useDrawingStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
@@ -54,7 +56,7 @@ export function Gallery({ onLoadArtwork, onClose }: GalleryProps) {
           </h2>
           <button
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white text-xl transition-all"
+            className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white text-xl transition-all"
             aria-label="Close gallery"
           >
             {"\u2715"}
@@ -107,13 +109,18 @@ export function Gallery({ onLoadArtwork, onClose }: GalleryProps) {
                     </p>
                   </div>
 
-                  {/* Delete button */}
+                  {/* Delete button — hover-revealed on desktop, but fingers
+                      can't hover: on coarse pointers it stays visible */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowDeleteConfirm(artwork.id);
                     }}
-                    className="absolute top-2 right-2 w-8 h-8 rounded-full bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-sm hover:bg-red-600"
+                    className={`absolute top-2 right-2 w-11 h-11 rounded-full bg-red-500 text-white transition-opacity flex items-center justify-center text-lg hover:bg-red-600 ${
+                      isCoarsePointer
+                        ? "opacity-100"
+                        : "opacity-0 group-hover:opacity-100"
+                    }`}
                     aria-label="Delete artwork"
                   >
                     {"\uD83D\uDDD1\uFE0F"}

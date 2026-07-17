@@ -133,25 +133,28 @@ export function Trivia() {
     handleAnswerRef.current = handleAnswer;
   }, [handleAnswer]);
 
-  // Timer countdown
+  // Timer countdown. The updater only counts — side effects in a state
+  // updater are illegal (calling handleAnswer inside it fired React's
+  // "setState while rendering" warning every time the clock ran out).
   useEffect(() => {
     if (gameState !== "playing" || showResult) return;
 
     timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          // Time's up - wrong answer (use ref for fresh closure)
-          handleAnswerRef.current(null);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setTimeLeft((prev) => Math.max(prev - 1, 0));
     }, 1000);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [gameState, questionIndex, showResult]);
+
+  // Time's up - counts as a wrong answer (use ref for fresh closure)
+  useEffect(() => {
+    if (gameState !== "playing" || showResult) return;
+    if (timeLeft === 0 && questions.length > 0) {
+      handleAnswerRef.current(null);
+    }
+  }, [timeLeft, gameState, showResult, questions.length]);
 
   // Reset game
   const handlePlayAgain = () => {

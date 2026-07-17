@@ -16,8 +16,10 @@ import {
   type CharacterId,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks";
 import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { getInstructions } from "./lib/instructions";
 
 export function EndlessRunnerGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,6 +29,7 @@ export function EndlessRunnerGame() {
   const [scale, setScale] = useState(1);
 
   const store = useEndlessRunnerStore();
+  const isCoarsePointer = useCoarsePointer();
 
   // Cloud sync for authenticated users
   const { forceSync } = useAuthSync<EndlessRunnerProgress>({
@@ -374,16 +377,18 @@ export function EndlessRunnerGame() {
     ctx.fillStyle = COLORS.SCORE_TEXT;
     ctx.fillText("Endless Runner", CANVAS_WIDTH / 2, 100);
 
+    const instructions = getInstructions(isCoarsePointer);
+
     ctx.font = UI.SMALL_FONT;
     ctx.fillStyle = COLORS.SCORE_SHADOW;
-    ctx.fillText("Tap or Press Space to Jump!", CANVAS_WIDTH / 2 + 1, 161);
+    ctx.fillText(instructions.jump, CANVAS_WIDTH / 2 + 1, 161);
     ctx.fillStyle = COLORS.SCORE_TEXT;
-    ctx.fillText("Tap or Press Space to Jump!", CANVAS_WIDTH / 2, 160);
+    ctx.fillText(instructions.jump, CANVAS_WIDTH / 2, 160);
 
     ctx.fillStyle = COLORS.SCORE_SHADOW;
-    ctx.fillText("Hold Down Arrow to Duck", CANVAS_WIDTH / 2 + 1, 191);
+    ctx.fillText(instructions.duck, CANVAS_WIDTH / 2 + 1, 191);
     ctx.fillStyle = COLORS.SCORE_TEXT;
-    ctx.fillText("Hold Down Arrow to Duck", CANVAS_WIDTH / 2, 190);
+    ctx.fillText(instructions.duck, CANVAS_WIDTH / 2, 190);
 
     // High score
     if (progress.highScore > 0) {
@@ -408,7 +413,7 @@ export function EndlessRunnerGame() {
     ctx.font = "bold 24px Arial, sans-serif";
     ctx.fillStyle = "#FFF";
     ctx.fillText("TAP TO PLAY", CANVAS_WIDTH / 2, 332);
-  }, [progress.highScore, progress.totalCoins]);
+  }, [progress.highScore, progress.totalCoins, isCoarsePointer]);
 
   const drawGameOver = useCallback((ctx: CanvasRenderingContext2D) => {
     // Darken background

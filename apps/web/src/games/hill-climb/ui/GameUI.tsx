@@ -28,7 +28,10 @@ export function GameUI({ fuel, maxFuel, nitro, maxNitro, nitroActive, distance, 
   const isNitroLow = nitroPercent < 20;
 
   return (
-    <div className="fixed inset-0 pointer-events-none z-40">
+    // Anchored BELOW the GameShell header (fixed, h-12 md:h-14, z-[1000]):
+    // a plain inset-0 layer put the top-4 pause button and stat boxes
+    // underneath it, which made pause unreachable by touch or mouse.
+    <div className="fixed inset-x-0 bottom-0 top-12 md:top-14 pointer-events-none z-40">
       {/* Top Center - Pause Button */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2">
         <button

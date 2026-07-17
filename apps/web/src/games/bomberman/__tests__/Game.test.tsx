@@ -53,6 +53,23 @@ describe("Bomberman start overlay", () => {
     ).toHaveLength(1);
   });
 
+  it("renders the Play button in the menu (not clipped inside the canvas box)", () => {
+    // Regression: the start overlay used to be pinned to the small canvas-sized
+    // wrapper, so on a 390x844 phone the Play button fell below the fold and was
+    // only reachable by scrolling a tiny inner box. It now spans the full-height
+    // container. Assert the built-in start button is present and rendered as a
+    // direct child of the full-height container, not the canvas wrapper.
+    render(<BombermanGame />);
+    const playButton = screen.getByRole("button", { name: "▶ Play!" });
+    expect(playButton).toBeInTheDocument();
+
+    const overlay = screen.getByTestId("game-start-overlay");
+    expect(overlay).toContainElement(playButton);
+    // The overlay is a sibling of the canvas wrapper (both children of the
+    // full-height container), so its parent must be the min-h-screen container.
+    expect(overlay.parentElement?.className).toContain("min-h-screen");
+  });
+
   it("names the on-screen controls in the touch hints on coarse pointers", () => {
     mockPointer(true);
     render(<BombermanGame />);
@@ -63,6 +80,31 @@ describe("Bomberman start overlay", () => {
     expect(
       screen.queryByText("WASD or Arrows to move")
     ).not.toBeInTheDocument();
+  });
+
+  it("renders paused/won/lost overlays as fixed viewport modals, not canvas-pinned", () => {
+    // Regression: these overlays were absolute-positioned inside the 528px
+    // canvas wrapper. On a phone the pause/dpad controls sit BELOW the canvas,
+    // so the player is scrolled past it when these fire and the overlay
+    // rendered entirely above the fold — pausing made the game look frozen.
+    // Fixed positioning centers them in the visible viewport regardless of
+    // scroll.
+    const states = [
+      { gameState: "paused" as const, heading: /PAUSED/ },
+      { gameState: "won" as const, heading: /LEVEL COMPLETE/ },
+      { gameState: "lost" as const, heading: /GAME OVER/ },
+    ];
+    for (const { gameState, heading } of states) {
+      act(() => {
+        useBombermanStore.setState({ gameState });
+      });
+      const { unmount } = render(<BombermanGame />);
+      const overlay = screen.getByRole("heading", { name: heading }).parentElement;
+      expect(overlay?.className).toContain("fixed");
+      expect(overlay?.className).toContain("inset-0");
+      expect(overlay?.className).not.toContain("absolute");
+      unmount();
+    }
   });
 
   it("hides the D-pad on fine (desktop) pointers while playing", () => {

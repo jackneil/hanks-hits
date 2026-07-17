@@ -44,6 +44,7 @@ Now make it look like Y: colors, sprite shapes/emoji, labels, on-screen text, th
 1. `cd apps/web && pnpm test`
 2. `cd apps/web && pnpm build` — the **real gate**: a missed re-id or unregistered `appId` fails the TypeScript step here.
 3. Watch it run (→ **play-my-game**, auto-open + front).
+4. **Prove it on a phone** (→ **mobile-playability**): touch-only emulation (390x844, touch, reload after emulating), play by tap only. The source game passing once doesn't grandfather the remix — re-themed controls and new copy can break touch.
 
 ## Step 7 — Show + celebrate
 - The `madeByKid: true` in its `metadata.ts` (Step 3) already puts it on the kid's **my-creations** shelf — nothing else to record.

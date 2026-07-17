@@ -342,7 +342,7 @@ export function BombermanGame() {
   return (
     <div
       ref={containerRef}
-      className="flex flex-col items-center min-h-screen bg-gray-900 p-4 select-none"
+      className="relative flex flex-col items-center min-h-screen bg-gray-900 p-4 select-none"
     >
       {/* HUD */}
       <div className="w-full max-w-[624px] flex justify-between items-center mb-2 text-white">
@@ -383,25 +383,13 @@ export function BombermanGame() {
           }}
         />
 
-        {/* Menu overlay: shared DOM start screen */}
-        {store.gameState === "menu" && (
-          <GameStartOverlay
-            title="Bomberman"
-            emoji="💣"
-            subtitle="Destroy blocks. Defeat enemies. Find the exit!"
-            keyboardHints={["WASD or Arrows to move", "SPACE to drop bombs"]}
-            touchHints={["Tap the arrows to move", "Tap 💣 to drop bombs"]}
-            onStart={() => store.startGame()}
-          >
-            <div className="text-base font-medium opacity-90">
-              🏆 High Score: {store.progress.highScore}
-            </div>
-          </GameStartOverlay>
-        )}
-
-        {/* Paused overlay */}
+        {/* Paused/won/lost overlays are FIXED viewport modals, not pinned to
+            the canvas box: the canvas is 528px tall and the pause/dpad
+            controls live below it, so on a phone the player is usually
+            scrolled past the canvas when these fire — a canvas-pinned overlay
+            renders entirely above the fold and the game just looks frozen. */}
         {store.gameState === "paused" && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center rounded-lg">
+          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
             <h2 className="text-4xl font-bold text-white mb-8">⏸️ PAUSED</h2>
             <button
               onClick={() => store.resumeGame()}
@@ -420,7 +408,7 @@ export function BombermanGame() {
 
         {/* Won overlay */}
         {store.gameState === "won" && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center rounded-lg">
+          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
             <h2 className="text-4xl font-bold text-green-400 mb-4">🎉 LEVEL COMPLETE!</h2>
             <p className="text-white text-xl mb-8">Score: {store.score}</p>
             <button
@@ -434,7 +422,7 @@ export function BombermanGame() {
 
         {/* Lost overlay */}
         {store.gameState === "lost" && (
-          <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center rounded-lg">
+          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
             <h2 className="text-4xl font-bold text-red-400 mb-4">💀 GAME OVER</h2>
             <p className="text-white text-xl mb-2">Score: {store.score}</p>
             <p className="text-gray-400 mb-8">Level reached: {store.level}</p>
@@ -450,6 +438,27 @@ export function BombermanGame() {
           </div>
         )}
       </div>
+
+      {/* Menu overlay: shared DOM start screen. Rendered as a direct child of
+          the full-height container (not the canvas-sized wrapper above) so the
+          absolute inset-0 overlay spans the whole viewport. On a small phone
+          the canvas shrinks to ~300px tall, and an overlay pinned to that box
+          clipped the Play button below the fold. Full-height means the whole
+          start card, Play button included, is visible without inner scrolling. */}
+      {store.gameState === "menu" && (
+        <GameStartOverlay
+          title="Bomberman"
+          emoji="💣"
+          subtitle="Destroy blocks. Defeat enemies. Find the exit!"
+          keyboardHints={["WASD or Arrows to move", "SPACE to drop bombs"]}
+          touchHints={["Tap the arrows to move", "Tap 💣 to drop bombs"]}
+          onStart={() => store.startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 High Score: {store.progress.highScore}
+          </div>
+        </GameStartOverlay>
+      )}
 
       {/* Mobile controls — touch (coarse-pointer) viewports only */}
       {isCoarse && showControls && (

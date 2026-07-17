@@ -269,9 +269,16 @@ export const WEATHER_FACTS = [
   "The sky looks blue because of how sunlight scatters!",
 ];
 
-export function getRandomFact(): string {
-  const randomIndex = Math.floor(Math.random() * WEATHER_FACTS.length);
-  return WEATHER_FACTS[randomIndex];
+export function getRandomFact(exclude?: string): string {
+  // Excluding the current fact guarantees "Tell me another!" always shows
+  // another one — a 1-in-N repeat reads as a dead button to a kid. Fall back
+  // to the full list if the filter would empty the pool (single-fact list),
+  // so the string return type stays honest.
+  const filtered = exclude
+    ? WEATHER_FACTS.filter((fact) => fact !== exclude)
+    : WEATHER_FACTS;
+  const pool = filtered.length > 0 ? filtered : WEATHER_FACTS;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 // Default/popular locations for quick selection

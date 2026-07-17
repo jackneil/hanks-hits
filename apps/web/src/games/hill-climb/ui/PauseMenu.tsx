@@ -7,6 +7,7 @@
  */
 
 import { useRouter } from 'next/navigation';
+import { useCoarsePointer } from '@/shared/hooks';
 import { useHillClimbStore } from '../lib/store';
 import { SettingsMenu } from './SettingsMenu';
 
@@ -16,6 +17,7 @@ interface PauseMenuProps {
 
 export function PauseMenu({ onGoToGarage }: PauseMenuProps) {
   const router = useRouter();
+  const isCoarsePointer = useCoarsePointer();
   const { pauseScreen, resumeGame, setPauseScreen } = useHillClimbStore();
 
   // If showing settings submenu, render that instead
@@ -83,9 +85,9 @@ export function PauseMenu({ onGoToGarage }: PauseMenuProps) {
           </button>
         </div>
 
-        {/* Hint */}
+        {/* Hint — keyboard copy only makes sense with a keyboard */}
         <div className="text-center mt-4 text-base-content/50 text-sm">
-          Press Escape to resume
+          {isCoarsePointer ? 'Tap Continue to keep driving' : 'Press Escape to resume'}
         </div>
       </div>
     </div>

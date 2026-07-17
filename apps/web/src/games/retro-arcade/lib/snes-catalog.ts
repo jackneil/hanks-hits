@@ -21,9 +21,11 @@ export interface CatalogGame {
   favorite: boolean;
 }
 
-// ROM base URL - uses env var in production, falls back for local dev
+// ROM base URL - env var can override, but the default is the same-origin
+// /api/roms proxy (which works in every environment; a bare "/roms" fallback
+// used to 404 all of local dev because nothing serves that path)
 export const ROM_BASE_URL =
-  process.env.NEXT_PUBLIC_ROM_CDN_URL || "/roms";
+  process.env.NEXT_PUBLIC_ROM_CDN_URL || "/api/roms";
 
 export function getRomUrl(game: CatalogGame): string {
   return `${ROM_BASE_URL}/snes/${game.filename}`;
@@ -323,13 +325,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     id: "snes-final-fantasy-2",
     displayName: "Final Fantasy 2",
     filename: "final_fantasy_2.smc",
-    genre: "rpg",
-    favorite: true,
-  },
-  {
-    id: "snes-final-fantasy-3",
-    displayName: "Final Fantasy 3",
-    filename: "final_fantasy_3.smc",
     genre: "rpg",
     favorite: true,
   },

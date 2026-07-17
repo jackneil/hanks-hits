@@ -56,6 +56,16 @@ export const TERRAIN = {
   POINTS_PER_CHUNK: 40, // Resolution
   BASE_Y: 400, // Base ground level
 
+  // Spawn safety: the vehicle spawns at x=200 on a flat platform (top y=420).
+  // Un-flattened noise terrain could rise ABOVE the spawn point, embedding the
+  // truck inside a hill - Matter then ejects it violently and the driver's head
+  // clips terrain within ~300ms of pressing Play (instant "CRASH at ~200m",
+  // every run, all devices - found by the 2026-07-11 mobile audit). The spawn
+  // zone is therefore held perfectly flat and blended smoothly into the noise.
+  SPAWN_FLAT_UNTIL: 400, // x below which terrain is exactly SPAWN_Y
+  SPAWN_BLEND_OVER: 400, // x-range over which flat blends into noise
+  SPAWN_Y: 420, // flat spawn surface height (flush with the start platform top)
+
   // Noise parameters
   NOISE_SCALE: 0.003, // Lower = smoother hills
   NOISE_AMPLITUDE: 150, // Max hill height variation
