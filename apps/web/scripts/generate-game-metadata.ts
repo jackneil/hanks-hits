@@ -18,7 +18,10 @@ interface ParsedMetadata {
   madeByKid: boolean;
 }
 
-function parseMetadataFile(filePath: string): ParsedMetadata | null {
+function parseMetadataFile(
+  filePath: string,
+  dirName: string
+): ParsedMetadata | null {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
 
@@ -29,13 +32,16 @@ function parseMetadataFile(filePath: string): ParsedMetadata | null {
     const descMatch = content.match(/description:\s*["']([^"']+)["']/);
     const madeByKidMatch = content.match(/madeByKid:\s*(true|false)/);
 
-    if (!idMatch || !nameMatch || !emojiMatch || !categoryMatch) {
+    if (!nameMatch || !emojiMatch || !categoryMatch) {
       console.warn(`Missing required fields in ${filePath}`);
       return null;
     }
 
     return {
-      id: idMatch[1],
+      // Same id fallback as the runtime scan (game-registry parseMetadata),
+      // so a missing explicit id can't make home and profile disagree on
+      // whether a game exists.
+      id: idMatch ? idMatch[1] : dirName,
       name: nameMatch[1],
       emoji: emojiMatch[1],
       category: categoryMatch[1],
@@ -64,7 +70,7 @@ function scanDirectory(type: "games" | "apps"): ParsedMetadata[] {
 
     const metadataPath = path.join(dir, entry.name, "metadata.ts");
     if (fs.existsSync(metadataPath)) {
-      const metadata = parseMetadataFile(metadataPath);
+      const metadata = parseMetadataFile(metadataPath, entry.name);
       if (metadata) {
         items.push(metadata);
       }

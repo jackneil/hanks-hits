@@ -8,6 +8,15 @@ vi.mock("@/shared/components/Header", () => ({
   Header: () => <header>Header</header>,
 }));
 
+// Mutable session double: tests flip this to model signed-in/out states.
+let mockSession: { user: { id: string } } | null = null;
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({
+    data: mockSession,
+    status: mockSession ? "authenticated" : "unauthenticated",
+  }),
+}));
+
 const categories: DisplayCategory[] = [
   {
     id: "arcade",
@@ -53,6 +62,7 @@ const categoriesWithCreation: DisplayCategory[] = [
 describe("HomeClient", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    mockSession = null;
   });
 
   it("filters the catalog by search query", () => {
@@ -89,7 +99,7 @@ describe("HomeClient", () => {
 
     it("shows a personal-best stat from locally saved progress", () => {
       window.localStorage.setItem(
-        "donut-catch-state",
+        "donut-catch-storage",
         JSON.stringify({
           state: { progress: { highScore: 950, lastModified: 1 } },
           version: 0,
@@ -125,6 +135,126 @@ describe("HomeClient", () => {
 
       expect(screen.queryByTestId("my-games-shelf")).not.toBeInTheDocument();
       expect(screen.getByText("Donut Catch")).toBeInTheDocument();
+    });
+
+    it("hides another kid's stats when the progress-owner marker mismatches", () => {
+      // Defeated-sign-out-clear scenario: kid A's save survived and the
+      // owner marker still names A, but nobody (or someone else) is
+      // signed in. The upload path refuses this state; display must too.
+      window.localStorage.setItem("hanks-hits-progress-owner", "kid-a");
+      window.localStorage.setItem(
+        "donut-catch-storage",
+        JSON.stringify({
+          state: { progress: { highScore: 950, lastModified: 1 } },
+          version: 0,
+        })
+      );
+
+      render(<HomeClient categories={categoriesWithCreation} />);
+
+      const shelf = screen.getByTestId("my-games-shelf");
+      expect(shelf).not.toHaveTextContent("950");
+      expect(shelf).toHaveTextContent("Jump in and play!");
+    });
+
+    it("shows the owner's own stats when the marker matches their session", () => {
+      window.localStorage.setItem("hanks-hits-progress-owner", "kid-a");
+      window.localStorage.setItem(
+        "donut-catch-storage",
+        JSON.stringify({
+          state: { progress: { highScore: 950, lastModified: 1 } },
+          version: 0,
+        })
+      );
+      mockSession = { user: { id: "kid-a" } };
+
+      render(<HomeClient categories={categoriesWithCreation} />);
+
+      expect(screen.getByTestId("my-games-shelf")).toHaveTextContent("950");
+    });
+
+    it("survives a poisoned-but-parseable blob without crashing the page", () => {
+      window.localStorage.setItem(
+        "donut-catch-storage",
+        JSON.stringify({
+          state: { progress: { highScore: 5, lastModified: 1e999 } },
+          version: 0,
+        })
+      );
+
+      render(<HomeClient categories={categoriesWithCreation} />);
+
+      // Renders (no throw); either the stat or the fallback copy is fine.
+      expect(screen.getByTestId("my-games-shelf")).toHaveTextContent(
+        /High Score: 5|Jump in and play!/
+      );
+    });
+
+    it("shows a real My Land stat for four-wheeler-adventure, the real creation", () => {
+      // The one game that actually ships with madeByKid: true saves under
+      // its own device-owned key. This pins the alias -> extractor path
+      // with the REAL id so the flagship card provably shows progress.
+      window.localStorage.setItem(
+        "fwa_myland_v1",
+        JSON.stringify([
+          { id: 1, owned: true, sizeLevel: 1, buildings: [{ type: "garage" }] },
+          { id: 2, owned: true, sizeLevel: 0, buildings: [] },
+          { id: 3, owned: false, sizeLevel: 0, buildings: [] },
+        ])
+      );
+      const withFourWheeler: DisplayCategory[] = [
+        {
+          ...categories[0],
+          items: [
+            {
+              id: "four-wheeler-adventure",
+              name: "Four-Wheeler Adventure",
+              emoji: "🐕",
+              href: "/games/four-wheeler-adventure",
+              madeByKid: true,
+            },
+          ],
+        },
+      ];
+
+      render(<HomeClient categories={withFourWheeler} />);
+
+      expect(screen.getByTestId("my-games-shelf")).toHaveTextContent(
+        "My Land: 2 plots"
+      );
+    });
+
+    it("keeps the device-owned My Land stat visible even when signed out with a marker present", () => {
+      // Device-owned saves never sync to an account; the game itself
+      // would show this state to anyone at the computer, so the owner
+      // guard does not apply.
+      window.localStorage.setItem("hanks-hits-progress-owner", "kid-a");
+      window.localStorage.setItem(
+        "fwa_myland_v1",
+        JSON.stringify([
+          { id: 1, owned: true, sizeLevel: 1, buildings: [] },
+        ])
+      );
+      const withFourWheeler: DisplayCategory[] = [
+        {
+          ...categories[0],
+          items: [
+            {
+              id: "four-wheeler-adventure",
+              name: "Four-Wheeler Adventure",
+              emoji: "🐕",
+              href: "/games/four-wheeler-adventure",
+              madeByKid: true,
+            },
+          ],
+        },
+      ];
+
+      render(<HomeClient categories={withFourWheeler} />);
+
+      expect(screen.getByTestId("my-games-shelf")).toHaveTextContent(
+        "My Land: 1 plot"
+      );
     });
   });
 });

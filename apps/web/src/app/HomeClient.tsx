@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Header } from "@/shared/components/Header";
 import type { DisplayCategory, DisplayItem } from "@/shared/lib/game-registry";
 import { extractGameStats } from "@/shared/lib/gameStatExtractor";
 import { findLocalProgress } from "@/shared/lib/localProgress";
+import { PROGRESS_OWNER_KEY } from "@/lib/storage-keys";
 import { SITE } from "@/config/site";
 
 // Floating emojis for hero background
@@ -60,20 +62,30 @@ function saveRecentItem(item: DisplayItem, current: RecentItem[]) {
  * Personal-best line for a My Games card, from locally saved progress.
  * Pure decoration: any missing or unreadable save just reads as "never
  * played", so a broken blob can never take down the home page.
+ *
+ * Account-scoped saves mirror the upload path's owner check: when the
+ * device's progress-owner marker names someone other than the current
+ * user (the defeated-sign-out-clear scenario), show nothing rather than
+ * the previous kid's stats. Device-owned saves (never account-synced)
+ * are exempt — the game itself would show the same state to anyone at
+ * this computer.
  */
-function loadMyGameStat(appId: string): string | null {
+function loadMyGameStat(appId: string, sessionUserId?: string): string | null {
   try {
-    const progress = findLocalProgress(appId);
-    if (!progress) return null;
+    const result = findLocalProgress(appId);
+    if (!result) return null;
 
-    const lastModified =
-      typeof progress.lastModified === "number"
-        ? progress.lastModified
-        : Date.now();
+    if (!result.deviceOwned) {
+      const owner = window.localStorage.getItem(PROGRESS_OWNER_KEY);
+      if (owner !== null && owner !== sessionUserId) return null;
+    }
+
+    // extractGameStats wants a lastPlayed timestamp, but the shelf only
+    // renders primaryStat - any valid instant satisfies the signature.
     const info = extractGameStats(
       appId,
-      progress,
-      new Date(lastModified).toISOString()
+      result.progress,
+      new Date().toISOString()
     );
     return info.primaryStat
       ? `${info.primaryStat.label}: ${info.primaryStat.value}`
@@ -84,6 +96,7 @@ function loadMyGameStat(appId: string): string | null {
 }
 
 export function HomeClient({ categories }: HomeClientProps) {
+  const { data: session } = useSession();
   const [searchQuery, setSearchQuery] = useState("");
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const [myGameStats, setMyGameStats] = useState<Record<string, string | null>>(
@@ -109,10 +122,10 @@ export function HomeClient({ categories }: HomeClientProps) {
   useEffect(() => {
     const stats: Record<string, string | null> = {};
     for (const item of myGames) {
-      stats[item.id] = loadMyGameStat(item.id);
+      stats[item.id] = loadMyGameStat(item.id, session?.user?.id);
     }
     setMyGameStats(stats);
-  }, [myGames]);
+  }, [myGames, session?.user?.id]);
 
   const filteredCategories = useMemo(() => {
     const query = normalizeSearch(searchQuery);
@@ -215,7 +228,20 @@ export function HomeClient({ categories }: HomeClientProps) {
               🌟 My Games
             </h2>
             {myGames.length > 0 ? (
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+              /* Count-adaptive like the category grids below: one or two
+                 creations get a centered, generous card instead of a lone
+                 tile stranded at the edge of a 4-column row. */
+              <div
+                className={`grid gap-4 ${
+                  myGames.length === 1
+                    ? "grid-cols-1 max-w-sm mx-auto"
+                    : myGames.length === 2
+                      ? "grid-cols-2 max-w-2xl mx-auto"
+                      : myGames.length === 3
+                        ? "grid-cols-2 md:grid-cols-3 max-w-3xl mx-auto"
+                        : "grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                }`}
+              >
                 {myGames.map((item) => (
                   <Link
                     key={item.href}
@@ -226,7 +252,10 @@ export function HomeClient({ categories }: HomeClientProps) {
                     <span className="mb-2 block text-5xl transition-transform duration-300 group-hover:scale-110">
                       {item.emoji}
                     </span>
-                    <span className="block font-bold text-white/90">
+                    {/* break-words: this is the first surface that renders
+                        kid-typed names - an unbroken smash-word must wrap
+                        inside the card, never paint past its edge. */}
+                    <span className="block font-bold text-white/90 break-words">
                       {item.name}
                     </span>
                     {/* No readable local save (never played here, or the game

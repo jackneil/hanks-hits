@@ -28,8 +28,10 @@ export async function POST(request: Request) {
     // Normalize email (lowercase + trim) to prevent duplicate accounts
     const email = rawEmail?.toLowerCase().trim();
 
-    // Validation
-    if (!email || !password) {
+    // Validation. The typeof checks matter: a JSON number for password
+    // would slip past a bare truthiness test, dodge the length rule
+    // (undefined < 8 is false), and blow up in bcrypt as a 500.
+    if (!email || !password || typeof password !== "string") {
       return NextResponse.json(
         { error: "Email and password are required" },
         { status: 400 }

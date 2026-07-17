@@ -35,7 +35,7 @@ After re-id-ing, **grep to be sure**: `grep -rn "<src>" apps/web/src/games/<new>
 ## Step 4 — Register the new id (same as make-a-game ①②③)
 - `packages/db/src/schema/app-progress.ts` → add `"<new>"` to `VALID_APP_IDS` (do this so `Game.tsx` typechecks).
 - `apps/web/src/lib/progress-schemas.ts` → copy the source's schema entry under `"<new>"` (the saved fields are the same shape).
-- `apps/web/src/apps/profile/lib/gameStatExtractor.ts` → copy the source's `case` as `case "<new>":`.
+- `apps/web/src/shared/lib/gameStatExtractor.ts` → copy the source's `case` as `case "<new>":`.
 
 ## Step 5 — Re-theme to the twist
 Now make it look like Y: colors, sprite shapes/emoji, labels, on-screen text, the background, the metadata `name`/`emoji`. Keep the mechanics that already work; change the skin. (For richer art/sound, hand to **make-it-mine** if it exists.) Kid-safe content rules from make-a-game still apply.

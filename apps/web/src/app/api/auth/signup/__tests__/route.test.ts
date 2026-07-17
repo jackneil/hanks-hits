@@ -69,4 +69,11 @@ describe("POST /api/auth/signup password minimum", () => {
     const res = await POST(signupRequest({ email: "kid@example.com" }));
     expect(res.status).toBe(400);
   });
+
+  it("rejects a non-string password with a clean 400, not a bcrypt 500", async () => {
+    const res = await POST(
+      signupRequest({ email: "kid@example.com", password: 12345678 })
+    );
+    expect(res.status).toBe(400);
+  });
 });

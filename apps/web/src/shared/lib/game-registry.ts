@@ -4,6 +4,7 @@
 
 import fs from "fs";
 import path from "path";
+import { hrefForCategory } from "./app-routing";
 
 // Metadata type that each game/app exports
 export interface GameMetadata {
@@ -128,7 +129,7 @@ export async function discoverGamesAndApps(): Promise<DisplayCategory[]> {
 
     const categoryItems = grouped.get(item.category) || [];
     categoryItems.push({
-      href: item.category === "apps" ? `/apps/${item.id}` : `/games/${item.id}`,
+      href: hrefForCategory(item.id, item.category),
       emoji: item.emoji,
       name: item.name,
       id: item.id,

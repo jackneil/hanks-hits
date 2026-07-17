@@ -5,6 +5,7 @@ import {
   GAME_METADATA,
   type GameMetadata,
 } from "@/shared/lib/gameMetadata.generated";
+import { hrefForCategory } from "@/shared/lib/app-routing";
 
 interface GamesIMadeProps {
   /** Injectable for tests; defaults to the build-time generated lookup. */
@@ -30,7 +31,7 @@ export function GamesIMade({ catalog = GAME_METADATA }: GamesIMadeProps) {
       <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
         <span>🛠️</span> Games I Made
         <span className="ml-1 text-sm font-semibold text-white/60">
-          {creations.length}
+          ({creations.length})
         </span>
       </h2>
 
@@ -38,11 +39,7 @@ export function GamesIMade({ catalog = GAME_METADATA }: GamesIMadeProps) {
         {creations.map(([appId, metadata]) => (
           <Link
             key={appId}
-            href={
-              metadata.category === "apps"
-                ? `/apps/${appId}`
-                : `/games/${appId}`
-            }
+            href={hrefForCategory(appId, metadata.category)}
             className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20 hover:bg-white/20 transition-colors flex items-center gap-3"
           >
             <span className="text-3xl">{metadata.icon}</span>
