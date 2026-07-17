@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Games Shelf — Design & Implementation Plan</title>
+
+<meta name="jacked:type" content="plan">
+<meta name="jacked:status" content="in-progress">
+<meta name="jacked:branch" content="feat/my-games-shelf">
+<meta name="jacked:date" content="2026-07-17">
+<meta name="jacked:project" content="hanks-hits">
+
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-muted: #555;
+    --bg: #fafaf7;
+    --bg-card: #fff;
+    --accent: #2266aa;
+    --accent-bg: #e7f0fa;
+    --warn: #b3681c;
+    --warn-bg: #fcf3e7;
+    --danger: #b32424;
+    --danger-bg: #fbe9e7;
+    --ok: #1f7a3f;
+    --ok-bg: #e8f4ec;
+    --border: #d8d4cc;
+    --code-bg: #f3efe8;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1;
+      --fg-muted: #a8a5a0;
+      --bg: #161616;
+      --bg-card: #1f1f1f;
+      --accent: #6aa8e8;
+      --accent-bg: #1a2935;
+      --warn: #e0a85b;
+      --warn-bg: #3a2d18;
+      --danger: #ea7670;
+      --danger-bg: #3a1f1c;
+      --ok: #6acd8e;
+      --ok-bg: #1c3327;
+      --border: #2e2e2e;
+      --code-bg: #232323;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { font-family: var(--sans); font-size: 16px; line-height: 1.6; color: var(--fg); background: var(--bg); margin: 0; padding: 2rem 1rem; }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin: 0 0 .25rem; line-height: 1.2; }
+  h2 { font-size: 1.4rem; margin: 2.5rem 0 .75rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 .5rem; color: var(--fg-muted); }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: .5rem 0 2rem; padding: .75rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); font-size: .9rem; }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+  .badge { display: inline-block; padding: .15rem .6rem; border-radius: 99px; font-size: .8rem; font-weight: 500; line-height: 1.4; }
+  .badge.info { background: var(--accent-bg); color: var(--accent); }
+  aside.callout { margin: 1rem 0; padding: .9rem 1.1rem; border-left: 4px solid var(--accent); background: var(--accent-bg); border-radius: 0 var(--radius) var(--radius) 0; }
+  aside.callout.warn { border-color: var(--warn); background: var(--warn-bg); }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child { margin-bottom: 0; }
+  code { font-family: var(--mono); font-size: .92em; background: var(--code-bg); padding: .12em .35em; border-radius: 3px; }
+  pre { font-family: var(--mono); font-size: .88rem; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: .9rem 1rem; overflow-x: auto; line-height: 1.45; }
+  pre code { background: transparent; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--bg-card); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; font-size: .9rem; }
+  tr:last-child td { border-bottom: none; }
+  ul.tasks { list-style: none; padding-left: 0; }
+  ul.tasks li { padding: .25rem 0; display: flex; align-items: flex-start; gap: .6rem; }
+  ul.tasks input[type="checkbox"] { margin-top: .4rem; }
+  .diagram { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin: 1rem 0; text-align: center; overflow-x: auto; }
+  .diagram pre.mermaid-source { text-align: left; display: none; }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    h2, h3 { break-after: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>My Games Shelf</h1>
+
+<div class="meta">
+  <div class="kv"><span class="k">Status:</span><span class="v"><span class="badge info">in-progress</span></span></div>
+  <div class="kv"><span class="k">Date:</span><span class="v">2026-07-17</span></div>
+  <div class="kv"><span class="k">Branch:</span><span class="v">feat/my-games-shelf</span></div>
+  <div class="kv"><span class="k">Type:</span><span class="v">plan</span></div>
+</div>
+
+<h2 id="goal">Goal</h2>
+<p>A kid's own creations become first-class citizens in the app. Games marked
+<code>madeByKid: true</code> in their <code>metadata.ts</code> (the convention the
+<code>make-a-game</code> / <code>remix-a-game</code> skills already write) get a dedicated
+<strong>"My Games"</strong> shelf at the top of the home page with a personal-best stat per game,
+a <strong>"Games I Made"</strong> section on the profile page, and a warm empty-state invite when
+no creations exist yet. Today the app ignores the marker entirely: the runtime scan never parses
+it, <code>DisplayItem</code> never carries it, and no surface renders it.</p>
+
+<aside class="callout">
+  <strong>Context:</strong> design/FRAMEWORK_ROADMAP.md "Top do-next" item 6 — the #1 missing
+  stickiness surface. The skills half of the convention shipped already; this is the app half.
+  Rider: SECURITY_BACKLOG.md item 2 (signup password minimum 6 &rarr; 8) folds into this branch.
+</aside>
+
+<h2 id="architecture">Architecture</h2>
+<p>One source of truth — the <code>madeByKid: true</code> literal in each game's
+<code>metadata.ts</code> — flows to the two consumers through the repo's two existing metadata
+channels. No new state, no new storage.</p>
+
+<div class="diagram">
+  <pre class="mermaid">
+flowchart LR
+    M[metadata.ts<br/>madeByKid: true] --> S[runtime scan<br/>game-registry.ts]
+    M --> G[generate-game-metadata.ts<br/>build step]
+    S --> D[DisplayItem.madeByKid] --> H[HomeClient<br/>My Games shelf]
+    G --> L[GAME_METADATA lookup] --> P[ProfilePage<br/>Games I Made]
+    LS[(localStorage<br/>zustand persist)] --> X[findLocalProgress + extractGameStats] --> H
+  </pre>
+  <pre class="mermaid-source">
+flowchart LR
+    M[metadata.ts madeByKid: true] --> S[runtime scan game-registry.ts]
+    M --> G[generate-game-metadata.ts build step]
+    S --> D[DisplayItem.madeByKid] --> H[HomeClient My Games shelf]
+    G --> L[GAME_METADATA lookup] --> P[ProfilePage Games I Made]
+    LS[localStorage zustand persist] --> X[findLocalProgress + extractGameStats] --> H
+  </pre>
+</div>
+
+<h3>Key decisions</h3>
+<table>
+  <thead><tr><th>Decision</th><th>Choice + why</th></tr></thead>
+  <tbody>
+    <tr><td>Shelf placement</td><td>Between search and Recently Played — top billing for the product's core loop. Hidden while searching (same behavior as Recently Played); every shelf item also stays in its normal category, so search still finds it.</td></tr>
+    <tr><td>Dual listing</td><td>A kid-made game appears on the shelf AND in its category. Removing it from the category would make games "disappear" depending on flags — confusing for a kid.</td></tr>
+    <tr><td>Empty state</td><td>The shelf section always renders (except during search). With zero creations it shows a warm invite ("This shelf is waiting for YOUR first game!") — it advertises the platform's whole point.</td></tr>
+    <tr><td>Personal-best stat</td><td>Client-side from zustand-persisted localStorage. New shared helper <code>findLocalProgress(appId)</code> tries the repo's known key conventions (<code>-storage</code>, <code>-progress</code>, <code>-save</code>, <code>-game-state</code>, <code>-state</code>, <code>hank-</code> prefix), unwraps the persist envelope, and feeds <code>extractGameStats</code>. No stat found &rarr; a "New!" tag, never an error.</td></tr>
+    <tr><td>gameStatExtractor promotion</td><td>Moves from <code>apps/profile/lib/</code> to <code>shared/lib/</code> — the shelf is its second consumer, which is exactly this repo's bar for promotion. Profile imports update; behavior unchanged.</td></tr>
+    <tr><td>Profile channel</td><td><code>generate-game-metadata.ts</code> adds <code>madeByKid</code> to the generated lookup, so the client-side profile filters it without new plumbing. Regenerated every build (existing caveat applies and is documented).</td></tr>
+    <tr><td>Testability</td><td><code>parseMetadata</code> becomes a named export of game-registry (pure function) for direct unit tests.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="files">File Structure</h2>
+<table>
+  <thead><tr><th>File</th><th>Change</th></tr></thead>
+  <tbody>
+    <tr><td><code>apps/web/src/shared/lib/game-registry.ts</code></td><td>Parse <code>madeByKid</code>; add to <code>DisplayItem</code>; export <code>parseMetadata</code>.</td></tr>
+    <tr><td><code>apps/web/scripts/generate-game-metadata.ts</code></td><td>Carry <code>madeByKid</code> into the generated lookup.</td></tr>
+    <tr><td><code>apps/web/src/shared/lib/gameStatExtractor.ts</code></td><td>Moved here from <code>apps/profile/lib/</code> (unchanged logic).</td></tr>
+    <tr><td><code>apps/web/src/shared/lib/localProgress.ts</code></td><td>NEW — <code>findLocalProgress(appId)</code> localStorage reader.</td></tr>
+    <tr><td><code>apps/web/src/app/HomeClient.tsx</code></td><td>My Games shelf section (cards, stat, empty-state invite).</td></tr>
+    <tr><td><code>apps/web/src/apps/profile/components/ProfilePage.tsx</code></td><td>"Games I Made" section using generated lookup.</td></tr>
+    <tr><td><code>apps/web/src/app/api/auth/signup/route.ts</code> + <code>src/app/signup/page.tsx</code></td><td>Password minimum 8 (route check, page error copy, placeholder, minLength).</td></tr>
+    <tr><td><code>.claude/skills/my-creations/SKILL.md</code>, <code>CLAUDE.md</code>, <code>design/SECURITY_BACKLOG.md</code>, <code>design/FRAMEWORK_ROADMAP.md</code></td><td>Docs/skills sync: point at the in-app shelf, document the marker, mark backlog items done.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="tasks">Milestones</h2>
+<ul class="tasks">
+  <li><input type="checkbox" disabled> M1 — Registry: parse + plumb <code>madeByKid</code>; generator carries it; parser unit tests.</li>
+  <li><input type="checkbox" disabled> M2 — Home shelf: section + cards + stat helper + empty state; HomeClient tests (empty and populated).</li>
+  <li><input type="checkbox" disabled> M3 — Profile: "Games I Made" section + tests.</li>
+  <li><input type="checkbox" disabled> M4 — Skills/docs sync.</li>
+  <li><input type="checkbox" disabled> M5 — Password minimum 8 (route + page + tests) and backlog mark-done.</li>
+  <li><input type="checkbox" disabled> Verify — full gate, real-run proof with a marked test game, browser QA desktop + 390px (mobile-playability), /dcr, PR.</li>
+</ul>
+
+<h2 id="open-questions">Open Questions</h2>
+<ul>
+  <li>None blocking. Creator achievements (trophy-case tie-in) and publish-share hardening are explicitly next-phase, not this branch.</li>
+</ul>
+
+<hr style="border:none;border-top:1px solid var(--border);margin:2.5rem 0;">
+<p style="color: var(--fg-muted); font-size: .85rem; text-align: center;">
+  Generated with the <a href="https://github.com/jackneil/claude-jacked">jacked</a> HTML artifact template.
+</p>
+
+</div>
+
+<script type="module">
+  try {
+    const mermaid = (await import("https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs")).default;
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default",
+      flowchart: { curve: "basis" },
+      securityLevel: "loose"
+    });
+  } catch (err) {
+    document.querySelectorAll(".diagram").forEach(d => d.classList.add("failed"));
+    console.warn("mermaid load failed, diagrams shown as source:", err);
+  }
+</script>
+
+</body>
+</html>
