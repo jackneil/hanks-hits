@@ -101,11 +101,11 @@ describe("HomeClient", () => {
       expect(screen.getByTestId("my-games-shelf")).toHaveTextContent("950");
     });
 
-    it("marks a never-played creation as brand new instead of showing a stat", () => {
+    it("invites a play instead of showing a stat when no local save is readable", () => {
       render(<HomeClient categories={categoriesWithCreation} />);
 
       expect(screen.getByTestId("my-games-shelf")).toHaveTextContent(
-        "Brand new!"
+        "Jump in and play!"
       );
     });
 

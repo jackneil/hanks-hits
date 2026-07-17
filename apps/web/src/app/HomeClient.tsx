@@ -229,8 +229,11 @@ export function HomeClient({ categories }: HomeClientProps) {
                     <span className="block font-bold text-white/90">
                       {item.name}
                     </span>
+                    {/* No readable local save (never played here, or the game
+                        uses its own save format) - show an always-true invite
+                        rather than a claim like "new" that can be wrong. */}
                     <span className="mt-1 block text-sm font-semibold text-cyan-300/90">
-                      {myGameStats[item.id] ?? "Brand new!"}
+                      {myGameStats[item.id] ?? "Jump in and play!"}
                     </span>
                   </Link>
                 ))}
