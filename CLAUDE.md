@@ -302,8 +302,18 @@ export const metadata: GameMetadata = {
   category: "arcade",         // Where it appears on home page
   description: "Short desc",  // Optional tooltip
   hidden: false,              // Set true to hide from home page
+  madeByKid: true,            // REQUIRED on games/apps the kid built or remixed
 };
 ```
+
+### The `madeByKid` marker
+Set **`madeByKid: true`** on every game/app the kid builds or remixes (make-a-game
+and remix-a-game already do this). It powers the **"🌟 My Games" shelf** at the top
+of the home page (with a personal-best stat per card) and the **"🛠️ Games I Made"**
+section on the profile page. Like every metadata field it must be a **plain literal**
+(`true`, never a computed value) or the scan won't see it. Leave it off (or `false`)
+for built-in catalog games. The profile section reads the build-time lookup, so it
+shows up there after the next `pnpm build` (the home shelf sees it immediately in dev).
 
 ### Valid Categories
 - `"racing"` - Racing & Driving

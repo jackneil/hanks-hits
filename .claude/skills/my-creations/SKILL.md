@@ -19,12 +19,13 @@ Read each match's `name` + `emoji` for the display.
 ## What to do
 1. **Show their games as a fun row of trophies** — emoji + name:
    > *"🍩 Donut Catcher · 🚚 Monster Smash · 🦕 Dino Dash — look at all YOUR games!"*
-2. **Ask what they want to do** with one: *"Want to play one, change one, or put one on the internet?"*
+2. **Point them at their in-app shelf too** — the website itself shows the same games in the **"🌟 My Games"** shelf at the top of the home page (with their best score on each card!) and in **"🛠️ Games I Made"** on their profile page. *"Your games sit right at the top of the home page — go look!"* (If a game they just made isn't showing its proper name/emoji on the profile yet, run `cd apps/web && pnpm build` to refresh the lookup.)
+3. **Ask what they want to do** with one: *"Want to play one, change one, or put one on the internet?"*
    - play → **play-my-game**
    - change / make harder / add to it → **change-a-game**
    - share it → **put-it-online**
    - undo a change they regret → **oops-go-back**
-3. **Always offer to make a new one too:** *"…or make a brand-new one!"* → **make-a-game** / **remix-a-game**.
+4. **Always offer to make a new one too:** *"…or make a brand-new one!"* → **make-a-game** / **remix-a-game**.
 
 ## Edge cases
 - **None found:** they haven't made one *here* yet — don't make them feel bad. *"You haven't made one yet — want to make your FIRST game right now? 🎉"* → **make-a-game**.
