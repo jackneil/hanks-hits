@@ -103,6 +103,7 @@ export interface DisplayItem {
   emoji: string;
   name: string;
   id: string;
+  madeByKid?: boolean; // true on the kid's own creations — powers the My Games shelf
 }
 
 export interface DisplayCategory extends Category {
@@ -131,6 +132,7 @@ export async function discoverGamesAndApps(): Promise<DisplayCategory[]> {
       emoji: item.emoji,
       name: item.name,
       id: item.id,
+      madeByKid: item.madeByKid,
     });
     grouped.set(item.category, categoryItems);
   }
@@ -178,7 +180,7 @@ async function scanDirectory(type: "games" | "apps"): Promise<GameMetadata[]> {
         try {
           // Read and parse the metadata file
           const content = fs.readFileSync(metadataPath, "utf-8");
-          const metadata = parseMetadata(content, dir.name, type);
+          const metadata = parseMetadata(content, dir.name);
           if (metadata) {
             items.push(metadata);
           }
@@ -196,12 +198,13 @@ async function scanDirectory(type: "games" | "apps"): Promise<GameMetadata[]> {
 
 /**
  * Parse metadata from file content (simple regex-based parser)
- * This avoids needing to actually import/execute the TS files
+ * This avoids needing to actually import/execute the TS files.
+ * Exported so the discovery contract is unit-testable — every value must be
+ * a plain literal or this parser (and therefore the home page) won't see it.
  */
-function parseMetadata(
+export function parseMetadata(
   content: string,
-  dirName: string,
-  type: "games" | "apps"
+  dirName: string
 ): GameMetadata | null {
   try {
     // Extract values using regex
@@ -211,6 +214,7 @@ function parseMetadata(
     const categoryMatch = content.match(/category:\s*["']([^"']+)["']/);
     const hiddenMatch = content.match(/hidden:\s*(true|false)/);
     const descMatch = content.match(/description:\s*["']([^"']+)["']/);
+    const madeByKidMatch = content.match(/madeByKid:\s*(true|false)/);
 
     if (!nameMatch || !emojiMatch || !categoryMatch) {
       console.warn(`Missing required fields in metadata for ${dirName}`);
@@ -224,6 +228,7 @@ function parseMetadata(
       category: categoryMatch[1] as CategoryId,
       hidden: hiddenMatch ? hiddenMatch[1] === "true" : false,
       description: descMatch ? descMatch[1] : undefined,
+      madeByKid: madeByKidMatch ? madeByKidMatch[1] === "true" : false,
     };
   } catch {
     return null;
