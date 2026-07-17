@@ -58,13 +58,15 @@ mergeProgress(localData, serverData, serverData?.updatedAt)
 
 ## Medium Priority
 
-### 2. Stronger Password Requirements
+### 2. Stronger Password Requirements — DONE (2026-07-17)
 **File:** `apps/web/src/app/api/auth/signup/route.ts`
 
-Current: 6 characters minimum (`password.length < 6`)
-Recommended: 8 characters minimum
+> **Status: shipped on `feat/my-games-shelf`.** Minimum is now 8 characters,
+> enforced server-side in the signup route and mirrored in the signup form
+> (error copy, placeholder, `minLength`), with route + page tests. Existing
+> accounts with shorter passwords still sign in; the rule applies at signup.
 
-For a kids' game, don't overcomplicate (no special chars requirement).
+For a kids' game, don't overcomplicate (no special chars requirement) — kept.
 
 ---
 
