@@ -596,12 +596,14 @@ before anything hits GitHub (whether opening a PR or committing into one). Run e
 step, in order, and STOP on the first failure — never push red:
 
 ```bash
-cd apps/web
+# From the REPO ROOT (mirrors .githooks/pre-push). Do NOT cd into apps/web
+# for the install step - pnpm can't find the workspace lockfile from there
+# and fails with ERR_PNPM_NO_LOCKFILE.
 pnpm install --frozen-lockfile   # deps match the lockfile
-pnpm lint                        # eslint (0 errors; warnings are OK)
-pnpm typecheck                   # tsc --noEmit
-pnpm test                        # vitest run
-pnpm build                       # authoritative typecheck + regenerates game metadata
+pnpm --filter web lint           # eslint (0 errors; warnings are OK)
+pnpm --filter web typecheck      # tsc --noEmit
+pnpm --filter web test           # vitest run
+pnpm --filter web build          # authoritative typecheck + regenerates game metadata
 ```
 
 A **pre-push git hook enforces this automatically** (`.githooks/pre-push`) — it runs
