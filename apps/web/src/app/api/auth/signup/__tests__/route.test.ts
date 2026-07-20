@@ -6,12 +6,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findFirst = vi.fn();
 const returning = vi.fn();
+const valuesSpy = vi.fn();
 
 vi.mock("@hank-neil/db", () => ({
   db: {
     query: { users: { findFirst: (...args: unknown[]) => findFirst(...args) } },
     insert: () => ({
-      values: () => ({ returning: (...args: unknown[]) => returning(...args) }),
+      values: (...args: unknown[]) => {
+        valuesSpy(...args);
+        return { returning: (...a: unknown[]) => returning(...a) };
+      },
     }),
   },
   eq: vi.fn(),
@@ -42,6 +46,7 @@ describe("POST /api/auth/signup password minimum", () => {
     returning.mockReset().mockResolvedValue([
       { id: "u1", name: "Kid", email: "kid@example.com" },
     ]);
+    valuesSpy.mockReset();
   });
 
   it("rejects a 7-character password with a 400", async () => {
@@ -75,5 +80,98 @@ describe("POST /api/auth/signup password minimum", () => {
       signupRequest({ email: "kid@example.com", password: 12345678 })
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/auth/signup display-name validation", () => {
+  beforeEach(() => {
+    findFirst.mockReset().mockResolvedValue(undefined);
+    returning.mockReset().mockResolvedValue([
+      { id: "u1", name: "Kid", email: "kid@example.com" },
+    ]);
+    valuesSpy.mockReset();
+  });
+
+  const persistedName = () => valuesSpy.mock.calls[0]?.[0]?.name;
+
+  it("rejects an over-long name with a 400 and never inserts", async () => {
+    const res = await POST(
+      signupRequest({
+        email: "kid@example.com",
+        password: "eight888",
+        name: "x".repeat(51),
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(valuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a megabyte-sized name with a 400 (storage-abuse guard)", async () => {
+    const res = await POST(
+      signupRequest({
+        email: "kid@example.com",
+        password: "eight888",
+        name: "x".repeat(1_000_000),
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(valuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects markup characters in the name with a 400", async () => {
+    const res = await POST(
+      signupRequest({
+        email: "kid@example.com",
+        password: "eight888",
+        name: "<script>alert(1)</script>",
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(valuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-string name with a 400", async () => {
+    const res = await POST(
+      signupRequest({
+        email: "kid@example.com",
+        password: "eight888",
+        name: { evil: true },
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(valuesSpy).not.toHaveBeenCalled();
+  });
+
+  it("stores a valid name trimmed", async () => {
+    const res = await POST(
+      signupRequest({
+        email: "kid@example.com",
+        password: "eight888",
+        name: "  Hank  ",
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(persistedName()).toBe("Hank");
+  });
+
+  it("falls back to a sanitized email prefix when no name is given", async () => {
+    const res = await POST(
+      signupRequest({ email: "hank+games@example.com", password: "eight888" })
+    );
+    expect(res.status).toBe(200);
+    // '+' is stripped — the derived name is charset-safe.
+    expect(persistedName()).toBe("hankgames");
+  });
+
+  it("falls back to the email prefix for a blank/whitespace name", async () => {
+    const res = await POST(
+      signupRequest({
+        email: "hank@example.com",
+        password: "eight888",
+        name: "   ",
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(persistedName()).toBe("hank");
   });
 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { safeRedirectTarget } from "@/lib/rom-redirect";
+import { checkRomProxyRateLimit, getClientIP } from "@/lib/rate-limit";
 
 // Railway CDN URL for ROMs
 const ROM_CDN_URL = "https://cdn-hankshits.up.railway.app/roms";
@@ -15,6 +16,17 @@ export async function GET(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await params;
+
+  // SECURITY: unauthenticated proxy — throttle per client IP so it can't be used
+  // as an amplifier that drives unbounded upstream CDN fetches through the single
+  // app instance. Generous limit; ROMs are cached immutably after first load.
+  const rateLimit = checkRomProxyRateLimit(getClientIP(request));
+  if (!rateLimit.success) {
+    return new NextResponse("Too many requests", {
+      status: 429,
+      headers: { "Retry-After": String(rateLimit.resetIn) },
+    });
+  }
 
   // SECURITY: this is an unauthenticated same-origin proxy. Reject path
   // traversal and anything outside a strict per-segment allowlist so it can't be

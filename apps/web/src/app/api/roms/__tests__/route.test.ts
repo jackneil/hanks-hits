@@ -2,8 +2,14 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { GET } from "../[...path]/route";
 import { NextRequest } from "next/server";
 
+// Each req() gets a unique client IP so the per-IP ROM rate-limit bucket never
+// accumulates across the suite (the limiter uses a module-level store). The
+// dedicated 429 test below deliberately pins ONE ip to exhaust its budget.
+let ipCounter = 0;
 const req = () =>
-  new NextRequest("http://localhost/api/roms/snes/test.smc");
+  new NextRequest("http://localhost/api/roms/snes/test.smc", {
+    headers: { "x-real-ip": `198.51.100.${ipCounter++ % 250}` },
+  });
 const params = (segments: string[]) => ({
   params: Promise.resolve({ path: segments }),
 });
@@ -125,6 +131,33 @@ describe("ROM proxy route", () => {
     expect((await GET(req(), params(["..", "secrets"]))).status).toBe(400);
     expect((await GET(req(), params(["snes", "a/b.smc"]))).status).toBe(400);
     expect((await GET(req(), params([]))).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("429s once the per-IP rate limit is exceeded, without touching the network", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Dedicated IP so this burst can't collide with the other tests' bucket.
+    const ip = `192.0.2.${Date.now() % 250}`;
+    const bursts = (segments: string[]) =>
+      GET(
+        new NextRequest("http://localhost/api/roms/snes/test.smc", {
+          headers: { "x-real-ip": ip },
+        }),
+        params(segments)
+      );
+
+    // Exhaust the 120/min budget using an INVALID path: the rate-limit check
+    // runs first (so each call counts) and the bad path 400s before any fetch.
+    for (let i = 0; i < 120; i++) {
+      expect((await bursts(["..", "nope"])).status).toBe(400);
+    }
+
+    // The 121st is blocked by the limiter before path validation or fetch.
+    const blocked = await bursts(["snes", "test.smc"]);
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

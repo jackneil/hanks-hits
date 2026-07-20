@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, eq } from "@hank-neil/db";
 import { users } from "@hank-neil/db/schema";
+import { validateDisplayName } from "@/lib/validators";
 
 // Rate limiting for name changes (basic in-memory, resets on redeploy)
 const nameChangeAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -96,34 +97,14 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { name } = body as { name?: string };
+    const { name } = body as { name?: unknown };
 
-    // Validate name
-    if (typeof name !== "string") {
-      return NextResponse.json(
-        { error: "Name must be a string" },
-        { status: 400 }
-      );
+    // Validate name (shared with the signup route so the rules can't drift)
+    const nameResult = validateDisplayName(name);
+    if (!nameResult.ok) {
+      return NextResponse.json({ error: nameResult.error }, { status: 400 });
     }
-
-    const trimmedName = name.trim();
-
-    // Length validation
-    if (trimmedName.length < 1 || trimmedName.length > 50) {
-      return NextResponse.json(
-        { error: "Name must be 1-50 characters" },
-        { status: 400 }
-      );
-    }
-
-    // Character validation - alphanumeric, spaces, and common chars
-    const validNamePattern = /^[a-zA-Z0-9 _\-'.]+$/;
-    if (!validNamePattern.test(trimmedName)) {
-      return NextResponse.json(
-        { error: "Name contains invalid characters" },
-        { status: 400 }
-      );
-    }
+    const trimmedName = nameResult.name;
 
     // Update user
     await db
