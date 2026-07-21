@@ -20,6 +20,15 @@ Listed in priority order.
 - [x] **Fixed rate-limiter client-IP derivation** — `apps/web/src/lib/rate-limit.ts` now derives the caller IP correctly (previous logic could be spoofed or collapse many users onto one key).
 - [x] **Dependency CVE bumps** — `next` 16.1.1 → 16.2.9, `drizzle-orm` 0.40.1 → 0.45.2.
 
+## Completed (2026-07-21) — `fix/cso-hardening-recs` branch (CSO audit follow-ups)
+
+The `/cso` comprehensive audit found no HIGH/MEDIUM issues in the codebase; these are the LOW/hygiene follow-ups it surfaced.
+
+- [x] **Display-name validation (shared)** — `apps/web/src/lib/validators.ts` (`validateDisplayName` + `displayNameFromEmail`) bounds length (1-50), restricts charset, and rejects non-strings/markup. Both `POST /api/auth/signup` and `PATCH /api/profile` now use it, so signup no longer persists a raw, unbounded `name` into the `users.name` text column.
+- [x] **ROM proxy per-IP rate limit** — `apps/web/src/app/api/roms/[...path]/route.ts` now calls `checkRomProxyRateLimit` (120/min/IP) before path validation or any upstream fetch, closing the unauthenticated amplification vector on top of the existing SSRF/path hardening.
+- [x] **Removed dead admin endpoint** — deleted `apps/web/src/app/api/admin/backfill-leaderboards/route.ts` (one-time migration route, dead attack surface). `ADMIN_SECRET` now has no consumer and can be dropped from the Railway env.
+- [x] **Dependency audit cleared (35 → 0)** — an in-range refresh plus `pnpm.overrides` (kysely, vite, esbuild, postcss) cleared all `pnpm audit` advisories (was 2 critical, 18 high). Every advisory was dev/build/test tooling or the unused `kysely` path inside `drizzle-orm` (this app uses `node-postgres`); none were runtime-reachable.
+
 ---
 
 ## High Priority
