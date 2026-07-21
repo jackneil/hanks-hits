@@ -131,7 +131,7 @@ When Hank asks for something:
 ### 3D Game Stack (IMPORTANT)
 ```
 three@0.182.0
-@react-three/fiber@9.4.2     # React ^19
+@react-three/fiber@9.6.1     # React ^19
 @react-three/rapier@2.2.0    # Physics
 @react-three/drei@10.7.7     # Helpers
 ecctrl@1.0.97                # Vehicle controller + joystick — NOT installed yet

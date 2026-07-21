@@ -133,6 +133,19 @@ export function checkProgressDeleteRateLimit(userId: string): RateLimitResult {
 }
 
 /**
+ * Rate limit for the ROM proxy: 120 requests per minute per IP.
+ *
+ * The proxy is UNAUTHENTICATED, so it keys on client IP (see getClientIP).
+ * The limit is deliberately generous — ROMs are cached immutably after the
+ * first load, so a normal session fetches only a handful — but it caps the
+ * amplification vector where a caller drives repeated upstream CDN fetches
+ * through the single app instance.
+ */
+export function checkRomProxyRateLimit(ip: string): RateLimitResult {
+  return checkRateLimit(`rom:${ip}`, 120, 60 * 1000);
+}
+
+/**
  * Helper to extract IP from request headers
  */
 export function getClientIP(request: Request): string {

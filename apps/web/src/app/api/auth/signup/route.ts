@@ -3,6 +3,7 @@ import { db, eq } from "@hank-neil/db";
 import { users } from "@hank-neil/db/schema";
 import bcrypt from "bcryptjs";
 import { checkSignupRateLimit, getClientIP } from "@/lib/rate-limit";
+import { validateDisplayName, displayNameFromEmail } from "@/lib/validators";
 
 export async function POST(request: Request) {
   try {
@@ -45,6 +46,25 @@ export async function POST(request: Request) {
       );
     }
 
+    // SECURITY: bound and charset-check the display name. `name` is optional at
+    // signup — an absent/blank name falls back to a sanitized email prefix — but
+    // when one IS provided it must pass the same strict rules as a profile edit
+    // (previously it was stored raw into an unbounded text column).
+    const hasName =
+      name !== undefined &&
+      name !== null &&
+      !(typeof name === "string" && name.trim() === "");
+    let displayName: string;
+    if (hasName) {
+      const nameResult = validateDisplayName(name);
+      if (!nameResult.ok) {
+        return NextResponse.json({ error: nameResult.error }, { status: 400 });
+      }
+      displayName = nameResult.name;
+    } else {
+      displayName = displayNameFromEmail(email);
+    }
+
     // Check if user already exists
     const existingUser = await db.query.users.findFirst({
       where: eq(users.email, email),
@@ -65,7 +85,7 @@ export async function POST(request: Request) {
       .insert(users)
       .values({
         id: crypto.randomUUID(),
-        name: name || email.split("@")[0],
+        name: displayName,
         email,
         password: hashedPassword,
       })
