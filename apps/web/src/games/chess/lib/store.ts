@@ -64,6 +64,9 @@ export type GameState = {
 
   // Progress tracking
   progress: ChessProgress;
+
+  // Identifies the active board so delayed AI work cannot mutate a newer game.
+  gameGeneration: number;
 };
 
 type GameActions = {
@@ -134,6 +137,7 @@ export const useChessStore = create<GameState & GameActions>()(
       showPromotion: false,
       pendingPromotion: null,
       progress: defaultProgress,
+      gameGeneration: 0,
 
       selectSquare: (square) => {
         const state = get();
@@ -257,12 +261,26 @@ export const useChessStore = create<GameState & GameActions>()(
       triggerAIMove: () => {
         const state = get();
         if (state.status !== "playing") return;
+        const scheduledGeneration = state.gameGeneration;
 
         set({ isAIThinking: true });
 
         setTimeout(() => {
           const currentState = get();
+          if (
+            currentState.gameGeneration !== scheduledGeneration ||
+            currentState.status !== "playing" ||
+            currentState.gameMode !== "ai"
+          ) {
+            return;
+          }
+
           const game = currentState.game;
+          const aiColor = currentState.playerColor === "white" ? "b" : "w";
+          if (game.turn() !== aiColor) {
+            set({ isAIThinking: false });
+            return;
+          }
           const aiMove = getAIMove(game, currentState.difficulty);
 
           if (!aiMove) {
@@ -334,6 +352,7 @@ export const useChessStore = create<GameState & GameActions>()(
           message: null,
           showPromotion: false,
           pendingPromotion: null,
+          gameGeneration: state.gameGeneration + 1,
         });
 
         // If player is black, AI moves first
