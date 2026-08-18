@@ -132,6 +132,7 @@ describe("Cookie Clicker golden cookies", () => {
     expect(state.newAchievements).toEqual([]);
     expect(state.floatingTexts).toEqual([]);
     expect(state.goldenCookie).toBeNull();
-    expect(state.cookiesPerClick).toBe(GAME_CONFIG.BASE_CLICK_VALUE + 1);
+    // Reinforced Finger is a building upgrade, not a click upgrade.
+    expect(state.cookiesPerClick).toBe(GAME_CONFIG.BASE_CLICK_VALUE);
   });
 });
