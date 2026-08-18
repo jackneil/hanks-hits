@@ -16,6 +16,7 @@ export function BreakoutGameShell() {
   const status = useBreakoutStore((s) => s.status);
   const pauseGame = useBreakoutStore((s) => s.pauseGame);
   const resumeGame = useBreakoutStore((s) => s.resumeGame);
+  const restartLevel = useBreakoutStore((s) => s.restartLevel);
 
   // Pausing only makes sense mid-round; gating canPause here keeps the shell's
   // pause menu (and ESC / pause button / pause-on-blur) off the idle, game-over
@@ -28,6 +29,7 @@ export function BreakoutGameShell() {
       gameName="Breakout"
       appId="breakout"
       canPause={canPause}
+      onRestart={restartLevel}
       onPause={pauseGame}
       onResume={resumeGame}
     >

@@ -93,6 +93,30 @@ describe("ArkanoidGameShell (shell <-> store pause wiring)", () => {
     expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
   });
 
+  it("restarts through the shell and preserves the store's persistent progress", () => {
+    act(() => {
+      useArkanoidStore.setState({
+        progress: {
+          highScore: 900,
+          totalGamesPlayed: 4,
+          totalBallsSpawned: 12,
+          highestMultiplier: 3,
+          lastModified: Date.now(),
+        },
+      });
+    });
+    render(<ArkanoidGameShell />);
+
+    fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
+    expect(screen.getByRole("dialog", { name: /restart game/i })).toBeInTheDocument();
+    expect(useArkanoidStore.getState().gameState).toBe("menu");
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm restart/i }));
+    expect(useArkanoidStore.getState().gameState).toBe("playing");
+    expect(useArkanoidStore.getState().progress.highScore).toBe(900);
+    expect(useArkanoidStore.getState().progress.totalGamesPlayed).toBe(4);
+  });
+
   it("shows the pause button while playing and wires pause/resume to the store", () => {
     render(<ArkanoidGameShell />);
 

@@ -16,6 +16,7 @@ export function BombermanGameShell() {
   const gameState = useBombermanStore((s) => s.gameState);
   const pauseGame = useBombermanStore((s) => s.pauseGame);
   const resumeGame = useBombermanStore((s) => s.resumeGame);
+  const resetGame = useBombermanStore((s) => s.resetGame);
 
   // The store's pauseGame/resumeGame set the state unconditionally, so gate
   // canPause to the in-round states here — otherwise the shell's ESC / pause
@@ -28,6 +29,7 @@ export function BombermanGameShell() {
       gameName="Bomberman"
       appId="bomberman"
       canPause={canPause}
+      onRestart={resetGame}
       onPause={pauseGame}
       onResume={resumeGame}
     >

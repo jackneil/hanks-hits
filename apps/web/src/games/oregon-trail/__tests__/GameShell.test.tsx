@@ -62,6 +62,34 @@ describe("OregonTrailGameShell pause wiring (hunting minigame)", () => {
     });
   });
 
+  it("restarts the current journey with its existing setup", () => {
+    act(() => {
+      useOregonTrailStore.setState({
+        gameStarted: true,
+        gamePhase: "travel",
+        leaderName: "Hank",
+        occupation: "carpenter",
+        party: [
+          { id: "1", name: "Scout", health: "good", isSick: false, sickDays: 0, leftBehind: false },
+          { id: "2", name: "Ranger", health: "fair", isSick: false, sickDays: 0, leftBehind: false },
+        ],
+        departureMonth: "june",
+      });
+    });
+    render(<OregonTrailGameShell />);
+
+    fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm restart/i }));
+
+    const state = useOregonTrailStore.getState();
+    expect(state.gamePhase).toBe("store");
+    expect(state.gameStarted).toBe(true);
+    expect(state.leaderName).toBe("Hank");
+    expect(state.occupation).toBe("carpenter");
+    expect(state.departureMonth).toBe("june");
+    expect(state.party.map((member) => member.name)).toEqual(["Scout", "Ranger"]);
+  });
+
   it("hides the shell pause button outside the hunt (canPause is gated to hunting)", () => {
     render(<OregonTrailGameShell />);
     expect(

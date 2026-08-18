@@ -16,6 +16,7 @@ export function MemoryMatchGameShell() {
   const isWon = useMemoryMatchStore((s) => s.isWon);
   const pauseTimer = useMemoryMatchStore((s) => s.pauseTimer);
   const resumeTimer = useMemoryMatchStore((s) => s.resumeTimer);
+  const newGame = useMemoryMatchStore((s) => s.newGame);
 
   // Pausing only matters once the timer is running (after the first flip) and
   // before the win modal; gating canPause keeps the shell's pause menu off the
@@ -28,6 +29,7 @@ export function MemoryMatchGameShell() {
       gameName="Memory Match"
       appId="memory-match"
       canPause={canPause}
+      onRestart={newGame}
       onPause={pauseTimer}
       onResume={resumeTimer}
     >

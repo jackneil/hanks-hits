@@ -13,6 +13,7 @@ export function ArkanoidGameShell() {
   const gameState = useArkanoidStore((s) => s.gameState);
   const pauseGame = useArkanoidStore((s) => s.pauseGame);
   const resumeGame = useArkanoidStore((s) => s.resumeGame);
+  const startGame = useArkanoidStore((s) => s.startGame);
 
   // Mirror the old HUD pause button's disabled logic: pausing is only
   // meaningful while a round is in progress, never on the menu or game-over
@@ -25,6 +26,7 @@ export function ArkanoidGameShell() {
       gameName="Arkanoid"
       appId="arkanoid"
       canPause={canPause}
+      onRestart={startGame}
       onPause={pauseGame}
       onResume={resumeGame}
     >

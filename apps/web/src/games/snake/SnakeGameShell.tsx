@@ -16,6 +16,7 @@ export function SnakeGameShell() {
   const status = useSnakeStore((s) => s.status);
   const pauseGame = useSnakeStore((s) => s.pauseGame);
   const resumeGame = useSnakeStore((s) => s.resumeGame);
+  const reset = useSnakeStore((s) => s.reset);
 
   // Pausing only makes sense mid-round; gating canPause here keeps the shell's
   // pause menu (and ESC / pause button / pause-on-blur) off the idle and
@@ -28,6 +29,7 @@ export function SnakeGameShell() {
       gameName="Snake"
       appId="snake"
       canPause={canPause}
+      onRestart={reset}
       onPause={pauseGame}
       onResume={resumeGame}
     >

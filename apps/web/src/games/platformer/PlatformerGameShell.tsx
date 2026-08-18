@@ -15,6 +15,7 @@ export function PlatformerGameShell() {
   const gameState = usePlatformerStore((s) => s.gameState);
   const pauseGame = usePlatformerStore((s) => s.pauseGame);
   const resumeGame = usePlatformerStore((s) => s.resumeGame);
+  const reset = usePlatformerStore((s) => s.reset);
 
   // Pausing only makes sense mid-level; gating canPause here keeps the shell's
   // pause menu (and ESC / pause button / pause-on-blur) off the ready, gameOver
@@ -27,6 +28,7 @@ export function PlatformerGameShell() {
       gameName="Hank's Hopper"
       appId="platformer"
       canPause={canPause}
+      onRestart={reset}
       onPause={pauseGame}
       onResume={resumeGame}
     >

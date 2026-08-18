@@ -16,6 +16,7 @@ export function HextrisGameShell() {
   const status = useHextrisStore((s) => s.status);
   const pauseGame = useHextrisStore((s) => s.pauseGame);
   const resumeGame = useHextrisStore((s) => s.resumeGame);
+  const startGame = useHextrisStore((s) => s.startGame);
 
   // Pausing only makes sense mid-round; gating canPause here keeps the shell's
   // pause menu (and ESC / pause button / pause-on-blur) off the idle and
@@ -28,6 +29,7 @@ export function HextrisGameShell() {
       gameName="Hextris"
       appId="hextris"
       canPause={canPause}
+      onRestart={startGame}
       onPause={pauseGame}
       onResume={resumeGame}
     >

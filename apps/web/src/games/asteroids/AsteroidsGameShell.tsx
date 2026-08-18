@@ -16,6 +16,7 @@ export function AsteroidsGameShell() {
   const status = useAsteroidsStore((s) => s.status);
   const pauseGame = useAsteroidsStore((s) => s.pauseGame);
   const resumeGame = useAsteroidsStore((s) => s.resumeGame);
+  const startGame = useAsteroidsStore((s) => s.startGame);
 
   // Pausing only makes sense mid-round; gating canPause here keeps the shell's
   // pause menu (and ESC / pause button / pause-on-blur) off the ready,
@@ -28,6 +29,7 @@ export function AsteroidsGameShell() {
       gameName="Asteroids"
       appId="asteroids"
       canPause={canPause}
+      onRestart={startGame}
       onPause={pauseGame}
       onResume={resumeGame}
     >

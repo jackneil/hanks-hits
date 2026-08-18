@@ -8,6 +8,7 @@
 // the Hunting component reads. That flag lives in its own non-persisted store,
 // so a paused hunt is never written to storage.
 
+import { useMemo } from "react";
 import { GameShell } from "@/shared/components";
 import OregonTrailGame from "./Game";
 import { useOregonTrailStore } from "./lib/store";
@@ -16,6 +17,29 @@ import { useHuntPauseStore } from "./lib/huntPause";
 export function OregonTrailGameShell() {
   const gamePhase = useOregonTrailStore((s) => s.gamePhase);
   const setPaused = useHuntPauseStore((s) => s.setPaused);
+  const leaderName = useOregonTrailStore((s) => s.leaderName);
+  const occupation = useOregonTrailStore((s) => s.occupation);
+  const partyNames = useOregonTrailStore((s) => s.party);
+  const partyMemberNames = useMemo(() => partyNames.map((member) => member.name), [partyNames]);
+  const departureMonth = useOregonTrailStore((s) => s.departureMonth);
+  const gameStarted = useOregonTrailStore((s) => s.gameStarted);
+  const startGame = useOregonTrailStore((s) => s.startGame);
+  const resetGame = useOregonTrailStore((s) => s.resetGame);
+
+  // Restart the current journey with its existing setup. On the title screen,
+  // there is no journey to restart, so reset only the transient setup state.
+  const restartGame = () => {
+    if (gameStarted && partyMemberNames.length > 0) {
+      startGame(
+        leaderName,
+        occupation,
+        partyMemberNames,
+        departureMonth,
+      );
+    } else {
+      resetGame();
+    }
+  };
 
   // Pausing only makes sense during the hunt (the only real-time phase). This
   // keeps the shell's pause menu off the title, store, travel, event, river,
@@ -27,6 +51,7 @@ export function OregonTrailGameShell() {
       gameName="Oregon Trail"
       appId="oregon-trail"
       canPause={canPause}
+      onRestart={restartGame}
       onPause={() => setPaused(true)}
       onResume={() => setPaused(false)}
     >
