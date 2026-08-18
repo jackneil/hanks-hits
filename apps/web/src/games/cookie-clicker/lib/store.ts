@@ -595,6 +595,7 @@ export const useCookieClickerStore = create<
           floatingTexts: [],
           goldenCookie: null,
           lastTick: Date.now(),
+          lastModified: Date.now(),
         });
       },
 

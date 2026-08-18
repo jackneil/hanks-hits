@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RestartConfirmationDialog } from "./RestartConfirmationDialog";
 import { RestartGameButton } from "./RestartGameButton";
 
@@ -11,6 +11,7 @@ interface PauseMenuProps {
   gameName: string;
   onRestart?: () => void;
   restartConfirmation?: "always" | "never";
+  restartConfirmationMessage?: string;
   children?: React.ReactNode;
 }
 
@@ -21,9 +22,11 @@ export function PauseMenu({
   gameName,
   onRestart,
   restartConfirmation = "always",
+  restartConfirmationMessage,
   children,
 }: PauseMenuProps) {
   const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
+  const restartTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Prevent body scroll when paused
   useEffect(() => {
@@ -63,6 +66,7 @@ export function PauseMenu({
 
         {onRestart && (
           <RestartGameButton
+            ref={restartTriggerRef}
             onClick={() => {
               if (restartConfirmation === "never") {
                 onRestart();
@@ -91,6 +95,8 @@ export function PauseMenu({
       <RestartConfirmationDialog
         isOpen={isRestartConfirmationOpen}
         gameName={gameName}
+        message={restartConfirmationMessage}
+        triggerRef={restartTriggerRef}
         onCancel={() => setIsRestartConfirmationOpen(false)}
         onConfirm={() => {
           setIsRestartConfirmationOpen(false);

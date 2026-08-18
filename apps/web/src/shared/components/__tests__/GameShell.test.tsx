@@ -70,6 +70,35 @@ describe("GameShell", () => {
     await waitFor(() => expect(onRestart).toHaveBeenCalledTimes(1));
   });
 
+  it("resumes exactly once when paused restart is confirmed", async () => {
+    const onRestart = vi.fn();
+    const onResume = vi.fn();
+    render(
+      <GameShell gameName="2048" onRestart={onRestart} onResume={onResume}>
+        <div>Game content</div>
+      </GameShell>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Restart game" })[1]);
+    fireEvent.click(await screen.findByRole("button", { name: /confirm restart/i }));
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resume a running game when header restart is confirmed", async () => {
+    const onRestart = vi.fn();
+    const onResume = vi.fn();
+    render(
+      <GameShell gameName="2048" onRestart={onRestart} onResume={onResume}>
+        <div>Game content</div>
+      </GameShell>
+    );
+    fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /confirm restart/i }));
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    expect(onResume).not.toHaveBeenCalled();
+  });
+
   it("cancels restart without invoking the callback", async () => {
     const onRestart = vi.fn();
     render(

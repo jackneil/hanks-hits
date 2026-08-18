@@ -30,6 +30,7 @@ export function BreakoutGameShell() {
       appId="breakout"
       canPause={canPause}
       onRestart={restartLevel}
+      restartConfirmationMessage="Restart this level? Your progress in the current level will be lost."
       onPause={pauseGame}
       onResume={resumeGame}
     >

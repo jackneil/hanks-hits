@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { use2048Store } from "./lib/store";
 import { getTileColors, GRID_SIZE, TIMINGS, type Direction } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
 
 // Tile component with animations
 function Tile({
@@ -111,8 +112,8 @@ function ScoreBoard() {
 }
 
 // Controls
-function Controls() {
-  const newGame = use2048Store((s) => s.newGame);
+function Controls({ onNewGame, restartTriggerRef }: { onNewGame: () => void; restartTriggerRef: React.RefObject<HTMLButtonElement | null> }) {
+  const newGame = onNewGame;
   const undo = use2048Store((s) => s.undo);
   const canUndo = use2048Store((s) => s.canUndo);
 
@@ -134,6 +135,7 @@ function Controls() {
         Undo
       </button>
       <button
+        ref={restartTriggerRef}
         onClick={newGame}
         className="px-6 py-3 rounded-lg font-bold text-white text-lg bg-[#8f7a66] hover:bg-[#7a6658] active:scale-95 transition-all duration-150 min-w-[120px] min-h-[50px]"
       >
@@ -144,9 +146,9 @@ function Controls() {
 }
 
 // Game Over overlay
-function GameOverOverlay() {
+function GameOverOverlay({ onNewGame }: { onNewGame: () => void }) {
   const status = use2048Store((s) => s.status);
-  const newGame = use2048Store((s) => s.newGame);
+  const newGame = onNewGame;
 
   if (status !== "game-over") return null;
 
@@ -164,11 +166,11 @@ function GameOverOverlay() {
 }
 
 // Win overlay
-function WinOverlay() {
+function WinOverlay({ onNewGame }: { onNewGame: () => void }) {
   const status = use2048Store((s) => s.status);
   const keepPlaying = use2048Store((s) => s.keepPlaying);
   const continueAfterWin = use2048Store((s) => s.continueAfterWin);
-  const newGame = use2048Store((s) => s.newGame);
+  const newGame = onNewGame;
 
   if (status !== "won" || keepPlaying) return null;
 
@@ -195,7 +197,7 @@ function WinOverlay() {
 }
 
 // Hook for keyboard controls
-function useKeyboardControls() {
+function useKeyboardControls(onNewGame: () => void) {
   const move = use2048Store((s) => s.move);
   const undo = use2048Store((s) => s.undo);
 
@@ -214,7 +216,7 @@ function useKeyboardControls() {
       // New game with N
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
-        use2048Store.getState().newGame();
+        onNewGame();
         return;
       }
 
@@ -249,7 +251,7 @@ function useKeyboardControls() {
         move(direction);
       }
     },
-    [move, undo]
+    [move, undo, onNewGame]
   );
 
   useEffect(() => {
@@ -321,11 +323,18 @@ export function Game2048() {
   const containerRef = useRef<HTMLDivElement>(null);
   const store = use2048Store();
   const { status } = store;
+  const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
+  const restartTriggerRef = useRef<HTMLButtonElement>(null);
+  const requestNewGame = useCallback(() => setIsRestartConfirmationOpen(true), []);
+  const confirmNewGame = useCallback(() => {
+    setIsRestartConfirmationOpen(false);
+    store.newGame();
+  }, [store]);
   // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
   const isCoarse = useCoarsePointer();
 
   // Set up controls
-  useKeyboardControls();
+  useKeyboardControls(requestNewGame);
   useSwipeControls(containerRef);
 
   // Sync with auth system
@@ -392,11 +401,20 @@ export function Game2048() {
         className="relative w-full max-w-[400px] touch-none select-none"
       >
         <Grid />
-        <GameOverOverlay />
-        <WinOverlay />
+        <GameOverOverlay onNewGame={store.newGame} />
+        <WinOverlay onNewGame={store.newGame} />
       </div>
 
-      <Controls />
+      <Controls onNewGame={requestNewGame} restartTriggerRef={restartTriggerRef} />
+
+      <RestartConfirmationDialog
+        isOpen={isRestartConfirmationOpen}
+        gameName="2048"
+        message="Start a new 2048 game? Your current board will be lost."
+        triggerRef={restartTriggerRef}
+        onCancel={() => setIsRestartConfirmationOpen(false)}
+        onConfirm={confirmNewGame}
+      />
 
       <div className="mt-6 text-center text-[#776e65] text-sm max-w-[400px]">
         {!isCoarse && (

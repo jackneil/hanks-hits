@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useGameShell } from "../hooks/useGameShell";
 import { PauseMenu } from "./PauseMenu";
 import { LeaderboardButton } from "./LeaderboardButton";
@@ -20,6 +20,7 @@ interface GameShellProps {
   canPause?: boolean;
   onRestart?: () => void;
   restartConfirmation?: RestartConfirmationPolicy;
+  restartConfirmationMessage?: string;
   onPause?: () => void;
   onResume?: () => void;
   showHomeButton?: boolean;
@@ -38,6 +39,7 @@ export function GameShell({
   canPause = true,
   onRestart,
   restartConfirmation = "always",
+  restartConfirmationMessage,
   onPause,
   onResume,
   showHomeButton = true,
@@ -48,6 +50,7 @@ export function GameShell({
   pauseMenuChildren,
 }: GameShellProps) {
   const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
+  const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const { isPaused, resume, togglePause, goHome } = useGameShell({
     canPause,
     onPause,
@@ -99,6 +102,7 @@ export function GameShell({
           {/* Restart button */}
           {onRestart && (
             <RestartGameButton
+              ref={restartTriggerRef}
               onClick={() => {
                 if (restartConfirmation === "never") {
                   onRestart();
@@ -141,15 +145,9 @@ export function GameShell({
           isOpen={isPaused}
           onResume={resume}
           onHome={goHome}
-          onRestart={
-            onRestart
-              ? () => {
-                  onRestart();
-                  resume();
-                }
-              : undefined
-          }
+          onRestart={onRestart}
           restartConfirmation={restartConfirmation}
+          restartConfirmationMessage={restartConfirmationMessage}
           gameName={gameName}
         >
           {/* Leaderboard button in pause menu */}
@@ -167,11 +165,13 @@ export function GameShell({
       <RestartConfirmationDialog
         isOpen={isRestartConfirmationOpen}
         gameName={gameName}
+        message={restartConfirmationMessage}
+        triggerRef={restartTriggerRef}
         onCancel={() => setIsRestartConfirmationOpen(false)}
         onConfirm={() => {
           setIsRestartConfirmationOpen(false);
           onRestart?.();
-          resume();
+          if (isPaused) resume();
         }}
       />
     </div>

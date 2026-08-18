@@ -124,7 +124,7 @@ describe("Cookie Clicker golden cookies", () => {
     expect(state.purchasedUpgrades).toEqual(["reinforced-finger"]);
     expect(state.unlockedAchievements).toEqual(["first-cookie"]);
     expect(state.soundEnabled).toBe(false);
-    expect(state.lastModified).toBe(lastModified);
+    expect(state.lastModified).toBeGreaterThan(lastModified);
     expect(state.frenzyMultiplier).toBe(1);
     expect(state.frenzyEndTime).toBe(0);
     expect(state.clickFrenzyMultiplier).toBe(1);

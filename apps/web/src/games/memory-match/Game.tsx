@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
+import { useEffect, useState, useCallback, useRef, useSyncExternalStore } from "react";
 import { useMemoryMatchStore } from "./lib/store";
 import {
   type Difficulty,
@@ -12,6 +12,7 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
 
 // Card component with flip animation
 function Card({
@@ -305,6 +306,13 @@ function WinModal({
 // Main game component
 export function MemoryMatchGame() {
   const store = useMemoryMatchStore();
+  const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
+  const restartTriggerRef = useRef<HTMLButtonElement>(null);
+  const requestNewGame = useCallback(() => setIsRestartConfirmationOpen(true), []);
+  const confirmNewGame = useCallback(() => {
+    setIsRestartConfirmationOpen(false);
+    store.newGame();
+  }, [store]);
   const isClient = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -348,10 +356,11 @@ export function MemoryMatchGame() {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "n" || e.key === "N") {
-        store.newGame();
+        e.preventDefault();
+        requestNewGame();
       }
     },
-    [store]
+    [requestNewGame]
   );
 
   useEffect(() => {
@@ -434,7 +443,8 @@ export function MemoryMatchGame() {
 
       {/* New game button */}
       <button
-        onClick={() => store.newGame()}
+        ref={restartTriggerRef}
+        onClick={requestNewGame}
         className="bg-amber-400 hover:bg-amber-500 text-black font-bold text-lg px-6 py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg"
       >
         &#128260; New Game
@@ -459,9 +469,18 @@ export function MemoryMatchGame() {
           pairs={totalPairs}
           bestTime={previousBestTime}
           isNewBest={isNewBest}
-          onNewGame={() => store.newGame()}
+          onNewGame={store.newGame}
         />
       )}
+
+      <RestartConfirmationDialog
+        isOpen={isRestartConfirmationOpen}
+        gameName="Memory Match"
+        message="Start a new Memory Match game? Your current round will be lost."
+        triggerRef={restartTriggerRef}
+        onCancel={() => setIsRestartConfirmationOpen(false)}
+        onConfirm={confirmNewGame}
+      />
 
       {/* Sync status */}
       {isAuthenticated && (

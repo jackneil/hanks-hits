@@ -1,8 +1,12 @@
 "use client";
 
+import { useEffect, useId, useRef } from "react";
+
 interface RestartConfirmationDialogProps {
   isOpen: boolean;
   gameName: string;
+  message?: string;
+  triggerRef?: React.RefObject<HTMLElement | null>;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -10,30 +14,73 @@ interface RestartConfirmationDialogProps {
 export function RestartConfirmationDialog({
   isOpen,
   gameName,
+  message,
+  triggerRef,
   onConfirm,
   onCancel,
 }: RestartConfirmationDialogProps) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      triggerRef?.current?.focus();
+      return;
+    }
+
+    cancelRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const first = cancelRef.current;
+      const last = confirmRef.current;
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onCancel, triggerRef]);
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 px-4">
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="restart-dialog-title"
+        aria-labelledby={titleId}
         className="w-full max-w-sm rounded-2xl bg-base-100 p-6 text-base-content shadow-2xl"
       >
-        <h2 id="restart-dialog-title" className="text-2xl font-bold">
+        <h2 id={titleId} className="text-2xl font-bold">
           Restart game?
         </h2>
         <p className="mt-3 text-base-content/75">
-          Start {gameName} again from the beginning?
+          {message ?? `Start ${gameName} again from the beginning?`}
         </p>
         <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={onCancel} className="btn btn-ghost min-h-[44px]">
+          <button ref={cancelRef} type="button" onClick={onCancel} className="btn btn-ghost min-h-[44px]">
             Cancel
           </button>
           <button
+            ref={confirmRef}
             type="button"
             onClick={onConfirm}
             className="btn btn-primary min-h-[44px]"
