@@ -53,6 +53,7 @@ export function GameShell({
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const { isPaused, resume, togglePause, goHome } = useGameShell({
     canPause,
+    suppressEscape: isRestartConfirmationOpen,
     onPause,
     onResume,
     pauseOnBlur,

@@ -54,8 +54,8 @@ export function RestartConfirmationDialog({
       }
     };
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [isOpen, onCancel, triggerRef]);
 
   if (!isOpen) return null;

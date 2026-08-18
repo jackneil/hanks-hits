@@ -8,10 +8,11 @@ interface UseGameShellOptions {
   onPause?: () => void;
   onResume?: () => void;
   pauseOnBlur?: boolean;
+  suppressEscape?: boolean;
 }
 
 export function useGameShell(options: UseGameShellOptions = {}) {
-  const { canPause = true, onPause, onResume, pauseOnBlur = true } = options;
+  const { canPause = true, onPause, onResume, pauseOnBlur = true, suppressEscape = false } = options;
   const [isPaused, setIsPaused] = useState(false);
   const router = useRouter();
 
@@ -40,7 +41,7 @@ export function useGameShell(options: UseGameShellOptions = {}) {
 
   // ESC key for pause
   useEffect(() => {
-    if (!canPause) return;
+    if (!canPause || suppressEscape) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -51,7 +52,7 @@ export function useGameShell(options: UseGameShellOptions = {}) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canPause, togglePause]);
+  }, [canPause, suppressEscape, togglePause]);
 
   // Pause on visibility change (tab switch)
   useEffect(() => {

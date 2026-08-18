@@ -99,6 +99,21 @@ describe("GameShell", () => {
     expect(onResume).not.toHaveBeenCalled();
   });
 
+  it("Escape cancels the dialog without opening the pause menu", async () => {
+    const onRestart = vi.fn();
+    render(
+      <GameShell gameName="2048" onRestart={onRestart}>
+        <div>Game content</div>
+      </GameShell>
+    );
+    fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
+    await screen.findByRole("dialog", { name: /restart game/i });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(onRestart).not.toHaveBeenCalled();
+  });
+
   it("cancels restart without invoking the callback", async () => {
     const onRestart = vi.fn();
     render(
