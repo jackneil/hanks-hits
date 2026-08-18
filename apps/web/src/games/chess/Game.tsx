@@ -12,7 +12,6 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-
 export function ChessGame() {
   const store = useChessStore();
   const [showStats, setShowStats] = useState(false);
@@ -273,12 +272,6 @@ export function ChessGame() {
 
       {/* Action buttons */}
       <div className="flex gap-2 flex-wrap justify-center">
-        <button
-          onClick={() => store.newGame()}
-          className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors touch-manipulation"
-        >
-          New Game
-        </button>
         <button
           onClick={() => store.undoMove()}
           disabled={store.status !== "playing" || store.game.history().length === 0}

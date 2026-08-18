@@ -23,13 +23,18 @@ export function RestartConfirmationDialog({
   const confirmRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
-      triggerRef?.current?.focus();
+      if (wasOpenRef.current) {
+        triggerRef?.current?.focus();
+      }
+      wasOpenRef.current = false;
       return;
     }
 
+    wasOpenRef.current = true;
     cancelRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {

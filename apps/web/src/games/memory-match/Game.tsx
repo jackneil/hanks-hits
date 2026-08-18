@@ -469,7 +469,7 @@ export function MemoryMatchGame() {
           pairs={totalPairs}
           bestTime={previousBestTime}
           isNewBest={isNewBest}
-          onNewGame={store.newGame}
+          onNewGame={requestNewGame}
         />
       )}
 

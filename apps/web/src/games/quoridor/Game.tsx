@@ -608,12 +608,6 @@ export function QuoridorGame() {
         {/* Action buttons */}
         <div className="flex gap-2 justify-center">
           <button
-            onClick={() => store.newGame()}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors"
-          >
-            New Game
-          </button>
-          <button
             onClick={() => setShowStats(!showStats)}
             className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-colors"
           >

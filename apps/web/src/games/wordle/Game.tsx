@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { useWordleStore, type WordleProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
 import { TutorialModal } from "./components/TutorialModal";
 import {
   DIFFICULTY_SETTINGS,
@@ -39,6 +40,13 @@ export function WordleGame() {
     setDifficulty,
     openTutorial,
   } = store;
+  const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
+  const restartTriggerRef = useRef<HTMLButtonElement>(null);
+  const requestReset = useCallback(() => setIsRestartConfirmationOpen(true), []);
+  const confirmReset = useCallback(() => {
+    setIsRestartConfirmationOpen(false);
+    reset();
+  }, [reset]);
 
   // Auth sync
   const { forceSync } = useAuthSync({
@@ -126,7 +134,8 @@ export function WordleGame() {
         {gameState !== "ready" && (
           <div className="w-full flex justify-start items-center mb-4">
             <button
-              onClick={reset}
+              ref={restartTriggerRef}
+              onClick={requestReset}
               className="btn btn-ghost btn-sm text-slate-400"
             >
               ← Quit
@@ -270,7 +279,7 @@ export function WordleGame() {
                 </div>
                 <div className="text-yellow-400">🔥 Streak: {currentStreak}</div>
                 <button
-                  onClick={reset}
+                  onClick={requestReset}
                   className="btn btn-primary btn-lg text-xl px-8 rounded-full"
                 >
                   🔄 Play Again
@@ -287,7 +296,7 @@ export function WordleGame() {
                   The word was: <span className="font-bold text-white">{targetWord}</span>
                 </div>
                 <button
-                  onClick={reset}
+                  onClick={requestReset}
                   className="btn btn-primary btn-lg text-xl px-8 rounded-full"
                 >
                   🔄 Try Again
@@ -338,6 +347,15 @@ export function WordleGame() {
           </div>
         )}
       </div>
+
+      <RestartConfirmationDialog
+        isOpen={isRestartConfirmationOpen}
+        gameName="Wordle"
+        message="Start a new Wordle game? Your current game will be lost."
+        triggerRef={restartTriggerRef}
+        onCancel={() => setIsRestartConfirmationOpen(false)}
+        onConfirm={confirmReset}
+      />
 
       {/* Shake animation */}
       <style>{`

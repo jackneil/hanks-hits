@@ -401,8 +401,8 @@ export function Game2048() {
         className="relative w-full max-w-[400px] touch-none select-none"
       >
         <Grid />
-        <GameOverOverlay onNewGame={store.newGame} />
-        <WinOverlay onNewGame={store.newGame} />
+        <GameOverOverlay onNewGame={requestNewGame} />
+        <WinOverlay onNewGame={requestNewGame} />
       </div>
 
       <Controls onNewGame={requestNewGame} restartTriggerRef={restartTriggerRef} />

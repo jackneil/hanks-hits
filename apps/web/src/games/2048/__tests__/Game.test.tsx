@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest"
 
 import { Game2048 } from "../Game";
 
@@ -26,5 +26,17 @@ describe("Game2048", () => {
     const boardWrapper = screen.getByTestId("game-2048-board-wrapper");
     expect(boardWrapper).toHaveClass("w-full");
     expect(boardWrapper).toHaveClass("max-w-[400px]");
+  });
+
+  it("confirms overlay restarts before resetting the board", () => {
+    render(<Game2048 />);
+    const newGame = screen.getByRole("button", { name: "New Game" });
+
+    fireEvent.click(newGame);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Start a new 2048 game? Your current board will be lost.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm restart" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
