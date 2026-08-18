@@ -1,11 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { useGameShell } from "../hooks/useGameShell";
 import { PauseMenu } from "./PauseMenu";
 import { LeaderboardButton } from "./LeaderboardButton";
 import { FullscreenButton } from "./FullscreenButton";
 import { LoginButton } from "./LoginButton";
+import { RestartConfirmationDialog } from "./RestartConfirmationDialog";
+import { RestartGameButton } from "./RestartGameButton";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
+
+export type RestartConfirmationPolicy = "always" | "never";
 
 interface GameShellProps {
   children: React.ReactNode;
@@ -13,6 +18,8 @@ interface GameShellProps {
   /** Optional appId - when provided, shows leaderboard button in header */
   appId?: string;
   canPause?: boolean;
+  onRestart?: () => void;
+  restartConfirmation?: RestartConfirmationPolicy;
   onPause?: () => void;
   onResume?: () => void;
   showHomeButton?: boolean;
@@ -29,6 +36,8 @@ export function GameShell({
   gameName,
   appId,
   canPause = true,
+  onRestart,
+  restartConfirmation = "always",
   onPause,
   onResume,
   showHomeButton = true,
@@ -38,6 +47,7 @@ export function GameShell({
   headerClassName = "",
   pauseMenuChildren,
 }: GameShellProps) {
+  const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
   const { isPaused, resume, togglePause, goHome } = useGameShell({
     canPause,
     onPause,
@@ -86,6 +96,19 @@ export function GameShell({
               underneath it (games used to float their own copy at top-4) */}
           <FullscreenButton variant="header" />
 
+          {/* Restart button */}
+          {onRestart && (
+            <RestartGameButton
+              onClick={() => {
+                if (restartConfirmation === "never") {
+                  onRestart();
+                } else {
+                  setIsRestartConfirmationOpen(true);
+                }
+              }}
+            />
+          )}
+
           {/* Pause button */}
           {showPauseButton && canPause && (
             <button
@@ -118,6 +141,15 @@ export function GameShell({
           isOpen={isPaused}
           onResume={resume}
           onHome={goHome}
+          onRestart={
+            onRestart
+              ? () => {
+                  onRestart();
+                  resume();
+                }
+              : undefined
+          }
+          restartConfirmation={restartConfirmation}
           gameName={gameName}
         >
           {/* Leaderboard button in pause menu */}
@@ -131,6 +163,17 @@ export function GameShell({
           {pauseMenuChildren}
         </PauseMenu>
       )}
+
+      <RestartConfirmationDialog
+        isOpen={isRestartConfirmationOpen}
+        gameName={gameName}
+        onCancel={() => setIsRestartConfirmationOpen(false)}
+        onConfirm={() => {
+          setIsRestartConfirmationOpen(false);
+          onRestart?.();
+          resume();
+        }}
+      />
     </div>
   );
 }

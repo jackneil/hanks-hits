@@ -13,6 +13,8 @@ export { WebGLGate, WebGLFallback, detectWebGL } from "./WebGLGate";
 // Game shell components
 export { GameShell } from "./GameShell";
 export { PauseMenu } from "./PauseMenu";
+export { RestartConfirmationDialog } from "./RestartConfirmationDialog";
+export { RestartGameButton } from "./RestartGameButton";
 export { GameStartOverlay, GameStartOverlayButton } from "./GameStartOverlay";
 export type { GameStartOverlayProps } from "./GameStartOverlay";
 

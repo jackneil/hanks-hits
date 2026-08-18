@@ -1,16 +1,30 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { RestartConfirmationDialog } from "./RestartConfirmationDialog";
+import { RestartGameButton } from "./RestartGameButton";
 
 interface PauseMenuProps {
   isOpen: boolean;
   onResume: () => void;
   onHome: () => void;
   gameName: string;
+  onRestart?: () => void;
+  restartConfirmation?: "always" | "never";
   children?: React.ReactNode;
 }
 
-export function PauseMenu({ isOpen, onResume, onHome, gameName, children }: PauseMenuProps) {
+export function PauseMenu({
+  isOpen,
+  onResume,
+  onHome,
+  gameName,
+  onRestart,
+  restartConfirmation = "always",
+  children,
+}: PauseMenuProps) {
+  const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
+
   // Prevent body scroll when paused
   useEffect(() => {
     if (isOpen) {
@@ -47,6 +61,19 @@ export function PauseMenu({ isOpen, onResume, onHome, gameName, children }: Paus
 
         {children}
 
+        {onRestart && (
+          <RestartGameButton
+            onClick={() => {
+              if (restartConfirmation === "never") {
+                onRestart();
+              } else {
+                setIsRestartConfirmationOpen(true);
+              }
+            }}
+            className="btn btn-secondary btn-lg w-full text-xl gap-3 shadow-lg hover:scale-105 transition-transform"
+          />
+        )}
+
         <button
           onClick={onHome}
           className="btn btn-error btn-lg text-xl gap-3 shadow-lg hover:scale-105 transition-transform"
@@ -60,6 +87,17 @@ export function PauseMenu({ isOpen, onResume, onHome, gameName, children }: Paus
       <div className="mt-8 text-gray-500 text-sm">
         Press ESC to resume
       </div>
+
+      <RestartConfirmationDialog
+        isOpen={isRestartConfirmationOpen}
+        gameName={gameName}
+        onCancel={() => setIsRestartConfirmationOpen(false)}
+        onConfirm={() => {
+          setIsRestartConfirmationOpen(false);
+          onRestart?.();
+          onResume();
+        }}
+      />
     </div>
   );
 }

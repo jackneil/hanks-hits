@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { GameShell } from "../GameShell";
@@ -49,5 +49,40 @@ describe("GameShell", () => {
     expect(
       screen.queryByRole("link", { name: /sign in/i })
     ).not.toBeInTheDocument();
+  });
+
+  it("renders a restart control and asks for confirmation while playing", async () => {
+    const onRestart = vi.fn();
+    render(
+      <GameShell gameName="2048" onRestart={onRestart}>
+        <div>Game content</div>
+      </GameShell>
+    );
+
+    const restart = screen.getByRole("button", { name: /restart game/i });
+    expect(restart).toHaveClass("min-w-[44px]");
+    fireEvent.click(restart);
+
+    expect(await screen.findByRole("dialog", { name: /restart game/i })).toBeInTheDocument();
+    expect(onRestart).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm restart/i }));
+    await waitFor(() => expect(onRestart).toHaveBeenCalledTimes(1));
+  });
+
+  it("cancels restart without invoking the callback", async () => {
+    const onRestart = vi.fn();
+    render(
+      <GameShell gameName="2048" onRestart={onRestart}>
+        <div>Game content</div>
+      </GameShell>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
+    await screen.findByRole("dialog", { name: /restart game/i });
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+    expect(onRestart).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
