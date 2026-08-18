@@ -98,6 +98,8 @@ interface CookieClickerActions {
 
   // Utility
   clearFloatingText: (id: string) => void;
+  /** Reset only live effects and UI state. Durable progress remains unchanged. */
+  resetSession: () => void;
   resetProgress: () => void;
   getProgress: () => CookieClickerProgress;
   setProgress: (data: CookieClickerProgress) => void;
@@ -578,6 +580,22 @@ export const useCookieClickerStore = create<
         set((s) => ({
           floatingTexts: s.floatingTexts.filter((ft) => ft.id !== id),
         }));
+      },
+
+      resetSession: () => {
+        const state = get();
+        set({
+          cookiesPerClick: state.calculateClickPower(),
+          cookiesPerSecond: state.calculateCps(),
+          frenzyMultiplier: 1,
+          frenzyEndTime: 0,
+          clickFrenzyMultiplier: 1,
+          clickFrenzyEndTime: 0,
+          newAchievements: [],
+          floatingTexts: [],
+          goldenCookie: null,
+          lastTick: Date.now(),
+        });
       },
 
       resetProgress: () => {
