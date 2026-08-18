@@ -166,6 +166,7 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
           currentSystem: system,
           isPlaying: true,
           isLoading: false,
+          restartNonce: 0,
         });
       },
 
