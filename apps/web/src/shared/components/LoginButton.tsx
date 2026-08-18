@@ -11,7 +11,11 @@ import { useState, useRef, useEffect } from "react";
  * - Guest: Shows "Sign In" button
  * - Authenticated: Shows avatar with dropdown menu
  */
-export function LoginButton() {
+interface LoginButtonProps {
+  showLabelOnMobile?: boolean;
+}
+
+export function LoginButton({ showLabelOnMobile = false }: LoginButtonProps) {
   const { data: session, status } = useSession();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -58,9 +62,8 @@ export function LoginButton() {
     );
   }
 
-  // Not logged in - show sign in button. The text label collapses below sm:
-  // like every other header control, or the header's right cluster overflows
-  // a 390px phone and wraps the page title.
+  // Not logged in - optionally keep the text label visible on touch screens.
+  // GameShell enables this; the wider page Header keeps its compact icon mode.
   if (!session?.user) {
     return (
       <Link
@@ -82,7 +85,7 @@ export function LoginButton() {
             d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"
           />
         </svg>
-        <span className="hidden sm:inline">Sign In</span>
+        <span className={showLabelOnMobile ? "" : "hidden sm:inline"}>Sign In</span>
       </Link>
     );
   }

@@ -4,6 +4,7 @@ import { useGameShell } from "../hooks/useGameShell";
 import { PauseMenu } from "./PauseMenu";
 import { LeaderboardButton } from "./LeaderboardButton";
 import { FullscreenButton } from "./FullscreenButton";
+import { LoginButton } from "./LoginButton";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 
 interface GameShellProps {
@@ -16,6 +17,8 @@ interface GameShellProps {
   onResume?: () => void;
   showHomeButton?: boolean;
   showPauseButton?: boolean;
+  /** Hide the sign-in control (e.g. on the login/signup pages themselves) */
+  showLoginButton?: boolean;
   pauseOnBlur?: boolean;
   headerClassName?: string;
   pauseMenuChildren?: React.ReactNode;
@@ -30,6 +33,7 @@ export function GameShell({
   onResume,
   showHomeButton = true,
   showPauseButton = true,
+  showLoginButton = true,
   pauseOnBlur = true,
   headerClassName = "",
   pauseMenuChildren,
@@ -93,6 +97,10 @@ export function GameShell({
               ⏸️
             </button>
           )}
+
+          {/* Login (rightmost, matches the page Header): Sign In for guests,
+              avatar dropdown for signed-in users. Same control everywhere. */}
+          {showLoginButton && <LoginButton showLabelOnMobile />}
         </div>
 
         {/* No trailing spacer: the flex-1 title fills the space between the

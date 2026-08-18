@@ -1,4 +1,20 @@
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
+
+// next-auth's useSession throws "must be wrapped in a <SessionProvider />"
+// outside a provider. Shared chrome that renders LoginButton (Header,
+// GameShell's header) calls it, so any test rendering those needs a session.
+// Give every test a default unauthenticated session here, while keeping the
+// real module (SessionProvider etc.) intact via importOriginal. Tests that
+// need a real or signed-in session override useSession with their own
+// vi.mock("next-auth/react") in the test file (that per-file mock wins).
+vi.mock('next-auth/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next-auth/react')>();
+  return {
+    ...actual,
+    useSession: () => ({ data: null, status: 'unauthenticated' }),
+  };
+});
 
 // jsdom does not implement localStorage/sessionStorage. Zustand's `persist`
 // middleware calls setItem/getItem as soon as any persisted store is touched,
