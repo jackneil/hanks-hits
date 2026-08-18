@@ -364,10 +364,6 @@ export function RetroArcadeGame() {
     store.stopGame();
   };
 
-  const handleRestart = () => {
-    store.restartGame();
-  };
-
   // If playing, show emulator
   if (store.isPlaying && store.currentRomUrl && store.currentSystem) {
     // Generate a consistent gameId for save states
