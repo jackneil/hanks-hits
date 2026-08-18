@@ -32,7 +32,6 @@ export function BreakoutGameShell() {
       onRestart={restartLevel}
       onPause={pauseGame}
       onResume={resumeGame}
-      onRestart={restartLevel}
     >
       <BreakoutGame />
     </GameShell>

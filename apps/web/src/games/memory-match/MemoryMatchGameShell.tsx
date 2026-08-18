@@ -32,7 +32,6 @@ export function MemoryMatchGameShell() {
       onRestart={newGame}
       onPause={pauseTimer}
       onResume={resumeTimer}
-      onRestart={newGame}
     >
       <MemoryMatchGame />
     </GameShell>

@@ -32,7 +32,6 @@ export function BombermanGameShell() {
       onRestart={resetGame}
       onPause={pauseGame}
       onResume={resumeGame}
-      onRestart={resetGame}
     >
       <BombermanGame />
     </GameShell>
