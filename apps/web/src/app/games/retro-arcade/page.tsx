@@ -23,7 +23,6 @@ const RetroArcadeGame = dynamic(
 
 export default function RetroArcadePage() {
   const restartGame = useRetroArcadeStore((state) => state.restartGame);
-  const isPlaying = useRetroArcadeStore((state) => state.isPlaying);
 
   return (
     <GameShell
