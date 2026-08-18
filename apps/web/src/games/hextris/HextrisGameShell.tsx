@@ -32,6 +32,7 @@ export function HextrisGameShell() {
       onRestart={startGame}
       onPause={pauseGame}
       onResume={resumeGame}
+      onRestart={startGame}
     >
       <HextrisGame />
     </GameShell>

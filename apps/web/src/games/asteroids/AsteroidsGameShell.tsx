@@ -32,6 +32,7 @@ export function AsteroidsGameShell() {
       onRestart={startGame}
       onPause={pauseGame}
       onResume={resumeGame}
+      onRestart={startGame}
     >
       <AsteroidsGame />
     </GameShell>

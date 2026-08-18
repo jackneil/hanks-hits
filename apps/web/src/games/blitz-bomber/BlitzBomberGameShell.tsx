@@ -15,7 +15,7 @@ export function BlitzBomberGameShell() {
   const gameState = useBlitzBomberStore((s) => s.gameState);
   const pauseGame = useBlitzBomberStore((s) => s.pauseGame);
   const resumeGame = useBlitzBomberStore((s) => s.resumeGame);
-  const reset = useBlitzBomberStore((s) => s.reset);
+  const resetGame = useBlitzBomberStore((s) => s.reset);
 
   // Pausing only makes sense mid-flight; gating canPause here keeps the shell's
   // pause menu (and ESC / pause button / pause-on-blur) off the ready, crashed
@@ -28,9 +28,9 @@ export function BlitzBomberGameShell() {
       gameName="Blitz Bomber"
       appId="blitz-bomber"
       canPause={canPause}
-      onRestart={reset}
       onPause={pauseGame}
       onResume={resumeGame}
+      onRestart={resetGame}
     >
       <BlitzBomberGame />
     </GameShell>

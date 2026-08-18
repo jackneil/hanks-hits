@@ -17,7 +17,7 @@ export function SpaceInvadersGameShell() {
   const gameState = useSpaceInvadersStore((s) => s.gameState);
   const pauseGame = useSpaceInvadersStore((s) => s.pauseGame);
   const resumeGame = useSpaceInvadersStore((s) => s.resumeGame);
-  const reset = useSpaceInvadersStore((s) => s.reset);
+  const resetGame = useSpaceInvadersStore((s) => s.reset);
 
   // Pausing only makes sense mid-round; gating canPause here keeps the shell's
   // pause menu (and ESC / pause button / pause-on-blur) off the ready,
@@ -30,9 +30,9 @@ export function SpaceInvadersGameShell() {
       gameName="Space Invaders"
       appId="space-invaders"
       canPause={canPause}
-      onRestart={reset}
       onPause={pauseGame}
       onResume={resumeGame}
+      onRestart={resetGame}
     >
       <SpaceInvadersGame />
     </GameShell>

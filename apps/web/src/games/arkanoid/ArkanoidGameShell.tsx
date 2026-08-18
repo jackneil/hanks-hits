@@ -29,6 +29,7 @@ export function ArkanoidGameShell() {
       onRestart={startGame}
       onPause={pauseGame}
       onResume={resumeGame}
+      onRestart={startGame}
     >
       <ArkanoidGame />
     </GameShell>
