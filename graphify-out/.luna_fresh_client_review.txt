@@ -1,0 +1,45 @@
+The amended plan closes the prior retry, bootstrap-ordering, and merge-fallback findings. The following client blockers remain:
+
+1. **CRITICAL: Hydration proof cannot complete for several real callers.**
+
+   Plan [line 518](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:518) requires exact persisted/live equality, but the hook accepts only `getState` and `setState` [useAuthSync.ts line 17](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:17). Memory Match persists `{progress, difficulty, theme}` while `getProgress()` flattens those fields [store line 341](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/memory-match/lib/store.ts:341), [store line 361](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/memory-match/lib/store.ts:361). Monster Truck adds `lastModified: Date.now()` to `getProgress()` but omits it from persistence [store line 541](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/monster-truck/lib/store.ts:541), [store line 574](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/monster-truck/lib/store.ts:574).
+
+   These stores remain PENDING indefinitely, or require unsafe normalization. Add an explicit per-store hydration adapter containing `hasHydrated`, the canonical persisted projection, and persisted presence. Expand the plan’s “no caller edits expected” constraint [line 278](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:278), and test real Memory Match, Quoridor, Monster Truck, and Oregon Trail shapes, not only the generic fixture.
+
+   The two-absent-read concern is not itself a current-repository race: Zustand uses synchronous `localStorage` [middleware.js line 334](/Users/jack.neil/Github/hanks-hits/apps/web/node_modules/zustand/middleware.js:334), and the test storage is synchronous [setup.ts line 7](/Users/jack.neil/Github/hanks-hits/apps/web/src/__tests__/setup.ts:7). The actual blocker is missing persisted-shape and presence semantics.
+
+2. **CRITICAL: Default-but-valid progress is not explicitly distinguishable from meaningful local progress.**
+
+   Plan [line 520](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:520) still describes “non-empty local” state, but stores such as Cookie Clicker have a large nonempty default object with current timestamps [store line 123](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/cookie-clicker/lib/store.ts:123). With an absent key and an existing server row, the live default can be treated as local and bootstrapped over the server. The proposed hydration test does not cover this case [plan line 674](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:674).
+
+   Make hydration return an explicit `persistedPresent` and `meaningfulLocal` result. An absent key must adopt an existing server row, or reach READY without POST when both sides are absent. Add a deterministic absent-key, nonempty-default, existing-server test.
+
+3. **CRITICAL: Required re-fetch can mark unsent live progress as saved.**
+
+   Plan [line 521](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:521) says to set the marker to current live state after deliberately retaining it, while [line 543](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:543) drops queued data equal to that marker.
+
+   Scenario: bootstrap acknowledges `S0`; live state changes to `S1` during the required re-fetch; the re-fetch is older, so `S1` is retained. Marking `S1` saved suppresses its POST after READY, although `S1` was never acknowledged.
+
+   The marker must represent only acknowledged or adopted bytes. Preserve the `S0` marker and enqueue `S1`. Add a test that mutates state during re-fetch and asserts `S1` is sent after READY.
+
+4. **CRITICAL: Same-body active-fetch beacon suppression can lose data during teardown.**
+
+   Plan [line 551](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:551) and A12 [line 871](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:871) suppress a beacon when the same foreground POST is unresolved. An active request is not an acknowledged request, and the plan does not require `keepalive`; teardown or the planned abort can cancel it.
+
+   Suppress only when that exact body has already received a valid acknowledgment, or explicitly prove a reliable keepalive contract. Otherwise allow one same-body terminal beacon and deduplicate only beacon-to-beacon. Replace the planned test’s identical-active-fetch expectation with a deferred or aborted POST teardown test.
+
+5. **CRITICAL: Cross-instance purge and sign-out invalidation lack an executable mechanism.**
+
+   The plan requires aborting and clearing every coordinator across instances [line 511](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:511), but only specifies a module boolean and per-instance generations [line 554](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:554). The current module has only `foreignPurgePending` [useAuthSync.ts line 39](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:39); the storage listener only reloads [useAuthSync.ts line 102](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:102), and same-tab sign-out clears storage without synchronously invalidating hook coordinators [auth-client.ts line 36](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/auth-client.ts:36).
+
+   Add a module-level coordinator registry or epoch invalidator, called synchronously by purge, auth loss, same-tab sign-out, and sign-out broadcasts. It must abort requests, clear queues/timers/latches, invalidate terminal tokens, and be checked before state adoption, marker updates, and queue drains. Add sibling active GET/POST and same-tab sign-out resolve-after-invalidation tests. The current multi-instance tests cover beacons, not these stale continuations [plan line 694](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:694).
+
+6. **MEDIUM: Force does not explicitly bypass an existing retry backoff.**
+
+   Plan [line 541](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:541) bypasses debounce, but [line 544](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:544) allows the existing retry timer to remain. A game-over caller expects immediate persistence [snake/Game.tsx line 468](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/snake/Game.tsx:468). A force call during a 30-second retry delay may merely OR a bit onto queued work and wait.
+
+   Specify that force cancels a pending retry timer and drains immediately when no request is active; if a request is active, it sends the forced newest snapshot immediately after settlement. Add a force-during-retry-timer test.
+
+No product source, test, or plan files were edited during this read-only review.
+
+VERDICT: NEEDS ATTENTION

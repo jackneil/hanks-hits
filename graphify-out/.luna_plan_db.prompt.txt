@@ -1,0 +1,11 @@
+Read-only architecture task in /Users/jack.neil/Github/hanks-hits on branch fix/progress-sync-integrity. Do not edit files, commit, or change git state.
+
+We must fix the verified authenticated progress-sync defects. Focus on server persistence and API behavior:
+- merge=true reads outside the transaction, so concurrent requests lose updates
+- the no-row merge=false initial path can also race
+- POST body=null becomes 500 and merge is not runtime-validated
+- preserve authenticated user isolation, Zod parsing, leaderboard atomicity, and the existing (userId, appId) uniqueness contract
+
+Inspect the actual database driver/export, Drizzle version/API patterns, route implementation, schema/migrations, and relevant tests/config. Evaluate concrete options: row locks, transaction-scoped PostgreSQL advisory lock, serializable isolation with bounded retry, or an atomic SQL upsert. The chosen solution must serialize both existing-row and absent-row writes for one (userId, appId), avoid schema migration unless truly necessary, remain parameterized, and keep the progress plus leaderboard transaction atomic.
+
+Propose the simplest robust design with exact file-level changes and executable TDD tests. Identify how tests can prove ordering/lock-before-read and request validation without pretending a mock proves PostgreSQL concurrency. If a real integration test is feasible in this repo, explain its command and prerequisites. Cite exact file:line evidence. Return only an architecture recommendation, alternatives rejected, test strategy, and risks.

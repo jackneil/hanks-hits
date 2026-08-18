@@ -1,0 +1,36 @@
+You are GPT-5.6 Luna working as the sole reasoning and writing model for this task. Work in /Users/jack.neil/Github/hanks-hits.
+
+Task: amend the existing implementation plan at docs/superpowers/plans/2026-08-03-progress-sync-integrity.html so it is genuinely implementation-ready. This is still a planning-only pass. Edit ONLY that HTML plan. Do not edit product source, tests, config, package files, lessons, or graphify artifacts. Preserve the document's polished HTML structure and CSS. Do not weaken any safety or proof requirement. Do not cap successful work.
+
+Required inputs to read completely before editing:
+- docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+- graphify-out/.luna_fresh_client_review.txt
+- graphify-out/.luna_fresh_server_review.txt
+- graphify-out/.luna_fresh_policy_review.txt
+- graphify-out/.luna_dc_plan_client.txt
+- graphify-out/.luna_dc_plan_server.txt
+- graphify-out/.luna_dc_plan_premortem.txt
+- lessons.md and all applicable repo instructions
+
+Inspect current repo source whenever needed to make each correction exact and executable. Address EVERY CRITICAL and MEDIUM finding from all three fresh reviews, including overlapping findings. In particular, the amended plan must define:
+
+1. A real per-store hydration adapter contract and inventory. It must expose an exact Zustand hasHydrated signal, persisted presence, canonical persisted-to-sync projection or equivalent canonical comparator, and an explicit meaningfulLocal result. It must handle wrapped versus flat persisted shapes and synthetic/unpersisted timestamps without unsafe normalization. Expand caller/file scope and require real-shape tests for Memory Match, Quoridor, Monster Truck, Oregon Trail, Cookie Clicker, and any other affected shape class. An absent key plus an existing server row must adopt server state without bootstrap; absent on both sides reaches READY without POST.
+2. Acknowledgment-only marker semantics. A re-fetch may adopt acknowledged server bytes but must never mark concurrently changed, unsent live bytes saved. Preserve/enqueue S1 if bootstrap acknowledged S0 and state changes during re-fetch. Include a named deterministic test.
+3. Teardown reliability. An unresolved same-body foreground POST is not an acknowledgment and must not suppress the one terminal beacon. Deduplicate beacon-to-beacon and acknowledged bytes only, or define and prove a genuinely reliable keepalive alternative. Add the aborted/deferred POST teardown case.
+4. An executable module-wide invalidation mechanism, such as a registry plus epoch. Purge, auth loss/user switch, same-tab sign-out, and sign-out broadcast must synchronously invalidate every live coordinator, abort requests, clear queues/timers/latches, and block stale state adoption/markers/drains/beacons. Include the required auth-client integration or exported invalidation call and sibling active GET/POST tests.
+5. Force-save priority that cancels retry backoff and drains immediately when possible, with an explicit test.
+6. An app-aware merge API. Thread appId and authoritative post-lock timestamp through mergeForSave/mergeProgress, route, and tests.
+7. A fully typed recursive manifest grammar. Define leaf policies, opaque-subtree LWW, bounded primitive union, bounded timestamp-record union, union-by-id including child/subfield behavior, dynamic-record wildcard rules, overlap/precedence, reserved timestamps, nullable min semantics, unknown/unclassified failure, and how every raw emitted/schema path is covered.
+8. A single exported app/store inventory and populated per-app fixture builders. Fixtures must cover optional, nullable, array, record, dynamic, and nested paths. Contract checks must compare raw emitted paths and schema-introspected paths before Zod normalization so stripping cannot hide stale or missing policy entries.
+9. Explicit Oregon Trail canonical-shape alignment for party member id and health very_poor versus the current schema spelling. State the precise source/schema change and tests before policy auditing.
+10. Discriminated merge and route errors with exact HTTP mapping and no-DML assertions: malformed/input 400, merge-policy/output 409, advisory-lock/query timeout SQLSTATE 55P03/57014 as 503 with Retry-After, unexpected transaction failures 500.
+11. A runnable real-PostgreSQL harness. It must use fail-fast provisioning, one canonical validated local URL with an explicit LOGIN/CREATEDB role and authentication method, connection and schema preflight before route import, hoisted auth/rate-limit mocks, a seeded users FK row, dynamic imports after environment/preflight, dependent-row cleanup ordering, and safe teardown. Do not permit stale database state to yield green evidence.
+12. Truly concurrent proofs: blocker lock held, first route started and observed waiting, second route started and observed waiting, then release; seed/commit authoritative row after waiter confirmation for the read-order proof. Include actual concurrent POST/DELETE orders and a real lock-held-past-timeout case.
+13. Ordinary test isolation: add default Vitest exclusion and a dedicated integration config/script. Update package/config/file inventory and ensure the normal pre-push gate remains green without DB prerequisites while the explicit integration command fails closed when prerequisites are absent.
+14. A cookie-clicker overflow fixture that is individually valid on each side, has a positive validated leaderboard projection, overflows after merge, returns 409, and proves both progress and leaderboard rows remain unchanged.
+15. Resolve the atomicity contradiction around invalid leaderboard projections. Choose and document one consistent behavior, with a regression test, so the acceptance criteria and existing behavior section no longer conflict.
+16. Make every focused/TDD/full verification command internally consistent: include the new policy contract suite; use the one canonical DB command/config; include install --frozen-lockfile, lint, typecheck, ordinary tests, mandatory DB tests, and build; missing DB proof means incomplete, never acceptable final evidence.
+
+Also remove or rewrite any superseded statements that conflict with these corrections, including “no caller edits expected,” exact persisted/live equality as the universal adapter, “non-empty local,” active-fetch beacon suppression, sequential POST/DELETE examples, and inconsistent bare database URLs. Update the acceptance matrix, risk table, task order, file inventory, expected-red/green notes, rollback/observability sections, and review-resolution table so the document has one coherent contract rather than patches layered on contradictions.
+
+Before finishing, run deterministic plan checks: HTML parse, git diff --check, scan the plan for U+2014, and prove with git diff --name-only that only the HTML plan changed during this pass. Report a concise summary and any unresolved blocker. Do not implement product code.

@@ -1,0 +1,11 @@
+VERDICT: NEEDS ATTENTION
+
+- MEDIUM: The required route factory is not executable. The plan requires injected timeouts, trace/barrier, and projection seams at lines 1041, 1058, and 1480, but only lists `route.ts` at line 1481. The live route hard-imports singleton dependencies (`route.ts:1-20`; `packages/db/src/index.ts:5-11`). Define an allowed handler module, exact factory dependency contract, production delegation, and integration invocation.
+
+- MEDIUM: Request correlation is contradictory. Line 987 says errors echo the active `kind`, but `ProgressErrorEnvelope` line 977 only has `kind: "progress.error"`. Line 987 assigns request IDs to the client, while line 1058 says the route generates them. Add an original request-operation field, establish one canonical request-ID owner, and specify 401/429 tuple behavior.
+
+- MEDIUM: GET, DELETE, and beacon wire contracts remain underspecified. Line 986 only says “query/header request schema”; it gives no names or exact transport mapping. The live client still sends ID-less GETs and `{data, merge}` POST/beacon bodies (`useAuthSync.ts:120-146, 480-484`). Define runtime schemas, exact query/header fields, beacon POST discrimination, DELETE construction, and required 429 `Retry-After` behavior.
+
+- MEDIUM: The six merged-response cells cannot satisfy the required-ID contract. Lines 1071 and 1542 require six separate tests, but the 16-ID manifest has only `progress.envelopes.six-cases` (1819), while line 1820 rejects aggregate or parameterized IDs without distinct emissions. Add six IDs or explicitly make this one aggregate case with a defined reporter mapping.
+
+- MEDIUM: `progress.error.unexpected-transaction-rollback` has no deterministic real-route failure path. It is required in the integration-only manifest (1803, 1814), but the trace/barrier has no post-DML fault hook and the only controlled seam covers projection conflicts (1480). Add a same-handler post-DML/pre-commit fault mechanism and assert the 500 response plus unchanged rows.

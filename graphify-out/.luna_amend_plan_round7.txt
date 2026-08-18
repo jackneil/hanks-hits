@@ -1,0 +1,19 @@
+Amended [the plan artifact](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html).
+
+Closed all round-six findings:
+
+- Client: exact Zustand 5 storage types, owner-gated hydration, guarded writes, non-persisting rollback seam, full owner tuple validation, A/B stale-write regression, and logical-save lineage.
+- Server: one production Drizzle adapter for production and integration, complete row mappings, SQL PID/application correlation, fixed preflight precedence, and reporter-only integration execution.
+- Policy: removed Bomberman reset binding, unified `$` PathKey and metadata identity, added provenance ledgers and live mutation coverage, fixed Toy Finder and Virtual Pet timestamp rules, source-derived fixtures, and one acyclic projection graph.
+
+Deterministic checks passed:
+
+- Structural HTML parse.
+- `git diff --check` and untracked plan whitespace check.
+- Zustand 5 declaration contract typecheck.
+- Source inventory, persisted-key, 32-row, 21-ID, A1-A32, and projection cardinality checks.
+- Stale phrase and U+2014 scans.
+- Embedded validator execution.
+- Pre/post fingerprint comparison: 241 untracked files, zero non-plan changes.
+
+No unresolved blocker. No product code or tests were changed.

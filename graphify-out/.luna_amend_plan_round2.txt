@@ -1,0 +1,10 @@
+Updated [the implementation plan](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html>) with all requested contracts, proofs, inventories, harness rules, risks, and verification requirements.
+
+Checks passed:
+
+- HTML parse
+- `git diff --check`
+- U+2014 scan
+- Scope proof: only the target HTML appears in the untracked-file diff; existing `docs/` and `graphify-out/` status is unchanged
+
+No product code or tests were implemented. No unresolved blocker. `jacked` reports version `0.89.1` available.

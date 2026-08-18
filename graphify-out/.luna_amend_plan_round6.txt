@@ -1,0 +1,19 @@
+Amended [2026-08-03-progress-sync-integrity.html](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html).
+
+Closed all round-five findings across:
+
+- Client: lease-bound purge, verified read-back/quarantine, exact two-tab regression, malformed recovery, real Zustand runtime bindings, typed conversions, lineage dedupe, reconcile suppression, wire correlation, and conservative Chess parsing.
+- Server: executable route factory, correlation/error contracts, complete request schemas, retry headers, 21 required IDs, and test-only post-DML rollback fault.
+- Policy: branded reversible `PathKey`, bound metadata, `TimestampSpec`, explicit parent nodes, non-empty identities, manifest-generated oracles, and mixed per-node deletion policies.
+
+Checks passed:
+
+- Embedded structural/artifact validator
+- Exactly 32 inventory rows and matching source app IDs
+- Exactly 21 integration IDs and A1-A32 acceptance IDs
+- HTML structure and generated-projection checks
+- Git whitespace checks
+- No U+2014 or stale contradictory phrases
+- Scope check: no tracked/indexed changes; pre-existing graphify artifacts preserved
+
+No product code or tests were changed. No unresolved blocker. `jacked check-version` reports 0.89.1 available.

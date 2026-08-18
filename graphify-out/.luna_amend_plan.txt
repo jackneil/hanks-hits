@@ -1,0 +1,21 @@
+Amended [the HTML plan](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html) only.
+
+Changes include:
+
+- Fail-closed hydration, infinite retry liveness, readiness gates, bootstrap exception, cancellation generations, stable `forceSync`, coordinator queueing, retry retention, and beacon deduplication.
+- Transaction-scoped advisory locks for every POST/DELETE, post-lock timestamps, timeout handling, precise `merged` semantics, and atomic 409 rollback without raw-data fallback.
+- Explicit recursive merge-policy manifest covering all 31 stores, nested/source-proven fields, spendable totals, and achievements coverage.
+- Mandatory safe PostgreSQL integration proof with app-valid fixtures, both operation orders, overflow rollback, and fail-closed database prerequisites.
+- Corrected baseline counts, paths, test commands, and evidence distinctions.
+
+The only reviewer recommendation rejected was making real PostgreSQL proof optional. Mock tests cannot prove concurrency; unavailable PostgreSQL remains `UNVERIFIED`, never passing.
+
+Verification:
+
+- `git diff --check`: passed.
+- Untracked-plan whitespace check: no diagnostics; exit 1 expected from `--no-index`.
+- HTML5 structural parse and template marker check: passed. Mermaid, fallback, dark mode, and print rules preserved.
+- U+2014 scan: clean.
+- Product paths `apps/` and `packages/`: no status or diff entries.
+- Git status: only pre-existing untracked `docs/` and `graphify-out/`.
+- No product files, tests, manifests, instructions, commits, or pushes were changed.

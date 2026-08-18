@@ -1,0 +1,26 @@
+You are a completely fresh server/database design reviewer in the dc verification workflow. Use GPT-5.6 Luna judgment only. Work read-only and make no edits.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+Plan under review: docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Read the complete current HTML plan, lessons.md, applicable repository instructions, the actual route/database/schema/auth/rate-limit/package/test configuration, and every prior report below. This is a fresh full source-backed review after a second amendment, not a delta skim:
+- graphify-out/.luna_plan_db.txt
+- graphify-out/.luna_dc_plan_server.txt
+- graphify-out/.luna_dc_plan_premortem.txt
+- graphify-out/.luna_fresh_server_review.txt
+- graphify-out/.luna_fresh_policy_review.txt
+
+Check CRITICAL and MEDIUM blockers only. Re-test all earlier server findings against the rewritten contract, especially:
+1. Advisory-lock SQL/API correctness, lock-before-read for POST/DELETE, absent-row safety, post-lock timestamp capture, exact merged response semantics, and typed 400/409/503/500 mapping with no DML on failure.
+2. Chosen progress/leaderboard transaction atomicity, including invalid positive projections and the Cookie Clicker overflow rollback fixture.
+3. Whether the real PostgreSQL harness is actually executable with repository dependencies: fail-fast setup, explicit local LOGIN/CREATEDB role and auth method, canonical URL validation, route-import order, hoisted auth/rate-limit mocks, seeded users FK, schema preflight, ordered cleanup, teardown verification, and stale-state prevention.
+4. Whether concurrency tests truly start and observe both waiters before release, seed/commit after waiter confirmation for read-order proof, cover concurrent first save and both POST/DELETE orders, and hold past timeout for both SQLSTATEs.
+5. Whether ordinary Vitest exclusion plus dedicated config/script/package commands are coherent, keep pre-push DB-free, and make missing database proof fail closed.
+6. Whether all fixtures are complete schema-valid payloads, supported by actual leaderboard extractors, and use only declared imports/exports.
+
+Do not invent requirements outside the user goal. Do not accept mocked or sequential concurrency as proof. End with exactly one verdict line:
+VERDICT: READY
+or
+VERDICT: NEEDS ATTENTION
+
+If NEEDS ATTENTION, list each blocker with severity, exact plan/source citation, failure scenario, and precise plan correction. If READY, briefly state why all earlier server/database blockers are closed and list only genuinely non-blocking residual risks separately.

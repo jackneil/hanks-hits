@@ -1,0 +1,70 @@
+You own the eighth amendment pass on one implementation-plan artifact. Use GPT-5.6 Luna judgment only. You must edit only:
+
+docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Do not edit product code, tests, config, lockfiles, graphify artifacts, lessons, or instructions. Use apply_patch for every edit. Work until the plan is internally coherent, source-grounded, executable, and implementation-ready. Do not solve this by compressing away necessary contracts: the round-seven rewrite became too terse and omitted executable types, algorithms, mappings, and tests. Expand or replace sections as needed, remove contradictions, and make every dependency and state transition explicit. Then run deterministic validation and give a concise report.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+
+Before editing, read completely:
+1. /Users/jack.neil/.agents/skills/graphify/SKILL.md and follow it for codebase questions.
+2. Applicable global and repository AGENTS.md plus repository lessons.md.
+3. The full current HTML plan.
+4. All three fresh round-seven gate reports:
+   - graphify-out/.luna_round7_client_review.txt
+   - graphify-out/.luna_round7_server_review.txt
+   - graphify-out/.luna_round7_policy_review.txt
+5. Relevant current source, installed dependencies and declarations/runtime, tests, schemas, package manifests, route/auth/DB construction, persisted partializers, every synchronized store/caller and source mutation, git history, and graphify evidence. Verify every claim directly. Do not blindly copy reviewer wording.
+
+Resolve every CRITICAL and MEDIUM finding from all three reports as one coherent implementation contract. Remove stale or weakened wording rather than appending exceptions. At minimum, the amended plan must do all of the following.
+
+CLIENT SINGLETON, STORE BINDING, HYDRATION, PURGE, ADOPTION, AND WIRE
+
+- Define exactly one document-wide owner/coordinator handle shared by all 32 registrations. Registration from achievements and the current game must be idempotent and must not rotate the owner generation. Specify the only events that rotate generation, teardown/ref-count semantics, StrictMode double-mount behavior, concurrent registration ordering, and tests with achievements plus a game mounted together.
+- Bind the owner-aware PersistStorage wrapper to every production store before any action, setState, or rehydrate. Choose and specify construction-time creation or an exact setOptions-before-use bootstrap that is race-free. Prove raw backend, wrapped PersistStorage, persist options, and runtime adapter identity for all 32 real stores; default Zustand storage must not remain silently active.
+- Validate persisted version, schema, metadata, shape converters, and ownership before Zustand merge/set can mutate live state. Specify exact getItem and/or merge behavior for well-formed-but-invalid bytes, parse failures, unsupported versions, converter failures, and migration failures. Prove unchanged live state, no network, no READY, and hasHydrated semantics with actual stores.
+- Replace the generic direct LiveStatePort with exact full-store, live-progress, persisted-projection, request, canonical-server, and metadata conversion contracts. Cover flat stores, wrapped progress stores, Chess flatten/nest behavior, and achievements watermarks. Define non-persisting apply/rollback without corrupting unrelated runtime state and verify each declared shape class.
+- Make foreign-owner handling executable. Define claim/read order; freeze/write barrier; all primary and legacy key targets; read-back-verified purge; thrown and silent no-op storage; quarantine namespace/record; bounded retry schedule; marker retention/rotation/removal; terminal error state; recovery trigger; and no READY/no transport until success. Include the exact B-marker-before-B1, A-real-write, A-pagehide race plus Chess legacy, thrown storage, and silent no-op tests.
+- Match response adoption to the full attempt identity: owner tuple, owner epoch/generation, mutation ID, logical save ID, request ID, canonical body hash, merge mode, and delivery attempt. Define supersession and late-retry rules. Separate GET-adopted server baseline from POST-acknowledged request baseline so there is no contradiction. Add late-attempt, S1-during-flight, GET-reconcile, replay, and retry tests.
+- Make mutation notification source-executable. Define one generated wrapper/subscription insertion for every one of 32 stores, exact allocation ordering relative to successful persist mutation, no-op and thrown action behavior, async mutation completion, guest bootstrap, same-byte new mutation, retries, replays, and direct store actions. Reconcile notifyMutation and runSourceMutation into one named API.
+- Choose one explicit guest ownership model and fully specify guest-to-user first login, meaningful local progress transfer, foreign user marker, purge/adoption, empty/default data, and sign-out behavior. Test every first-login truth-table cell.
+- Define exact client transport builders and parsers for GET, normal POST, beacon POST, and DELETE: URL/query/header/body/content type, correlation IDs, body hash, merge discriminator, response matching, Retry-After delta-seconds/date parsing and precedence, clock/skew, scheduling/backoff, and malformed headers. Add wire tests.
+- Update the owner/key consumers outside useAuthSync. Account for HomeClient's direct marker comparison and localProgress's duplicate key list by centralizing access or specifying exact migrations. Include every affected source/test file in the allowed inventory.
+- Add a complete Chess canonical/legacy decision table: canonical valid/legacy valid, canonical malformed/legacy valid, canonical valid/legacy malformed, both malformed, semantically duplicate, different valid values, write-back/read-back, rollback, key deletion order, and unknown historical bytes. Give each shape-class case a named test.
+
+SERVER ADAPTER, DB OWNERSHIP, FAULTS, WIRE, AND TEST ISOLATION
+
+- Define every type in the shared production Drizzle adapter, including ProgressTx derived from the installed Drizzle/Node pg types and a ProgressTxContext containing request ID, application correlation, injected clock, fault policy, and diagnostic seam. Specify exact appProgress, gamingProfile, and leaderboard selects/inserts/updates/conflict targets; preserved IDs; lastSyncedAt; scoreType; additionalStats; best-score rules; unique-handle retry inside the same transaction; and removal of unsafe tx casts.
+- Define an executable isolated PostgreSQL integration algorithm: validated mktemp location/data dir, initdb/pg_ctl or chosen available tooling, random/verified port, database/user names, DATABASE_URL set before any import, schema push/migration/preflight command, dynamic import order, production adapter construction against the isolated pool, fail-closed prerequisites, pool ownership registry, deterministic close order, database/server cleanup, and cleanup-on-failure. The production singleton/auth must not accidentally bind another database.
+- Specify exact lock_timeout and statement_timeout SET LOCAL values, SQLSTATE mapping for 55P03/57014, Retry-After/status/error tuples, and deterministic blocker/observer timing. Define a same-production-adapter post-DML/pre-commit injected fault hook, exact invocation point, branded test-only construction, production impossibility/rejection, and rollback row snapshots for progress/profile/leaderboard/version/timestamps.
+- Define distinct method-specific GET, normal POST, beacon POST, and DELETE schemas plus exact raw parsing and validation order. Define empty-body behavior, omitted/invalid merge, app ID, IDs, hashes, headers, content types, auth/rate-limit collisions, response headers/statuses, and the full typed handler dependency factory. Reconcile current client migration and compatibility explicitly.
+- Make ordinary and integration Vitest isolation exact. Specify filenames, include/exclude globs, configs, commands, scripts, setup/reporter modules, env prerequisites, dynamic imports, passWithNoTests, no name filters, and exactly-one terminal observation for each of 21 generated IDs. Ordinary tests must never pick up DB integration; integration must fail closed when DB setup or any reporter event is missing.
+
+POLICY METADATA CHANNEL, MONOTONIC MATRIX, PROVENANCE, GRAMMAR, AND ORACLES
+
+- Put SyncMetadataV1 in one exact persisted and wire location. Define whether it is embedded beside data or in a typed envelope, its local storage serialization, request/response schema, DB data mapping without a DB migration, converters, merge extraction, canonical return, source epoch representation, reset comparison, legacy missing-metadata migration, versioning, caps, validation, and exception behavior. All client/server/types/tests must agree.
+- Replace generated default SCALAR_LWW with a source-grounded per-path semantic matrix for all 32 persisted schemas. Classify monotonic counters and maxima, minima, sets/unions, balances/spendable values, streaks, timestamped LWW, nullable/missing fields, opaque payloads, resettable subtrees, authoritative collections, tombstones, and equal-time ties. Specifically cover Math Attack totalCorrect and every other additive/monotonic field. Generate divergent independent tests that would fail under LWW regression.
+- Make mutation provenance total across every partialized field. Handle Drawing's asynchronous thumbnail writes at completion, achievements persisted watermarks omitted by getProgress, and every other async or indirect mutation. Bind a mutation clock/notice and metadata write to the actual completion mutation, or explicitly exclude a field as runtime/local-only with source and schema changes. Add async adoption/no-resurrection tests.
+- Define a compilable full recursive/path grammar. Define PathSuffix, DecimalIndex canonical form, encode/decode with examples that match encodeURIComponent exactly, root and wildcard rules, and rejection behavior. Give exact constructors for objects, scalar LWW/MAX/MIN/sum-or-balance decisions, sets, timestamped arrays, dynamic records, indexed arrays, opaque bounded values, aliases/exclusions, timestamps, missing/null, duplicates, order, caps, identities, metadata bindings, and Virtual Pet fallback comparison. Ensure all 32 schemas compile.
+- Establish one executable authoritative typed input, not separate hand-authored inventory and policy sources. Decide the file/module and derive runtime registration data, storage/key manifests, policy AST, metadata ledger, mutation bindings, rendered inventory, test IDs, and projections from it. Independently derive expected source callers, persisted partializer paths, schema paths, action inventories, and semantic golden cases from live source/fixtures so generated tests are not tautological. Require exact bidirectional equality and cardinality for apps, paths, actions, metadata, and cases.
+
+COHERENCE, FILE SCOPE, AND PROOF
+
+Reconcile every change across the state machine, first-sync truth table, ownership tuple and events, store bootstrap, Zustand adapters, converters, metadata envelope, lineage, wire schemas, route factory, DB transaction/diagnostics/faults, 32-store inventory, per-path policy grammar, mutation provenance, source migrations, allowed files, TDD order, exact test IDs, reporter, verification commands, risks, and fixed decisions.
+
+Every required new or changed file must appear in the allowed file inventory with its exact purpose and consumers. This includes HomeClient/localProgress if changed, all 32 store construction/registration sites if required, DB pool/factory/export/config/setup/reporting files, schema/converter modules, mutation wrappers, and tests. Do not rely on an unspecified mass edit.
+
+Do not leave undefined type aliases, choose, either, optional, as needed, for example, placeholders, aggregate prose in place of method schemas, shadow test adapters, unbounded retries, or unresolved decisions where correctness depends on the choice. Preserve the HTML plan and existing jacked template styling. Do not add U+2014.
+
+Before finishing, prove:
+- strict structural HTML parsing and safe code-block entity encoding;
+- git diff/whitespace checks;
+- no U+2014 or stale ambiguity phrases;
+- exactly 32 synchronized inventory entries, A1-A32, and mechanically consistent required IDs;
+- the embedded Zustand 5 types compile against installed declarations;
+- all referenced types are defined and all required files are inventoried;
+- one authoritative input graph and independent source/oracle projections have exact cardinalities;
+- all round-seven blocker concepts have explicit text, types, algorithms, and named tests;
+- only the permitted plan file changed relative to the pre-edit worktree fingerprint.
+
+Your final response should name the amended file, summarize how every round-seven gate finding was closed, list deterministic checks run, and state any unresolved blocker. Do not claim implementation code or tests were changed.

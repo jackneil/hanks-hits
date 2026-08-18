@@ -1,0 +1,13 @@
+Amended [2026-08-03-progress-sync-integrity.html](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html).
+
+Closed all fresh client, server, and policy findings, including ownership propagation, typed correlation, retry/adoption rules, migrations, API envelopes, reporter enforcement, concurrency tracing, reset/deletion semantics, grammar coverage, Weather identity, and oracle exhaustiveness.
+
+Checks passed:
+
+- Structural HTML and embedded deterministic validator
+- Exactly 32 synchronized inventory and policy rows
+- Source `VALID_APP_IDS` equality and 12-row reset/deletion ledger
+- No U+2014 or stale contradictory phrases
+- Git whitespace and worktree-scope checks
+
+No unresolved blocker for the plan artifact. No product code, tests, configuration, or lockfiles were changed.

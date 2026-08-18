@@ -1,0 +1,22 @@
+Review scope: only `graphify-out/`. No CRITICAL findings.
+
+### MEDIUM
+
+- `graphify-out/GRAPH_REPORT.md:6-9`, `graphify-out/cost.json:2-11`  
+  The retained artifacts contain graph counts and token totals, but no benchmark inputs, timings, query outputs, or baseline artifact supporting the stated 26.3x reduction. A future build could regress while these checks still pass. Confidence: high.
+
+- `graphify-out/graph.html:97-109`  
+  Loading the current 3,031-node graph always enables ForceAtlas2 physics with 200 stabilization iterations. At roughly 10x scale, the HTML has no size-based fallback or bailout, so browser CPU/memory and load latency are likely to fail first. Confidence: high.
+
+### LOW
+
+- `graphify-out/graph.html:194`, `graphify-out/graph.html:239-264`  
+  Search scans all nodes on every keystroke, and community toggles update arrays across all nodes. This is acceptable at 3,031 nodes but scales linearly and becomes costly near the 10x corpus scenario. Confidence: high.
+
+### Testing verdict: NEEDS ATTENTION
+
+The deterministic integrity checks are strong and the final graph passes endpoint, count, commit, label, manifest, report, HTML, and query checks. Regression detection and benchmark evidence are not retained in a replayable form.
+
+### Performance verdict: NEEDS ATTENTION
+
+The current artifact is under the 5,000-node warning threshold, but visualization and interaction paths are unbounded. The first likely failure at 10x is browser-side force-layout stabilization, followed by bulk node updates.

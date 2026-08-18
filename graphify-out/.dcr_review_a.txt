@@ -1,0 +1,41 @@
+## Findings
+
+### CRITICAL
+
+None.
+
+### MEDIUM
+
+- **Machine-local regeneration state is retained.**  
+  **Evidence:** `graphify-out/.graphify_root:1`, `graphify-out/.graphify_python:1`.  
+  **Trigger:** Moving `graphify-out/` to another machine or checkout leaves the root and Python interpreter pointing to `/Users/jack.neil/...`.  
+  **Why wrong:** Standard update/regeneration workflows can fail or operate on the wrong corpus without manual repair.  
+  **Confidence:** High.
+
+### LOW
+
+- **The HTML export is not fully self-contained.**  
+  **Evidence:** `graphify-out/graph.html:6-8`.  
+  **Trigger:** Opening the visualization offline or on a machine without access to `unpkg.com`.  
+  **Why wrong:** The embedded graph data remains inspectable, but the interactive graph cannot initialize without the external Vis Network dependency.  
+  **Confidence:** High.
+
+- **Retained review helper artifacts contain an absolute dependency.**  
+  **Evidence:** `graphify-out/.prepare_dcr.py:5-7`.  
+  **Trigger:** Re-running the retained preparation script on another machine.  
+  **Why wrong:** It requires `/Users/jack.neil/.claude/lenses/accessibility.md`, which is not portable and is unrelated to the graph’s core data.  
+  **Confidence:** High.
+
+## Guardrails verdict: NEEDS ATTENTION
+
+The honesty requirements are otherwise satisfied:
+
+- Corpus warning and token cost: `GRAPH_REPORT.md:3-9`
+- Raw cohesion: `GRAPH_REPORT.md:349-977`
+- Health warnings retained: `.graphify_health.json:7-18`
+- No missing final endpoints, and extraction confidence is preserved.
+- Graph size is below the 5,000-node HTML warning threshold.
+
+## Maintainability verdict: NEEDS ATTENTION
+
+The graph’s relative source paths and validated JSON structure are maintainable, but the retained machine-local control files make relocation and safe regeneration unreliable.

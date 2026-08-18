@@ -1,0 +1,218 @@
+{
+  "generated_at": "2026-08-03T19:10:42.027624+00:00",
+  "nodes": {
+    "apps_web_src_lib_progress_merge_extracttimestamp": {
+      "code_fingerprint": "db67eea40426bc2fae7948a26e611a7147b96ab6d5a116005661a4192dc47f77",
+      "label": "extractTimestamp()",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        },
+        {
+          "date": "2026-08-03T12:44:58.560757+00:00",
+          "outcome": "useful",
+          "q": "Why does useAuthSync() connect authentication synchronization to almost every major game community?"
+        }
+      ],
+      "score": 1.99143736,
+      "source_file": "apps/web/src/lib/progress-merge.ts",
+      "status": "preferred",
+      "uses": 2
+    },
+    "apps_web_src_lib_progress_merge_mergeforsave": {
+      "code_fingerprint": "db67eea40426bc2fae7948a26e611a7147b96ab6d5a116005661a4192dc47f77",
+      "label": "mergeForSave()",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        },
+        {
+          "date": "2026-08-03T12:44:58.560757+00:00",
+          "outcome": "useful",
+          "q": "Why does useAuthSync() connect authentication synchronization to almost every major game community?"
+        }
+      ],
+      "score": 1.99143736,
+      "source_file": "apps/web/src/lib/progress-merge.ts",
+      "status": "preferred",
+      "uses": 2
+    },
+    "apps_web_src_lib_progress_merge_mergeprogress": {
+      "code_fingerprint": "db67eea40426bc2fae7948a26e611a7147b96ab6d5a116005661a4192dc47f77",
+      "label": "mergeProgress()",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        }
+      ],
+      "score": 0.997607225,
+      "source_file": "apps/web/src/lib/progress-merge.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_web_src_lib_progress_merge_reconcilefields": {
+      "code_fingerprint": "db67eea40426bc2fae7948a26e611a7147b96ab6d5a116005661a4192dc47f77",
+      "label": "reconcileFields()",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        }
+      ],
+      "score": 0.997607225,
+      "source_file": "apps/web/src/lib/progress-merge.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_web_src_lib_storage_keys_isclearedonsignout": {
+      "code_fingerprint": "7c65f820eed494f646f63ae51b833bba9110ed44b63f84dab8433557e2b49866",
+      "label": "isClearedOnSignOut()",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        },
+        {
+          "date": "2026-08-03T12:44:58.560757+00:00",
+          "outcome": "useful",
+          "q": "Why does useAuthSync() connect authentication synchronization to almost every major game community?"
+        }
+      ],
+      "score": 1.99143736,
+      "source_file": "apps/web/src/lib/storage-keys.ts",
+      "status": "preferred",
+      "uses": 2
+    },
+    "apps_web_src_lib_storage_keys_progress_owner_key": {
+      "code_fingerprint": "7c65f820eed494f646f63ae51b833bba9110ed44b63f84dab8433557e2b49866",
+      "label": "PROGRESS_OWNER_KEY",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        }
+      ],
+      "score": 0.997607225,
+      "source_file": "apps/web/src/lib/storage-keys.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_web_src_lib_storage_keys_signout_broadcast_key": {
+      "code_fingerprint": "7c65f820eed494f646f63ae51b833bba9110ed44b63f84dab8433557e2b49866",
+      "label": "SIGNOUT_BROADCAST_KEY",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        }
+      ],
+      "score": 0.997607225,
+      "source_file": "apps/web/src/lib/storage-keys.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_web_src_shared_components_achievementcelebrations_achievementcelebrations": {
+      "code_fingerprint": "e9cf0fcc3ad276adb1e353713992e755f1943643003a9e27413f87a6114fe2b4",
+      "label": "AchievementCelebrations()",
+      "last": "2026-08-03T12:44:58.560757+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T12:44:58.560757+00:00",
+          "outcome": "useful",
+          "q": "Why does useAuthSync() connect authentication synchronization to almost every major game community?"
+        }
+      ],
+      "score": 0.993830135,
+      "source_file": "apps/web/src/shared/components/AchievementCelebrations.tsx",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_web_src_shared_hooks_useauthsync_useauthsync": {
+      "code_fingerprint": "35a7d1002a322461086194ab399b5693e546be960de50d8a1f1f233b24c65f5e",
+      "label": "useAuthSync()",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        },
+        {
+          "date": "2026-08-03T12:44:58.560757+00:00",
+          "outcome": "useful",
+          "q": "Why does useAuthSync() connect authentication synchronization to almost every major game community?"
+        }
+      ],
+      "score": 1.99143736,
+      "source_file": "apps/web/src/shared/hooks/useAuthSync.ts",
+      "status": "preferred",
+      "uses": 2
+    },
+    "apps_web_src_shared_lib_achievements_store_reportprogresstoachievements": {
+      "code_fingerprint": "94f4f2d5cc27ed2714bd6c39a1ec8e2d772938fb0d6bba619293e3e32a399b58",
+      "label": "reportProgressToAchievements()",
+      "last": "2026-08-03T12:44:58.560757+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T12:44:58.560757+00:00",
+          "outcome": "useful",
+          "q": "Why does useAuthSync() connect authentication synchronization to almost every major game community?"
+        }
+      ],
+      "score": 0.993830135,
+      "source_file": "apps/web/src/shared/lib/achievements/store.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_web_src_shared_lib_localprogress_findlocalprogress": {
+      "code_fingerprint": "8e34bc0f7788688bdd1565f1f4728e4ca3cb4a77f396c0d8418c8137acb40fc1",
+      "label": "findLocalProgress()",
+      "last": "2026-08-03T16:41:23.605460+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T16:41:23.605460+00:00",
+          "outcome": "useful",
+          "q": "How does local progress travel through useAuthSync to server persistence, including ownership guards and conflict resolution?"
+        }
+      ],
+      "score": 0.997607225,
+      "source_file": "apps/web/src/shared/lib/localProgress.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "packages_db_src_schema_app_progress_valid_app_ids": {
+      "code_fingerprint": "2ae42682637e1a14b93fd53efc4998aeee1a69832a0539fe01f773c97429c4d5",
+      "label": "VALID_APP_IDS",
+      "last": "2026-08-03T12:44:58.560757+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-03T12:44:58.560757+00:00",
+          "outcome": "useful",
+          "q": "Why does useAuthSync() connect authentication synchronization to almost every major game community?"
+        }
+      ],
+      "score": 0.993830135,
+      "source_file": "packages/db/src/schema/app-progress.ts",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
+  "version": 1
+}

@@ -1,0 +1,48 @@
+Read-only review complete. No files were changed. The amendment addresses prior findings on paper, but these blockers remain:
+
+1. **CRITICAL: Hydration proof is incompatible with real stores.**  
+   Citation: [plan:518](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:518>), [hill getProgress:508](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/hill-climb/lib/store.ts:508>), [hill persist:549](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/hill-climb/lib/store.ts:549>), [Oregon getProgress:173](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/oregon-trail/lib/store.ts:173>).  
+   Failure: several stores emit `lastModified: Date.now()` but do not persist it. Exact equality is therefore impossible for existing local data, leaving the hook permanently PENDING.  
+   Correction: define and wire a persisted-snapshot or exact `hasHydrated` adapter for every affected store, including timestamp normalization, and add store-specific hydration tests. Update the file inventory and caller scope.
+
+2. **MEDIUM: The manifest is per-app, but the merge API has no app context.**  
+   Citation: [plan:623](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:623>), [plan:771](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:771>), [mergeForSave:223](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-merge.ts:223>), [route call:177](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:177>).  
+   Failure: runtime cannot select the correct app policy without inferring from field names or leaving the manifest unused.  
+   Correction: explicitly thread `appId` and the authoritative timestamp through `mergeForSave` and `mergeProgress`, then update route and tests.
+
+3. **MEDIUM: Recursive policy coverage semantics are underspecified.**  
+   Citation: [plan:623](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:623>), [plan:631](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:631>), [plan:641](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:641>).  
+   Failure: the plan does not define whether parent `lww` covers descendants, how `union-by-id` child policies are represented, how wildcard paths expand, or how reserved timestamps and nullable `min` values are handled. This is especially problematic for dynamic records and `oregon-trail.currentEvent`, which is `z.any()`.  
+   Correction: specify a typed manifest grammar with leaf, opaque-subtree, and collection rules, explicit overlap/coverage precedence, reserved timestamp handling, and null semantics.
+
+4. **MEDIUM: The contract test cannot reliably discover every real field as specified.**  
+   Citation: [plan:641](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:641>), [existing private inventory:14](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/__tests__/progress-schema-contract.test.ts:14>), [empty dynamic defaults:337](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:337>), [schema normalization:786](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:786>).  
+   Failure: the existing inventory is private, defaults leave dynamic records and optional collections empty, and non-strict Zod schemas strip stale manifest fields instead of rejecting them. Future fields can therefore evade coverage or produce false stale-entry passes.  
+   Correction: create one exported app/store inventory, add per-app fixture builders that populate every optional, dynamic, nullable, array, and record path, and compare raw emitted paths against schema-introspected paths before normalization.
+
+5. **MEDIUM: Oregon Trail already has an emitted-shape/schema mismatch.**  
+   Citation: [plan:660](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:660>), [Oregon type:1](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/oregon-trail/types/index.ts:1>), [store fixture shape:9](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/oregon-trail/lib/gameLogic.ts:9>), [schema:189](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:189>).  
+   Failure: store party members emit `id` and health `"very_poor"`, while the schema omits `id` and accepts `"very poor"`. A non-empty contract fixture cannot be both faithful to the store and schema-valid.  
+   Correction: explicitly align the store/schema or normalize one representation before the policy audit, then test the chosen canonical shape.
+
+6. **MEDIUM: Typed merge failures and HTTP mapping are not concretely defined.**  
+   Citation: [plan:458](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:458>), [plan:638](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:638>), [current broad catch:379](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:379>).  
+   Failure: an unclassified-field error could become a generic 500, or an unexpected database error could be misreported as a merge 409.  
+   Correction: define discriminated error classes/codes and test mappings for input 400, merge-policy/output 409, lock timeout 503, and unexpected transaction failures 500, all with no-DML assertions.
+
+7. **MEDIUM: The ordinary Vitest and pre-push suites will include the mandatory integration test.**  
+   Citation: [plan:740](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:740>), [Vitest include:11](</Users/jack.neil/Github/hanks-hits/apps/web/vitest.config.ts:11>), [pre-push test:49](</Users/jack.neil/Github/hanks-hits/.githooks/pre-push:49>).  
+   Failure: the integration file matches the ordinary test glob, but missing database prerequisites must throw rather than skip. The mandated plain `pnpm --filter web test` will therefore fail without a database.  
+   Correction: add a default integration exclusion plus a dedicated integration config/script, and include those config/package changes in the file inventory. Preserve the required frozen-lockfile gate.
+
+8. **MEDIUM: Verification commands are incomplete and inconsistent.**  
+   Citation: [Task 3 command:715](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:715>), [Task 6 command:778](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:778>), [Task 7 DB command:796](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:796>).  
+   Failure: the new policy contract is omitted from the focused TDD commands, and the Task 7 database URL omits the required role/user contract from Task 5.  
+   Correction: run the policy contract in Tasks 3 and 6, use one canonical validated database command, and make missing database proof explicitly incomplete rather than acceptable final evidence.
+
+9. **MEDIUM: A2 atomicity conflicts with preserved leaderboard behavior.**  
+   Citation: [plan:787](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:787>), [plan:861](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:861>), [current leaderboard early return:284](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:284>).  
+   Failure: an invalid extracted leaderboard score currently commits progress while skipping leaderboard persistence. That conflicts with “commit or roll back together,” while A14 also requires preserving leaderboard behavior.  
+   Correction: either make invalid projection validation abort the transaction, or explicitly narrow A2 and add a regression test documenting the intended progress-only commit.
+
+VERDICT: NEEDS ATTENTION

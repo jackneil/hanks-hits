@@ -1,0 +1,20 @@
+## 1. Cache/schema contract drift
+
+- What failed: Not evidenced in this build. The scenario is mitigated, but only partially.
+- Root cause: `manifest.json:2-5` records per-file AST and semantic hashes, while semantic cache payloads such as `cache/semantic/p2e27792e2105/...json:1` contain only `nodes`, `edges`, and `hyperedges`. They do not retain model, provider, or extraction-schema metadata.
+- Why it was not caught: A future Graphify upgrade that changes the cache schema without changing the content or prompt hash could replay shape-compatible stale entries silently. The current artifacts do not demonstrate that this occurred.
+- Severity: MEDIUM residual risk.
+
+## 2. Corruption hides an important dependency
+
+- What failed: The final graph can look structurally valid while extraction discarded evidence. The health artifact reports 470 dangling-endpoint edges, 1 self-loop, and 269/275 collapsed endpoint groups at `.graphify_health.json:7-15`.
+- Root cause: Post-build validation reports `post_build_edge_count: 5662` and no missing final endpoints at `.graphify_health.json:20-23`; this validates graph integrity, not extraction completeness.
+- Why it was not caught: The standalone HTML exposes only aggregate counts at `graph.html:66`, and the report discusses knowledge gaps at `GRAPH_REPORT.md:985-988` without showing the raw health counts. Someone consulting only the graph or HTML could miss that 470 candidate edges were removed or altered.
+- Severity: MEDIUM.
+
+## 3. Corpus grows 10x
+
+- What failed: Not evidenced. Current output completed successfully with 3,031 nodes and 5,662 edges, and the corpus warning is retained at `GRAPH_REPORT.md:3-9`.
+- Root cause: A 10x corpus would imply roughly 30,000 nodes, well beyond the current HTML scale. However, no retained artifact demonstrates a stress failure or missing large-graph guard.
+- Why it was not caught: No 10x performance or HTML export benchmark is retained. Current success only proves the 592-file corpus works.
+- Severity: LOW, unproven future capacity risk.

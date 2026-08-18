@@ -1,0 +1,19 @@
+You are a fresh independent implementation-plan gate reviewer using GPT-5.6 Luna. Work read-only and do not edit files.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+Plan: docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Read completely before judging: /Users/jack.neil/.agents/skills/graphify/SKILL.md; applicable AGENTS.md and lessons.md; the full current plan; graphify-out/.luna_round6_client_review.txt; and all relevant installed Zustand 5 declarations/runtime, live client source, tests, callers, stores, schemas, history, and graphify evidence. Verify independently rather than trusting closure prose or amendment summaries. The deterministic root gate has already confirmed balanced HTML, 32 unique inventory rows, 21 unique required integration IDs, A1-A32, generated-projection markers, no banned stale phrases, no U+2014, and no tracked product/config/lockfile edits. Do not spend the review merely recounting those checks.
+
+Gate only client synchronization implementation readiness. Audit the entire first-sync, hydration, persistence, owner, transport, and response-adoption lifecycle. Re-prove every round-six blocker is truly closed: exact StateStorage versus object-valued PersistStorage types; optional getOptions().storage; void-or-Promise rehydrate; skipHydration or equivalent owner gating on every one of the 32 real stores including achievements; coordinator-controlled malformed hydration and recovery; non-persisting live apply/rollback; full persisted owner tuple; owner-validated write barriers on real Zustand set() writes; same-owner generation rotation; the exact A stale write after B claim/write followed by A pagehide; byte-identical distinct logical-save delivery versus retry/replay dedupe; and source-executable notification/allocation semantics.
+
+Also audit read-back purge, silent no-op storage behavior, marker retention/quarantine/retry, StrictMode and multi-tab events, terminal beacon suppression, GET/POST/beacon/DELETE wire construction, client/server/logical correlation IDs, Retry-After, canonical response adoption, typed persisted/request/server/live converters, malformed and legacy bytes, Chess precedence, reset/deletion metadata writes, real runtime adapter binding, stable test probes, and false-green escape hatches. Trace every claimed seam to an allowed implementation file and every safety transition to a named test.
+
+Do not report style nits or enhancements. CRITICAL means data loss, cross-owner leakage, stale writes, incoherent implementation, or a broken safety invariant. MEDIUM means a material ambiguity can let an incorrect implementation pass.
+
+Your final output must start exactly with one line:
+VERDICT: READY
+or
+VERDICT: NEEDS ATTENTION
+
+If READY, state there are no CRITICAL or MEDIUM blockers and give at most five evidence bullets. If NEEDS ATTENTION, list only CRITICAL/MEDIUM blockers with exact plan/source evidence and the required amendment.

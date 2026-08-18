@@ -1,0 +1,41 @@
+You are GPT-5.6 Luna acting as the senior architect responsible for correcting an implementation plan before any product code is changed.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+Plan to amend in place: docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Read these files completely before editing:
+- AGENTS.md if present, CLAUDE.md, and lessons.md
+- docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+- graphify-out/.luna_dc_plan_client.txt
+- graphify-out/.luna_dc_plan_server.txt
+- graphify-out/.luna_dc_plan_premortem.txt
+- every source and test file cited by those reviews
+
+Task:
+1. Adjudicate every CRITICAL and MEDIUM finding in all three reports against the actual repository. Do not merely copy reviewer text. Resolve conflicts and make the plan internally consistent, safe, implementable, and testable.
+2. Amend the HTML plan in place using apply_patch only. Do not edit product source, tests, manifests, lockfiles, AGENTS.md, CLAUDE.md, or lessons.md.
+3. Preserve the artifact's template styling, Mermaid diagram plus offline fallback, dark mode, and print behavior.
+4. Keep the implementation scoped to progress-sync integrity, but include every correction needed to prevent data loss, stale-auth writes, dead/stuck initialization, retry storms, and false verification claims.
+
+Required decisions the amended plan must make explicitly:
+- Fail closed on unconfirmed Zustand hydration. Never upload pre-hydration defaults. Define bounded attempts and an indefinitely retryable liveness mechanism, with no cap on successful progress.
+- Define a single, documented bootstrap POST exception after ownership, confirmed hydration, and a successful GET. Normal saves, force saves, and terminal beacons must have precise readiness rules.
+- Define recovery/backoff/timeout behavior for hydration, GET, bootstrap POST, required re-fetch, normal save, malformed response, logout/user switch/unmount, and StrictMode remounts. Include generation/cancellation guards and stable forceSync identity.
+- Define one foreground POST coordinator, newest-snapshot queue behavior, forced-priority preservation, failure retention, retry deduplication, and the exact terminal-beacon exception/deduplication semantics.
+- Never fall back to raw incoming data when merged-output validation fails. Specify atomic rollback/non-success behavior and tests proving both progress and leaderboard rows remain unchanged after union overflow.
+- Acquire one transaction-scoped advisory lock for every POST and DELETE on the same (userId, appId), read inside the transaction after the lock, and create the authoritative timestamp only after lock acquisition. State lock timeout/error behavior and rollout assumptions.
+- Define `merged` precisely for existing-row reconciliation for true, false, and omitted merge flags.
+- Replace impossible cross-app integration fixtures with app-valid parameterized cases. Require deterministic real-PostgreSQL proof for concurrent first save and both POST/DELETE orders, including a supported leaderboard fixture. Specify a safe, reproducible, fail-closed test database contract using PROGRESS_SYNC_TEST_DATABASE_URL and explicit local/test-only checks. Do not claim proof when PostgreSQL is unavailable.
+- Resolve the incomplete monotonic-field policy. Audit actual stores and schemas, including nested counters and source-proven fields beyond the original seven. Create an explicit maintainable classification/manifest and a contract test that fails when a progress field needing a merge policy is unclassified. Do not use a blanket `total*` maximum because some totals are spendable.
+- Resolve Zod v4's missing-data envelope nuance with an explicit own-property/refinement contract and tests.
+- Correct inaccurate baseline counts/paths and include the achievements observer suite.
+
+Acceptance criteria and test commands must be executable and must distinguish unit/mock evidence from real database proof. Do not weaken a blocking reviewer finding into an optional check simply because the environment may not have PostgreSQL.
+
+After editing, run deterministic plan checks that do not modify product code: git diff --check, an HTML parse/check, a U+2014 scan, and git status. Then report:
+- what changed in the plan,
+- any reviewer recommendation rejected and why,
+- exact verification results,
+- confirmation that no product files were edited.
+
+Do not implement the plan in this turn. Do not commit or push.

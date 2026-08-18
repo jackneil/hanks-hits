@@ -1,0 +1,70 @@
+You are the planning author for a verified progress-sync integrity repair in the repository at /Users/jack.neil/Github/hanks-hits. Use GPT-5.6 Luna judgment. Work only in this repository.
+
+Your task is to create one implementation-ready HTML plan and acceptance contract. Do not edit product source or tests. Do not commit.
+
+Required inputs to read completely before writing:
+- Repository AGENTS.md files that govern the relevant paths, plus lessons.md if present.
+- /Users/jack.neil/Github/hanks-hits/graphify-out/.luna_plan_db.txt
+- /Users/jack.neil/Github/hanks-hits/graphify-out/.luna_plan_client.txt
+- The exact current implementation and relevant tests for:
+  - apps/web/src/shared/hooks/useAuthSync.ts
+  - apps/web/src/shared/hooks/__tests__/useAuthSync.test.tsx
+  - apps/web/src/shared/hooks/__tests__/useAuthSync.owner-guard.test.tsx
+  - apps/web/src/app/api/progress/[appId]/route.ts
+  - apps/web/src/lib/progress-merge.ts
+  - apps/web/src/lib/__tests__/progress-merge.test.ts
+  - any schema, database, auth, and test-support files those units actually depend on
+- /Users/jack.neil/.claude/jacked-templates/plan-template.html, which must be used as the visual and structural starting point.
+
+Verified defects to cover:
+1. Server-side merge reads occur outside the write transaction, causing lost updates. The absent-row/first-save path can also overwrite another writer.
+2. Autosave and forceSync can POST before initial synchronization finishes.
+3. Initial sync re-fetch compares against a captured local snapshot and can overwrite newer live client progress.
+4. Failed saves advance the saved-state marker before success, suppressing retries.
+5. Proven monotonic counters are missing from the merge allowlist.
+6. Confirmed adjacent hardening: reject malformed/null request envelopes and non-boolean merge values; validate runtime merge output; check re-fetch response status; gate all beacon paths during foreign-owner purge.
+
+The plan must make and justify an explicit semantic decision for the first-save race. Merely serializing blind merge=false overwrites is not a fix. Inspect every caller and preserve intended behavior while ensuring two concurrent first saves with disjoint monotonic progress cannot erase each other. State the resulting API contract for merge=false and/or remove that mode from relevant client calls if appropriate. Include old/stale client behavior in the reasoning.
+
+Required design constraints:
+- Use a transaction-scoped PostgreSQL advisory lock keyed by userId and appId, acquired before the authoritative read, and keep progress plus leaderboard persistence atomic.
+- Address DELETE versus POST serialization if necessary to uphold the invariant.
+- Do not add a migration unless exact schema inspection proves one is needed.
+- Preserve existing auth and appId validation.
+- Client uploads remain blocked until initial sync reaches a terminal ready state.
+- A forceSync requested while initialization is pending is retained and drains exactly once using current live state.
+- There can be at most one progress POST in flight per hook instance; queued work coalesces to the newest live state.
+- The saved marker advances only after an acknowledged successful POST. Failures remain retryable.
+- Initial remote adoption must compare against getStateRef.current() at decision time.
+- beforeunload and unmount beacons must not send while a foreign-owner purge is pending, including across multiple hook instances if the existing design uses a module-level gate.
+- Preserve debounce, polling, beacon, auth ownership, and leaderboard behaviors unless a change is necessary and explicitly covered by a test.
+- Add only source-proven monotonic counters. The two audits identified: totalFoodEaten, totalPiecesCaptured, totalCheckmates, totalWallsPlaced, totalBlocksMatched, totalKingsEarned, totalMovesToWin. Re-verify them in code before accepting them. Do not infer fastest-win, current streak, wallet/balance, or other non-monotonic values.
+
+Testing contract:
+- TDD task order, with exact test files and named behaviors before implementation steps.
+- Client deferred-initial-GET test: timers and forceSync cannot POST early; queued force drains once with current live state after initialization.
+- Client stale-re-fetch test: local state changes while re-fetch is pending; older remote data must not replace it.
+- Failed debounced and forced saves retry identical data.
+- Repeated intervals while a POST is unresolved never produce concurrent duplicate POSTs; newest queued state is eventually sent.
+- Multi-instance foreign-purge beacon test.
+- Route validation tests for malformed JSON, null body, invalid envelope, and non-boolean merge.
+- Route ordering/contract tests showing lock before read and read before write. Be explicit that mocks cannot prove real PostgreSQL concurrency.
+- A meaningful integration or deterministic concurrency test strategy for two disjoint first saves, including how to run it if the repo lacks a database fixture. Do not claim coverage that the available harness cannot provide.
+- Route merge-output validation and error-path coverage.
+- Table-driven merge tests for all seven verified counters and non-monotonic controls.
+- Focused commands after each task plus final typecheck, lint, relevant/full tests, and any database-backed verification that can actually run in this repo.
+
+The document must include:
+- Scope and non-goals.
+- Discovered current behavior and root causes.
+- Positive acceptance criteria and explicit negative requirements (what must never happen and impossible states).
+- Chosen architecture and rejected alternatives.
+- State-transition or sequence diagram using Mermaid with the template's offline fallback conventions.
+- Small, independently executable tasks with exact paths, concrete edits, test commands, expected red/green behavior, and dependencies.
+- Rollback and observability notes.
+- A final verification matrix mapping every verified defect and adjacent hardening item to one or more tests.
+
+Write the plan to:
+docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Use apply_patch for the file creation. Public-facing prose in the artifact must not use U+2014 em dashes. End your response with a terse summary of the key semantic decision and the path written.

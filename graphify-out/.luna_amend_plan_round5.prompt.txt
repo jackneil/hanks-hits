@@ -1,0 +1,51 @@
+You own a fifth amendment pass on one implementation-plan artifact. Use GPT-5.6 Luna judgment only. You must edit only:
+
+docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Do not edit product code, tests, config, lockfiles, graphify artifacts, lessons, or instructions. Use apply_patch for every edit. Work until the plan is internally coherent and implementation-ready, then run deterministic validation and give a concise report.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+
+Before editing, read completely:
+1. /Users/jack.neil/.agents/skills/graphify/SKILL.md and follow it for codebase questions.
+2. Applicable global/repository AGENTS.md and repository lessons.md.
+3. The full current HTML plan.
+4. All three fresh gate reports:
+   - graphify-out/.luna_round4_client_review.txt
+   - graphify-out/.luna_round4_server_review.txt
+   - graphify-out/.luna_round4_policy_review.txt
+5. Prior reports and amendment summaries only as needed for context.
+6. Relevant current source, tests, package manifests, and graphify evidence. Verify every claim directly and do not blindly copy reviewer wording.
+
+Resolve every finding from all three fresh reports as one coherent contract. At minimum the amended plan must:
+
+- Correct the owner/beacon identity guard: compare authenticated ownerId with the persisted marker, validate per-epoch ownerToken and epoch independently, and prove both positive READY sends and negative stale-owner/epoch suppression.
+- Specify cross-tab owner-marker claim/change propagation in addition to sign-out broadcast. Define synchronous invalidation, purge/pagehide ordering, marker read-back, owner claim/rotation, and a two-tab A-to-B regression that proves no A memory can POST or beacon under B's session.
+- Put requestId and logicalSaveId on exact typed request wire schemas for POST and beacon payloads, echo and validate them on typed responses, define allocation/correlation and mismatched/stale response behavior, and carry mergeMode explicitly in RequestSnapshot and canonical bytes for bootstrap and normal saves.
+- Define Retry-After precedence precisely: parsing of delta-seconds and HTTP-date against the injected clock, invalid header behavior, clamp limits, exact formula relative to the deterministic backoff schedule, and phase-complete tests.
+- Define successful normal-POST response adoption when server canonical/merged data differs and when a new S1 mutation occurs in flight. Specify guarded live adoption or preservation, clean and acknowledged baselines, acknowledgment, queued snapshot behavior, and ordered tests.
+- Define Chess legacy storage bytes and projection from `chess-storage` into the canonical `hank-chess-state` persisted/live shape, with exact valid, malformed, canonical-present, duplicate, write-back, read-back, rollback, and deletion cases. Do not permit a canonical-shaped fake legacy fixture.
+- Bind every production caller at runtime to a typed inventory entry/factory containing its real getState/setState or equivalent adapter wiring. Define how a mounted production useAuthSync instance exposes the test-only diagnostic probe for that exact coordinator, and require real-caller mount assertions rather than source-set equality alone.
+- Add the shared advisory-key helper to the allowed file inventory and define its `@hank-neil/db` root or explicit subpath export, consumers, and tests.
+- Complete the API schema contract for valid and raw/invalid app IDs, typed GET/POST/DELETE request and success envelopes, all error codes including NOT_FOUND if applicable, MergeConflict shape, requestId/logicalSaveId propagation, schema parsing, and exact status mappings.
+- Make the required-ID reporter executable: exact reporter file/config or CLI wiring, exact required ID manifest, and six independently enforced timeout/error cases or one explicitly aggregate assertion. Missing, skipped, todo, filtered, or unexecuted required cases must fail.
+- Make concurrency ordering observable and correlated before responses: request-ID generation, backend-PID capture, a test-only trace/barrier that records advisory-lock acquisition, post-lock read, DML, commit, and response, exact waiter observation, deadlines, and assertions proving actual grant/read/commit order.
+- Reclassify every resettable or consumable leaf. Virtual Pet inventory quantities and Oregon sick days may not use MAX. Cookie, Hill Climb, Oregon, and any other full resets must have an explicit, implementable authoritative reset epoch/tombstone or reset policy. Specify wire/persisted representation changes, migration/default behavior, and no-resurrection or reset-wins tests.
+- Make deletion representable for every live deletable collection, including Drawing artworks, Drum saved beats, Joke favorites, Weather locations, and any other source-proven deletion. Choose and fully specify tombstones or timestamped authoritative-collection semantics, including persisted/schema changes, migration, equal-time ties, pruning/retention, bounds, and no-resurrection fixtures.
+- Correct Virtual Pet lastPlayDate by either aligning source/default/schema to ISO or defining a closed day-string policy with exact empty handling, comparison semantics, validation, and tests.
+- Extend the closed recursive PolicyNode grammar and executable constructors so it can represent every normative/live shape: identity leaves, positional/indexed arrays, composite-identity items, scalar timestamp records, alias/exclusion representation, Wordle distributions, Drum boolean patterns, achievements Record<string,number>, Weather items without explicit ids, and any migrated metadata.
+- Add an explicit timestamped item-array node with numeric versus ISO timestamp selection, bounds, missing/null semantics, stable identity, record-level winner behavior, equal-timestamp canonical-byte tie, ordering, and mandatory oracles for every affected collection.
+- Align Weather identity and source operations. If name is canonical identity, handle same-name/different-coordinate add/remove deterministically and prove it. If source changes are required, list and test them explicitly.
+- Make oracle exhaustiveness structural: generate leaf paths from the typed manifest, require exact bijective equality with oracle paths, reject duplicates/omissions/extra cases, cover every applicable rule case, and derive raw/schema paths from live observation/schema introspection rather than fixture-authored expected lists.
+
+Reconcile these additions across truth tables, state machines, request/response type snippets, adapter and runtime inventory types, coordinator snapshots, owner lifecycle, manifest grammar, exact 32-app path-to-policy table, reset/deletion metadata, schema/source migrations, file ownership, TDD tasks, acceptance IDs, integration ID manifest/reporter, negative requirements, verification commands, risk register, and open questions. Remove stale contradictory wording instead of appending caveats. Do not leave “choose/either/optional” decisions for implementation where they affect correctness. Avoid making assertions the actual source cannot support.
+
+Preserve the HTML plan format and existing jacked template styling. Do not add U+2014. Before finishing, prove:
+- the HTML parses structurally;
+- git diff checks pass;
+- no U+2014 is present;
+- stale contradictory phrases are absent;
+- exactly 32 synchronized inventory rows remain and all source-proven fields/reset/deletion metadata are represented;
+- only the permitted plan file changed relative to the worktree snapshot taken at start.
+
+Your final response should name the amended file, summarize how all gate findings were closed, list checks run, and state any unresolved blocker. Do not claim implementation code was changed.

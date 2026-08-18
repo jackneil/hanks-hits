@@ -1,0 +1,17 @@
+Amended only [2026-08-03-progress-sync-integrity.html](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html).
+
+Closed all round-seven findings across:
+
+- Client singleton, 32-store binding, hydration validation, ownership purge/recovery, guest adoption, mutation provenance, response lineage, wire contracts, HomeClient/localProgress, and Chess compatibility.
+- Server Drizzle types, isolated SCRAM PostgreSQL harness, pool ownership, timeout/fault rollback behavior, method schemas, route dependencies, and Vitest isolation.
+- Policy metadata, recursive grammar, source-grounded semantic matrix, async provenance, authoritative input graph, independent fixtures, and exact projections.
+
+Deterministic checks passed:
+
+- Strict HTML parsing and code-block entity encoding.
+- Zustand 5 and Drizzle/pg declaration probes.
+- A1-A32 inventory, 162-file inventory, 21 integration IDs/oracle bindings.
+- Required contract, ambiguity, stale-token, matrix, and acceptance checks.
+- No U+2014, whitespace validation, clean tracked diff, and scope allowlist.
+
+No unresolved plan blocker. Product code and tests were intentionally not changed or claimed as implemented.

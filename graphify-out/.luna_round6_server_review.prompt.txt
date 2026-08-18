@@ -1,0 +1,17 @@
+You are a fresh independent implementation-plan gate reviewer using GPT-5.6 Luna. Work read-only and do not edit files.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+Plan: docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Read completely before judging: /Users/jack.neil/.agents/skills/graphify/SKILL.md; applicable AGENTS.md and lessons.md; the full current plan; graphify-out/.luna_round5_server_review.txt; and all relevant live route, database, schemas, exports, package-manager files, harnesses, tests, and graphify evidence. Verify independently rather than trusting closure prose or amendment summaries. The deterministic root gate has already executed the validator embedded in the plan and confirmed structurally balanced HTML, exactly 32 inventory rows, exactly 32 policy projections, 21 unique required integration IDs, no listed stale phrases, no U+2014, and no tracked/indexed product/config/lockfile edits. Do not spend the review merely recounting those facts. Test whether the server and integration contract is executable, type-coherent, source-correct, secure, and incapable of false-green tests.
+
+Gate only server, database, API, and integration implementation readiness. Audit the entire route/transaction contract, with special scrutiny on the prior round-five blockers: the exact allowed `handler.ts` factory and dependency types; production `route.ts` singleton delegation; auth/rate-limit/parse ordering; one canonical server request-ID owner and separate client/logical lineage IDs; operation correlation for malformed raw requests plus 400/401/404/409/429/500/503; exact GET, normal POST, beacon POST, and DELETE transport schemas; beacon discrimination; Retry-After headers; validation before DML; advisory-key export; pair-lock/read/DML/commit/response ordering; backend PID and waiter correlation; deterministic 55P03 and 57014 reachability; the branded test-only post-DML/pre-commit fault and production impossibility; rollback proof; Cookie overflow versus stored/merge/projection conflicts; 21 distinct required IDs including six envelope cells; reporter exact set equality; dynamic import and DB provisioning order; real PostgreSQL pool ownership/cleanup; dependencies/exports; full-shape fixtures; and no weakened aggregate tests.
+
+Trace every claimed seam to an allowed implementation file and every critical failure path to a deterministic real-handler test. Find contradictions, missing dependencies, impossible response tuples, source inaccuracies, unsafe test hooks, or false-green escape hatches. Do not report style nits or optional enhancements. CRITICAL means lost updates, non-atomic persistence, data isolation failure, production fault exposure, or incoherent implementation. MEDIUM means a material API/integration ambiguity can allow an incorrect implementation to pass.
+
+Your final output must start exactly with one line:
+VERDICT: READY
+or
+VERDICT: NEEDS ATTENTION
+
+If READY, say there are no CRITICAL or MEDIUM blockers and give at most five evidence bullets. If NEEDS ATTENTION, list only CRITICAL/MEDIUM blockers with exact plan/source evidence and the required amendment.

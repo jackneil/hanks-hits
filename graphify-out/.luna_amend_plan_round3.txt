@@ -1,0 +1,11 @@
+Amended only [the HTML plan](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html) into a coherent implementation-ready contract covering all requested client, server, policy, inventory, PostgreSQL, concurrency, and verification requirements.
+
+Checks passed:
+
+- HTML structural parse
+- `git diff --check`
+- U+2014 scan
+- stale-contract sweep
+- worktree scope proof: no product/config/test changes; status matches baseline exactly
+
+No unresolved blocker. `jacked check-version` reports 0.89.1 available.

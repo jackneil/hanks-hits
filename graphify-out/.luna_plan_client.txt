@@ -1,0 +1,165 @@
+## TDD order
+
+1. In [`useAuthSync.test.tsx:95`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/__tests__/useAuthSync.test.tsx:95), add a deferred-initial-fetch test:
+
+   - Advance the authenticated autosave interval and debounce while the initial GET is unresolved.
+   - Call `forceSync()`.
+   - Assert zero POSTs.
+   - Resolve initial sync and assert the queued force request posts the current state exactly once after reconciliation.
+
+2. Replace or extend [`useAuthSync.test.tsx:155`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/__tests__/useAuthSync.test.tsx:155):
+
+   - Defer the re-fetch after the initial merge POST.
+   - Mutate the live store to a newer timestamp before resolving that GET.
+   - Return a merged server blob older than the live store.
+   - Assert the live state is not overwritten.
+
+3. Add save-retry tests near [`useAuthSync.test.tsx:53`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/__tests__/useAuthSync.test.tsx:53):
+
+   - A failed debounced POST leaves the unchanged payload eligible for retry on the next poll/debounce cycle.
+   - A failed `forceSync()` is retried by the normal autosave path without another state mutation.
+   - Keep the first POST unresolved, advance through multiple poll/debounce cycles, and assert no concurrent duplicate POST occurs.
+
+4. Add a module-lock-specific beacon test in [`useAuthSync.owner-guard.test.tsx:156`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/__tests__/useAuthSync.owner-guard.test.tsx:156):
+
+   - First mount a hook and let initial sync complete.
+   - Trigger a foreign-owner purge from a second hook instance.
+   - Make the first instance dirty, then exercise `beforeunload` and unmount cleanup.
+   - Assert neither beacon path sends, proving the module lock is independently enforced.
+
+5. Add a table-driven counter test in [`progress-merge.test.ts:43`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/__tests__/progress-merge.test.ts:43) covering all seven source-proven monotonic fields.
+
+## Smallest state machine
+
+Use the existing `initialSyncDoneRef` as the readiness state:
+
+- `PENDING`: ownership guard, hydration, and initial server reconciliation are incomplete. Autosave, force saves, and beacons are blocked.
+- `READY`: set only after the relevant initial-sync branch completes, including merged-state adoption. Normal save paths are enabled.
+- `PURGING`: represented by existing `foreignDataRef` plus module-level `foreignPurgePending`. All uploads remain blocked across remounts.
+
+Do not use `syncStatus` as the readiness guard. It is set to `"syncing"` before the ownership check at [`useAuthSync.ts:218-221`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:218).
+
+Add:
+
+- `forceSyncPendingRef`: latches authenticated `forceSync()` calls received while `initialSyncDoneRef.current` is false.
+- `saveInFlightRef`: one active POST at a time.
+- `queuedSaveRef`: latest payload requested while a POST is active.
+
+`forceSync()` should latch while pending, then drain after `initialSyncDoneRef.current = true`, reading `getStateRef.current()` at drain time. Clear the latch when entering foreign purge.
+
+## Required `useAuthSync.ts` changes
+
+1. Extend the autosave and force gates.
+
+   Current gates omit initial readiness at [`useAuthSync.ts:342-345`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:342) and [`useAuthSync.ts:382-395`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:382).
+
+   Require:
+
+   ```ts
+   isAuthenticated &&
+   initialSyncDoneRef.current &&
+   !foreignDataRef.current &&
+   !foreignPurgePending
+   ```
+
+2. Re-check the same conditions inside the debounce callback at [`useAuthSync.ts:367-374`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:367). A timer may have been scheduled before a foreign purge or logout.
+
+3. Move `lastSavedRef.current = dataStr` out of the scheduling path. It currently advances before POST success at [`useAuthSync.ts:367-373`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:367).
+
+   The single-save coordinator must:
+
+   - Set `lastSavedRef` only after `saveToServer()` returns `true`.
+   - Leave it unchanged on HTTP or network failure.
+   - Drain a queued payload only after the active request settles.
+   - Skip a queued non-force payload if its serialized value already equals the newly successful `lastSavedRef`.
+   - Never start two POSTs concurrently.
+
+   This preserves the existing 1-second poll and debounce interval while allowing unchanged failed payloads to retry.
+
+4. Change `forceSync()` at [`useAuthSync.ts:382-396`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:382):
+
+   - Return immediately for unauthenticated or foreign-purge state.
+   - Set `forceSyncPendingRef.current = true` when initial sync is pending.
+   - Otherwise clear the debounce timer and enqueue the current live state.
+   - Do not update `lastSavedRef` before success.
+
+5. Add a single initial-sync completion helper. Call it only after:
+
+   - ownership validation,
+   - hydration,
+   - server fetch,
+   - initial upload/adoption,
+   - and merged re-fetch adoption where applicable.
+
+   Set readiness before draining `forceSyncPendingRef`, so the queued request uses the normal save coordinator.
+
+6. Fix live-state comparison at [`useAuthSync.ts:317-325`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:317):
+
+   ```ts
+   const currentState = getStateRef.current();
+   const currentTs = extractTimestamp(currentState as AppProgressData);
+
+   if (mergedTs === null || currentTs === null || mergedTs >= currentTs) {
+     setStateRef.current(merged.data as T);
+   }
+   ```
+
+   The current code compares against captured `localState` at [`useAuthSync.ts:323`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:323), which may be stale while the merge re-fetch is pending.
+
+7. Add `!foreignPurgePending` to both beacon gates:
+
+   - Before-unload gate at [`useAuthSync.ts:467-471`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:467).
+   - Unmount beacon gate at [`useAuthSync.ts:501-505`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:501).
+
+   Keep the existing readiness, dirty-state, `Blob`, `merge: true`, and `sendBeacon` behavior unchanged.
+
+## Monotonic allowlist
+
+Add these seven names to [`progress-merge.ts:34-54`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-merge.ts:34):
+
+```ts
+"totalFoodEaten",
+"totalPiecesCaptured",
+"totalCheckmates",
+"totalWallsPlaced",
+"totalBlocksMatched",
+"totalKingsEarned",
+"totalMovesToWin",
+```
+
+The first five are schema-valid at:
+
+- [`progress-schemas.ts:54`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:54)
+- [`progress-schemas.ts:123`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:123)
+- [`progress-schemas.ts:151`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:151)
+- [`progress-schemas.ts:176`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:176)
+- [`progress-schemas.ts:540`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:540)
+
+The two additional fields are proven monotonic by source:
+
+- `totalKingsEarned` is incremented from per-game counters at [`checkers/lib/store.ts:157-180`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/checkers/lib/store.ts:157) and accumulated at [`checkers/lib/store.ts:286-305`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/checkers/lib/store.ts:286).
+- `totalMovesToWin` accumulates nonnegative per-game moves at [`quoridor/lib/store.ts:401-420`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/quoridor/lib/store.ts:401).
+
+The requested counters are incremented at:
+
+- Snake: [`snake/lib/store.ts:219-224`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/snake/lib/store.ts:219)
+- Checkers: [`checkers/lib/store.ts:284-305`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/checkers/lib/store.ts:284)
+- Chess: [`chess/lib/store.ts:191-197`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/chess/lib/store.ts:191) and [`chess/lib/store.ts:358-372`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/chess/lib/store.ts:358)
+- Quoridor: [`quoridor/lib/store.ts:411-435`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/quoridor/lib/store.ts:411)
+- Hextris: [`hextris/lib/store.ts:473-482`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/hextris/lib/store.ts:473)
+
+Do not add `fastestWin` or current streak fields. `fastestWin` uses `Math.min` at [`quoridor/lib/store.ts:401-407`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/quoridor/lib/store.ts:401), and current streaks reset.
+
+## Files that should remain unchanged
+
+No changes are needed in `progress-schemas.ts` or the five stores. Their schemas and source updates provide the evidence for the merge allowlist.
+
+No call-site changes are needed. The five callers invoke `forceSync()` on terminal transitions:
+
+- Snake: [`snake/Game.tsx:460-471`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/snake/Game.tsx:460)
+- Checkers: [`checkers/Game.tsx:15-26`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/checkers/Game.tsx:15)
+- Chess: [`chess/Game.tsx:21-32`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/chess/Game.tsx:21)
+- Quoridor: [`quoridor/Game.tsx:62-73`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/quoridor/Game.tsx:62)
+- Hextris: [`hextris/Game.tsx:230-241`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/hextris/Game.tsx:230)
+
+Optional refactoring is limited to extracting readiness checks, initial-sync completion, and the save coordinator. Replacing polling, changing beacon payloads, or changing caller behavior is unnecessary.

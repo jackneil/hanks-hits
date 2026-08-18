@@ -1,0 +1,199 @@
+{
+  "node_count": 3031,
+  "unverified_node_count": 0,
+  "raw_edge_count": 6408,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 470,
+  "self_loop_edges": 1,
+  "valid_candidate_edges": 5938,
+  "exact_duplicate_edges": 72,
+  "directed_unique_endpoint_pairs": 5669,
+  "directed_same_endpoint_collapsed_edges": 269,
+  "undirected_unique_endpoint_pairs": 5663,
+  "undirected_same_endpoint_collapsed_edges": 275,
+  "same_endpoint_group_count": 221,
+  "relation_variant_groups": 130,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 67,
+  "context_variant_groups": 6,
+  "post_build_graph_type": "Graph",
+  "post_build_node_count": 3031,
+  "post_build_edge_count": 5662,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "/Users/jack.neil/.local/share/uv/tools/graphifyy/lib/python3.12/site-packages/graphify/extract.py",
+    "total_sites": 11,
+    "sites": [
+      {
+        "line": 1099,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1253,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 1255,
+        "name": "seen_doc_refs",
+        "tuple_arity": 0,
+        "sample": "seen_doc_refs: set[str] = set()"
+      },
+      {
+        "line": 1600,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2069,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 2147,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 3191,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3299,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3378,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3893,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 3894,
+        "name": "seen_edges",
+        "tuple_arity": 4,
+        "sample": "seen_edges: set[tuple[str, str, str, str | None]] = set()"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "apps_web_src_apps_drawing_app_index",
+      "target": "apps_web_src_apps_drawing_app_lib_store",
+      "edge_count": 3,
+      "relations": [
+        "imports_from",
+        "re_exports"
+      ],
+      "source_files": [
+        "apps/web/src/apps/drawing-app/index.ts"
+      ],
+      "source_locations": [
+        "L5",
+        "L6"
+      ],
+      "contexts": [
+        "export",
+        "re-export"
+      ]
+    },
+    {
+      "source": "apps_web_src_apps_drawing_app_index",
+      "target": "apps_web_src_apps_drawing_app_lib_constants",
+      "edge_count": 3,
+      "relations": [
+        "imports_from",
+        "re_exports"
+      ],
+      "source_files": [
+        "apps/web/src/apps/drawing-app/index.ts"
+      ],
+      "source_locations": [
+        "L7",
+        "L8"
+      ],
+      "contexts": [
+        "export",
+        "re-export"
+      ]
+    },
+    {
+      "source": "apps_web_src_apps_drum_machine_index",
+      "target": "apps_web_src_apps_drum_machine_lib_store",
+      "edge_count": 3,
+      "relations": [
+        "imports_from",
+        "re_exports"
+      ],
+      "source_files": [
+        "apps/web/src/apps/drum-machine/index.ts"
+      ],
+      "source_locations": [
+        "L2",
+        "L3"
+      ],
+      "contexts": [
+        "export",
+        "re-export"
+      ]
+    },
+    {
+      "source": "apps_web_src_apps_joke_generator_index",
+      "target": "apps_web_src_apps_joke_generator_lib_store",
+      "edge_count": 3,
+      "relations": [
+        "imports_from",
+        "re_exports"
+      ],
+      "source_files": [
+        "apps/web/src/apps/joke-generator/index.ts"
+      ],
+      "source_locations": [
+        "L5",
+        "L6"
+      ],
+      "contexts": [
+        "export",
+        "re-export"
+      ]
+    },
+    {
+      "source": "apps_web_src_apps_joke_generator_index",
+      "target": "apps_web_src_apps_joke_generator_lib_constants",
+      "edge_count": 3,
+      "relations": [
+        "imports_from",
+        "re_exports"
+      ],
+      "source_files": [
+        "apps/web/src/apps/joke-generator/index.ts"
+      ],
+      "source_locations": [
+        "L7",
+        "L8"
+      ],
+      "contexts": [
+        "export",
+        "re-export"
+      ]
+    }
+  ]
+}

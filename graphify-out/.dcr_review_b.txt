@@ -1,0 +1,28 @@
+Review completed read-only. No files changed.
+
+CRITICAL: None.
+
+MEDIUM
+
+1. Generated output is fed back into the next corpus update  
+   Confidence: High
+
+   - Evidence: [manifest.json:2607](/Users/jack.neil/Github/hanks-hits/graphify-out/manifest.json:2607), [graph.json:115](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.json:115), [.graphify_root:1](/Users/jack.neil/Github/hanks-hits/graphify-out/.graphify_root:1)
+   - Trigger: A later `graphify --update` uses the retained root, sees `graphify-out/converted/behavior-spec_ed8c3838.md` as an input, and retains graph nodes sourced from that generated file.
+   - Why wrong: Re-running the build can ingest its own generated artifacts, causing stale or recursive graph content and breaking idempotency.
+
+2. Extraction-health warnings are not surfaced in the human-facing result  
+   Confidence: High
+
+   - Evidence: [.graphify_health.json:7-14](/Users/jack.neil/Github/hanks-hits/graphify-out/.graphify_health.json:7), [GRAPH_REPORT.md:6-9](/Users/jack.neil/Github/hanks-hits/graphify-out/GRAPH_REPORT.md:6)
+   - Trigger: A user reads `GRAPH_REPORT.md` or opens `graph.html`; the retained health sidecar records 470 dangling extraction edges, one self-loop, and collapsed-edge groups, but the report contains no corresponding warning.
+   - Why wrong: The final graph is endpoint-valid, but the retained result can still be mistaken for a clean extraction, violating the requirement to surface graph-health warnings.
+
+LOW
+
+- [GRAPH_REPORT.md:8](/Users/jack.neil/Github/hanks-hits/graphify-out/GRAPH_REPORT.md:8) rounds ambiguous edges to `0%`, while [GRAPH_REPORT.md:979](/Users/jack.neil/Github/hanks-hits/graphify-out/GRAPH_REPORT.md:979) lists two explicitly ambiguous edges. This is minor because the detailed section remains present.
+
+Verdicts:
+
+- Logic & Edge Cases: NEEDS ATTENTION
+- Data Integrity & Schema Safety: NEEDS ATTENTION

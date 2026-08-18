@@ -1,0 +1,21 @@
+VERDICT: NEEDS ATTENTION
+
+- CRITICAL: The pagehide purge is unconditional. Plan lines 730, 737, 738 and `useAuthSync.ts:249` allow an old tab to clear a new owner’s bytes after B persists. Add owner-generation checks and a B-write-before-A-pagehide regression.
+
+- CRITICAL: “Clear succeeds” is undefined. Plan line 733 requires retaining the marker on failure, but `clearGameStorage(): void` (`storage-keys.ts:65-79`) has no verified readback. Return a verified purge result and test silent/no-op removal.
+
+- MEDIUM: Malformed storage contradicts the first-sync table. Plan lines 532 and 404-450 require non-READY/no network, while rows 356-357 allow present plus `meaningfulLocal:false` to reach READY. Add explicit malformed and recovery transitions with zero transport.
+
+- MEDIUM: Hydration/migration lacks an actual runtime seam. `ProgressHydrationAdapter` requires exact Zustand hydration and transactional storage (plan 507-526), but `RuntimeCallerPort` only supplies get/set (606-617); the mounted caller likewise supplies only those (`AchievementCelebrations.tsx:48-52`). Bind and test the exact persist/storage instances.
+
+- MEDIUM: Normal adoption is type-incoherent. `TPersisted` and `TRequest` are explicitly distinct (plan 524-525, 533), but C0 and normal responses call `adoptLive(response.data)` (360, 766). Define and test request-to-live conversion for every shape class.
+
+- MEDIUM: Dedupe state is body-only (`ProgressCoordinatorState`, plan 803-815), contradicting tuple/hash dedupe requirements (843, 848) and S1 same-body delivery (767). Replace with typed lineage records and test a new logical ID with identical bytes.
+
+- MEDIUM: C0-different first sync exposes `READY` before reconciliation (plan 360, 366-367), while READY permits terminal beacons (827, 841). Add an atomic reconcile phase or explicit suppression guard and a boundary terminal-event test.
+
+- MEDIUM: GET correlation is not wire-exact. Plan 932-959 and 986 defer to an unspecified “query/header request schema”; current client GET has no IDs (`useAuthSync.ts:120-125`) and the route reads only the path (`route.ts:30-80`). Specify canonical serialization and parser tests.
+
+- MEDIUM: The Chess legacy byte schema is not source-grounded. Plan 544-557 invents an exact shape, while live code only identifies `chess-storage` as a legacy key (`storage-keys.ts:20`) and persists the canonical key (`chess/lib/store.ts:434-440`). Add authoritative historical bytes or versioned parsers, not only invented fixtures.
+
+- MEDIUM: `SyncMetadata` cannot compile or safely encode paths. `JsonPath` is an array (plan 395), but lines 1344-1348 use `Record<JsonPath,...>`, with no canonical escaping. The grammar also lacks `multipleOf` and clock-relative timestamp bounds required later. Define canonical path encoding and extend the grammar.

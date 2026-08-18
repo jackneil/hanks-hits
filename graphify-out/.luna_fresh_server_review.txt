@@ -1,0 +1,27 @@
+Fresh full re-review result: the amended lock SQL, Drizzle `$client` access, Zod 4 envelope contract, merge semantics, and named schema/extractor mappings are sound. The plan still has these blockers:
+
+1. **CRITICAL: Real integration setup cannot authenticate safely.**  
+   Plan [lines 740-748](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:740>) does not require mocking `auth()`/rate limits, dynamically importing after preflight, or inserting the mocked user. The route calls `auth()` first ([route.ts:98-118](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:98>)), while `app_progress.user_id` has a real users FK ([app-progress.ts:20-22](</Users/jack.neil/Github/hanks-hits/packages/db/src/schema/app-progress.ts:20>)).  
+   Failure: requests are 401/NextAuth failures, or the mocked user causes an FK 500.  
+   Correction: require hoisted `vi.mock` auth/rate-limit seams, seed a fixed `users` row, dynamically import `@hank-neil/db` and the route only after URL validation, and clean dependent rows before the user.
+
+2. **CRITICAL: POST/DELETE order tests are sequential, not concurrent proof.**  
+   Task 5 ([lines 745-746](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:745>)) waits for POST to commit before issuing DELETE, then reverses that sequence. The current read-before-transaction route ([route.ts:163-174](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:163>) and [423-459](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:423>)) would pass both final-state assertions. The lock-wait test also never explicitly inserts and commits the seed row while the route is waiting ([line 743](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:743>).  
+   Correction: hold the blocker, start the first route and observe it waiting, start the second route and observe it waiting, then release the blocker. For the read-order test, insert the seed row after the waiter is confirmed and before releasing the lock.
+
+3. **CRITICAL: Provisioning commands can continue after failure and Task 7 contradicts the validated URL contract.**  
+   Commands [lines 753-766](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:753>) lack `set -euo pipefail`, so failed `dropdb`, `createdb`, or `db:push` can be followed by a green test against stale state. Task 7 replaces the validated URL with a bare, userless URL ([lines 793-797](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:793>).  
+   Correction: use one fail-fast preflight script, explicitly validate a local `LOGIN`/`CREATEDB` role and its authentication method, preserve the same exported URL, and run a connection/schema preflight before importing the route.
+
+4. **MEDIUM: Ordinary Vitest will execute the mandatory DB file.**  
+   The integration path is under the normal include glob ([plan:738](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:738>)); `vitest.config.ts:5-13` includes all source tests, and `package.json:12` runs Vitest without exclusion. Since missing DB prerequisites must fail, ordinary `pnpm --filter web test` becomes red.  
+   Correction: add a default exclusion plus a dedicated integration config/script; the explicit DB command must use that integration config.
+
+5. **MEDIUM: Timeout behavior is specified but not actually proved.**  
+   The plan requires 55P03/57014 to return 503 ([lines 454-455](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:454>)), but Task 4 only names generic transaction failure/500 coverage ([lines 721-729](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:721>)), and Task 5 releases the lock instead of testing timeout.  
+   Correction: add unit cases for both SQLSTATEs asserting 503, `Retry-After`, and no DML, plus a real lock-held-past-timeout PostgreSQL case.
+
+6. **MEDIUM: Overflow fixture must be tied to a leaderboard-supported app.**  
+   Task 5 requires unchanged leaderboard rows ([line 747](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:747>)), but the easiest 500-entry overflow candidate, `achievements`, has no leaderboard extractor. Use a full-schema `cookie-clicker` fixture instead: its bounded collections are in [progress-schemas.ts:82-92](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:82>), and its positive score extractor is [leaderboard-extractors.ts:88-97](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/leaderboard-extractors.ts:88>). Assert both `validateProgress` and `extractLeaderboardScore` before the test.
+
+VERDICT: NEEDS ATTENTION

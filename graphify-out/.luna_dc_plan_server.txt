@@ -1,0 +1,68 @@
+VERDICT: NEEDS ATTENTION
+
+### CRITICAL
+
+1. Merge-validation fallback can erase valid existing progress.
+
+Plan: Server transaction protocol step 6, Task 7, acceptance A6 ([plan:419](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:419>), [plan:653](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:653>), [plan:719](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:719>)).
+
+Evidence: `mergeForSave` unions arrays and records ([progress-merge.ts:107](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-merge.ts:107>), [progress-merge.ts:113](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-merge.ts:113>)), while schemas cap them at 500 ([progress-schemas.ts:87](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:87>), [progress-schemas.ts:720](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:720>)). Two individually valid 500-entry blobs produce a 1,000-entry invalid merge. The planned fallback to incoming data ([route.ts:218](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:218>)) can discard the existing row, including higher counters. This was reproduced locally.
+
+Required amendment: Replace the incoming-data fallback with transaction rollback and a non-success response, or specify a bounded, schema-aware merge that preserves existing data. Never persist incoming data after a failed merged-output validation. Add overflow tests asserting neither progress nor leaderboard state is overwritten.
+
+### MEDIUM
+
+1. `updatedAt` can regress after lock wait.
+
+Plan: Server transaction protocol ([plan:417](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:417>)) and Task 7 ([plan:652](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:652>)) do not state when `now` is created.
+
+Evidence: Current `now` is created before the transaction ([route.ts:227](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:227>)), then written to `updatedAt` and leaderboard timestamps ([route.ts:241](</Users/github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:241>)). A request waiting on the advisory lock can therefore write an earlier timestamp after a prior request commits. `mergeForSave` uses `updatedAt` when blobs lack timestamps ([progress-merge.ts:234](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-merge.ts:234>)).
+
+Required amendment: Create the server timestamp only after advisory-lock acquisition, then use it for progress, leaderboard, and response timestamps. Do not use transaction-start `now()` after waiting. Add a lock-wait timestamp regression test.
+
+2. Real POST/DELETE linearization proof is optional.
+
+Plan: The plan correctly says mocks are not concurrency proof ([plan:615](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:615>)), but A4 still permits an optional database test ([plan:717](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:717>)). The concurrent first-save case also only says to start two requests, without a deterministic barrier ([plan:624](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:624>).
+
+Required amendment: Make real PostgreSQL tests mandatory for A3 and A4. Add deterministic POST-before-DELETE and DELETE-before-POST cases, and require a supported leaderboard fixture with an asserted final leaderboard row. If PostgreSQL is unavailable, mark these criteria unverified and do not report the plan as fully accepted.
+
+3. The integration database setup is unsafe and not reproducibly runnable.
+
+Plan: It requires arbitrary `DATABASE_URL` and says “do not run against production” ([plan:622](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:622>), [plan:625](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:625>)), but the command only runs `db:push` against a database that must already exist ([plan:630](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:630>)). The repository has no disposable database fixture. The web package also cannot directly resolve `pg`; it is declared only by the DB package ([web package.json:16](</Users/jack.neil/Github/hanks-hits/apps/web/package.json:16>), [db package.json:21](</Users/jack.neil/Github/hanks-hits/packages/db/package.json:21>)).
+
+Required amendment: Use a separate `PROGRESS_SYNC_TEST_DATABASE_URL`, fail closed unless the database is explicitly local/test-only, provision it before `db:push`, document observer connections and pool cleanup, and add bounded lock-wait/test timeouts. Use `db.$client` or explicitly add the needed test dependency.
+
+4. The `merged` response contract is underspecified for stale clients.
+
+Plan: It changes false/omitted merge semantics ([plan:388](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:388>)) but only vaguely says `merged` should describe reconciliation ([plan:421](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:421>)).
+
+Evidence: Current response uses `merge && conflicts.length === 0` ([route.ts:376](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:376>)), which reports `merged: false` for safe legacy false requests that reconciled an existing row, and can report `true` for `merge=true` when no row existed.
+
+Required amendment: Define `merged` as true exactly when an existing row was read and `mergeForSave` ran, independent of the request flag or conflict count. Add tests for `true`, `false`, and omitted merge, both with and without an existing row.
+
+5. The one-POST coordinator does not include direct beacon POSTs.
+
+Plan: It promises one in-flight POST ([plan:456](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:456>), [plan:721](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:721>)) while preserving direct `sendBeacon` paths ([plan:674](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:674>)). Current unload paths call `sendBeacon` directly ([useAuthSync.ts:480](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:480>), [useAuthSync.ts:513](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:513>)).
+
+Required amendment: Explicitly exclude terminal beacons from A8 and test that exception, or route beacon scheduling through a defined terminal coordinator. The plan cannot promise “at most one POST” while leaving this behavior ambiguous.
+
+### LOW suggestions, ranked
+
+1. Document that two-argument `hashtext` is collision-prone only for extra contention, not lost-update safety. The PostgreSQL overload is valid and transaction-scoped ([official documentation](https://www.postgresql.org/docs/15/functions-admin.html)). State the same-database and `READ COMMITTED` assumptions.
+
+2. Add rollout guidance to drain old server instances before claiming the advisory-lock invariant. Mixed old/new route instances can still race.
+
+3. Replace `tx as unknown as typeof db` with a narrow query-interface type in `generateUniqueHandle` ([route.ts:297](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:297>), [handle-generator.ts:92](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/handle-generator.ts:92>)).
+
+4. Parameterize integration fixtures by app-specific counter subsets. No single registered schema contains all seven counters.
+
+### Clean lenses
+
+- Auth/access control and SQL parameterization: clean.
+- Advisory-lock SQL primitive and Drizzle transaction capabilities: clean, subject to the timestamp amendment.
+- Zod envelope behavior: clean. Null, missing data, arrays, and non-boolean merge values reject; `data: null` reaches app validation and returns 400.
+- Existing unique `(userId, appId)` constraint and migration sufficiency: clean.
+- Captured DELETE row ID and leaderboard DML ordering: safe after the same lock and transaction are used.
+- Seven-counter source/schema monotonicity audit: clean.
+
+No files were edited. The selected baseline suites passed: 3 files, 58 tests.

@@ -1,0 +1,53 @@
+Review basis: `HEAD/origin/master` is `7649017`. No tracked files were modified.
+
+## Scenario 1: Silent corruption during deployment
+
+- What failed: Slow Zustand hydration exceeded the hardcoded 500 ms wait. The hook returned pre-hydration defaults, then the initial save stored those defaults as the first server row. Later hydrated progress had an older timestamp, so non-monotonic fields could be overwritten.
+
+- Root cause: The plan’s client state machine and Task 8 require “hydration” but do not remove the unsafe fallback in [`useAuthSync.ts:198`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:198) and [`useAuthSync.ts:211`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:211). The no-row path then saves the returned snapshot at [`useAuthSync.ts:283`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:283).
+
+- Why tests/observability missed it: Task 1 tests a deferred GET, not hydration delayed beyond 500 ms. The plan retains console logging and server 400/500 monitoring, but has no metric or alert for pre-ready clients uploading, or for hooks remaining non-ready.
+
+- Severity: CRITICAL.
+
+- Amendment: Make hydration fail closed. Wait for an explicit Zustand hydration signal, or remain `PENDING` and retry. Add a test with hydration delayed beyond 500 ms that asserts zero POSTs and a test for initial-sync retry after a transient failure. Add alerts for initial-sync age and authenticated clients stuck non-ready.
+
+A second actual gap can produce the same incident: a failed initial GET or merged re-fetch leaves readiness closed, but the plan specifies no retry while authentication remains unchanged. Current control flow returns on failure at [`useAuthSync.ts:275`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:275), while the triggering effect is auth-driven at [`useAuthSync.ts:402`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:402).
+
+## Scenario 2: Coordinator and advisory lock caused a save stall
+
+- What failed: A long-running transaction held the pair advisory lock. The client’s single in-flight request waited indefinitely, while newer snapshots accumulated behind it. Because the coordinator correctly prevented parallel POSTs, no request made progress. A failing request could then trigger immediate identical retries and a rate-limit storm.
+
+- Root cause: The save coordinator contract at plan lines 456-461 defines queueing but no timeout or backoff. Task 7 adds the lock without requiring `lock_timeout` or `statement_timeout`. The current client request has no abort signal at [`useAuthSync.ts:140`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:140), and the transaction has no bounded wait at [`route.ts:232`](/Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:232).
+
+- Why tests/observability missed it: The unresolved-POST test eventually resolves the request, and the integration test releases the lock. Neither tests a permanently held lock, client timeout, retry backoff, or queue age. The plan says to watch `pg_locks`, but defines no alert threshold or client-side stuck-queue telemetry. Beacons also bypass the coordinator at [`useAuthSync.ts:467`](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:467).
+
+- Severity: MEDIUM.
+
+- Amendment: Add bounded server lock/statement timeouts returning a retryable status, client abort handling, exponential backoff with jitter, and queue-age metrics. Add tests for a lock held past the timeout, eventual retry of the newest snapshot, no retry storm, and unload while a POST is active.
+
+## Scenario 3: A later developer reintroduced field-level loss
+
+- What failed: A developer added or changed a monotonic counter such as `totalMatches`. Two devices then saved concurrently, and last-write-wins discarded the older device’s matches because the field was not classified as monotonic.
+
+- Root cause: The plan repeatedly says “exactly seven” counters, including Task 3 and Task 6. Current [`progress-merge.ts:34`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-merge.ts:34) does not classify `totalMatches`, while the store increments it at [`memory-match/lib/store.ts:182`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/memory-match/lib/store.ts:182). The schema proves it is a bounded counter at [`progress-schemas.ts:105`](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:105). Nested platformer progress is another unhandled case: [`platformer/lib/store.ts:593`](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/platformer/lib/store.ts:593) updates per-level counters, while reconciliation only walks top-level keys.
+
+- Why tests/observability missed it: The planned table deliberately covers only seven fields. The database concurrency suite is opt-in, and route mocks cannot prove real lock behavior. No test requires every new progress field to be classified.
+
+- Severity: MEDIUM.
+
+- Amendment: Replace the “exactly seven” list with an exhaustive per-app field-classification manifest covering nested fields. CI should fail on any unclassified progress counter. Make the PostgreSQL concurrency suite mandatory in CI or run it in a required ephemeral database job.
+
+## Additional actual gap
+
+The planned fallback for an invalid merged result silently discards the existing row’s fields. The route currently falls back to incoming data at [`route.ts:218`](/Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:218), and the plan preserves this behavior. A valid union of two unlockable arrays or records can exceed schema limits, causing a successful save that drops existing unlocks. Amend the contract to reject the write without replacing the existing row, or define bounded storage that preserves both sides, and test overflow explicitly.
+
+## Speculative LOW risks
+
+- `hashtext(userId), hashtext(appId)` collisions could serialize unrelated users/apps, causing rare performance degradation.
+- A rolling deployment could temporarily mix old route code, which still reads before its transaction, with the repaired route.
+- Capturing `now` before lock acquisition could make `updatedAt` slightly out of order for timestamp-less blobs.
+
+## VERDICT: NEEDS ATTENTION
+
+There are multiple plausible CRITICAL/MEDIUM gaps, so the plan is not ready as written.

@@ -1,0 +1,55 @@
+Plan under review:
+docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Pinned pre-amendment SHA-256:
+69c576f50db9e6d8d8b5b259ea30ba9b441c5d84b6c1cd5fac105c6890def46a
+
+Scope:
+- Amend only the plan HTML.
+- Do not edit product, test, config, migration, lockfile, lesson, or instruction files.
+- Current absence of planned implementation is expected and is not a blocker.
+- Preserve existing graphify-out artifacts.
+
+Client review blockers:
+1. Virtual slots never hydrate, yet READY requires valid hydration for all 32 slots. Define virtual slots as resolved no-op baselines or specify inventoried eager construction.
+2. The plan returns a vanilla StoreApi, while live stores and consumers require callable UseBoundStore hooks. Define a compatible hybrid or useStore adapters and inventory all affected consumers.
+3. The argumentless useAuthSync contract and Home owner access lack compatibility and subscription semantics. Define the adapter, return-field/state mapping, subscribed owner hook, and teardown/transfer behavior.
+4. Hill Climb requires a persisted idempotent lastModified but the live getter reads Date.now, setProgress omits the field, and partialize excludes it. Add state/default/partializer/migration coverage or remove the field from A1.
+5. Known historical records are not covered: Checkers already persists version 2 and Oregon has a pre-envelope version-1 record without sync. Define explicit per-entry decoding/migration cases.
+6. Marker-loss recovery resets to 1/1 but cannot recover an existing higher server authority. Add an authenticated current-authority recovery handshake.
+7. Purge ordering contradicts itself by deleting the ledger before enumerating dynamic payloads. Keep one payloads, ledger, staging, sign-out sequence.
+8. The GET lock oracle requires an app lock but the transaction algorithm omits GET. Require GET user lock, authority check, app lock, then same-transaction read and no DML.
+9. Direct persisted mutations such as Breakout Game.tsx direct useBreakoutStore.setState are absent from provenance. Add a direct-api-setState binding or refactor to a named generated action.
+10. The plan types persist.getOptions as full PersistOptions, but installed Zustand 5 returns Partial<PersistOptions>. Use the installed partial contract with narrowing or a materializing facade.
+11. Required integration oracles are string tokens and can pass without executing behavior. Replace them with independent executable setup/assert/evidence contracts.
+12. home-owner-snapshot is named in prose but not registered in PROOF_CASES/closure. Register it or use the existing literal proof ID consistently.
+
+Policy and source-oracle review blockers:
+13. Quarantine records and index are authorized only for device-forget, but foreign-purge attempts to delete them. Add a distinct recovery-cleanup authorization or explicitly permit validated cleanup in that phase.
+14. MAX_METADATA_ENTRIES=512 cannot represent valid policies such as A10 seenJokeIds cap 5000. Derive a sufficient cap or define compact inherited metadata semantics with executable bounds.
+15. A12, A22, and A25 identity paths use concrete identity segments where item-scoped property paths are required. Add a dedicated identity-field path type and use scoped paths.
+16. A25 SavedBeat pattern needs nested wildcard scopes, while the grammar and MetadataBindingTemplate allow one wildcard. Support ordered nested scopes or recursive prefix expansion.
+17. Nullable/presence semantics disagree with live schemas for A10 lastCategory, A12 country/admin1, A14 notes, and A25 favoriteKitId. Encode exact optional/non-null rules or explicit null-to-absence migrations.
+18. A26 includes settings.petName but then says only settings.soundEnabled is sourced. State that both are sourced or remove petName consistently.
+19. Provenance discovery must explicitly partition adoption callbacks from user source mutations and prove both sets, including Virtual Pet, Checkers, AchievementCelebrations, and direct setState callers.
+20. assertProofCaseRunnerCoverage accepts an empty configs array. Require exactly one unique ordinary and one unique integration config and derive observed IDs from actual reporter events.
+
+Server and integration review blockers:
+21. Beacon transport is query-only, but preflight examines headers and defaults missing transport to fetch. Pass raw URL/query input into preflight, define precedence, and preserve beacon correlation before auth/quota failures.
+22. The browser is required to verify an HMAC whose secret is server-only. Remove browser cryptographic verification and retain structural/correlation/expiry checks plus server verification, or specify an asymmetric public-key design.
+23. progress_owner_epochs lacks a cascading users FK and is omitted from integration reset/zero-row assertions. Add ON DELETE CASCADE, cleanup/assertions, and serialize production user deletion with the user advisory lock.
+24. claimNonce is not persisted, so a lost claim response cannot be retried idempotently. Persist the claim nonce/result or add a durable claim-idempotency record as part of marker-loss recovery.
+25. progress.error.stored-conflict-no-dml seeds foreign ownership but expects stored_conflict; the algorithm requires owner_mismatch. Correct the fixture/status and reserve stored_conflict for malformed/schema/policy conflicts.
+26. progress.first-save.concurrent-absent omits merge/base semantics. Specify exact modes, base versions, fixtures, response statuses/bodies, and explicit winner readback.
+27. Projection hooks and required scenario hooks are not executable or branded, positive-projection conflict accepts 409-or-503, and the fail-closed reporter is not wired to every intended mode. Define branded invocation-aware projector wrappers, function-valued setup/assert/evidence, exact statuses, and exact reporter configs.
+
+Cross-cutting amendment requirements:
+- Deduplicate overlapping findings while repairing every cited contradiction.
+- Update generated types, policy grammar, metadata bindings, semantic matrix, source oracle, inventories, closure/proof registries, required IDs/oracles, integration harness, migration description, and validators together.
+- Every executable proof must fail closed if its hook is not invoked.
+- If a new file or proof ID is required, update exact cardinalities and all rendered/generated projections.
+- Run the embedded validator, exact documented validator command, strict HTML and forbidden-token checks, tracked fingerprint/scope checks, and installed Zustand/Drizzle declaration probes on the final bytes.
+- Return the final SHA and a concise mapping from each numbered blocker above to its correction.
+
+Full persistent server review:
+graphify-out/.luna_round8_fresh_server_review.txt

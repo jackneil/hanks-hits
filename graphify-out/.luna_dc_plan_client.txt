@@ -1,0 +1,103 @@
+VERDICT: NEEDS ATTENTION
+
+CRITICAL
+
+1. Task 5’s concurrency fixture is impossible.
+
+Plan: Task 5, lines 621-628; A3, lines 714-717. It requires one `(userId, appId)` row to contain all seven counters, but validation is app-specific.
+
+Evidence: `route.ts:142-145`; the counters are split across snake, checkers, chess, quoridor, and hextris schemas.
+
+Amend: Parameterize real tests by app, using only fields valid for that app. Use merge-unit tests for all seven counters. Add a deterministic database barrier so both pre-fix writers observe the absent row before writing.
+
+2. The READY gate contradicts the required bootstrap POST.
+
+Plan: Client state machine, lines 436-466; Task 8, lines 666-678; A7, lines 720-724. The coordinator requires `initial ready`, but initial local upload must occur before READY. A7 also literally forbids every POST before READY.
+
+Evidence: current bootstrap calls are before `initialSyncDoneRef` is set: [useAuthSync.ts:283-316](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:283>).
+
+Amend: Define a documented `bootstrap` request exception. It may run after ownership, confirmed hydration, and successful GET, while normal, force, queued, and beacon saves require READY. Update A7 to exclude this single bootstrap POST.
+
+3. Hydration timeout can still upload pre-hydration state.
+
+Evidence: [useAuthSync.ts:198-212](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:198>). After 500 ms, `waitForHydration` returns possibly unmatched state. The plan then treats initialization as successful.
+
+Amend: Require confirmed hydration before bootstrap or READY. A timeout must remain pending and retry, or fail closed. Add a delayed-persist test proving zero POSTs until the persisted snapshot matches.
+
+4. Initial GET, bootstrap POST, and re-fetch failures have no recovery contract.
+
+Plan: Initial synchronization decision, lines 465-466, only specifies failed re-fetch behavior.
+
+Evidence: GET failure returns at [useAuthSync.ts:272-279](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:272>); failed initial POSTs return without retry at `:283-297` and `:313-330`. The auth effect only retries on auth/status dependency changes at `:398-416`.
+
+Amend: Add a failure table covering GET failure, initial POST failure, non-OK/network/malformed/null re-fetch, and the force latch. Specify retry trigger/backoff, queue retention, and the exact transition to READY. Add tests for each.
+
+5. Async work is not invalidated across logout, user switch, unmount, or foreign purge.
+
+Plan: Save coordinator, lines 454-462 and Task 8, lines 669-675, only says to drop queued work.
+
+Evidence: old async closures can continue through [useAuthSync.ts:135-166](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:135>) and `:218-337`; `initialSyncDoneRef` resets only after unauthenticated status at `:408-411`. The beacon cleanup also runs on auth dependency changes at `:489-517`.
+
+Amend: Add a mounted/auth-generation guard keyed by user ID. Invalidate active continuations and clear timers, latch, and queue on unmount, logout, user change, and purge. Prevent stale marker updates, state adoption, queue drains, and POST starts. Add in-flight lifecycle and StrictMode tests.
+
+6. Invalid merge fallback can erase monotonic progress.
+
+Plan: Server protocol line 419; Task 7 line 653; A6 line 719 require falling back to incoming data.
+
+Evidence: `progress-merge.ts:102-111` unions arrays; cookie schemas cap those arrays at `progress-schemas.ts:82-91`. Two individually valid blobs can produce an oversized union, causing fallback to a lower incoming counter in `route.ts:181-223`.
+
+Amend: Use a bounded merge that preserves monotonic fields, or reject without writing. Never fall back to raw incoming data when that can discard an accepted counter. Add an overflow regression test.
+
+MEDIUM
+
+1. Beacons bypass the single-request coordinator.
+
+Plan: Save coordinator lines 456-461; Task 8 line 674; A8 lines 721-722.
+
+Evidence: direct beacon POSTs remain at [useAuthSync.ts:474-484](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:474>) and `:501-514`. Beforeunload and unmount can both send, and a beacon can overlap an active fetch POST.
+
+Amend: Explicitly define beacons as coordinator exceptions or deduplicate them with a lifecycle ref. Specify behavior during an active POST and test beforeunload plus unmount.
+
+2. Queue priority and caller identity semantics are underspecified.
+
+Plan: Save coordinator lines 458-461.
+
+Evidence: actual terminal callers depend on stable `forceSync` identity, for example [snake/Game.tsx:468-473](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/snake/Game.tsx:468>) and [Trivia.tsx:49-54](</Users/jack.neil/Github/hanks-hits/apps/web/src/apps/trivia/Trivia.tsx:49>). A READY transition must not recreate `forceSync` and retrigger those effects.
+
+Amend: Define queue merge as `forced = old.forced || incoming.forced`, always retain the newest snapshot, and require `forceSync` identity to remain stable across READY. Test a forced queue followed by newer autosave state while the response is settling.
+
+3. A4’s real POST/DELETE concurrency proof is effectively optional.
+
+Plan: A4 lines 714-717; Task 4 line 606; Task 5 has no POST/DELETE database case.
+
+Amend: Add a real two-session POST/DELETE lock-order test, or downgrade A4 to a code-review assertion. Mock operation logs cannot prove database serialization.
+
+4. The Zod envelope schema does not itself require `data`.
+
+Plan: Task 7 line 651; A5 line 718.
+
+Evidence: `apps/web/package.json:55` uses Zod 4.4.3, where `z.object({ data: z.unknown() })` accepts `{}`. The current basic guard at `route.ts:134-140` masks this, but the plan should not rely on that accidental second layer.
+
+Amend: Require an own-property check or a schema refinement for `data`, and test `{}` independently.
+
+5. “Exactly seven” conflicts with other source-proven monotonic counters.
+
+Plan: Goal line 254; allowlist lines 526-535; A12 line 725.
+
+Evidence: `totalCoinsEarned` is incremented in monster-truck and hill-climb stores and schema-bounded at `progress-schemas.ts:251-253,297-300`, but is absent from `progress-merge.ts:33-54`. Similar candidates include `totalCorrect` and `totalAnswered`.
+
+Amend: Either audit/add every source-proven counter, or explicitly narrow the goal and acceptance language to the seven selected fields.
+
+LOW suggestions, ranked by impact x effort
+
+1. Correct the baseline claim of “30 tests” at plan line 257. The three requested files currently contain 14 tests.
+2. Replace the reference to `apps/web/src/lib/auth.ts` with the actual client ownership helper, `apps/web/src/lib/auth-client.ts:36-51`.
+3. Include `useAuthSync.achievements-observer.test.tsx` in the focused hook verification command.
+4. Define whether a successful initial GET adoption updates `lastSavedRef`; otherwise READY can immediately schedule a redundant save.
+
+Clean lenses
+
+- Force caller inventory: clean; all product `forceSync()` callers were found and the plan keeps them unchanged.
+- Achievement observer preservation: clean at the static contract level; guest observation and feedback-loop exclusion remain represented.
+- Product scope and artifact format: clean; no source diff exists against `origin/master`, and the plan is HTML.
+

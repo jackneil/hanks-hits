@@ -1,0 +1,78 @@
+VERDICT: NEEDS_ATTENTION
+
+The pinned SHA-256 matches exactly. Read-only HTML validation passed. Eight blockers remain:
+
+1. Beacon preflight correlation cannot preserve query-only transport.
+
+   The beacon contract puts `transport=beacon` in the query and sends no custom headers ([plan:1612](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1612>)), but preflight is specified to inspect transport header values and defaults missing values to `fetch` ([plan:2055](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2055>)). The live client currently has only the old fetch transport ([useAuthSync.ts:140](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:140>)).
+
+   Impact: malformed, unauthenticated, or rate-limited beacon requests can receive `fetch` correlation instead of beacon correlation.
+
+   Minimal correction: pass raw URL/query values into preflight, define header/query precedence, and invoke the raw preflight builder before authentication and quota failures.
+
+2. Browser HMAC verification is impossible with the specified secret boundary.
+
+   The client must verify the returned signature ([plan:753](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:753>)), while the server alone owns the HMAC secret ([plan:1963](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1963>), [plan:2077](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2077>)). Live database and Auth.js setup is server-side only ([db/index.ts:1](</Users/jack.neil/Github/hanks-hits/packages/db/src/index.ts:1>), [auth.ts:10](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/auth.ts:10>)).
+
+   Impact: implementation must either leak the HMAC secret to the browser or cannot satisfy the contract.
+
+   Minimal correction: use asymmetric signing with a browser-distributed public key, or remove client cryptographic verification and retain structural, correlation, expiry, and server-verification checks.
+
+3. GET is omitted from the required app-lock algorithm.
+
+   The transaction algorithm says only POST and DELETE use both locks ([plan:1962](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1962>)), but its required oracle demands GET wait for the app lock ([plan:326](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:326>)). The live GET currently reads outside a transaction ([route.ts:60](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:60>)).
+
+   Impact: GET can observe an unlocked or stale app row, and the lock observer cannot prove the required sequence.
+
+   Minimal correction: explicitly require GET, POST, and DELETE to acquire the user lock, authority check, then app lock, with GET reading on that same transaction.
+
+4. The authority table is neither user-owned nor cleaned up.
+
+   The planned migration has no foreign key from `progress_owner_epochs.user_id` to `users.id` ([plan:1953](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1953>)), and integration cleanup omits the table and its zero-row assertion ([plan:2071](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2071>)). Existing user-owned tables consistently use cascading foreign keys ([app-progress.ts:20](</Users/jack.neil/Github/hanks-hits/packages/db/src/schema/app-progress.ts:20>), [auth.ts:33](</Users/jack.neil/Github/hanks-hits/packages/db/src/schema/auth.ts:33>)).
+
+   Impact: deleting the fixture user leaves the authoritative lease row behind. Reusing the deterministic user ID then encounters stale authority.
+
+   Minimal correction: add `REFERENCES users(id) ON DELETE CASCADE`, include the table in setup/teardown and zero-row checks, and serialize production user deletion with the user advisory lock.
+
+5. Marker loss has no authoritative epoch recovery, and claims are not idempotent.
+
+   Marker loss resets local claims to generation/epoch `1/1` ([plan:752](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:752>)), while the server accepts only an absent row at `1/1` or exactly the next epoch ([plan:1963](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1963>)). `claimNonce` exists in the request proof but is not persisted in the authority schema ([plan:631](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:631>), [plan:1953](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1953>)). The live client currently treats its local marker as the owner source ([useAuthSync.ts:236](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:236>)).
+
+   Impact: losing a marker when the server is already at epoch 5+ permanently blocks recovery. Losing a claim response makes retrying the same claim stale rather than returning the committed lease.
+
+   Minimal correction: add authenticated authority recovery that returns the server epoch for rebasing, and persist claim nonce plus the resulting lease/response, or add a durable claim-idempotency table.
+
+6. The stored-conflict oracle asserts the wrong error code.
+
+   The required case seeds a foreign-owner envelope but expects `409 stored_conflict` ([plan:333](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:333>)). The server algorithm explicitly requires `409 owner_mismatch` ([plan:1964](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1964>), [plan:1582](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1582>)). The live route currently performs no stored-envelope ownership check ([route.ts:76](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:76>)).
+
+   Impact: a correct implementation fails the required oracle, or the test permits an incorrect classification.
+
+   Minimal correction: change this oracle to `owner_mismatch`; reserve `stored_conflict` for malformed envelopes, policy caps, and schema conflicts.
+
+7. Concurrent first-save merge and base semantics are undefined.
+
+   The first-save oracle does not specify `merge` or `baseServerVersion` ([plan:325](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:325>), [plan:2083](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2083>)). Yet the server contract says stale replace requests return `409 server_changed`, while merge requests succeed ([plan:1985](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1985>), [plan:1997](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1997>)). The live route currently reads merge state before its transaction ([route.ts:163](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:163>)).
+
+   Impact: with replace/null base, the second request is a `server_changed` loser, not a response that reads the winner version. With merge enabled, it is a successful merge, not a loser.
+
+   Minimal correction: specify exact modes, base versions, fixture values, expected statuses, response bodies, and the explicit GET/readback used to verify the committed winner.
+
+8. Projection, scenario, and reporter hooks are not executable contracts.
+
+   `RequiredIntegrationOracle` contains only string token arrays ([plan:318](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:318>)); the validator checks only token counts and identity ([plan:381](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:381>), [plan:387](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:387>)). The projection is typed as an unbranded function returning `unknown` ([plan:1758](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1758>)), while the plan only describes a branded wrapper in prose ([plan:1955](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1955>)). The live route’s real extractor path is at [route.ts:253](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:253>), and its current invalid-projection branch silently returns from the transaction ([route.ts:278](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:278>).
+
+   Impact: a test can emit a passing ID without executing setup, assertions, DML-order checks, or real extractor evidence. The positive-projection oracle also accepts either `409` or `503` ([plan:338](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:338>)). The ordinary config specifies the default reporter ([plan:2092](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2092>), while the custom reporter’s ordinary-mode coverage is only asserted in prose ([plan:2097](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2097>)).
+
+   Minimal correction: define executable setup/assert/terminal-evidence functions, a branded projector wrapper with invocation and pre-DML assertions, exact fixture-to-error mappings, and wire the fail-closed reporter to every intended Vitest mode.
+
+All 21 required IDs were checked. The semantic issues map as follows:
+
+- `progress.first-save.concurrent-absent` → blocker 7.
+- `progress.lock.read-after-lock` → blocker 3.
+- `progress.order.post-then-delete`, `progress.order.delete-then-post`, `progress.timestamp.post-lock`, both timeout cases, bad-request, invalid-projection, rollback, missing-delete, cookie-overflow, valid-no-score, both omitted-envelope cases, false-absent, and true-absent → blocker 8’s non-executable oracle gap.
+- `progress.error.stored-conflict-no-dml` → blocker 6.
+- `progress.atomic.positive-projection-conflict` → blocker 8, including its nondeterministic status assertion.
+- `progress.envelopes.false-existing` and `progress.envelopes.true-existing` → blocker 7’s missing base/divergence fixtures.
+
+The raw body scanner, authentication/rate-limit ordering, SCRAM setup, pool ownership, timeout rollback, and integration isolation are otherwise specified in detail ([plan:1640](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:1640>), [plan:2042](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2042>), [plan:2065](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2065>), [plan:2072](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:2072>)). No files were edited. `jacked check-version` reports an available update from 0.89.0 to 0.89.2.

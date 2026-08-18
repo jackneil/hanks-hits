@@ -1,0 +1,65 @@
+Accessibility lens: NEEDS ATTENTION
+
+Reviewed only [graph.html](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html). No browser or assistive-technology testing was performed.
+
+### CRITICAL
+
+- **Primary graph is unavailable to keyboard and screen-reader users.**  
+  Evidence: [graph.html:49](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:49), [graph.html:96-117](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:96).  
+  Path: the empty `#graph` container is passed to `vis.Network`, with `interaction.keyboard: false`; no semantic node list, accessible graph description, or alternative representation is authored.  
+  Why wrong: the core 3,031-node visualization cannot be discovered or operated without pointer interaction.  
+  Confidence: High.
+
+### MEDIUM
+
+- **Search input has no accessible label.**  
+  Evidence: [graph.html:52](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:52).  
+  Path: `<input>` uses only `placeholder="Search nodes..."`, with no `<label>`, `aria-label`, or `aria-labelledby`.  
+  Why wrong: placeholder text is not a reliable accessible name, so screen readers may expose an unnamed input.  
+  Confidence: High.
+
+- **Search results are pointer-only controls.**  
+  Evidence: [graph.html:198-210](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:198).  
+  Path: results are created as `<div>` elements with `onclick`, without a button/link role or keyboard handler.  
+  Why wrong: keyboard users can type a query but cannot focus or activate the matching result.  
+  Confidence: High.
+
+- **Neighbor navigation is pointer-only.**  
+  Evidence: [graph.html:133], [graph.html:159-162](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:133).  
+  Path: neighbors are rendered as `<span>` elements and activated only through delegated `click`.  
+  Why wrong: screen readers do not receive them as controls, and keyboard users cannot operate them.  
+  Confidence: High.
+
+- **Community filter checkboxes lack names, and their surrounding controls are non-semantic.**  
+  Evidence: [graph.html:246-275](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:246).  
+  Path: generated checkboxes are inserted into a `<div>` whose visible community name is a sibling, with no label or ARIA association; the parent `<div>` also relies on `onclick`.  
+  Why wrong: individual filters may be exposed as unnamed checkboxes, and their larger clickable behavior is not keyboard-operable.  
+  Confidence: High.
+
+- **Node-detail updates are not announced.**  
+  Evidence: [graph.html:135-142](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:135), [graph.html:180-185](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:180).  
+  Path: `#info-content.innerHTML` changes after node selection, but the container has no `aria-live`, `role="status"`, or focus-management behavior.  
+  Why wrong: screen-reader users may not learn which node was selected or what its details are.  
+  Confidence: High.
+
+- **Several informational text colors fail normal-text contrast.**  
+  Evidence: [graph.html:25], [graph.html:36-37](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:36).  
+  Path: `#555` and `#666` text appears on `#1a1a2e`, producing approximately 2.29:1 and 2.97:1 contrast respectively, below 4.5:1.  
+  Why wrong: empty-state, statistics, and community-count text may be difficult to read for low-vision users.  
+  Confidence: High.
+
+### LOW / unverified
+
+- **Focus styling is likely insufficient for WCAG 2.4.13.**  
+  Evidence: [graph.html:15-16](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:15).  
+  `outline: none` is replaced by a 1px border change. Static evidence suggests the indicator is thinner than the required 2px minimum, but final rendering should be checked in a browser.
+
+- **Reduced-motion behavior is not authored.**  
+  Evidence: [graph.html:99], [graph.html:109], [graph.html:146](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:146).  
+  Physics stabilization and focus animation are enabled, with no `prefers-reduced-motion` handling. Whether movement is prolonged or disruptive requires live browser testing.
+
+- **Landmark and heading structure is weak.**  
+  Evidence: [graph.html:48-67](/Users/jack.neil/Github/hanks-hits/graphify-out/graph.html:48).  
+  The page has no `main` landmark and begins with `h3` headings. This reduces screen-reader navigation efficiency, though the exact user impact should be confirmed with a screen reader.
+
+Static title and language attributes pass: `lang="en"` and a descriptive `<title>` are present.

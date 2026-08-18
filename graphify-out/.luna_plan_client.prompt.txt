@@ -1,0 +1,18 @@
+Read-only bounded design task in /Users/jack.neil/Github/hanks-hits on branch fix/progress-sync-integrity. Do not edit files, commit, change git state, invoke skills, spawn agents, use browsers, or run broad repository scans. Work directly and finish in one pass.
+
+Focus on the client and merge-helper defects already verified:
+- authenticated autosave and forceSync may POST before initial sync completes
+- initial merge re-fetch compares against captured localState rather than current live state
+- failed debounced/forced saves advance lastSavedRef before success, preventing retry
+- unload/unmount beacon gates omit the module-level foreignPurgePending lock
+- monotonic progress fields are missing from the allowlist: totalFoodEaten, totalPiecesCaptured, totalCheckmates, totalWallsPlaced, totalBlocksMatched; search for any other schema-valid counters with the same property
+
+Inspect only useAuthSync.ts, its three focused test files, progress-merge.ts and its test, progress-schemas.ts, and the five named stores/call sites. Design the smallest state machine that:
+- never uploads before the ownership guard, hydration, and initial server reconciliation complete
+- does not lose a forceSync request that arrives while initial sync is pending
+- compares re-fetched server state to the current store state at adoption time
+- retries an unchanged payload after failed POST without creating duplicate concurrent saves
+- blocks every beacon path during a foreign purge
+- preserves existing debounce and unload behavior
+
+Specify TDD tests first, exact file-level changes, edge cases, and any additional truly monotonic fields visible in those bounded files that source code proves only increase. Distinguish necessary correctness from optional refactoring. Return only the design and test strategy with exact file:line evidence. Do not perform a separate review or wait for any external result.

@@ -1,0 +1,16 @@
+Amended [2026-08-03-progress-sync-integrity.html](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html).
+
+Closed client, server, policy, migration, beacon, owner-barrier, integration-harness, presence, shape, and manifest findings with deterministic contracts and tests. No implementation code was changed.
+
+Checks passed:
+
+- HTML structure parse
+- `git diff --check`
+- Zero U+2014 characters
+- Stale-contradiction scan
+- Exact 32-app manifest validation
+- Scope proof: only pre-existing `docs/` and `graphify-out/` untracked paths remain
+
+Unresolved blocker: none for this plan amendment. Real PostgreSQL implementation proof remains a required future implementation gate.
+
+Jacked reports an available update from 0.89.0 to 0.89.1.

@@ -1,0 +1,63 @@
+Fresh full read-only review completed. The amended plan closes the earlier S0/S1, no-fallback merge, Oregon, real-concurrency, and verification-command findings. Remaining blockers:
+
+1. **CRITICAL: The hydration adapter cannot safely represent synthetic timestamps.**
+
+   The plan types `persistedToSync` as `TProgress`, but Monster Truck and Oregon require `lastModified` while their persisted data omits it. Monster Truck generates `Date.now()` in `getProgress()` but excludes it from `partialize`; Oregon does the same.
+
+   Sources: [plan adapter contract](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:383), [Monster Truck store](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/monster-truck/lib/store.ts:541), [Oregon store](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/oregon-trail/lib/store.ts:150).
+
+   Returning the persisted projection as `TProgress` is invalid. Filling `lastModified` violates the plan’s no-synthesis rule. Returning `null` can misclassify valid local data as absent. Repeated live reads can also create different snapshot bytes without a user mutation.
+
+   Correction: define separate persisted-projection and request-snapshot types. Add a discriminated absent/valid/malformed adapter result with `foundStorageKey`. Capture one stable request snapshot per logical save, explicitly exclude synthetic fields from semantic identity, and test repeated Monster Truck/Oregon reads, actual saves, markers, and beacon deduplication.
+
+2. **CRITICAL: The truth table still permits default uploads after a no-POST decision.**
+
+   The table omits `Hydrated + Persisted + meaningfulLocal=False + Server=Present`. It also says several default states enter `READY` without POST, but does not define a clean baseline or post-READY meaningful-local gate.
+
+   Sources: [truth table](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:351), [acknowledgment rule](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:445), [Cookie Clicker defaults](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/cookie-clicker/lib/store.ts:123), [current autosave poller](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:440).
+
+   After entering `READY` without POST, a nonempty default snapshot can be queued by the normal poller. A persisted default plus an existing server row can also fall into the both-present path and upload or merge defaults.
+
+   Correction: add the missing row with explicit server adoption and no POST. Define a non-acknowledgment clean baseline and suppress saves, force saves, and beacons while the current state remains semantically non-meaningful. Queue the first meaningful mutation. Add deterministic tests for all four required combinations and the first post-READY poll.
+
+3. **CRITICAL: Global invalidation is incomplete for mounted hooks and owner rotation.**
+
+   The plan registers coordinators only on mount, then invalidation releases registry references. It does not define how a still-mounted hook re-registers after logout, auth loss, or user switch, nor does it explicitly reset acknowledged markers, clean baselines, request sequences, or beacon records.
+
+   Sources: [registry contract](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:457), [invalidation behavior](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:460), [auth integration](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:462), [auth effect](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:398), [root-mounted achievements caller](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/components/AchievementCelebrations.tsx:25).
+
+   After A signs out and B signs in without a remount, the hook can retain an invalid coordinator or stale marker state. StrictMode can also expose registration and cleanup races.
+
+   Correction: define an explicit owner-rotation operation that synchronously resets all per-owner state and creates a fresh registry handle. Wire it to every auth and purge trigger before storage clearing. Add same-mounted A-to-B, same-tab sign-out, sibling, broadcast, and StrictMode tests with active GET/POST requests.
+
+4. **CRITICAL: Terminal beacon rules contradict each other.**
+
+   The plan says “at most one beacon per owner epoch,” while also requiring a newly changed snapshot to receive a beacon and including both `visibilitychange` and `pagehide`.
+
+   Source: [beacon contract](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:466).
+
+   A hidden event can beacon S0, the user can resume and create S1, and a later pagehide can suppress S1 because the epoch already sent a beacon. The plan also does not define a late foreground S0 response after a S1 beacon, or what happens when `sendBeacon` returns `false`.
+
+   Correction: deduplicate by owner, epoch, and canonical body, not by epoch alone. Define successful beacon recording, preserve newer beaconed snapshots when older foreground requests settle, and test hidden-then-mutate-then-pagehide, same-body retries, acknowledged bodies, different bodies, and `sendBeacon=false`.
+
+5. **CRITICAL: Retry, permanent-failure, and force liveness are underspecified.**
+
+   The plan names server statuses but the client contract only says “retry transient failures.” It does not define behavior for initial GET failure, re-fetch failure, malformed responses, 401, 429, 409, 503, 500, or aborts. “A failed request remains retryable” also conflicts with the transient-only rule.
+
+   Sources: [retry rules](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:448), [force rule](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:449), [retry policy](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:450).
+
+   Force behavior is only specified for debounce/retry timers and active POSTs. A force during initial GET, bootstrap, or re-fetch has no required latch. Stable `forceSync` identity is also not specified, although callers place it in effect dependencies, for example [Quoridor](/Users/jack.neil/Github/hanks-hits/apps/web/src/games/quoridor/Game.tsx:62).
+
+   Correction: add a complete GET/POST/bootstrap/re-fetch failure matrix, including abort and response-parse behavior; define permanent versus transient queue states; add a `forcePending` latch through non-READY phases; and require a stable callback backed by a persistent coordinator ref. Test force during hydration, active GET, active POST, and backoff.
+
+6. **MEDIUM: The inventory and executable proof omit the actual achievements caller.**
+
+   The plan explicitly lists 31 product caller paths and says the achievements observer is additional, but the actual 32nd `useAuthSync` caller is `AchievementCelebrations.tsx`.
+
+   Sources: [plan caller inventory](/Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:435), [actual achievements caller](/Users/jack.neil/Github/hanks-hits/apps/web/src/shared/components/AchievementCelebrations.tsx:48), [existing duplicate test inventory](/Users/jack.neil/Github/hanks-hits/apps/web/src/lib/__tests__/progress-schema-contract.test.ts:14).
+
+   The plan also references `ProgressSyncFixtureBuilder` without defining it. Without an explicit caller entry and fixture type, the single-inventory and all-caller proof can pass while the root achievements hook remains unwired or untested.
+
+   Correction: add the exact achievements component path and adapter mapping, replace the private `STORES` list with the exported inventory, define the fixture-builder result type, and add an inventory-wide caller/adapter exhaustiveness test.
+
+VERDICT: NEEDS ATTENTION

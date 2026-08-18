@@ -1,0 +1,45 @@
+You own a fourth amendment pass on one implementation-plan artifact. Use GPT-5.6 Luna judgment only. You must edit only:
+
+docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Do not edit product code, tests, config, lockfiles, graphify artifacts, lessons, or instructions. Use apply_patch for every edit. Work until the plan is internally coherent and implementation-ready, then run deterministic validation and give a concise report.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+
+Before editing, read completely:
+1. /Users/jack.neil/.agents/skills/graphify/SKILL.md and follow it for codebase questions.
+2. Applicable global/repository AGENTS.md and repository lessons.md.
+3. The full current HTML plan.
+4. All three fresh gate reports:
+   - graphify-out/.luna_round3_client_review.txt
+   - graphify-out/.luna_round3_server_review.txt
+   - graphify-out/.luna_round3_policy_review.txt
+5. The prior client/server/policy reports and amendment summaries needed for context.
+6. Relevant current source, tests, package manifests, and graphify evidence. Verify claims directly and do not blindly copy reviewer wording.
+
+Resolve every finding from all three fresh reports as one coherent contract. At minimum the amended plan must:
+
+- Preserve and fully specify the persisted owner-marker and hard-reload foreign-memory barrier already proven necessary by current source, including same-tab sign-out, in-memory Zustand write-back, `pagehide`, broadcast, next-user login, epoch invalidation, and zero old-owner POST/beacon leakage. Define ownership-marker creation/rotation/clearing ordering and executable multi-tab/shared-device tests.
+- Add a real persisted-state apply/migration operation to the adapter contract. For Chess, define canonical-versus-legacy-key precedence, valid/malformed/duplicate behavior, how legacy bytes become canonical live and persisted state, when the legacy key is deleted, rollback/fail-closed behavior, and ordered tests proving meaningful legacy progress is never ignored.
+- Make the persisted-meaningful plus server-present first-sync row deterministic: exact candidate, live adoption, clean and acknowledged baselines, bootstrap/reconcile/re-fetch/READY order, and ordered response/state assertions.
+- Define how the coordinator detects semantic mutations and allocates/reuses/retires `logicalSaveId`, including stable synthetic timestamp creation, polling, queued/in-flight snapshots, retries, acknowledgments, owner changes, repeated polls, and new mutations.
+- Require every terminal beacon path to suppress sends until exactly READY, including all hydration, GET, bootstrap, re-fetch, auth/owner, error, and invalidated pre-READY states. Preserve the successful-send-only owner/epoch/body dedupe contract and add phase-complete tests.
+- Define discriminated typed GET/POST success and error envelopes, parsing failure behavior, and a concrete injectable/test-only coordinator diagnostic/inspection seam sufficient to prove baselines, markers, queues, epochs, retries, beacon records, and state transitions without weakening production encapsulation.
+- Define exact route timeout injection/config values and independent 55P03 versus 57014 tests. The route connection must receive the intended `SET LOCAL` values; blocker-pool settings alone are insufficient.
+- Define one shared advisory-key helper with exact tuple serialization and SQL representation used by route and tests, plus exact lock/wait predicates, backend/request correlation, observation deadlines, and failure diagnostics.
+- Put integration tests in an exact path and specify exact ordinary Vitest exclusion and dedicated integration include globs. Define an expected integration test-ID manifest/reporter or equivalent fail-closed mechanism that fails on skipped, todo, missing, filtered, or unexecuted required cases.
+- Complete recursive presence semantics with explicit empty identities, required/missing/nullable precedence, composite rules, and executable optional/nullable examples.
+- Model all real collection/timestamp shapes: plain keyed records such as achievements and Platformer levels, item arrays, keyed records, numeric and ISO timestamp fields, timestamped arrays/records, items without `id`, and per-item policies. Map the real affected paths.
+- Make raw/schema/manifest coverage a false-green-proof set contract. Derive observed raw paths, require exact equality after explicit exclusions, and require every raw-only persisted path such as Drum `savedBeats[].patternLength` to be schema-covered or explicitly excluded with a reason and proof before Zod normalization.
+- Replace category prose with exact path-to-policy assignments for every leaf of every synchronized persisted/request shape. Name source-proven leaves such as Monster Truck `starsCollected` and Drum `stats.padsHit`, reserved `lastTick`/`updatedAt`, all timestamps, opaque/excluded/reset paths, dynamic children, ties, bounds, and overflow. Require a mandatory merge oracle for every assigned leaf. If a generated typed manifest/table is the maintainable implementation, specify its exact generation/source-of-truth and deterministic exhaustiveness proof so implementers do not hand-maintain contradictory lists.
+
+Reconcile these additions across truth tables, state machines, adapter/type snippets, manifest grammar, path/policy inventory, file ownership, TDD tasks, acceptance IDs, negative requirements, verification commands, integration harness, risk register, and open questions. Remove stale contradictory wording instead of appending caveats. Do not leave “choose/either/optional” decisions for implementation where they affect correctness.
+
+Preserve the HTML plan format and existing jacked template styling. Do not add U+2014. Before finishing, prove:
+- the HTML parses structurally;
+- git diff checks pass;
+- no U+2014 is present;
+- stale contradictory phrases are absent;
+- only the permitted plan file changed relative to the worktree snapshot taken at start.
+
+Your final response should name the amended file, summarize how all gate findings were closed, list checks run, and state any unresolved blocker. Do not claim implementation code was changed.

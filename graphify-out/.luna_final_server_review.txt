@@ -1,0 +1,67 @@
+Read-only review completed; no files changed. The amended plan closes the earlier fallback, rollback, post-lock read-order, auth/FK, and ordinary-test exclusion findings. Remaining blockers:
+
+1. **CRITICAL: Cookie Clicker expects the wrong error type.**
+
+   Citation: The plan validates merged progress before extraction ([plan:477](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:477>)); bounded overflow maps to `ProgressMergeConflictError` ([plan:485](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:485>)), but the Cookie fixture expects `LeaderboardProjectionConflictError` ([plan:763](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:763>)). The actual Cookie arrays are capped at 500 ([progress-schemas.ts:87](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:87>)).
+
+   Failure: Individually valid arrays whose union exceeds 500 fail merged-progress validation before leaderboard extraction. The required test cannot produce the stated projection error.
+
+   Correction: Expect `ProgressMergeConflictError` for Cookie overflow. Add a separate full-schema-valid fixture or controlled extractor seam for `LeaderboardProjectionConflictError`, and assert rollback/no DML for both cases.
+
+2. **CRITICAL: The real PostgreSQL suite is not executable with the declared web dependencies.**
+
+   Citation: The plan requires direct `pg` connections and pre-route seeding ([plan:741](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:741>), [plan:744](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:744>)). `pg` is declared only in the DB package ([packages/db/package.json:21](</Users/jack.neil/Github/hanks-hits/packages/db/package.json:21>)), not `apps/web` ([apps/web/package.json:35](</Users/jack.neil/Github/hanks-hits/apps/web/package.json:35>)).
+
+   Failure: A Vitest observer/blocker import of `pg` fails under pnpm. Using the DB singleton instead conflicts with the required seed-before-route/DB-bound import order.
+
+   Correction: Add `pg` and `@types/pg` to web test dependencies, or specify a declared DB test-pool export and an exact shell/test sequence that seeds before dynamic route import.
+
+3. **MEDIUM: `test:integration` is not wired to the fail-fast harness.**
+
+   Citation: The plan asks for one script ([plan:650](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:650>)) and invokes `pnpm --filter web test:integration` ([plan:723](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:723>)), but the executable block only shows `db:push` and Vitest ([plan:732](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:732>), [apps/web/package.json:11](</Users/jack.neil/Github/hanks-hits/apps/web/package.json:11>)).
+
+   Failure: The package command could run raw Vitest, bypass provisioning, cleanup, and missing-database failure behavior.
+
+   Correction: Specify `"test:integration": "bash scripts/run-progress-integration.sh"` and require that script to perform provisioning, preflight, dedicated-config execution, and checked cleanup.
+
+4. **MEDIUM: Database ownership and SCRAM validation are incomplete.**
+
+   Citation: The role/auth contract is stated but does not specify database ownership or password-verifier validation ([plan:742](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:742>)); schema push uses the test role through `DATABASE_URL` ([drizzle.config.ts:8](</Users/jack.neil/Github/hanks-hits/packages/db/drizzle.config.ts:8>)).
+
+   Failure: An admin-created database may not grant the test role `CREATE` on `public`; a non-SCRAM stored password may fail against `scram-sha-256`.
+
+   Correction: Recreate the database with `OWNER hanks_progress_test` or grant schema privileges, set and verify `password_encryption = 'scram-sha-256'`, verify login/createdb/password authentication, and require an exact match for every canonical URL component.
+
+5. **MEDIUM: Concurrent first-save proof observes only one waiter.**
+
+   Citation: The read-order test observes both waiters ([plan:753](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:753>)), but concurrent first save only says “confirm one waiter” ([plan:754](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:754>).
+
+   Failure: The test can pass with effectively sequential requests and never prove both first-save transactions were blocked before release.
+
+   Correction: Hold the pair lock in a blocker transaction, start both POSTs, poll `pg_locks` until both are ungranted waiters, verify the row is absent, then release and await both.
+
+6. **MEDIUM: The 57014 case is not reachable under the stated timeout setup.**
+
+   Citation: The route sets both timeouts ([plan:474](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:474>)), while the test merely says to repeat with statement timeout ([plan:757](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:757>).
+
+   Failure: `lock_timeout` fires first, so the test proves 55P03 again instead of 57014.
+
+   Correction: Use separate cases: `lock_timeout < statement_timeout` for 55P03, then disable or raise `lock_timeout` and hold the lock past `statement_timeout` for 57014. Assert 503, `Retry-After`, rollback, and unchanged rows in both.
+
+7. **MEDIUM: The merged-response truth table is still untested.**
+
+   Citation: The semantic rule is stated ([plan:476](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:476>)), but the task only names the “without an existing row” case ([plan:666](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:666>).
+
+   Failure: Omitted, `false`, and `true` requests can return inconsistent `merged` values for existing versus absent rows.
+
+   Correction: Add the six-case matrix. With safe create-or-merge semantics, existing-row requests return `merged: true`; absent-row requests return `false`, regardless of the flag.
+
+8. **MEDIUM: Inventory fixtures are not explicitly connected to all real leaderboard extractors.**
+
+   Citation: The plan requires populated fixtures ([plan:583](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:583>)), but only the Cookie fixture explicitly requires extractor validation ([plan:763](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:763>)). Existing extractor tests use reduced samples ([leaderboard-extractors.test.ts:146](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/__tests__/leaderboard-extractors.test.ts:146>)).
+
+   Failure: A full progress fixture can pass its app schema while its actual leaderboard extractor is unsupported or produces an invalid projection.
+
+   Correction: For every enabled game, run the same complete inventory fixture through `validateProgress`, `extractLeaderboardScore`, and `leaderboardEntrySchema`; use only declared exports and reuse those fixtures in the integration suite.
+
+VERDICT: NEEDS ATTENTION

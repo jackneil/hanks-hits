@@ -1,0 +1,17 @@
+You are a fresh independent implementation-plan gate reviewer using GPT-5.6 Luna. Work read-only and do not edit files.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+Plan: docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Read completely before judging: /Users/jack.neil/.agents/skills/graphify/SKILL.md; applicable AGENTS.md and lessons.md; the full current plan; graphify-out/.luna_round4_client_review.txt; graphify-out/.luna_amend_plan_round5.txt; and all relevant live client source, tests, manifests, callers, stores, and graphify evidence. Verify independently rather than trusting amendment claims. The deterministic root gate has already confirmed parseable balanced HTML, exactly 32 inventory rows, exactly 32 policy rows, a 12-row reset/deletion ledger, exactly 16 unique required integration IDs, no listed stale phrases, and no product/config/lockfile edits. Do not spend the review merely recounting those facts. Test whether the contract is actually implementable and source-correct.
+
+Gate only client synchronization implementation readiness. Audit owner marker versus authenticated owner ID, owner token and epoch lifecycle, same-tab and cross-tab claim/rotation invalidation, hard-reload/pagehide barriers, exact POST/beacon request lineage, response correlation, normal-response adoption, legacy Chess raw-byte migration/apply/rollback semantics, all first-sync truth-table rows and ordered transitions, stable semantic mutation/logical-save IDs and synthetic timestamps, hydration, baselines and acknowledgments, S0/S1 queue races, re-fetch, Retry-After precedence and retry/force liveness, stable callback identity, every pre-READY terminal beacon phase, successful-send dedupe, typed GET/POST/beacon envelopes, inspection seam, StrictMode, real mounted caller/inventory coverage, reset and deletion metadata persistence, and executable test observability. Find contradictions, missing transitions, source inaccuracies, unreasonable implementation gaps, or false-green escape hatches.
+
+Do not report style nits or optional enhancements. CRITICAL means data loss, cross-owner leakage, incoherent implementation, or a broken safety invariant. MEDIUM means a material contract/test ambiguity can allow an incorrect implementation to pass.
+
+Your final output must start exactly with one line:
+VERDICT: READY
+or
+VERDICT: NEEDS ATTENTION
+
+If READY, say there are no CRITICAL or MEDIUM blockers and give at most five evidence bullets. If NEEDS ATTENTION, list only CRITICAL/MEDIUM blockers with exact plan/source evidence and the required amendment.

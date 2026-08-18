@@ -1,0 +1,68 @@
+You own a sixth amendment pass on one implementation-plan artifact. Use GPT-5.6 Luna judgment only. You must edit only:
+
+docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Do not edit product code, tests, config, lockfiles, graphify artifacts, lessons, or instructions. Use apply_patch for every edit. Work until the plan is internally coherent, source-grounded, executable, and implementation-ready. Then run deterministic validation and give a concise report.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+
+Before editing, read completely:
+1. /Users/jack.neil/.agents/skills/graphify/SKILL.md and follow it for codebase questions.
+2. Applicable global and repository AGENTS.md plus repository lessons.md.
+3. The full current HTML plan.
+4. All three fresh round-five gate reports:
+   - graphify-out/.luna_round5_client_review.txt
+   - graphify-out/.luna_round5_server_review.txt
+   - graphify-out/.luna_round5_policy_review.txt
+5. Relevant current source, tests, package manifests, git history where needed for legacy bytes, and graphify evidence. Verify every claim directly. Do not blindly copy reviewer wording.
+
+Resolve every CRITICAL and MEDIUM finding from all three reports as one coherent contract. Remove stale contradictory wording rather than appending exceptions. At minimum, the amended plan must do all of the following.
+
+CLIENT OWNERSHIP, PURGE, AND STATE MACHINE
+
+- Eliminate the old-tab pagehide race. Every purge, including late pagehide and deferred cleanup, must carry and revalidate a typed owner-generation or lease tuple immediately before deletion. An old tab must be unable to clear bytes written by a newly claimed owner. Define claim, rotation, marker, owner event, epoch, token, and purge ordering precisely.
+- Replace `clearGameStorage(): void` success assumptions with an executable verified purge result. Define removal attempts, read-back for every relevant key and storage backend, partial failure and silent no-op behavior, retry or quarantine behavior, marker retention on any failure, and a deterministic no-op-removal test.
+- Add an exact two-tab regression in which A becomes stale, B claims ownership and writes fresh bytes, then A receives pagehide. Prove B's bytes and marker survive and A cannot POST, beacon, adopt, or purge.
+- Reconcile malformed storage with the first-sync truth table and state machine. Define exact malformed detection, quarantined or error phase, zero transport, zero READY exposure, recovery trigger, successful recovery transition, and tests.
+- Give `ProgressHydrationAdapter` an actual production runtime seam. Bind the exact Zustand persist API and underlying transactional storage instance for each affected caller, including mounted `AchievementCelebrations`. Define hydration completion, canonical/legacy reads, transactional write-back and rollback, and real-caller mount tests. Do not leave this as unbound prose or only getState/setState.
+- Define separate persisted-to-request and response-to-live conversion functions for every declared shape class. `TPersisted`, `TRequest`, server canonical data, and live state may differ. C0 and normal response adoption must invoke typed converters, validate results, and have generated coverage for every inventory entry.
+- Replace body-only coordinator dedupe with typed lineage records containing request ID, logical save ID, merge mode, canonical body hash, acknowledged baseline/version, and delivery state. Prove a new logical save ID with byte-identical data is delivered while an actual replay is deduplicated.
+- Prevent C0-different from exposing terminal-ready behavior before reconciliation is atomically complete. Use an explicit reconcile phase or equally precise suppression guard. Add a boundary test that fires pagehide or terminal events during adoption and proves no stale beacon escapes.
+- Define canonical GET correlation on the wire, not a placeholder. Specify exact query and header names, encoding, parsing, validation, allocation owner, mismatch handling, response echoing, and parser/client tests.
+- Source-ground Chess legacy parsing. Inspect repository history or other authoritative project evidence for historical `chess-storage` bytes. If authoritative shapes cannot be proven, define versioned conservative parsers around only proven bytes and reject unknowns. Do not canonize invented fixture-only shapes. Specify canonical-present precedence, duplicate behavior, write/read-back, rollback, and deletion tests.
+
+SERVER ROUTE AND ENVELOPES
+
+- Define an allowed handler module and exact route factory that is implementable with the listed file scope. Give the factory a typed dependency contract for auth, rate limits, DB/transaction, clock, request ID allocation, projection, retry headers, trace/barrier, and deterministic fault injection. Define production `route.ts` delegation and exact integration-test invocation. Keep production ownership and security behavior intact.
+- Resolve request correlation contradictions. `ProgressErrorEnvelope.kind` remains the error discriminator, so add a separate original operation field if needed. Establish exactly one request-ID owner for every request class and exact handling for missing, malformed, client-supplied, and server-generated IDs. Define request ID, logical save ID, app ID, and operation tuple behavior for 400, 401, 404, 409, 429, 500, and malformed raw bodies. Specify which fields are nullable versus echoed.
+- Fully define GET, normal POST, beacon POST, and DELETE request schemas and transport mapping. Include exact path, method, query names, headers, content type, body discriminators, merge mode, request/logical IDs, validation schemas, and construction/parsing. Define beacon discrimination from normal POST. Define required `Retry-After` response behavior on every 429 path and client precedence.
+- Repair the required-ID manifest. Six merged-response cells must emit six independently required IDs, unless the contract is deliberately changed to one aggregate test and the reporter explicitly maps subcases. Prefer distinct stable IDs. Recompute the manifest count and reporter assertion so there is no fixed-count contradiction and missing/skipped/todo/filtered cases fail.
+- Add a same-handler deterministic post-DML, pre-commit fault point to the injected route dependencies. The real-route integration test for `progress.error.unexpected-transaction-rollback` must trigger it, assert a typed 500 response/correlation tuple, and prove all rows and versions remain unchanged. Define failpoint safety so it is test-only and impossible to activate in production.
+
+POLICY GRAMMAR, METADATA, AND ORACLES
+
+- Replace illegal `Record<JsonPath, ...>` usage with a canonical, reversible path-key encoding. Define escaping and decoding for property names, array indices, and wildcard or dynamic segments. Use a branded `PathKey` or equivalently compilable type everywhere metadata is keyed.
+- Structurally bind reset epochs, tombstones, and authoritative-collection metadata to their exact live data nodes in the recursive grammar and generated manifest. Collection and reset-capable constructors must require the appropriate metadata binding. Manifest compilation must reject missing, duplicate, incompatible, dangling, or unbound metadata. Add no-resurrection and unbound-metadata rejection tests.
+- Add a scalar `TimestampSpec` or constructors covering numeric epoch values, ISO strings, closed day strings, missing and null rules, clock-relative future bounds, lower bounds, units, precision or `multipleOf`, and comparison/tie semantics. Generate representation and bound tests. Cover Virtual Pet and every source-proven timestamp leaf.
+- Add explicit executable parent nodes for source-proven keyed records and arrays, including `UNION_BY_ID`, `DYNAMIC_RECORD`, and `INDEXED_ARRAY` or precise equivalents. Every node must state identity, presence, order, duplicate behavior, length/cap, element schema, unknown keys, and merge rule. Apply them to Monster Truck trucks/costs/upgrades/customization, Hill Climb, Platformer, and every other wildcard row that needs a parent constructor.
+- Extend `IdentitySpec` with exact non-empty constraints such as minLength or explicit allowEmpty, defaulting to rejection. Define trimming or byte identity, type validation, composite identity behavior, and blank/malformed rejection. Weather name identity must be deterministic for same-name/different-coordinate cases.
+- Make the typed manifest the sole normative oracle. Generate the reset/deletion ledger, metadata paths, raw/schema path coverage, policy cases, and test cases from it. Human tables may be rendered projections only and must be mechanically compared with the generated manifest. Remove independently hand-maintained duplicate expected lists. Require exact bijective equality, including no missing, extra, duplicate, or stale paths.
+- Ensure a single app can bind multiple deletion semantics on different paths. Model per-node policy, not one inadequate app-level singular mode. Preserve and validate every source-proven tombstone, bounded-authoritative, reset, consumption, and no-resurrection decision.
+
+COHERENCE AND FILE SCOPE
+
+Reconcile all additions across the truth tables, state machine, first-sync matrix, owner lifecycle, request/response and error type snippets, hydration and runtime adapter types, coordinator snapshots, route factory and dependency injection, exact 32-app inventory, recursive policy grammar, path-to-policy table, generated metadata/ledger projections, schema/source migrations, allowed file inventory, TDD tasks, exact acceptance IDs, integration reporter, verification commands, risk register, and open questions.
+
+Do not leave `choose`, `either`, `optional`, `as needed`, `for example`, placeholder wire schemas, unspecified helper modules, or unresolved type decisions where correctness depends on the choice. Any new module, export, reporter, helper, factory, test seam, migration, or test file required by the contract must appear in the allowed file inventory with its consumers and verification.
+
+Preserve the HTML plan format and existing jacked template styling. Do not add U+2014. Before finishing, prove:
+- the HTML parses structurally;
+- git diff checks pass;
+- no U+2014 is present;
+- stale contradictory phrases are absent;
+- exactly 32 synchronized inventory rows remain;
+- every inventory policy is compiled from the sole typed manifest;
+- required acceptance IDs and reporter counts agree mechanically;
+- only the permitted plan file changed relative to the worktree snapshot taken at start.
+
+Your final response should name the amended file, summarize how every round-five gate finding was closed, list deterministic checks run, and state any unresolved blocker. Do not claim implementation code was changed.

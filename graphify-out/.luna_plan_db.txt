@@ -1,0 +1,99 @@
+## Architecture recommendation
+
+Use a transaction-scoped PostgreSQL advisory lock keyed by `(userId, appId)`.
+
+Evidence:
+
+- The DB is Drizzle `0.45.2` over `node-postgres`: [packages/db/src/index.ts:1-18](</Users/jack.neil/Github/hanks-hits/packages/db/src/index.ts:1>), [packages/db/package.json:21-23](</Users/jack.neil/Github/hanks-hits/packages/db/package.json:21>).
+- The existing uniqueness contract is already present in both schema and migration: [app-progress.ts:16-34](</Users/jack.neil/Github/hanks-hits/packages/db/src/schema/app-progress.ts:16>), [0000 migration:54-62](</Users/jack.neil/Github/hanks-hits/packages/db/drizzle/0000_overrated_mulholland_black.sql:54>).
+- `merge=true` reads through `db` before the transaction starts: [route.ts:163-225](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:163>), while the transaction begins at [route.ts:230-251](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:230>).
+- Leaderboard work is already inside that transaction: [route.ts:253-369](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:253>).
+
+Recommended POST shape:
+
+```ts
+const requestSchema = z.object({
+  data: z.unknown(),
+  merge: z.boolean().optional().default(false),
+});
+```
+
+Safely parse malformed JSON and the envelope before destructuring. This makes `null`, malformed JSON, and `merge: "true"` return `400`.
+
+Move the entire merge read into the transaction, immediately after:
+
+```ts
+await tx.execute(sql`
+  SELECT pg_advisory_xact_lock(
+    hashtext(${userId}),
+    hashtext(${appId})
+  )
+`);
+```
+
+All POSTs, including `merge=false`, must acquire the lock. Then:
+
+1. Read `appProgress` with `tx.query`, not `db.query`.
+2. Merge and revalidate using the existing `mergeForSave` and `validateProgress` flow.
+3. Keep the existing `onConflictDoUpdate` target unchanged.
+4. Keep progress and leaderboard writes in the same transaction.
+
+`sql` is already exported by the DB package, so no DB-package change is required. PostgreSQL advisory-lock hash collisions only cause extra blocking, not incorrect data.
+
+Apply the same lock-before-read rule to DELETE. Its current lookup is also outside the transaction at [route.ts:423-459](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:423>), otherwise DELETE can race a POST.
+
+No schema migration is necessary.
+
+## Alternatives rejected
+
+- Row-locking `app_progress`: insufficient for the absent-row case. Locking the parent `users` row would work, but serializes every app for that user and couples progress writes to unrelated user-row activity.
+- Serializable isolation with retry: technically valid, and Drizzle supports it, but requires bounded SQLSTATE `40001` retries around the entire transaction. It adds complexity without improving this narrow keyed-write problem.
+- Atomic SQL upsert alone: preserves insert uniqueness but cannot safely perform the existing JavaScript field-aware merge, Zod revalidation, and unlock reconciliation.
+
+## Test strategy
+
+Add `apps/web/src/app/api/progress/[appId]/__tests__/route.test.ts`.
+
+Unit tests should mock the route dependencies and record transaction operations:
+
+- `body: null` returns `400`, with no transaction.
+- Malformed JSON returns `400`.
+- `merge: "true"` and `merge: null` return `400`.
+- A valid payload with unknown fields persists `validation.data`, not the raw body.
+- For `merge=true`, the recorded order is `lock -> tx.query.appProgress.findFirst -> progress upsert`.
+- For an absent-row `merge=false` save, the lock still occurs before the upsert.
+- The authenticated session’s user ID is the only user ID used in predicates and inserted values.
+- Progress and leaderboard operations receive the transaction object, not the root `db`.
+
+These mocks prove request validation and code ordering only. They do not prove PostgreSQL concurrency.
+
+Add an opt-in PostgreSQL integration test using two real `pg` connections:
+
+```bash
+DATABASE_URL='postgresql://...' pnpm --filter @hank-neil/db db:push
+RUN_PROGRESS_DB_TESTS=1 DATABASE_URL='postgresql://...' \
+  pnpm --filter web exec vitest run \
+  'src/app/api/progress/[appId]/__tests__/route.integration.test.ts'
+```
+
+Prerequisites are a dedicated PostgreSQL database, `DATABASE_URL`, migrated schema, and test cleanup. The repository has no Docker Compose PostgreSQL fixture.
+
+The deterministic lock-order test should:
+
+1. Hold the pair advisory lock in connection A.
+2. Start the real POST request.
+3. Poll `pg_locks` until the request is waiting on that advisory lock.
+4. Insert a seed progress row from connection B.
+5. Release the lock.
+6. Assert the POST merged the seed row.
+
+The current buggy implementation reads before waiting and overwrites the seed. The fixed implementation waits first, then reads it.
+
+Also run real concurrent `merge=true` saves against an initially absent row with disjoint unlocks and assert both survive, exactly one `(userId, appId)` row exists, and the leaderboard matches the committed progress.
+
+## Risks
+
+- Advisory locks only protect writers that use this lock protocol. Keep POST and DELETE on the shared protocol.
+- The lock is PostgreSQL-specific, which is appropriate because the repository already uses PostgreSQL.
+- The transaction remains held through leaderboard/profile work, increasing contention slightly for the same pair.
+- A database or connection failure still returns `500`; transaction rollback releases the advisory lock automatically.

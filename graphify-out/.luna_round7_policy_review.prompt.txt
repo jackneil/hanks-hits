@@ -1,0 +1,19 @@
+You are a fresh independent implementation-plan gate reviewer using GPT-5.6 Luna. Work read-only and do not edit files.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+Plan: docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Read completely before judging: /Users/jack.neil/.agents/skills/graphify/SKILL.md; applicable AGENTS.md and lessons.md; the full current plan; graphify-out/.luna_round6_policy_review.txt; and every relevant live store action, progress schema, merge path, sync caller, persistence partializer, leaderboard extractor, UI caller, history, and graphify artifact. Verify independently rather than trusting closure prose or amendment summaries. The deterministic root gate has already confirmed balanced HTML, 32 unique inventory rows, 21 unique required integration IDs, A1-A32, generated-projection markers, no banned stale phrases, no U+2014, and no tracked product/config/lockfile edits. Do not spend the review merely recounting those checks.
+
+Gate only recursive manifest grammar, source-grounded inventory/policy bijection, exact per-path semantics, mutation provenance, reset/deletion behavior, and generated verification. Re-prove every round-six blocker is truly closed: Bomberman gameplay-only reset has no persisted root-reset projection; one canonical reversible PathKey including the root; compilable version:1 metadata construction; one coherent tombstone identity representation; typed mutation bindings to exact source actions and paths; write-before-removal and no-resurrection tests for Weather, Virtual Pet, Drawing, and every bound deletion/reset; source-correct Toy Finder updatedAt migration through store/schema/UI/converters; padded Virtual Pet day parsing plus explicit legacy/fallback rules; production-observed raw/schema/persistence paths rather than fixture-supplied exclusions; and a strictly acyclic typed input graph with no independently hand-maintained exhaustive projections or ID lists.
+
+Also audit every wildcard parent constructor, identity and timestamp grammar, mixed deletion semantics, equal-time ties, caps/order/presence/duplicates, raw pre-Zod coverage, persisted partializers, generated ledger/metadata/test cardinalities, non-tautological oracles, exact 32-store coverage, and source provenance for every live mutation. Trace every metadata path to a real action and every generated proof back to independent runtime/schema observations.
+
+Do not report style nits or enhancements. CRITICAL means monotonic data can regress, persisted state can be omitted/resurrected, metadata can target the wrong path, or implementation is incoherent. MEDIUM means a material policy/proof ambiguity can let an incorrect implementation pass.
+
+Your final output must start exactly with one line:
+VERDICT: READY
+or
+VERDICT: NEEDS ATTENTION
+
+If READY, state there are no CRITICAL or MEDIUM blockers and give at most five evidence bullets. If NEEDS ATTENTION, list only CRITICAL/MEDIUM blockers with exact plan/source evidence and the required amendment.

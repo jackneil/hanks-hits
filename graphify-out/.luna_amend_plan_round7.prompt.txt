@@ -1,0 +1,64 @@
+You own the seventh amendment pass on one implementation-plan artifact. Use GPT-5.6 Luna judgment only. You must edit only:
+
+docs/superpowers/plans/2026-08-03-progress-sync-integrity.html
+
+Do not edit product code, tests, config, lockfiles, graphify artifacts, lessons, or instructions. Use apply_patch for every edit. Work until the plan is internally coherent, source-grounded, executable, and implementation-ready. Then run deterministic validation and give a concise report.
+
+Repository: /Users/jack.neil/Github/hanks-hits
+
+Before editing, read completely:
+1. /Users/jack.neil/.agents/skills/graphify/SKILL.md and follow it for codebase questions.
+2. Applicable global and repository AGENTS.md plus repository lessons.md.
+3. The full current HTML plan.
+4. All three fresh round-six gate reports:
+   - graphify-out/.luna_round6_client_review.txt
+   - graphify-out/.luna_round6_server_review.txt
+   - graphify-out/.luna_round6_policy_review.txt
+5. Relevant current source, tests, installed Zustand 5 declarations/runtime, schemas, package manifests, repository history where needed, and graphify evidence. Verify every claim directly. Do not blindly copy reviewer wording.
+
+Resolve every CRITICAL and MEDIUM finding from all three reports as one coherent contract. Remove stale contradictory wording instead of appending exceptions. At minimum, the amended plan must do all of the following.
+
+CLIENT RUNTIME, HYDRATION, OWNERSHIP, AND LINEAGE
+
+- Make the hydration/persistence adapter exactly compatible with the installed Zustand 5 runtime and types. Separate the raw storage backend from Zustand's object-valued PersistStorage wrapper; model optional getOptions().storage and void-or-Promise rehydrate accurately. Define a production-bound adapter for every affected store.
+- Make apply, adoption, rollback, purge, and recovery executable without unintended persist writes. Define an explicit non-persisting live-state mutation seam or another source-correct mechanism, then prove transaction boundaries and rollback against actual Zustand behavior.
+- Prevent automatic hydration from adopting bytes before ownership is established. Require skipHydration: true or an equivalently precise owner-gated storage mechanism for every mounted synchronized store, including achievements; make coordinator ownership control rehydration. Define malformed parse completion/recovery and real-store tests.
+- Close the late stale-store write race, not only stale removal. Every persist write must validate the full current lease tuple immediately before mutation, or stale stores must be frozen/detached so they cannot write. Add the exact A/B regression where A makes a real store update after B claims and writes, then A pagehide runs; B's bytes and marker must survive and A must not transport, adopt, write, or purge.
+- Unify OwnerMarker, owner generation, document token, lease token, and epoch. Remove the contradiction about whether a per-epoch token is persisted. Require full persisted-tuple validation immediately before every write, transport, beacon, adoption, and purge. Add same-owner generation rotation coverage.
+- Resolve logical-save allocation and the same-bytes requirement. Define a source-executable mutation notification/sequence that can create a new logical save even when canonical bytes match, while retries retain the same logical ID and true replays deduplicate. Reconcile every state-machine, lineage, acceptance-ID, and test statement.
+
+SERVER ADAPTER, CORRELATION, PRECEDENCE, AND HARNESS
+
+- Define one source-correct real Drizzle progress transaction adapter shared by production and integration. Its exact row types and mappings must cover appProgress id, data, version, lastSyncedAt, timestamps, leaderboard scoreType/additionalStats, profile identity/upsert behavior, and existing best-score semantics. Integration must invoke the production adapter, not a separate testDeps implementation.
+- Make database diagnostics executable. Pass requestId and typed transaction context into the adapter, set an identifiable application_name or equally queryable correlation value, return the named backend PID, expose explicit diagnostic events, and make SQL observation of lock acquisition/wait/release the authority. Define the exact observer query and correlation tuple.
+- Specify one exact preflight algorithm and failure precedence for raw path validation, authentication, raw body parsing, envelope validation, and rate limiting. Resolve how malformed app IDs and malformed bodies behave when unauthenticated or rate-limited. Do not require ValidAppId before the step that validates it. Add conflicting 400/401/429 tests with exact response and correlation tuples.
+- Make the reporter-wrapped integration command the sole script execution path. Remove any competing bare Vitest command. Require an ordered or counted multiset with exactly one terminal observation for every generated required ID, so duplicates, omissions, skips, todos, filters, early exit, and suite failure all fail.
+
+POLICY SOURCE ACCURACY, METADATA, ACTION BINDINGS, AND ORACLE ACYCLICITY
+
+- Remove the false Bomberman resetGame-to-persisted-root-reset binding, unless the plan deliberately adds a distinct persisted-progress reset action with exact schema, metadata, caller, migration, and generated live-store coverage. Reconcile its inventory, ledger, policy rows, tasks, and IDs.
+- Define one canonical reversible serialized PathKey representation and use it everywhere, including root. Eliminate the '$' versus '/' contradiction. Give version: 1 metadata a compilable literal constructor. Model tombstone identity exactly once and generate identity-bearing metadata paths without dangling or duplicated representations.
+- Add typed mutation provenance to every reset/deletion binding: exact store module, action, live target path, metadata target path, argument/identity extraction, mutation ordering, and clock source. Generate live tests that invoke real Weather, Virtual Pet, Drawing, and every other bound action and prove metadata is written before removal, equal-time behavior is deterministic, and captured old bytes cannot resurrect deleted data.
+- Fix Toy Finder timestamp semantics. Either add/update per-item updatedAt through exact schema/store/UI/converter migrations or update the declared source-grounded timestamp on every priority mutation. Specify one choice and include real UI/store mutation coverage and legacy conversion.
+- Resolve the Virtual Pet day-string contradiction using a runtime-compatible parser that accepts the source-proven padded representation and explicitly states treatment of unpadded legacy input. Define the exact missing/null fallback PathKey and comparison behavior, with boundary tests.
+- Prevent fixtures from fabricating raw/schema/exclusion coverage. Capture persisted and live paths from mounted production stores, getProgress, raw pre-Zod payloads, schemas, and persistence behavior. Derive exclusions from source-observed/transformation provenance, never caller-supplied path lists.
+- Make the normative graph strictly acyclic. Separate minimal hand-authored manifest inputs from all generated projections. Generated inventory policy arrays, ledgers, metadata paths, coverage rows, and required test IDs must not be accepted as independent inputs. Derive them from the one typed input graph and assert exact equality, cardinality, uniqueness, and no stale/dangling rows.
+
+COHERENCE AND FILE SCOPE
+
+Reconcile all changes across truth tables, state machine, owner lifecycle, storage types, store migrations, converters, malformed recovery, wire contracts, route factory, DB port and production adapter, exact 32-app inventory, recursive merge grammar, metadata format, mutation bindings, generated ledgers, path coverage, file inventory, TDD order, integration harness, exact acceptance IDs, deterministic validator, risks, and fixed decisions.
+
+Do not leave choose, either, optional, as needed, for example, placeholder schemas, dual execution paths, test-only shadow implementations, or unresolved type decisions where correctness depends on the choice. Any new module, migration, export, reporter, helper, factory, diagnostic seam, test seam, or test file required by the contract must appear in the allowed file inventory with its consumers and verification.
+
+Preserve the HTML plan format and existing jacked template styling. Do not add U+2014. Before finishing, prove:
+- the HTML parses structurally;
+- git diff checks pass;
+- no U+2014 is present;
+- stale contradictory phrases are absent;
+- exactly 32 synchronized inventory rows remain;
+- the full Zustand 5 adapter contract is type-correct against installed declarations;
+- every policy projection and test ID is generated from one acyclic typed input graph;
+- required acceptance IDs and reporter cardinalities agree mechanically;
+- only the permitted plan file changed relative to the worktree snapshot taken at start.
+
+Your final response should name the amended file, summarize how every round-six gate finding was closed, list deterministic checks run, and state any unresolved blocker. Do not claim implementation code was changed.

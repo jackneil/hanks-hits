@@ -1,0 +1,52 @@
+Read-only fresh review completed. The amendment closes the earlier hydration, acknowledgment, invalidation, Oregon, typed-error, Cookie atomicity, and ordinary/integration isolation findings. I found no remaining Critical blocker, but these Medium blockers remain:
+
+1. **MEDIUM: Recursive manifest grammar is not fully implementable.**  
+   The grammar defines opaque LWW and union nodes at [plan:539](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:539>) and [plan:556](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:556>), but composite null/missing semantics are absent. Real valid paths include nullable `currentEvent` and `currentRiver` at [progress-schemas.ts:227](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:227>) and nullable Weather `lastLocation` at [progress-schemas.ts:407](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:407>). `unknownChild: "opaque-lww"` also has no `maxBytes` or child node, and timestamp-record `value` does not define field exclusion, timestamp type, or equal-timestamp tie behavior.
+
+   Failure: valid null values or unknown union children either fail unexpectedly or bypass bounded policy evaluation.
+
+   Correction: define nullable/missing semantics for composite nodes, make opaque unknown children carry a complete bounded node, define timestamp-record child mapping and tie rules, and reject incompatible policy/value combinations during manifest construction.
+
+2. **MEDIUM: Unknown runtime paths can still be stripped before manifest validation.**  
+   The plan requires unknown-path failure at [plan:579](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:579>), but current non-strict schemas such as 2048 at [progress-schemas.ts:40](</Users/jack.neil/Github/hanks-hits/apps/web/src/lib/progress-schemas.ts:40>) strip unknown fields, and the route calls `validateProgress` before any specified raw manifest check at [route.ts:142](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:142>). The route explicitly relies on stripped keys at [route.ts:157](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:157>).
+
+   Failure: `{data:{highScore:1, rogue:1}}` can lose `rogue` during Zod parsing and succeed without the required typed conflict.
+
+   Correction: validate raw request paths against the app manifest before Zod normalization, apply the same rule to stored and merged candidates, and add a stripped-key route test with explicit 400 versus 409 mapping.
+
+3. **MEDIUM: Inventory and fixture coverage lack a required bijective source proof.**  
+   The plan requires one inventory at [plan:421](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:421>) and populated fixtures at [plan:582](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:582>), but does not specify bidirectional equality against actual callers, `VALID_APP_IDS`, and `PROGRESS_SCHEMAS`, nor an explicit persisted-to-sync exclusion contract. Achievements persist local-only `watermarks` at [achievements/store.ts:99](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/lib/achievements/store.ts:99>), while wrapped stores persist non-sync fields.
+
+   Failure: tests can report intentional wrapper fields as stale, silently ignore them, or retain stale inventory/legacy entries. Nonempty defaults such as Virtual Pet’s default coins and unlocked species at [virtual-pet/store.ts:89](</Users/jack.neil/Github/hanks-hits/apps/web/src/apps/virtual-pet/lib/store.ts:89>) can also be misclassified as meaningful.
+
+   Correction: require set equality and duplicate detection for callers, app IDs, schemas, keys, and legacy keys; define primary-key precedence; declare excluded persisted paths; and require each fixture to prove default versus earned state.
+
+4. **MEDIUM: Semantic policy assignments are not themselves proved.**  
+   The plan requires source-proven monotonic fields at [plan:255](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:255>) but provides no concrete per-field policy matrix or expected merge oracle. Sources show non-monotonic controls: Endless Runner spends `totalCoins` at [endless-runner/store.ts:478](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/endless-runner/lib/store.ts:478>), Wordle resets `currentStreak` at [wordle/store.ts:147](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/wordle/lib/store.ts:147>), and Hill Climb spends `coins` at [hill-climb/store.ts:356](</Users/jack.neil/Github/hanks-hits/apps/web/src/games/hill-climb/lib/store.ts:356>).
+
+   Failure: a manifest can pass path coverage while applying `max` to balances or current streaks, resurrecting spent currency or lost streaks.
+
+   Correction: require per-app semantic policy expectations and merge-result fixtures proving LWW for balances, current streaks, and settings; max only for genuinely monotonic counters; nullable min for best-time fields; and explicit collection semantics.
+
+5. **MEDIUM: DELETE’s lock/read/delete protocol remains implicit.**  
+   The generic transaction protocol at [plan:471](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:471>) and concurrency cases at [plan:755](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:755>) do not explicitly require DELETE to read after acquiring the lock. Current DELETE reads before its transaction at [route.ts:423](</Users/jack.neil/Github/hanks-hits/apps/web/src/app/api/progress/[appId]/route.ts:423>).
+
+   Failure: DELETE can observe a stale or absent row, then delete or return 404 after a competing POST commits.
+
+   Correction: specify a separate DELETE flow: begin transaction, set timeouts, acquire the same advisory lock, read row, then atomically delete progress and leaderboard state. Add locked-read, missing-row, timeout, and no-DML assertions.
+
+6. **MEDIUM: Initial GET and required re-fetch retry behavior is not independently specified.**  
+   The plan requires GET and re-fetch completion at [plan:350](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:350>) and describes retries mainly for queued saves at [plan:448](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:448>). Current initial-sync failure returns without a retrying state at [useAuthSync.ts:275](</Users/jack.neil/Github/hanks-hits/apps/web/src/shared/hooks/useAuthSync.ts:275>).
+
+   Failure: a transient initial GET or post-bootstrap re-fetch failure can leave the coordinator permanently non-READY until an unrelated auth transition.
+
+   Correction: define separate GET/re-fetch retry states, bounded backoff, retry exhaustion diagnostics, manual force/retry behavior, and tests for network and HTTP failures.
+
+7. **MEDIUM: Integration harness dependency and pool ownership are incomplete.**  
+   The plan requires a direct `pg` preflight and pool shutdown at [plan:741](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:741>) and [plan:745](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:745>), but `web` has no `pg` dependency at [web/package.json:35](</Users/jack.neil/Github/hanks-hits/apps/web/package.json:35>), while the DB package keeps its Pool private at [db/index.ts:5](</Users/jack.neil/Github/hanks-hits/packages/db/src/index.ts:5>). File ownership only mentions the web script and optional lockfile changes at [plan:650](</Users/jack.neil/Github/hanks-hits/docs/superpowers/plans/2026-08-03-progress-sync-integrity.html:650>).
+
+   Failure: the integration test requires an unplanned dependency or cannot reliably close the route’s pool before dropping the database.
+
+   Correction: explicitly choose `db.$client` with an owned close/preflight helper, or add `pg` and its types to `web` and include the lockfile/package ownership. Require cleanup traps on every provisioning and test failure path.
+
+VERDICT: NEEDS ATTENTION
