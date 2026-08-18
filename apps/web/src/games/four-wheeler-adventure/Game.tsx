@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 
+interface FourWheelerAdventureGameProps {
+  /** Changes whenever the shell confirms a fresh game restart. */
+  restartNonce?: number;
+}
+
 /**
  * Four-Wheeler Adventure
  *
@@ -27,21 +32,20 @@ import { useEffect, useState } from "react";
  * `srcDoc` instead: `srcDoc` content has no HTTP response of its own, so
  * those framing headers never come into play.
  */
-export function FourWheelerAdventureGame() {
+export function FourWheelerAdventureGame({
+  restartNonce = 0,
+}: FourWheelerAdventureGameProps) {
   const [isReady, setIsReady] = useState(false);
   const [gameHtml, setGameHtml] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [restartNonce, setRestartNonce] = useState(0);
+  const [appliedRestartNonce, setAppliedRestartNonce] = useState(restartNonce);
 
   useEffect(() => {
-    const handleRestart = () => {
-      setIsReady(false);
-      setLoadError(false);
-      setRestartNonce((nonce) => nonce + 1);
-    };
-    window.addEventListener("four-wheeler-restart", handleRestart);
-    return () => window.removeEventListener("four-wheeler-restart", handleRestart);
-  }, []);
+    if (restartNonce === appliedRestartNonce) return;
+    setIsReady(false);
+    setLoadError(false);
+    setAppliedRestartNonce(restartNonce);
+  }, [appliedRestartNonce, restartNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +82,11 @@ export function FourWheelerAdventureGame() {
 
       {gameHtml !== null && (
         <iframe
-          key={restartNonce}
+<<<<<<< HEAD
+          key={appliedRestartNonce}
+=======
+          key={appliedRestartNonce}
+>>>>>>> 404e630 (fix(four-wheeler): queue header restart intent)
           srcDoc={gameHtml}
           title="Four-Wheeler Adventure"
           className="w-full h-full border-0"

@@ -1,11 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useState } from "react";
 import { GameShell } from "@/shared/components";
-
-function restartFourWheeler() {
-  window.dispatchEvent(new Event("four-wheeler-restart"));
-}
 
 const FourWheelerAdventureGame = dynamic(
   () => import("@/games/four-wheeler-adventure"),
@@ -30,14 +27,16 @@ const FourWheelerAdventureGame = dynamic(
 );
 
 export default function FourWheelerAdventurePage() {
+  const [restartNonce, setRestartNonce] = useState(0);
+
   return (
     <GameShell
       gameName="Four-Wheeler Adventure"
       appId="four-wheeler-adventure"
       canPause={false}
-      onRestart={restartFourWheeler}
+      onRestart={() => setRestartNonce((nonce) => nonce + 1)}
     >
-      <FourWheelerAdventureGame />
+      <FourWheelerAdventureGame restartNonce={restartNonce} />
     </GameShell>
   );
 }
