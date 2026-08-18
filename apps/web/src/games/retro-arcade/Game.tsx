@@ -189,6 +189,7 @@ function EmulatorView({
   saveSaveState,
   loadSaveState,
   onExit,
+  skipAutoLoad = false,
 }: {
   romUrl: string;
   romName: string;
@@ -197,6 +198,7 @@ function EmulatorView({
   saveSaveState: (gameId: string, slot: string, data: string) => void;
   loadSaveState: (gameId: string, slot: string) => string | undefined;
   onExit: () => void;
+  skipAutoLoad?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [isReady, setIsReady] = useState(false);
@@ -210,7 +212,7 @@ function EmulatorView({
         setIsReady(true);
 
         // Auto-load save state if one exists
-        const savedState = loadSaveState(gameId, "autoSave");
+        const savedState = skipAutoLoad ? undefined : loadSaveState(gameId, "autoSave");
         if (savedState && iframeRef.current?.contentWindow) {
           try {
             // Convert base64 back to Uint8Array
@@ -239,7 +241,7 @@ function EmulatorView({
 
       // Handle load state request from emulator
       if (event.data.type === "requestLoadState") {
-        const savedState = loadSaveState(gameId, "autoSave");
+        const savedState = skipAutoLoad ? undefined : loadSaveState(gameId, "autoSave");
         if (savedState && iframeRef.current?.contentWindow) {
           try {
             const binary = Uint8Array.from(atob(savedState), (c) => c.charCodeAt(0));
@@ -261,7 +263,7 @@ function EmulatorView({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [gameId, saveSaveState, loadSaveState, onExit]);
+  }, [gameId, saveSaveState, loadSaveState, onExit, skipAutoLoad]);
 
   // Build the emulator URL with params
   const emulatorUrl = `/emulator/index.html?core=${encodeURIComponent(SYSTEMS[system].ejsCore)}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(romName)}`;
@@ -362,12 +364,17 @@ export function RetroArcadeGame() {
     store.stopGame();
   };
 
+  const handleRestart = () => {
+    store.restartGame();
+  };
+
   // If playing, show emulator
   if (store.isPlaying && store.currentRomUrl && store.currentSystem) {
     // Generate a consistent gameId for save states
     const gameId = `${store.currentSystem}-${store.currentRomName || "unknown"}`;
     return (
       <EmulatorView
+        key={store.restartNonce}
         romUrl={store.currentRomUrl}
         romName={store.currentRomName || "Game"}
         system={store.currentSystem}
@@ -375,6 +382,7 @@ export function RetroArcadeGame() {
         saveSaveState={store.saveSaveState}
         loadSaveState={store.loadSaveState}
         onExit={handleExit}
+        skipAutoLoad={store.restartNonce > 0}
       />
     );
   }

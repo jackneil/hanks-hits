@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { GameShell } from "@/shared/components";
+import { useCookieClickerStore } from "@/games/cookie-clicker/lib/store";
 
 const CookieClickerGame = dynamic(
   () => import("@/games/cookie-clicker"),
@@ -21,8 +22,15 @@ const CookieClickerGame = dynamic(
 );
 
 export default function CookieClickerPage() {
+  const resetProgress = useCookieClickerStore((state) => state.resetProgress);
+
   return (
-    <GameShell gameName="Cookie Clicker" appId="cookie-clicker" canPause={false}>
+    <GameShell
+      gameName="Cookie Clicker"
+      appId="cookie-clicker"
+      canPause={false}
+      onRestart={resetProgress}
+    >
       <CookieClickerGame />
     </GameShell>
   );

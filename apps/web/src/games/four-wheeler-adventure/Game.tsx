@@ -31,9 +31,18 @@ export function FourWheelerAdventureGame() {
   const [isReady, setIsReady] = useState(false);
   const [gameHtml, setGameHtml] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [restartNonce, setRestartNonce] = useState(0);
+
+  useEffect(() => {
+    const handleRestart = () => setRestartNonce((nonce) => nonce + 1);
+    window.addEventListener("four-wheeler-restart", handleRestart);
+    return () => window.removeEventListener("four-wheeler-restart", handleRestart);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
+    setIsReady(false);
+    setLoadError(false);
 
     fetch("/games/four-wheeler-adventure/index.html")
       .then((res) => {
@@ -67,6 +76,7 @@ export function FourWheelerAdventureGame() {
 
       {gameHtml !== null && (
         <iframe
+          key={restartNonce}
           srcDoc={gameHtml}
           title="Four-Wheeler Adventure"
           className="w-full h-full border-0"

@@ -64,6 +64,7 @@ interface RetroArcadeState {
   currentRomName: string | null;
   isPlaying: boolean;
   isLoading: boolean;
+  restartNonce: number;
 
   // Persisted data
   favorites: string[];
@@ -78,6 +79,8 @@ interface RetroArcadeState {
   setCurrentSystem: (system: SystemType | null) => void;
   startGame: (romUrl: string, romName: string, system: SystemType) => void;
   stopGame: () => void;
+  /** Relaunches the selected ROM without changing saved progress. */
+  restartGame: () => void;
   setLoading: (loading: boolean) => void;
 
   // Favorites
@@ -139,6 +142,7 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
       currentRomName: null,
       isPlaying: false,
       isLoading: false,
+      restartNonce: 0,
 
       // Initial persisted state
       favorites: [],
@@ -162,6 +166,16 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
           currentSystem: system,
           isPlaying: true,
           isLoading: false,
+        });
+      },
+
+      restartGame: () => {
+        const state = get();
+        if (!state.currentRomUrl || !state.currentRomName || !state.currentSystem) return;
+        set({
+          isPlaying: true,
+          isLoading: false,
+          restartNonce: state.restartNonce + 1,
         });
       },
 

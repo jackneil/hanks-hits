@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { GameShell } from "@/shared/components";
+import { useRetroArcadeStore } from "@/games/retro-arcade/lib/store";
 
 const RetroArcadeGame = dynamic(
   () => import("@/games/retro-arcade"),
@@ -21,8 +22,15 @@ const RetroArcadeGame = dynamic(
 );
 
 export default function RetroArcadePage() {
+  const restartGame = useRetroArcadeStore((state) => state.restartGame);
+  const isPlaying = useRetroArcadeStore((state) => state.isPlaying);
+
   return (
-    <GameShell gameName="Retro Arcade" canPause>
+    <GameShell
+      gameName="Retro Arcade"
+      canPause={false}
+      onRestart={isPlaying ? restartGame : undefined}
+    >
       <RetroArcadeGame />
     </GameShell>
   );

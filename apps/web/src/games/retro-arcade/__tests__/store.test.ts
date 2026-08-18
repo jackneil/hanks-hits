@@ -14,6 +14,7 @@ describe("Retro Arcade store favorites", () => {
       currentRomName: null,
       isPlaying: false,
       isLoading: false,
+      restartNonce: 0,
       favorites: [],
       recentlyPlayed: [],
       saveStates: {},
@@ -46,6 +47,26 @@ describe("Retro Arcade store favorites", () => {
 
     expect(useRetroArcadeStore.getState().favorites).toEqual([]);
     expect(useRetroArcadeStore.getState().isFavorite("snes-alpha")).toBe(false);
+  });
+
+  it("relaunches the selected ROM without changing saved progress", () => {
+    useRetroArcadeStore.setState({
+      currentSystem: "snes",
+      currentRomUrl: "/roms/game.sfc",
+      currentRomName: "Game",
+      isPlaying: true,
+      restartNonce: 0,
+      favorites: ["snes-alpha"],
+      saveStates: { "snes-Game": { autoSave: "state", lastSaved: 1 } },
+    });
+
+    useRetroArcadeStore.getState().restartGame();
+
+    const state = useRetroArcadeStore.getState();
+    expect(state.isPlaying).toBe(true);
+    expect(state.restartNonce).toBe(1);
+    expect(state.favorites).toEqual(["snes-alpha"]);
+    expect(state.saveStates["snes-Game"]?.autoSave).toBe("state");
   });
 
   it("clears revoked upload blob URLs when stopping a custom ROM", () => {

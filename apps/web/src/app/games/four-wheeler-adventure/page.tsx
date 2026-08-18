@@ -3,6 +3,10 @@
 import dynamic from "next/dynamic";
 import { GameShell } from "@/shared/components";
 
+function restartFourWheeler() {
+  window.dispatchEvent(new Event("four-wheeler-restart"));
+}
+
 const FourWheelerAdventureGame = dynamic(
   () => import("@/games/four-wheeler-adventure"),
   {
@@ -31,6 +35,7 @@ export default function FourWheelerAdventurePage() {
       gameName="Four-Wheeler Adventure"
       appId="four-wheeler-adventure"
       canPause={false}
+      onRestart={restartFourWheeler}
     >
       <FourWheelerAdventureGame />
     </GameShell>
