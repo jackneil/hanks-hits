@@ -11,8 +11,10 @@ export default function HillClimbGameShell() {
   // Matter.js owns the transient physics world. Remount the game so restart
   // tears down the old engine and creates a clean vehicle and terrain.
   const restart = () => {
-    restartRun();
+    // Remount and start in one batch. The new game must skip its start screen,
+    // and the old instance must not observe an intermediate active transition.
     setGameKey((key) => key + 1);
+    restartRun();
   };
 
   return (
@@ -23,7 +25,7 @@ export default function HillClimbGameShell() {
       showPauseButton={false}
       onRestart={restart}
     >
-      <HillClimbGame key={gameKey} />
+      <HillClimbGame key={gameKey} startActive />
     </GameShell>
   );
 }

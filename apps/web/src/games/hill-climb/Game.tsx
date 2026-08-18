@@ -61,7 +61,7 @@ interface Particle {
 // MAIN GAME COMPONENT
 // =============================================================================
 
-export function HillClimbGame() {
+export function HillClimbGame({ startActive = false }: { startActive?: boolean } = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
   const runnerRef = useRef<Matter.Runner | null>(null);
@@ -137,8 +137,17 @@ export function HillClimbGame() {
   // Local state
   const [speed, setSpeed] = useState(0);
   const [rotation, setRotation] = useState(0);
-  const [showStartScreen, setShowStartScreen] = useState(true);
+  const [showStartScreen, setShowStartScreen] = useState(!startActive);
   const [showGarage, setShowGarage] = useState(false);
+
+  // A remounted restart must enter an active run immediately. The lifecycle
+  // effect below owns engine and render-loop initialization, so this only
+  // changes store state and never initializes a second chain.
+  useEffect(() => {
+    if (startActive && !useHillClimbStore.getState().isPlaying) {
+      startRun();
+    }
+  }, [startActive, startRun]);
 
   // Update refs when state changes
   useEffect(() => {

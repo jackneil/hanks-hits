@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { HillClimbGame } from "../Game";
+import HillClimbGameShell from "../GameShell";
 import { useHillClimbStore } from "../lib/store";
 
 /**
@@ -80,6 +81,48 @@ describe("hill-climb run lifecycle", () => {
     // defensive cancel (and the effect cleanup) would fire. A single clean
     // first init never cancels anything.
     expect(cancelCalls).toBe(0);
+  });
+
+  it("mounts a restart as one active fresh run, not the start screen", () => {
+    render(<HillClimbGame startActive />);
+
+    expect(screen.queryByTestId("game-start-overlay")).toBeNull();
+    expect(useHillClimbStore.getState().isPlaying).toBe(true);
+    expect(rafCalls).toBeGreaterThan(0);
+    expect(cancelCalls).toBe(0);
+  });
+
+  it("preserves settings and progression when starting a fresh run", () => {
+    act(() => {
+      useHillClimbStore.setState({
+        soundEnabled: false,
+        bestDistance: 1234,
+        totalCoinsEarned: 77,
+      });
+    });
+
+    render(<HillClimbGame startActive />);
+    const state = useHillClimbStore.getState();
+
+    expect(state.isPlaying).toBe(true);
+    expect(state.soundEnabled).toBe(false);
+    expect(state.bestDistance).toBe(1234);
+    expect(state.totalCoinsEarned).toBe(77);
+  });
+
+  it("header restart remounts directly into one active fresh run", () => {
+    render(<HillClimbGameShell />);
+
+    const beforeRestart = rafCalls;
+    expect(useHillClimbStore.getState().isPlaying).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Restart game" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm restart" }));
+
+    expect(screen.queryByTestId("game-start-overlay")).toBeNull();
+    expect(useHillClimbStore.getState().isPlaying).toBe(true);
+    expect(rafCalls).toBeGreaterThan(beforeRestart);
+    // Remount cleanup cancels the old chain before the single new chain starts.
+    expect(cancelCalls).toBeGreaterThan(0);
   });
 
   it("pause -> Garage -> Play re-initializes the loop for the remounted canvas", () => {

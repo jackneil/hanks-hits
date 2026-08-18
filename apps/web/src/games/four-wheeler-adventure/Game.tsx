@@ -35,17 +35,10 @@ interface FourWheelerAdventureGameProps {
 export function FourWheelerAdventureGame({
   restartNonce = 0,
 }: FourWheelerAdventureGameProps) {
-  const [isReady, setIsReady] = useState(false);
   const [gameHtml, setGameHtml] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [appliedRestartNonce, setAppliedRestartNonce] = useState(restartNonce);
-
-  useEffect(() => {
-    if (restartNonce === appliedRestartNonce) return;
-    setIsReady(false);
-    setLoadError(false);
-    setAppliedRestartNonce(restartNonce);
-  }, [appliedRestartNonce, restartNonce]);
+  const [loadedRestartNonce, setLoadedRestartNonce] = useState<number | null>(null);
+  const isReady = loadedRestartNonce === restartNonce;
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +49,10 @@ export function FourWheelerAdventureGame({
         return res.text();
       })
       .then((html) => {
-        if (!cancelled) setGameHtml(html);
+        if (!cancelled) {
+          setGameHtml(html);
+          setLoadedRestartNonce(restartNonce);
+        }
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -65,7 +61,7 @@ export function FourWheelerAdventureGame({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [restartNonce]);
 
   return (
     <div className="fixed left-0 right-0 bottom-0 top-12 md:top-14 bg-[#1f6b3a]">
@@ -82,16 +78,12 @@ export function FourWheelerAdventureGame({
 
       {gameHtml !== null && (
         <iframe
-<<<<<<< HEAD
-          key={appliedRestartNonce}
-=======
-          key={appliedRestartNonce}
->>>>>>> 404e630 (fix(four-wheeler): queue header restart intent)
+          key={restartNonce}
           srcDoc={gameHtml}
           title="Four-Wheeler Adventure"
           className="w-full h-full border-0"
           allow="autoplay; fullscreen"
-          onLoad={() => setIsReady(true)}
+          onLoad={() => setLoadedRestartNonce(restartNonce)}
         />
       )}
 

@@ -29,6 +29,7 @@ export default function CookieClickerPage() {
       canPause={false}
       // Header restart resets only the active session, never saved progress.
       onRestart={() => useCookieClickerStore.getState().resetSession()}
+      restartConfirmationMessage="This resets the current session effects and stats. Your cookies, buildings, upgrades, achievements, and settings stay saved."
     >
       <CookieClickerGame />
     </GameShell>

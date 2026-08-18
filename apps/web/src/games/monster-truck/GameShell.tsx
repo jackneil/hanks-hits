@@ -22,6 +22,7 @@ export default function MonsterTruckGameShell() {
       canPause={false}
       showPauseButton={false}
       onRestart={restart}
+      restartConfirmationMessage="This resets the current session stats. Your coins, stars, challenges, trucks, upgrades, and settings stay saved."
     >
       <MonsterTruckGame key={gameKey} />
     </GameShell>
