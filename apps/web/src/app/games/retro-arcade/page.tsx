@@ -29,7 +29,7 @@ export default function RetroArcadePage() {
     <GameShell
       gameName="Retro Arcade"
       canPause={false}
-      onRestart={isPlaying ? restartGame : undefined}
+      onRestart={restartGame}
     >
       <RetroArcadeGame />
     </GameShell>
