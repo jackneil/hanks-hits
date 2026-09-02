@@ -44,7 +44,7 @@ export async function GET(
   // SECURITY: bound the upstream fetch — no blind redirect-following (so the
   // hardcoded host can't 3xx us anywhere → SSRF) and a timeout so a slow/hung
   // CDN can't tie up the single instance. The Railway CDN serves bucket objects
-  // via a 302 to a signed storage.railway.app URL, so we follow EXACTLY ONE
+  // via a 302 to a signed object-storage URL, so we follow EXACTLY ONE
   // redirect hop, and only after validating the target host against a pinned
   // allowlist.
   const controller = new AbortController();
@@ -70,7 +70,7 @@ export async function GET(
           if (location) rejectedHost = new URL(location).host;
         } catch {}
         console.error(
-          `ROM proxy: CDN redirect rejected (host: ${rejectedHost}) for /${romPath} - if the CDN moved, update ALLOWED_REDIRECT_HOST in lib/rom-redirect.ts`
+          `ROM proxy: CDN redirect rejected (host: ${rejectedHost}) for /${romPath} - if the CDN moved, update ALLOWED_REDIRECT_HOSTS in lib/rom-redirect.ts`
         );
         return new NextResponse("ROM not found", { status: 404 });
       }
