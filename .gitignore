@@ -60,3 +60,7 @@ dogfood-output-*/
 .claude/settings.local.json
 settings.local.json
 .claude/goals/
+
+# graphify query cache - content-hash keyed, regenerated on every query.
+# last_query_stamp rewrites itself constantly and kept the tree permanently dirty.
+graphify-out/cache/
