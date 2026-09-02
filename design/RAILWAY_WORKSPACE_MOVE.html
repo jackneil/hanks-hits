@@ -104,6 +104,31 @@
   <p><strong>Shape of the plan:</strong> move the ROM library into a sidecar storage project in the personal workspace first (the same pattern already used for <code>passerjack-storage</code>), then drop both buckets, wait out the retention window, then transfer.</p>
 </div>
 
+<h2>Execution log</h2>
+<p>Phases 0 through 2 were executed on 2026-09-02 between 17:54 and 18:21 UTC. Only the retention wait and the transfer itself remain.</p>
+<div class="wrap">
+<table>
+  <tr><th>Step</th><th>Result</th></tr>
+  <tr><td>Service variables captured</td><td class="ok">4 services saved to <code>~/railway-backup/hanks-hits/</code>, mode 600</td></tr>
+  <tr><td>Database dumped</td><td class="ok">31,085 bytes, md5 <code>904657992d4cbaa0...</code>, restored into a scratch database and row counts matched (4 users, 47 progress rows, 25 leaderboard entries, 4 gaming profiles)</td></tr>
+  <tr><td>Volume backup</td><td class="ok"><code>pre-workspace-move-2026-09-02</code> created on <code>postgres-volume</code></td></tr>
+  <tr><td>ROM library mirrored</td><td class="ok">910 files, 294,917,119 bytes on local disk, byte-exact</td></tr>
+  <tr><td>Sidecar project</td><td class="ok"><code>hanks-hits-storage</code> in Jack (PERSONAL), bucket <code>hanks-hits-roms</code> (iad)</td></tr>
+  <tr><td>ROMs uploaded and compared</td><td class="ok">910 objects; every key, size and ETag identical to the source bucket</td></tr>
+  <tr><td><code>webserver</code> repointed</td><td class="ok">8 bucket variables updated, redeployed, CDN now signs URLs for the new bucket</td></tr>
+  <tr><td>PITR disabled</td><td class="ok">6 <code>WAL_ARCHIVE_*</code> variables removed, Postgres redeployed, <code>archive_mode=off</code>, row counts unchanged</td></tr>
+  <tr><td>Buckets deleted</td><td class="ok">Both deleted 18:12 UTC; records remain during retention, so the transfer is still refused</td></tr>
+  <tr><td>ROMs after deletion</td><td class="ok">12 of 12 sampled files byte-identical through the CDN</td></tr>
+  <tr><td>Live proxy bug found and fixed</td><td class="ok">See below; merged as PR #14 and verified in production</td></tr>
+  <tr><td>Transfer</td><td class="flag">Waiting on the retention window. Expect it to clear 2026-09-04 or 09-05</td></tr>
+</table>
+</div>
+
+<p>A completion script sits at <code>~/railway-backup/hanks-hits/complete-move.sh</code>. It polls the gate, performs the transfer, recreates the PITR bucket and its wiring, takes a fresh volume backup, then verifies the site, a database-backed endpoint, the ROM checksum and the row counts against the pre-move baseline. It is idempotent and logs to <code>complete-move.log</code>, so it is safe to run at any time.</p>
+
+<h3>Bug found while verifying: the ROM proxy was dead in production</h3>
+<p>The <code>/api/roms</code> same-origin proxy pinned its redirect allowlist to <code>storage.railway.app</code>, but the CDN signs its 302 targets on <code>t3.storageapi.dev</code>. Every proxied request took the "CDN redirect rejected" branch and returned 404, which a browser check confirmed is the path the retro arcade actually uses. Fixed in PR #14 by pinning both hosts; the arcade now boots a SNES title with a byte-identical ROM and no console errors. This was pre-existing and unrelated to the move, but the move is what surfaced it.</p>
+
 <h2>What is in the project today</h2>
 
 <div class="wrap">
