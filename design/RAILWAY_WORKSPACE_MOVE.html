@@ -1,0 +1,236 @@
+<title>Railway Workspace Move</title>
+<style>
+  :root {
+    --paper: #faf8f4;
+    --ink: #1a1c1f;
+    --ink-soft: #4d525a;
+    --rule: #d9d3c7;
+    --accent: #1f5c3f;
+    --warn: #9a3b1f;
+    --code-bg: #f1ede4;
+  }
+  :root:not([data-theme="light"]) {}
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14161a;
+      --ink: #e8e4dc;
+      --ink-soft: #a3a8b0;
+      --rule: #2e333b;
+      --accent: #6fbf95;
+      --warn: #e08a63;
+      --code-bg: #1c2027;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14161a;
+    --ink: #e8e4dc;
+    --ink-soft: #a3a8b0;
+    --rule: #2e333b;
+    --accent: #6fbf95;
+    --warn: #e08a63;
+    --code-bg: #1c2027;
+  }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.62 ui-sans-serif, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    padding: 3.5rem 1.25rem 6rem;
+  }
+  main { max-width: 54rem; margin: 0 auto; }
+  h1, h2, h3 {
+    font-family: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+  h1 { font-size: 2.35rem; margin: 0 0 .35rem; }
+  h2 { font-size: 1.5rem; margin: 3rem 0 .9rem; padding-bottom: .4rem; border-bottom: 1px solid var(--rule); }
+  h3 { font-size: 1.12rem; margin: 2rem 0 .5rem; }
+  .lede { color: var(--ink-soft); font-size: 1.05rem; margin: 0 0 2.5rem; }
+  p { margin: 0 0 1rem; }
+  ul, ol { margin: 0 0 1rem; padding-left: 1.3rem; }
+  li { margin-bottom: .38rem; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .875em;
+    background: var(--code-bg);
+    padding: .1em .34em;
+    border-radius: 3px;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    padding: .85rem 1rem;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .84rem;
+    line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; font-size: 1em; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 1.2rem; font-size: .92rem; }
+  th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-soft); font-size: .82rem; }
+  .wrap { overflow-x: auto; }
+  .verdict {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1.1rem 1.3rem;
+    margin: 0 0 2rem;
+  }
+  .verdict p:last-child { margin-bottom: 0; }
+  .flag { color: var(--warn); font-weight: 600; }
+  .ok { color: var(--accent); font-weight: 600; }
+  .phase-no {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .78rem;
+    color: var(--ink-soft);
+    display: block;
+    margin-bottom: .15rem;
+  }
+  footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--ink-soft); font-size: .85rem; }
+</style>
+
+<main>
+
+<h1>Moving Hank's Hits to the personal Railway workspace</h1>
+<p class="lede">Runbook: project <code>hanks-hits</code>, HANK.ai workspace &rarr; Jack (PERSONAL). Written 2026-09-02. Every claim below was verified against the live Railway API, not read off a docs page.</p>
+
+<div class="verdict">
+  <p><strong>Verdict.</strong> Railway supports the move as a first-class operation, it keeps the same project ID, and it is reversible. It takes about one second.</p>
+  <p><strong>But:</strong> Railway refuses to transfer a project that owns object-storage buckets, and <code>hanks-hits</code> owns two (<code>app-files</code> with the 910 ROM files, and <code>Postgres-PITR</code>). Deleting a bucket does <em>not</em> clear the block immediately: the bucket record survives a retention window of roughly two days, and the block survives with it. So the calendar cost is about 48 hours, and the real work is decoupling the ROM library from a bucket that has to die.</p>
+  <p><strong>Shape of the plan:</strong> move the ROM library into a sidecar storage project in the personal workspace first (the same pattern already used for <code>passerjack-storage</code>), then drop both buckets, wait out the retention window, then transfer.</p>
+</div>
+
+<h2>What is in the project today</h2>
+
+<div class="wrap">
+<table>
+  <tr><th>Thing</th><th>Detail</th><th>Moves with the project?</th></tr>
+  <tr><td>Project</td><td><code>hanks-hits</code> &middot; <code>08bfe3ff-3cf6-429c-a4f9-16dd711e74af</code></td><td class="ok">ID preserved (verified)</td></tr>
+  <tr><td>Service <code>hanks-garage</code></td><td>Next.js app from <code>jackneil/hanks-hits</code> @ <code>master</code>, domains <code>hankshits.com</code> + <code>hanks-garage-production.up.railway.app</code></td><td>Yes, re-verify autodeploy</td></tr>
+  <tr><td>Service <code>Postgres</code></td><td><code>postgres-ssl:17</code>, volume <code>postgres-volume</code> (50 GB), accounts + saved game progress</td><td>Yes, volume included</td></tr>
+  <tr><td>Service <code>webserver</code></td><td><code>xlab/cdn-s3-go:v1</code>, serves ROMs at <code>cdn-hankshits.up.railway.app</code> from the <code>app-files</code> bucket</td><td>Yes, but its bucket cannot</td></tr>
+  <tr><td>Service <code>url-cache</code></td><td>Redis 8.2.1, volume <code>url-cache-volume</code>. Consumed by <code>webserver</code> through <code>CDN_URL_CACHE_REDIS</code>, not by the Next app</td><td>Yes</td></tr>
+  <tr><td>Bucket <code>app-files</code></td><td>910 objects, 294.9 MB (the SNES and Atari ROM library)</td><td class="flag">No. Blocks the transfer</td></tr>
+  <tr><td>Bucket <code>Postgres-PITR</code></td><td>37,941 objects, 73.6 MB of archived WAL, owned by the Postgres service</td><td class="flag">No. Blocks the transfer</td></tr>
+  <tr><td>Domain <code>hankshits.com</code></td><td>Registrar DNS at Cloudflare, CNAME target <code>e6f31fhf.up.railway.app</code>, not a Railway-purchased domain</td><td>Expected yes, verify TLS after</td></tr>
+</div>
+
+<p>Both workspaces are on the Pro plan with an active payment method, and the account is a workspace-level member of both, so the plan and permission preconditions for a transfer are already satisfied. Personal holds 10 of its 100 project slots.</p>
+
+<h2>The blocker, verified</h2>
+
+<p>Rather than trusting forum posts, three throwaway projects were created in HANK.ai and driven through the real mutation:</p>
+
+<ul>
+  <li><strong>Project with a bucket &rarr; transfer refused.</strong> Verbatim API response: <code>Cannot transfer a project that has object storage buckets. Please delete all buckets in this project before transferring.</code></li>
+  <li><strong>Bucket deleted, transfer retried immediately &rarr; still refused,</strong> same message. The bucket record is still attached to the project (<code>project.buckets</code> still returns it, <code>deletedAt</code> still null) even though <code>railway bucket list</code> reports the environment as empty. That gap is the retention window.</li>
+  <li><strong>Project with no bucket &rarr; transferred in one call,</strong> HANK.ai &rarr; personal and back again, same project ID both ways. So the move itself is trivial and reversible.</li>
+</ul>
+
+<p>Two probe projects were deleted afterwards. One was deliberately kept: <code>zz-xfer-probe-retention</code> (<code>96e713b2-7923-49c9-a8d2-55a2fea68bd8</code>), whose bucket was deleted at 2026-09-02 11:58 UTC. It is a canary. When <em>it</em> becomes transferable, the real retention window is known, and the same clock can be trusted for <code>hanks-hits</code>. Delete it once the move is done.</p>
+
+<h3>Prior art: passerjack</h3>
+<p>The same wall was clearly hit a few days ago. <code>passerjack-storage</code> was created 2026-08-29 13:33 UTC with a bucket <code>passerjack-blobs-east</code> one minute later, and <code>passerjack</code> only got a fresh bucket (<code>passerjack-blobs</code>) on 2026-09-01 09:51 UTC. That is a sidecar storage project standing in during a roughly 68-hour gap. This plan is that pattern, done deliberately.</p>
+
+<h2>Plan</h2>
+
+<h3><span class="phase-no">Phase 0</span>Capture and back up (about 30 minutes)</h3>
+<ol>
+  <li>Dump every service variable to a local, gitignored file. These values exist nowhere in the repo, and <code>AUTH_SECRET</code> in particular is invisible to a <code>process.env</code> grep because next-auth reads it implicitly. Sessions are 30-day JWTs, so losing it signs out every kid.
+<pre><code>cd ~/Github/hanks-hits
+mkdir -p ~/railway-backup/hanks-hits
+for s in hanks-garage Postgres webserver url-cache; do
+  railway variables --service "$s" --json &gt; ~/railway-backup/hanks-hits/vars-$s.json
+done</code></pre></li>
+  <li>Dump the database and prove the dump restores. Do not trust an exit code.
+<pre><code>URL=$(railway variables --service Postgres --json | jq -r .DATABASE_PUBLIC_URL)
+PGCONNECT_TIMEOUT=60 pg_dump "$URL" -Fc -f ~/railway-backup/hanks-hits/pre-move.dump
+createdb hh_restore_check
+pg_restore -d hh_restore_check ~/railway-backup/hanks-hits/pre-move.dump
+psql hh_restore_check -c "select relname, n_live_tup from pg_stat_user_tables order by n_live_tup desc"
+# compare those counts against the same query on the live database</code></pre>
+  Note: the TCP proxy accepted a connection but psql needed a long timeout on first contact. If it still stalls, dump from inside the container with <code>railway ssh</code> instead.</li>
+  <li>Mirror the ROM bucket to local disk and count the objects.
+<pre><code>railway bucket credentials --bucket app-files --json   # endpoint, bucket name, key id, secret
+aws s3 sync s3://&lt;bucket-name&gt;/ ~/railway-backup/hanks-hits/app-files/ \
+  --endpoint-url https://t3.storageapi.dev
+find ~/railway-backup/hanks-hits/app-files -type f | wc -l   # expect 910</code></pre></li>
+</ol>
+
+<h3><span class="phase-no">Phase 1</span>Move the ROM library out of the project (about 30 minutes)</h3>
+<ol>
+  <li>Create <code>hanks-hits-storage</code> in the personal workspace and a bucket in it (region <code>iad</code>, matching the current one). This project holds no services, so it never blocks anything.</li>
+  <li>Upload the mirrored ROMs into the new bucket, then confirm the object count matches 910.</li>
+  <li>Repoint the <code>webserver</code> service at the new bucket. It reads two parallel sets of credentials, and both must change: <code>AWS_ACCESS_KEY_ID</code>, <code>AWS_SECRET_ACCESS_KEY</code>, <code>AWS_ENDPOINT_URL</code>, <code>AWS_S3_BUCKET_NAME</code>, and <code>CDN_BUCKET_ACCESS_KEY_ID_roms_us</code>, <code>CDN_BUCKET_SECRET_ACCESS_KEY_roms_us</code>, <code>CDN_BUCKET_ENDPOINT_roms_us</code>, <code>CDN_BUCKET_NAME_roms_us</code>. Leave <code>CDN_BUCKET_PUBLIC_NAMES</code>, <code>CDN_BUCKET_REGION_ALIASES</code> and <code>CDN_URL_CACHE_REDIS</code> alone.</li>
+  <li>Redeploy <code>webserver</code>, then prove a ROM actually loads: open the retro arcade and start a SNES game, and check <code>curl -sI https://cdn-hankshits.up.railway.app/roms/&lt;known-rom&gt;</code>. The service domain does not change, so nothing in the app code needs editing.</li>
+</ol>
+
+<h3><span class="phase-no">Phase 2</span>Clear the gate (about 15 minutes, then wait)</h3>
+<ol>
+  <li>Disable point-in-time recovery on the Postgres service. Railway stages a patch that strips the <code>WAL_ARCHIVE_*</code> variables and deletes the <code>Postgres-PITR</code> bucket; the patch only applies when it is deployed, and that deploy restarts Postgres. Expect a short interruption, so do it late in the evening. The existing recovery history is destroyed and does not come back: a re-enabled PITR window starts from its first new base backup, never retroactively. That is why Phase 0 takes a real dump.</li>
+  <li>Delete the <code>app-files</code> bucket: <code>railway bucket delete --bucket app-files --yes</code>.</li>
+  <li>Poll until the project genuinely owns no buckets. The CLI list goes empty immediately and is misleading, so query the API instead:
+<pre><code>curl -s https://backboard.railway.com/graphql/v2 \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"query":"query{project(id:\"08bfe3ff-3cf6-429c-a4f9-16dd711e74af\"){buckets{edges{node{id name deletedAt}}}}}"}'</code></pre>
+  An empty <code>edges</code> array is the go signal. Expect roughly 48 hours, and use the <code>zz-xfer-probe-retention</code> canary as the early warning.</li>
+</ol>
+
+<h3><span class="phase-no">Phase 3</span>Transfer (one second)</h3>
+<p>Dashboard: project canvas &rarr; Settings &rarr; Transfer Project &rarr; pick <em>Jack (PERSONAL)</em>. If the modal shows no workspace list, that is a permissions symptom, not a bug. The API path is equivalent and was the one exercised on the probes:</p>
+<pre><code>curl -s https://backboard.railway.com/graphql/v2 \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"query":"mutation($p:String!,$i:ProjectTransferInput!){projectTransfer(projectId:$p,input:$i)}",
+       "variables":{"p":"08bfe3ff-3cf6-429c-a4f9-16dd711e74af",
+                    "i":{"workspaceId":"3c5e9ba1-d50b-43be-a4e8-a3f0a5f26912"}}}'</code></pre>
+<p>Confirm with <code>railway status</code>, which should now print <code>Workspace: Jack (PERSONAL)</code>.</p>
+
+<h3><span class="phase-no">Phase 4</span>Restore and verify (about 30 minutes)</h3>
+<ol>
+  <li>Re-enable point-in-time recovery on Postgres. A new <code>Postgres-PITR</code> bucket appears in the personal workspace, and the recovery window starts from zero.</li>
+  <li>Leave the ROM library in <code>hanks-hits-storage</code>. Pulling it back into the main project would only re-arm the same blocker the next time anything needs to move.</li>
+  <li>Run every gate below before calling it done.</li>
+</ol>
+
+<h2>Verification gates</h2>
+<p>The healthcheck path is <code>/</code>, and that page is a filesystem scan that never touches the database. A green deploy therefore proves nothing about login or saves. Check these by hand:</p>
+<ul>
+  <li><strong>Site:</strong> <code>https://hankshits.com</code> loads over HTTPS with a valid certificate, not just a 200.</li>
+  <li><strong>Database:</strong> sign in with a real account and confirm a saved score round-trips after a reload. Compare table row counts against the Phase 0 numbers.</li>
+  <li><strong>ROMs:</strong> start a SNES game and an Atari game. Watch the server log for <code>ROM proxy: CDN redirect rejected (host: ...)</code>, which would mean the signed-URL host moved off <code>storage.railway.app</code> and <code>apps/web/src/lib/rom-redirect.ts:5</code> needs updating.</li>
+  <li><strong>Autodeploy:</strong> push a trivial commit to <code>master</code> and confirm <code>hanks-garage</code> builds. If the service shows "Auto deploy unavailable", reconnect the repo in service settings.</li>
+  <li><strong>Billing:</strong> new usage lands on the personal workspace. Current project burn is a few dollars a month, so this is a rounding error either way.</li>
+  <li><strong>Cleanup:</strong> delete the <code>zz-xfer-probe-retention</code> canary project.</li>
+</ul>
+
+<h2>Repo-side impact</h2>
+<p>Almost none. No project ID, workspace name, or <code>*.railway.internal</code> hostname appears in shipping code, and <code>railway.toml</code> plus the Dockerfile are fully portable. Two constants are worth knowing about:</p>
+<ul>
+  <li><code>apps/web/src/app/api/roms/[...path]/route.ts:7</code> hardcodes <code>https://cdn-hankshits.up.railway.app/roms</code>. Safe as long as the <code>webserver</code> service is never recreated, which this plan avoids.</li>
+  <li><code>apps/web/src/lib/rom-redirect.ts:5</code> pins the redirect allowlist to <code>storage.railway.app</code>. Re-verify after the new bucket is live.</li>
+</ul>
+<p><code>.claude/commands/release.md</code> pins the project name, project ID and service name, and never names a workspace, so it stays accurate after the move. No repo change is required by the transfer itself.</p>
+
+<h2>Risks and open questions</h2>
+<ul>
+  <li><strong>Retention length is measured, not promised.</strong> Railway describes the bucket deletion window as a safety measure that cannot be expedited. The passerjack timeline suggests roughly 68 hours; the canary will give an exact number.</li>
+  <li><strong>Custom domain behaviour across a transfer is undocumented.</strong> Nothing suggests it breaks, and the domain record moves with the project, but the certificate is worth checking within a minute of the transfer.</li>
+  <li><strong>The GitHub binding is the most plausible silent casualty.</strong> The known failure mode is a project reporting that no member has access to the repository after its membership set changes. One test push settles it.</li>
+  <li><strong>Unrelated, but noticed:</strong> the Railway-purchased domain <code>hijack.observer</code> sits in HANK.ai while the <code>hijack</code> project lives in personal and serves <code>hijackmac.com</code>. Railway does not move purchased domains between workspaces, so that one is stranded. Worth deciding whether to keep paying for it.</li>
+</ul>
+
+<h2>Fallbacks</h2>
+<ul>
+  <li><strong>Rebuild instead of transfer.</strong> Create a fresh project in the personal workspace, redeploy from GitHub, restore the dump, re-add the domain. No waiting, but it means downtime, a new project ID, a DNS cutover, and re-entering every secret. Strictly worse here.</li>
+  <li><strong>Ask Railway to force it.</strong> Support has refused this for other users, twice, on the grounds that the deletion window protects against accidental data loss. Worth an ask, not worth planning around.</li>
+</ul>
+
+<footer>
+  Facts in this document came from the live Railway API on 2026-09-02: project and workspace state, bucket contents, plan limits, and three throwaway transfer probes. Secrets were deliberately left out; capture them in Phase 0.
+</footer>
+
+</main>

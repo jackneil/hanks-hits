@@ -1,7 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { safeRedirectTarget } from "../rom-redirect";
+import { safeRedirectTarget, ALLOWED_REDIRECT_HOSTS } from "../rom-redirect";
 
 describe("safeRedirectTarget", () => {
+  it("accepts a signed t3.storageapi.dev https URL (the live CDN target)", () => {
+    const signed =
+      "https://t3.storageapi.dev/hanks-hits-roms-21xsr5w2c/snes/7th_saga.smc?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=abc";
+    expect(safeRedirectTarget(signed)).toBe(signed);
+  });
+
+  it("pins exactly the two known storage hosts", () => {
+    expect([...ALLOWED_REDIRECT_HOSTS]).toEqual([
+      "t3.storageapi.dev",
+      "storage.railway.app",
+    ]);
+  });
+
   it("accepts a signed storage.railway.app https URL", () => {
     const signed =
       "https://storage.railway.app/neat-cage-cj2o8a33o4slu2y/snes/donkey_kong_1_country.smc?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=abc";
@@ -16,6 +29,12 @@ describe("safeRedirectTarget", () => {
 
   it("rejects other hosts", () => {
     expect(safeRedirectTarget("https://evil.example.com/rom.smc")).toBeNull();
+    expect(
+      safeRedirectTarget("https://t3.storageapi.dev.evil.com/rom.smc")
+    ).toBeNull();
+    expect(
+      safeRedirectTarget("https://fake-t3.storageapi.dev/rom.smc")
+    ).toBeNull();
     expect(
       safeRedirectTarget("https://storage.railway.app.evil.com/rom.smc")
     ).toBeNull();
