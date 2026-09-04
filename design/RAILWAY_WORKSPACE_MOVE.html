@@ -120,9 +120,14 @@
   <tr><td>Buckets deleted</td><td class="ok">Both deleted 18:12 UTC; records remain during retention, so the transfer is still refused</td></tr>
   <tr><td>ROMs after deletion</td><td class="ok">12 of 12 sampled files byte-identical through the CDN</td></tr>
   <tr><td>Live proxy bug found and fixed</td><td class="ok">See below; merged as PR #14 and verified in production</td></tr>
-  <tr><td>Transfer</td><td class="flag">Waiting on the retention window. Expect it to clear 2026-09-04 or 09-05</td></tr>
+  <tr><td>Retention window</td><td class="ok">Bucket records cleared between 21:45 and 22:43 UTC on 2026-09-04, about 52.5 hours after deletion. The old bucket's objects stayed readable over S3 until the same sweep</td></tr>
+  <tr><td>Transfer</td><td class="ok">2026-09-04 22:43:17 UTC. Project ID unchanged; <code>railway status</code> reports <code>Jack (PERSONAL)</code></td></tr>
+  <tr><td>PITR restored</td><td class="ok">New bucket <code>postgres-pitr-a4nmqurghp0</code>, six <code>WAL_ARCHIVE_*</code> variables set, Postgres redeployed, <code>archive_mode=on</code> with the pgbackrest archive wrapper</td></tr>
+  <tr><td>Post-move verification</td><td class="ok">hankshits.com 200 with a valid certificate (expires 2026-11-18), leaderboard reads real rows, ROM byte-identical through the CDN, row counts identical to the pre-move baseline, GitHub trigger still bound to <code>jackneil/hanks-hits@master</code>, volume backup <code>post-workspace-move</code> taken, billing customer on Jack (PERSONAL)</td></tr>
 </table>
 </div>
+
+<p>The commit that added this row is itself the autodeploy test: if it built and deployed on Railway from the personal workspace, the GitHub binding survived the move.</p>
 
 <p>A completion script sits at <code>~/railway-backup/hanks-hits/complete-move.sh</code>. It polls the gate, performs the transfer, recreates the PITR bucket and its wiring, takes a fresh volume backup, then verifies the site, a database-backed endpoint, the ROM checksum and the row counts against the pre-move baseline. It is idempotent and logs to <code>complete-move.log</code>, so it is safe to run at any time.</p>
 
