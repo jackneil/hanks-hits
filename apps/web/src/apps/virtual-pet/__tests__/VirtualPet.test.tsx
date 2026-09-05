@@ -1,5 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { VIRTUAL_PET_INSTRUCTIONS } from "../lib/readAloud";
+import {
+  installSpeechMock,
+  removeSpeechMock,
+} from "@/__tests__/speech-mock";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VirtualPet } from "../VirtualPet";
 import {
   useVirtualPetStore,
@@ -103,5 +108,35 @@ describe("VirtualPet", () => {
 
     expect(screen.getByText("70%")).toBeInTheDocument();
     expect(useVirtualPetStore.getState().progress.inventory).toEqual([]);
+  });
+});
+
+describe("virtual pet read aloud", () => {
+  afterEach(() => {
+    removeSpeechMock();
+  });
+
+  it("shows the read-aloud button when the browser can speak", async () => {
+    installSpeechMock();
+    render(<VirtualPet />);
+
+    expect(await screen.findByTestId("read-aloud-button")).toBeInTheDocument();
+  });
+
+  it("speaks the virtual pet instructions when tapped", async () => {
+    const speech = installSpeechMock();
+    render(<VirtualPet />);
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    expect(speech.lastUtterance().text).toBe(VIRTUAL_PET_INSTRUCTIONS);
+  });
+
+  it("hides the button when the browser cannot speak", () => {
+    removeSpeechMock();
+    render(<VirtualPet />);
+
+    expect(screen.queryByTestId("read-aloud-button")).not.toBeInTheDocument();
   });
 });

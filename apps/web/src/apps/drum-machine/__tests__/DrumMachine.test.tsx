@@ -1,5 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DRUM_MACHINE_INSTRUCTIONS } from "../lib/readAloud";
+import {
+  installSpeechMock,
+  removeSpeechMock,
+} from "@/__tests__/speech-mock";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: () => ({ isAuthenticated: false, syncStatus: "idle" }),
@@ -99,5 +104,35 @@ describe("drum-machine mobile layout", () => {
     const play = screen.getByRole("button", { name: "▶" });
     expect(play.parentElement?.className).toContain("sticky");
     expect(play.parentElement?.className).toContain("bottom-0");
+  });
+});
+
+describe("drum machine read aloud", () => {
+  afterEach(() => {
+    removeSpeechMock();
+  });
+
+  it("shows the read-aloud button when the browser can speak", async () => {
+    installSpeechMock();
+    render(<DrumMachine />);
+
+    expect(await screen.findByTestId("read-aloud-button")).toBeInTheDocument();
+  });
+
+  it("speaks the drum machine instructions when tapped", async () => {
+    const speech = installSpeechMock();
+    render(<DrumMachine />);
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    expect(speech.lastUtterance().text).toBe(DRUM_MACHINE_INSTRUCTIONS);
+  });
+
+  it("hides the button when the browser cannot speak", () => {
+    removeSpeechMock();
+    render(<DrumMachine />);
+
+    expect(screen.queryByTestId("read-aloud-button")).not.toBeInTheDocument();
   });
 });

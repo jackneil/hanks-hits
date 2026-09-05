@@ -12,6 +12,8 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { RETRO_ARCADE_INSTRUCTIONS } from "./lib/readAloud";
 import { GameBrowser, type CatalogGame } from "./components/GameBrowser";
 import {
   SNES_CATALOG,
@@ -517,6 +519,14 @@ export function RetroArcadeGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
+      {/* Read it to me — first screen only, never over the emulator, so a
+          player who cannot read still knows what to tap. */}
+      <div className="w-full max-w-md mx-auto mb-4">
+        <ReadAloudButton
+          text={RETRO_ARCADE_INSTRUCTIONS}
+          className="border-white/40 text-white hover:bg-white/10"
+        />
+      </div>
 
       {/* Console grid */}
       <div className="flex-1 flex items-center justify-center">

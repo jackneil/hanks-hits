@@ -12,6 +12,8 @@ import {
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { DRUM_MACHINE_INSTRUCTIONS } from "./lib/readAloud";
 
 // ============================================
 // DRUM PAD COMPONENT
@@ -305,6 +307,15 @@ export function DrumMachine() {
           <span>|</span>
           <span>Pads Hit: {store.progress.stats.padsHit}</span>
         </div>
+      </div>
+
+      {/* Read it to me — its own row under the header, above the toolbar, so
+          it never covers a control and needs no scrolling on a phone. */}
+      <div className="w-full max-w-md mb-4">
+        <ReadAloudButton
+          text={DRUM_MACHINE_INSTRUCTIONS}
+          className="border-slate-500 text-slate-100 hover:bg-slate-700"
+        />
       </div>
 
       {/* Controls */}
