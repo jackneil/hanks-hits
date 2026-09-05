@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { ReadAloudButton } from "./ReadAloudButton";
 
 /**
  * Shared start screen for every game: a DOM overlay (never in-canvas),
@@ -22,7 +23,9 @@ import { useCoarsePointer } from "../hooks/useCoarsePointer";
  * Mount contract: render it CONDITIONALLY on the menu/ready state
  * (`{state === "ready" && <GameStartOverlay .../>}`), never permanently
  * with CSS toggling — the fire-once guard is a per-mount ref, so an
- * always-mounted overlay would have a dead start button on replay. Note
+ * always-mounted overlay would have a dead start button on replay. A
+ * ReadAloudButton sits under the hints so a player who cannot read yet
+ * can hear the title, the subtitle and the instructions. Note
  * the guard covers only the built-in start button; picker buttons in the
  * children slot call the game's own start action directly (fine as long
  * as that action is an idempotent state reset, which every current game's
@@ -107,6 +110,7 @@ export function GameStartOverlay({
   }, [onStart]);
 
   const hints = isCoarse ? touchHints : keyboardHints;
+  const readAloudText = [title, subtitle, ...hints].filter(Boolean).join(". ");
 
   return (
     <div
@@ -137,6 +141,8 @@ export function GameStartOverlay({
             ))}
           </ul>
         )}
+
+        <ReadAloudButton text={readAloudText} className="mb-4" />
 
         {children && (
           <div className="mb-4 flex flex-col items-stretch gap-3">{children}</div>

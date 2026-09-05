@@ -220,14 +220,31 @@ their own home/back buttons, title bars, page `<h1>`s naming themselves, or
 floating fullscreen buttons — that chrome comes from the shell or not at all.
 
 **Games own the play area and overlay content.** Start screens are DOM, not
-canvas: use **GameStartOverlay** (`src/shared/components/GameStartOverlay.tsx`)
-mounted inside the game's `relative` canvas container. It renders the title
-once (the only in-content heading, visible only pre-start), pointer-aware
-controls copy (`useCoarsePointer` / `matchMedia("(pointer: coarse)")` — touch
-viewports never see keyboard-only instructions), an optional
-difficulty/level picker slot (`GameStartOverlayButton`, the one approved
-start-button style), and a start button guarded to fire once. All targets
-are >= 44x44px. Never draw menu text or hit-boxes into the canvas.
+canvas. Every game and every playable app uses **GameStartOverlay**
+(`src/shared/components/GameStartOverlay.tsx`). Mount it inside the game's
+`relative` canvas container, or as a direct child of the full-height page
+container. It renders the title once (the only in-content heading, visible
+only before start), pointer-aware controls copy (`useCoarsePointer` /
+`matchMedia("(pointer: coarse)")`: touch viewports never see keyboard-only
+instructions), a 🔊 "Read it to me" button (`ReadAloudButton`, see below),
+an optional difficulty/level picker slot (`GameStartOverlayButton`, the one
+approved start-button style), and a start button guarded to fire once. All
+targets are >= 44x44px. Never draw menu text or hit-boxes into the canvas.
+Write the hint lines for a reader in grade 1 to 3: one action per line, an
+emoji first, short words. Two kinds of module do not use the overlay: a toy
+with no start moment (drawing-app, drum-machine) and a module with its own
+launcher (retro-arcade). Those modules put the same `ReadAloudButton` on
+their first screen instead.
+
+**Read-aloud.** Kids aged 6 to 8 often cannot read yet. The shared chrome
+reads itself out loud: `useReadAloud` (`src/shared/hooks/useReadAloud.ts`)
+wraps the browser speech API (`window.speechSynthesis`), and
+`ReadAloudButton` (`src/shared/components/ReadAloudButton.tsx`) is the one
+control that uses it. The button is on the start overlay, the pause menu,
+the restart dialog, and each home-page card. It never speaks on its own.
+The kid must tap it. When the browser has no speech support, the button
+does not render. Any new text surface a kid meets mid-game must use the
+same button, in the same place: under the words, above the action buttons.
 
 **Stacking order (z-index, low to high):** GameStartOverlay 40, game
 HUDs/touch controls <= 50 (never visible at the same time as the overlay —

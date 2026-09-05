@@ -172,3 +172,120 @@ describe("GameStartOverlay", () => {
     expect(container.querySelector("canvas")).toBeNull();
   });
 });
+
+type SpeechFake = {
+  speak: ReturnType<typeof vi.fn>;
+  cancel: ReturnType<typeof vi.fn>;
+};
+
+/** jsdom has no Web Speech API — install a fake one. */
+function installSpeechMock() {
+  const synth = {
+    speak: vi.fn(),
+    cancel: vi.fn(),
+    getVoices: vi.fn(() => [] as SpeechSynthesisVoice[]),
+    speaking: false,
+    paused: false,
+    pending: false,
+  };
+  Object.defineProperty(window, "speechSynthesis", {
+    configurable: true,
+    writable: true,
+    value: synth,
+  });
+  class FakeUtterance {
+    text: string;
+    rate?: number;
+    pitch?: number;
+    lang?: string;
+    voice?: unknown;
+    onend: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    constructor(text: string) {
+      this.text = text;
+    }
+  }
+  Object.defineProperty(window, "SpeechSynthesisUtterance", {
+    configurable: true,
+    writable: true,
+    value: FakeUtterance,
+  });
+  return synth as unknown as SpeechFake;
+}
+
+function removeSpeechMock() {
+  // @ts-expect-error - removing the fake API to simulate an old browser
+  delete window.speechSynthesis;
+  // @ts-expect-error - removing the fake API to simulate an old browser
+  delete window.SpeechSynthesisUtterance;
+}
+
+/** The text handed to the most recent speak() call. */
+function spokenText(synth: SpeechFake): string {
+  const last = synth.speak.mock.calls[synth.speak.mock.calls.length - 1];
+  return (last[0] as { text: string }).text;
+}
+
+describe("GameStartOverlay read aloud", () => {
+  afterEach(() => {
+    removeSpeechMock();
+    vi.restoreAllMocks();
+  });
+
+  it("reads the title, subtitle and the TOUCH hints on a coarse-pointer viewport", async () => {
+    mockPointer(true);
+    const synth = installSpeechMock();
+    render(
+      <GameStartOverlay
+        title="Asteroids"
+        subtitle="Blast the rocks"
+        touchHints={["Tap FIRE to shoot", "Tap ⟲ ⟳ to rotate"]}
+        keyboardHints={["Press SPACE to shoot"]}
+        onStart={() => {}}
+      />
+    );
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(spokenText(synth)).toBe(
+      "Asteroids. Blast the rocks. Tap FIRE to shoot. Tap ⟲ ⟳ to rotate"
+    );
+    expect(spokenText(synth)).not.toContain("Press SPACE");
+  });
+
+  it("reads the KEYBOARD hints on a fine-pointer viewport", async () => {
+    mockPointer(false);
+    const synth = installSpeechMock();
+    render(
+      <GameStartOverlay
+        title="Asteroids"
+        subtitle="Blast the rocks"
+        touchHints={["Tap FIRE to shoot"]}
+        keyboardHints={["Press SPACE to shoot", "Arrow keys to rotate"]}
+        onStart={() => {}}
+      />
+    );
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(spokenText(synth)).toBe(
+      "Asteroids. Blast the rocks. Press SPACE to shoot. Arrow keys to rotate"
+    );
+    expect(spokenText(synth)).not.toContain("Tap FIRE");
+  });
+
+  it("shows no read-aloud button when the browser cannot speak", () => {
+    removeSpeechMock();
+    render(<GameStartOverlay title="Snake" onStart={() => {}} />);
+    expect(screen.queryByTestId("read-aloud-button")).not.toBeInTheDocument();
+  });
+
+  it("does not start the game when the read-aloud button is tapped", async () => {
+    installSpeechMock();
+    const onStart = vi.fn();
+    render(<GameStartOverlay title="Snake" onStart={onStart} />);
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+    expect(onStart).not.toHaveBeenCalled();
+  });
+});

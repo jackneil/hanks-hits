@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ReadAloudButton } from "./ReadAloudButton";
 import { RestartConfirmationDialog } from "./RestartConfirmationDialog";
 import { RestartGameButton } from "./RestartGameButton";
 
@@ -40,6 +41,10 @@ export function PauseMenu({
     };
   }, [isOpen]);
 
+  const readAloudText = ["Paused", gameName, "Resume", onRestart ? "Restart" : null, "Go Home"]
+    .filter(Boolean)
+    .join(". ");
+
   if (!isOpen) return null;
 
   return (
@@ -51,6 +56,11 @@ export function PauseMenu({
 
       {/* Game name */}
       <div className="text-xl text-gray-400 mb-8">{gameName}</div>
+
+      {/* Read the menu out loud for players who cannot read yet */}
+      <div className="w-64 mb-4">
+        <ReadAloudButton text={readAloudText} />
+      </div>
 
       {/* Menu buttons */}
       <div className="flex flex-col gap-4 w-64">
