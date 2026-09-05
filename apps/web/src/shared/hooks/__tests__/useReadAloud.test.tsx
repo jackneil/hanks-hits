@@ -1,76 +1,11 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  installSpeechMock,
+  removeSpeechMock,
+} from "@/__tests__/speech-mock";
 import { useReadAloud } from "../useReadAloud";
-
-type MockUtterance = {
-  text: string;
-  rate?: number;
-  pitch?: number;
-  lang?: string;
-  voice?: unknown;
-  onend?: (() => void) | null;
-  onerror?: (() => void) | null;
-};
-
-type SpeechMock = {
-  speak: ReturnType<typeof vi.fn>;
-  cancel: ReturnType<typeof vi.fn>;
-  getVoices: ReturnType<typeof vi.fn>;
-};
-
-/** jsdom has no Web Speech API — install a fake one. */
-function installSpeechMock(voices: Array<Partial<SpeechSynthesisVoice>> = []) {
-  const calls: string[] = [];
-  const synth: SpeechMock = {
-    speak: vi.fn(() => calls.push("speak")),
-    cancel: vi.fn(() => calls.push("cancel")),
-    getVoices: vi.fn(() => voices),
-  };
-  Object.defineProperty(window, "speechSynthesis", {
-    configurable: true,
-    writable: true,
-    value: { ...synth, speaking: false, paused: false, pending: false },
-  });
-  class FakeUtterance {
-    text: string;
-    rate?: number;
-    pitch?: number;
-    lang?: string;
-    voice?: unknown;
-    onend: (() => void) | null = null;
-    onerror: (() => void) | null = null;
-    constructor(text: string) {
-      this.text = text;
-    }
-  }
-  Object.defineProperty(window, "SpeechSynthesisUtterance", {
-    configurable: true,
-    writable: true,
-    value: FakeUtterance,
-  });
-  return {
-    calls,
-    get speak() {
-      return window.speechSynthesis.speak as unknown as SpeechMock["speak"];
-    },
-    get cancel() {
-      return window.speechSynthesis.cancel as unknown as SpeechMock["cancel"];
-    },
-    lastUtterance(): MockUtterance {
-      const speak = window.speechSynthesis.speak as unknown as SpeechMock["speak"];
-      const last = speak.mock.calls[speak.mock.calls.length - 1];
-      return last[0] as MockUtterance;
-    },
-  };
-}
-
-function removeSpeechMock() {
-  // @ts-expect-error - removing the fake API to simulate an old browser
-  delete window.speechSynthesis;
-  // @ts-expect-error - removing the fake API to simulate an old browser
-  delete window.SpeechSynthesisUtterance;
-}
 
 afterEach(() => {
   removeSpeechMock();

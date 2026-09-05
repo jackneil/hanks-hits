@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Header } from "@/shared/components/Header";
+import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
 import type { DisplayCategory, DisplayItem } from "@/shared/lib/game-registry";
 import { extractGameStats } from "@/shared/lib/gameStatExtractor";
 import { findLocalProgress } from "@/shared/lib/localProgress";
@@ -22,6 +23,15 @@ type RecentItem = DisplayItem & {
 };
 
 const RECENTLY_PLAYED_KEY = "hanks-hits-recently-played";
+
+/**
+ * The words the speaker button reads for a card: the game name, then its
+ * short blurb when it has one. A kid who cannot read taps this to find out
+ * what the card is.
+ */
+function cardSpeech(item: DisplayItem): string {
+  return [item.name, item.description].filter(Boolean).join(". ");
+}
 
 function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
@@ -243,28 +253,36 @@ export function HomeClient({ categories }: HomeClientProps) {
                 }`}
               >
                 {myGames.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => handleGameClick(item)}
-                    className="group rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/15 active:scale-95"
-                  >
-                    <span className="mb-2 block text-5xl transition-transform duration-300 group-hover:scale-110">
-                      {item.emoji}
-                    </span>
+                  <div className="relative" key={item.href}>
+                    <Link
+                      href={item.href}
+                      onClick={() => handleGameClick(item)}
+                      className="group rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/15 active:scale-95"
+                    >
+                      <span className="mb-2 block text-5xl transition-transform duration-300 group-hover:scale-110">
+                        {item.emoji}
+                      </span>
                     {/* break-words: this is the first surface that renders
                         kid-typed names - an unbroken smash-word must wrap
                         inside the card, never paint past its edge. */}
-                    <span className="block font-bold text-white/90 break-words">
-                      {item.name}
-                    </span>
+                      <span className="block font-bold text-white/90 break-words">
+                        {item.name}
+                      </span>
                     {/* No readable local save (never played here, or the game
                         uses its own save format) - show an always-true invite
                         rather than a claim like "new" that can be wrong. */}
-                    <span className="mt-1 block text-sm font-semibold text-cyan-300/90">
-                      {myGameStats[item.id] ?? "Jump in and play!"}
-                    </span>
-                  </Link>
+                      <span className="mt-1 block text-sm font-semibold text-cyan-300/90">
+                        {myGameStats[item.id] ?? "Jump in and play!"}
+                      </span>
+                    </Link>
+                    {/* Sibling of the Link, never a child: a button inside an
+                        anchor is invalid HTML and would open the game on tap. */}
+                    <ReadAloudButton
+                      variant="icon"
+                      text={cardSpeech(item)}
+                      className="absolute right-2 top-2 z-10"
+                    />
+                  </div>
                 ))}
               </div>
             ) : (
@@ -291,17 +309,23 @@ export function HomeClient({ categories }: HomeClientProps) {
             </h2>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
               {recentItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => handleGameClick(item)}
-                  className="group rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/15 active:scale-95"
-                >
-                  <span className="mb-2 block text-4xl transition-transform duration-300 group-hover:scale-110">
-                    {item.emoji}
-                  </span>
-                  <span className="font-bold text-white/90">{item.name}</span>
-                </Link>
+                <div className="relative" key={item.href}>
+                  <Link
+                    href={item.href}
+                    onClick={() => handleGameClick(item)}
+                    className="group rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/15 active:scale-95"
+                  >
+                    <span className="mb-2 block text-4xl transition-transform duration-300 group-hover:scale-110">
+                      {item.emoji}
+                    </span>
+                    <span className="font-bold text-white/90">{item.name}</span>
+                  </Link>
+                  <ReadAloudButton
+                    variant="icon"
+                    text={cardSpeech(item)}
+                    className="absolute right-2 top-2 z-10"
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -335,56 +359,62 @@ export function HomeClient({ categories }: HomeClientProps) {
                     : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6 max-w-6xl mx-auto'
             }`}>
               {category.items.map((item, itemIndex) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => handleGameClick(item)}
-                  className="group relative"
-                  style={{
-                    animationDelay: `${categoryIndex * 0.1 + itemIndex * 0.05}s`,
-                  }}
-                >
-                  {/* Card */}
-                  <div className={`
-                    relative overflow-hidden rounded-2xl md:rounded-3xl
-                    bg-gradient-to-br from-white/10 to-white/5
-                    border border-white/10
-                    backdrop-blur-sm
-                    p-4 md:p-6
-                    transition-all duration-300 ease-out
-                    hover:scale-105 hover:-translate-y-1
-                    hover:shadow-2xl hover:shadow-white/10
-                    hover:border-white/20
-                    active:scale-95
-                    cursor-pointer
-                  `}>
-                    {/* Glow effect on hover */}
+                <div className="relative" key={item.href}>
+                  <Link
+                    href={item.href}
+                    onClick={() => handleGameClick(item)}
+                    className="group relative"
+                    style={{
+                      animationDelay: `${categoryIndex * 0.1 + itemIndex * 0.05}s`,
+                    }}
+                  >
+                    {/* Card */}
                     <div className={`
-                      absolute inset-0 opacity-0 group-hover:opacity-100
-                      bg-gradient-to-br ${category.gradient}
-                      blur-xl transition-opacity duration-300
-                      -z-10
-                    `} style={{ transform: 'scale(0.8)' }} />
+                      relative overflow-hidden rounded-2xl md:rounded-3xl
+                      bg-gradient-to-br from-white/10 to-white/5
+                      border border-white/10
+                      backdrop-blur-sm
+                      p-4 md:p-6
+                      transition-all duration-300 ease-out
+                      hover:scale-105 hover:-translate-y-1
+                      hover:shadow-2xl hover:shadow-white/10
+                      hover:border-white/20
+                      active:scale-95
+                      cursor-pointer
+                    `}>
+                      {/* Glow effect on hover */}
+                      <div className={`
+                        absolute inset-0 opacity-0 group-hover:opacity-100
+                        bg-gradient-to-br ${category.gradient}
+                        blur-xl transition-opacity duration-300
+                        -z-10
+                      `} style={{ transform: 'scale(0.8)' }} />
 
-                    {/* Emoji */}
-                    <div className="text-center mb-2 md:mb-3">
-                      <span className="text-5xl md:text-6xl lg:text-7xl block transform group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300">
-                        {item.emoji}
-                      </span>
+                      {/* Emoji */}
+                      <div className="text-center mb-2 md:mb-3">
+                        <span className="text-5xl md:text-6xl lg:text-7xl block transform group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300">
+                          {item.emoji}
+                        </span>
+                      </div>
+
+                      {/* Name */}
+                      <h3 className="text-base md:text-lg lg:text-xl font-bold text-center text-white/90 group-hover:text-white transition-colors">
+                        {item.name}
+                      </h3>
+
+                      {/* Play indicator on hover */}
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                        <div className="absolute inset-0 bg-black/30 rounded-2xl md:rounded-3xl" />
+                        <span className="relative text-3xl md:text-4xl animate-pulse">▶️</span>
+                      </div>
                     </div>
-
-                    {/* Name */}
-                    <h3 className="text-base md:text-lg lg:text-xl font-bold text-center text-white/90 group-hover:text-white transition-colors">
-                      {item.name}
-                    </h3>
-
-                    {/* Play indicator on hover */}
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-                      <div className="absolute inset-0 bg-black/30 rounded-2xl md:rounded-3xl" />
-                      <span className="relative text-3xl md:text-4xl animate-pulse">▶️</span>
-                    </div>
-                  </div>
-                </Link>
+                  </Link>
+                  <ReadAloudButton
+                    variant="icon"
+                    text={cardSpeech(item)}
+                    className="absolute right-2 top-2 z-10"
+                  />
+                </div>
               ))}
             </div>
           </div>

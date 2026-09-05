@@ -1,60 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  installSpeechMock,
+  removeSpeechMock,
+} from "@/__tests__/speech-mock";
+
 import { ReadAloudButton } from "../ReadAloudButton";
 
-type SpeechFake = {
-  speak: ReturnType<typeof vi.fn>;
-  cancel: ReturnType<typeof vi.fn>;
-};
-
-/** jsdom has no Web Speech API — install a fake one. */
-function installSpeechMock() {
-  const synth = {
-    speak: vi.fn(),
-    cancel: vi.fn(),
-    getVoices: vi.fn(() => [] as SpeechSynthesisVoice[]),
-    speaking: false,
-    paused: false,
-    pending: false,
-  };
-  Object.defineProperty(window, "speechSynthesis", {
-    configurable: true,
-    writable: true,
-    value: synth,
-  });
-  class FakeUtterance {
-    text: string;
-    rate?: number;
-    pitch?: number;
-    lang?: string;
-    voice?: unknown;
-    onend: (() => void) | null = null;
-    onerror: (() => void) | null = null;
-    constructor(text: string) {
-      this.text = text;
-    }
-  }
-  Object.defineProperty(window, "SpeechSynthesisUtterance", {
-    configurable: true,
-    writable: true,
-    value: FakeUtterance,
-  });
-  return synth as unknown as SpeechFake;
-}
-
-function removeSpeechMock() {
-  // @ts-expect-error - removing the fake API to simulate an old browser
-  delete window.speechSynthesis;
-  // @ts-expect-error - removing the fake API to simulate an old browser
-  delete window.SpeechSynthesisUtterance;
-}
-
-/** The text handed to the most recent speak() call. */
-function spokenText(synth: SpeechFake): string {
-  const last = synth.speak.mock.calls[synth.speak.mock.calls.length - 1];
-  return (last[0] as { text: string }).text;
-}
 
 afterEach(() => {
   removeSpeechMock();
@@ -80,7 +33,7 @@ describe("ReadAloudButton", () => {
 
     fireEvent.click(button);
     expect(synth.speak).toHaveBeenCalledTimes(1);
-    expect(spokenText(synth)).toBe("Hello there");
+    expect(synth.lastUtterance().text).toBe("Hello there");
     expect(button).toHaveTextContent("⏹ Stop");
     expect(button).toHaveAttribute("aria-pressed", "true");
 
@@ -109,5 +62,45 @@ describe("ReadAloudButton", () => {
     expect(button.className).toMatch(/min-h-\[56px\]/);
     expect(button.className).toMatch(/w-full/);
     expect(button.className).toMatch(/mb-4/);
+  });
+});
+
+describe("ReadAloudButton icon variant", () => {
+  it("renders only the speaker icon with a big round touch target", async () => {
+    installSpeechMock();
+    render(
+      <ReadAloudButton variant="icon" text="Snake" className="absolute" />
+    );
+
+    const button = await screen.findByTestId("read-aloud-button");
+    expect(button).toHaveTextContent("🔊");
+    expect(button).not.toHaveTextContent("Read it to me");
+    expect(button).toHaveAttribute("aria-label", "Read it to me");
+    expect(button.className).toMatch(/btn-circle/);
+    expect(button.className).toMatch(/min-h-\[44px\]/);
+    expect(button.className).toMatch(/min-w-\[44px\]/);
+    expect(button.className).not.toMatch(/w-full/);
+    expect(button.className).toMatch(/absolute/);
+  });
+
+  it("speaks on tap and flips to the stop icon", async () => {
+    const synth = installSpeechMock();
+    render(<ReadAloudButton variant="icon" text="Snake" />);
+
+    const button = await screen.findByTestId("read-aloud-button");
+    fireEvent.click(button);
+
+    expect(synth.speak).toHaveBeenCalledTimes(1);
+    expect(synth.lastUtterance().text).toBe("Snake");
+    expect(button).toHaveTextContent("⏹");
+    expect(button).toHaveAttribute("aria-label", "Stop reading");
+    expect(button).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("renders nothing when the browser cannot speak", async () => {
+    removeSpeechMock();
+    const { container } = render(<ReadAloudButton variant="icon" text="Snake" />);
+
+    await waitFor(() => expect(container.firstChild).toBeNull());
   });
 });
