@@ -5,6 +5,10 @@ import { useWordleStore, type WordleProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
+import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
 import { TutorialModal } from "./components/TutorialModal";
 import {
   DIFFICULTY_SETTINGS,
@@ -125,9 +129,59 @@ export function WordleGame() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="relative min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
       <IOSInstallPrompt />
       <TutorialModal />
+
+      {/* Shared start screen — mounted on the full-height page container so the
+          card, the age picker and the Play button never clip on a phone. The
+          "How to play" button lives in the picker slot: the old ❓ button sat
+          under the overlay and could not be reached before the first Play. */}
+      {gameState === "ready" && (
+        <GameStartOverlay
+          title="Wordle"
+          emoji="📝"
+          subtitle="Guess the secret word!"
+          touchHints={[
+            "🔤 Tap the letters to spell a word",
+            "✅ Tap ENTER to send your guess",
+            "🟩 Green means the letter is right",
+          ]}
+          keyboardHints={[
+            "🔤 Type letters to spell a word",
+            "↩️ Press Enter to send your guess",
+            "🟩 Green means the letter is right",
+          ]}
+          startLabel="🎮 Start Game!"
+          onStart={() => startGame()}
+        >
+          {gamesPlayed > 0 && (
+            <div className="text-base font-medium opacity-90">
+              🔥 Streak: {currentStreak} · 🏆 Best Streak: {maxStreak} · 🎯{" "}
+              {Math.round((gamesWon / gamesPlayed) * 100)}% won
+            </div>
+          )}
+          <div className="text-sm font-bold opacity-80">How old are you?</div>
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => (
+              <GameStartOverlayButton
+                key={diff}
+                onClick={() => setDifficulty(diff)}
+                aria-pressed={settings.difficulty === diff}
+                className={settings.difficulty === diff ? "btn-primary" : ""}
+              >
+                {DIFFICULTY_SETTINGS[diff].emoji} {diff}
+              </GameStartOverlayButton>
+            ))}
+          </div>
+          <div className="text-xs opacity-70">
+            {diffSettings.wordLength} letters, {maxGuesses} guesses
+          </div>
+          <GameStartOverlayButton onClick={() => openTutorial()}>
+            ❓ How to Play
+          </GameStartOverlayButton>
+        </GameStartOverlay>
+      )}
 
       <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
         {/* Quit button (shown during gameplay) */}
@@ -140,87 +194,6 @@ export function WordleGame() {
             >
               ← Quit
             </button>
-          </div>
-        )}
-
-        {/* Ready Screen — start-overlay layer: the title may render once here (measured by the battery) */}
-        {gameState === "ready" && (
-          <div data-testid="game-start-overlay" className="text-center space-y-8 w-full">
-            <h1 className="text-5xl font-bold mb-4">📝 Wordle</h1>
-            <p className="text-xl text-slate-300">Guess the word!</p>
-
-            {/* Stats */}
-            {gamesPlayed > 0 && (
-              <div className="bg-white/10 rounded-2xl p-4 grid grid-cols-4 gap-4 text-center">
-                <div>
-                  <div className="text-2xl font-bold">{gamesPlayed}</div>
-                  <div className="text-xs text-slate-400">Played</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">
-                    {gamesPlayed > 0 ? Math.round((gamesWon / gamesPlayed) * 100) : 0}%
-                  </div>
-                  <div className="text-xs text-slate-400">Win %</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">{currentStreak}</div>
-                  <div className="text-xs text-slate-400">Streak</div>
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">{maxStreak}</div>
-                  <div className="text-xs text-slate-400">Max</div>
-                </div>
-              </div>
-            )}
-
-            {/* Age Selector */}
-            <div className="space-y-4">
-              <div className="text-xl font-bold">How old are you?</div>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => {
-                  const s = DIFFICULTY_SETTINGS[diff];
-                  const isSelected = settings.difficulty === diff;
-                  return (
-                    <button
-                      key={diff}
-                      onClick={() => setDifficulty(diff)}
-                      className={`px-4 py-3 rounded-xl font-bold text-base transition-all flex flex-col items-center min-w-[70px] ${
-                        isSelected
-                          ? `${s.color} text-white scale-110 ring-2 ring-white shadow-lg`
-                          : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                      }`}
-                    >
-                      <span className="text-2xl">{s.emoji}</span>
-                      <span>{diff}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="text-slate-400 text-sm">
-                {diffSettings.wordLength} letters, {maxGuesses} guesses
-              </div>
-              {settings.difficulty === "99yo" && (
-                <div className="text-purple-300 text-sm">
-                  Grandpa mode: Big letters, more guesses!
-                </div>
-              )}
-            </div>
-
-            {/* Buttons */}
-            <div className="flex flex-col items-center gap-3">
-              <button
-                onClick={startGame}
-                className="btn btn-primary btn-lg text-xl px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-transform"
-              >
-                🎮 Start Game!
-              </button>
-              <button
-                onClick={openTutorial}
-                className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full font-bold text-sm text-white bg-white/10 border-2 border-white/40 hover:bg-white/20 hover:border-white/60 transition-all"
-              >
-                ❓ How to Play
-              </button>
-            </div>
           </div>
         )}
 
