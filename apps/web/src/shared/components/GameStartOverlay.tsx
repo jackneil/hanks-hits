@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useId, useRef } from "react";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
 import { useStartOverlayPresence } from "../lib/startOverlayPresence";
 import { ReadAloudButton } from "./ReadAloudButton";
@@ -53,9 +53,11 @@ export function GameStartOverlayButton({
   className = "",
   variant = "choice",
   "aria-pressed": ariaPressed,
-}: GameStartOverlayButtonProps) {
+  ref,
+}: GameStartOverlayButtonProps & { ref?: React.Ref<HTMLButtonElement> }) {
   return (
     <button
+      ref={ref}
       onClick={onClick}
       aria-pressed={ariaPressed}
       className={`btn ${
@@ -88,6 +90,12 @@ export interface GameStartOverlayProps {
   showStartButton?: boolean;
   /** Picker slot (difficulty / level / age) rendered between hints and start */
   children?: React.ReactNode;
+  /**
+   * What the voice says about the picker slot, e.g. "Pick how old you are:
+   * 4, 8, or 12." Required when the slot decides how the game starts; a kid
+   * who cannot read has no other way to learn the choices.
+   */
+  spokenChoices?: string;
 }
 
 export function GameStartOverlay({
@@ -100,9 +108,19 @@ export function GameStartOverlay({
   onStart,
   showStartButton = true,
   children,
+  spokenChoices,
 }: GameStartOverlayProps) {
   const isCoarse = useCoarsePointer();
   const startedRef = useRef(false);
+  const titleId = useId();
+  const startRef = useRef<HTMLButtonElement>(null);
+
+  // Keyboard and screen-reader users land on Play, not on whatever game
+  // control sits under the card. (A finger is not affected: focusing a
+  // button opens no keyboard and moves no scroll on a phone.)
+  useEffect(() => {
+    startRef.current?.focus({ preventScroll: true });
+  }, []);
 
   // Tell bottom sheets (the iOS install banner) that a start card is up,
   // so they stay hidden until the kid has pressed Play.
@@ -120,11 +138,21 @@ export function GameStartOverlay({
   }, [onStart]);
 
   const hints = isCoarse ? touchHints : keyboardHints;
-  const readAloudText = [title, subtitle, ...hints].filter(Boolean).join(". ");
+  // Also tell the kid HOW to start: some games hide the Play button and
+  // start from a picker choice instead, and a non-reader cannot tell.
+  const startInstruction = showStartButton
+    ? `Then tap ${startLabel} to start.`
+    : "Then tap one of the choices to start.";
+  const readAloudText = [title, subtitle, ...hints, spokenChoices, startInstruction]
+    .filter(Boolean)
+    .join(". ");
 
   return (
     <div
       data-testid="game-start-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
       className="absolute inset-0 z-40 bg-black/75 backdrop-blur-sm"
     >
       {/* The card box is at most one viewport (minus the shell header) tall
@@ -136,14 +164,17 @@ export function GameStartOverlay({
       <div className="sticky top-12 flex h-[min(100%,calc(100dvh-3rem))] w-full overflow-y-auto p-4 short:p-2 md:top-14 md:h-[min(100%,calc(100dvh-3.5rem))]">
         {/* m-auto (not items-center on the parent) so a card taller than the
             box scrolls from its top instead of clipping the title off */}
-        <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl short:max-w-2xl short:p-3">
+        <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center text-base-content shadow-2xl short:max-w-2xl short:p-3">
         {emoji && (
           <div className="mb-2 text-6xl short:mb-0 short:text-3xl" aria-hidden="true">
             {emoji}
           </div>
         )}
 
-        <h1 className="mb-1 break-words text-3xl font-bold md:text-4xl short:mb-0 short:text-2xl">
+        <h1
+          id={titleId}
+          className="mb-1 break-words text-3xl font-bold md:text-4xl short:mb-0 short:text-2xl"
+        >
           {title}
         </h1>
 
@@ -166,7 +197,7 @@ export function GameStartOverlay({
         )}
 
         {showStartButton && (
-          <GameStartOverlayButton variant="primary" onClick={handleStart}>
+          <GameStartOverlayButton ref={startRef} variant="primary" onClick={handleStart}>
             {startLabel}
           </GameStartOverlayButton>
         )}

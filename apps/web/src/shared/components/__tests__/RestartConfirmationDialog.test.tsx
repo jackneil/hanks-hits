@@ -100,7 +100,7 @@ describe("RestartConfirmationDialog read aloud", () => {
 
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
     expect(synth.lastUtterance().text).toBe(
-      "Restart game?. Start Snake again from the beginning?. Cancel. Restart"
+      "Restart game? Start Snake again from the beginning? Cancel. Restart"
     );
   });
 

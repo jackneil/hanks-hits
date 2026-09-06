@@ -16,7 +16,7 @@ export type MockUtterance = {
   lang?: string;
   voice?: unknown;
   onend?: (() => void) | null;
-  onerror?: (() => void) | null;
+  onerror?: ((event?: { error?: string }) => void) | null;
 };
 
 export type SpeechMock = {
@@ -36,7 +36,7 @@ class FakeUtterance implements MockUtterance {
   lang?: string;
   voice?: unknown;
   onend: (() => void) | null = null;
-  onerror: (() => void) | null = null;
+  onerror: ((event?: { error?: string }) => void) | null = null;
   constructor(text: string) {
     this.text = text;
   }

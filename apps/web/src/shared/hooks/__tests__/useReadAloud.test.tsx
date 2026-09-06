@@ -5,7 +5,7 @@ import {
   installSpeechMock,
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
-import { useReadAloud } from "../useReadAloud";
+import { toSpeakable, useReadAloud } from "../useReadAloud";
 
 afterEach(() => {
   removeSpeechMock();
@@ -145,6 +145,56 @@ describe("useReadAloud", () => {
       configurable: true,
       get: () => "visible",
     });
+  });
+
+  it("ignores a stale utterance's late callback so the newer reading keeps its Stop state", async () => {
+    const mock = installSpeechMock();
+    const { result } = renderHook(() => useReadAloud());
+    await waitFor(() => expect(result.current.isSupported).toBe(true));
+
+    act(() => result.current.speak("first"));
+    const first = mock.lastUtterance();
+    act(() => result.current.stop());
+    act(() => result.current.speak("second"));
+    expect(result.current.isSpeaking).toBe(true);
+
+    // The browser delivers the cancelled utterance's error late.
+    act(() => first.onerror?.({ error: "canceled" }));
+
+    expect(result.current.isSpeaking).toBe(true);
+    act(() => mock.lastUtterance().onend?.());
+    expect(result.current.isSpeaking).toBe(false);
+  });
+
+  it("warns on a real speech failure but stays quiet on cancel", async () => {
+    const mock = installSpeechMock();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = renderHook(() => useReadAloud());
+    await waitFor(() => expect(result.current.isSupported).toBe(true));
+
+    act(() => result.current.speak("hello"));
+    act(() => mock.lastUtterance().onerror?.({ error: "canceled" }));
+    expect(warn).not.toHaveBeenCalled();
+
+    act(() => result.current.speak("again"));
+    act(() => mock.lastUtterance().onerror?.({ error: "synthesis-failed" }));
+    expect(warn).toHaveBeenCalledWith("[read-aloud] speech failed:", "synthesis-failed");
+    expect(result.current.isSpeaking).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("strips emoji before speaking so voices do not read their names", async () => {
+    const mock = installSpeechMock();
+    const { result } = renderHook(() => useReadAloud());
+    await waitFor(() => expect(result.current.isSupported).toBe(true));
+
+    act(() => result.current.speak("👆 Tap to flap. ▶ Play!"));
+
+    expect(mock.lastUtterance().text).toBe("Tap to flap. Play!");
+    expect(toSpeakable("🏆 Best: 12 · 🔥 Streak 3")).toBe("Best: 12 · Streak 3");
+    expect(toSpeakable("Snake. Eat food and grow longer.")).toBe("Snake. Eat food and grow longer.");
+    expect(toSpeakable("Restart game?. Start again?. Cancel. Restart")).toBe("Restart game? Start again? Cancel. Restart");
+    expect(toSpeakable("Pick 4, 8, or 12.. Then tap")).toBe("Pick 4, 8, or 12. Then tap");
   });
 
   it("ignores empty or blank text", async () => {

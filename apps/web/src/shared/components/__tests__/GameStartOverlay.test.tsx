@@ -7,31 +7,10 @@ import {
 } from "@/__tests__/speech-mock";
 
 import { GameStartOverlay, GameStartOverlayButton } from "../GameStartOverlay";
-
-/**
- * The setup file installs a matchMedia stub that always returns
- * matches: false. These helpers swap in a stub where "(pointer: coarse)"
- * resolves to the requested value so we can simulate touch vs
- * keyboard/mouse viewports.
- */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 afterEach(() => {
-  mockPointer(false);
+  resetPointerMock();
 });
 
 describe("GameStartOverlay", () => {
@@ -201,7 +180,7 @@ describe("GameStartOverlay read aloud", () => {
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
 
     expect(synth.lastUtterance().text).toBe(
-      "Asteroids. Blast the rocks. Tap FIRE to shoot. Tap ⟲ ⟳ to rotate"
+      "Asteroids. Blast the rocks. Tap FIRE to shoot. Tap ⟲ ⟳ to rotate. Then tap Play! to start."
     );
     expect(synth.lastUtterance().text).not.toContain("Press SPACE");
   });
@@ -222,9 +201,45 @@ describe("GameStartOverlay read aloud", () => {
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
 
     expect(synth.lastUtterance().text).toBe(
-      "Asteroids. Blast the rocks. Press SPACE to shoot. Arrow keys to rotate"
+      "Asteroids. Blast the rocks. Press SPACE to shoot. Arrow keys to rotate. Then tap Play! to start."
     );
     expect(synth.lastUtterance().text).not.toContain("Tap FIRE");
+  });
+
+  it("speaks the picker choices and the tap that starts a picker-only game", async () => {
+    mockPointer(true);
+    const synth = installSpeechMock();
+    render(
+      <GameStartOverlay
+        title="Space Invaders"
+        touchHints={["Tap to shoot"]}
+        spokenChoices="Pick how old you are: 4, 8, or 12."
+        showStartButton={false}
+        onStart={() => {}}
+      >
+        <button type="button">👶 4yo</button>
+      </GameStartOverlay>
+    );
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(synth.lastUtterance().text).toBe(
+      "Space Invaders. Tap to shoot. Pick how old you are: 4, 8, or 12. Then tap one of the choices to start."
+    );
+  });
+
+  it("is a labelled dialog that lands keyboard focus on the start button", () => {
+    render(
+      <GameStartOverlay title="Snake" onStart={() => {}}>
+        <button type="button">Slow</button>
+      </GameStartOverlay>
+    );
+
+    const overlay = screen.getByTestId("game-start-overlay");
+    expect(overlay).toHaveAttribute("role", "dialog");
+    expect(overlay).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByRole("dialog", { name: "Snake" })).toBe(overlay);
+    expect(screen.getByRole("button", { name: /play/i })).toHaveFocus();
   });
 
   it("shows no read-aloud button when the browser cannot speak", () => {

@@ -46,6 +46,22 @@ function subscribeToNothing(): () => void {
   return () => {};
 }
 
+/**
+ * Strip emoji and other pictographs before speaking. Voices read them as
+ * their names ("backhand index pointing up"), which buries the words a kid
+ * needs. Keeps letters, digits, and punctuation in every script.
+ */
+export function toSpeakable(text: string): string {
+  return text
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ ([.,!?])/g, "$1")
+    // "Restart game?. Cancel" -> "Restart game? Cancel": segments are joined
+    // with ". " and some already end in punctuation.
+    .replace(/([.!?])\s*\./g, "$1")
+    .trim();
+}
+
 function pickEnglishVoice(): SpeechSynthesisVoice | null {
   const voices = getSynth()?.getVoices?.() ?? [];
   const english = voices.filter((voice) =>
@@ -92,19 +108,31 @@ export function useReadAloud(): UseReadAloudResult {
       // Cancel anything in flight first, or the browser queues them up.
       synth.cancel();
 
-      const utterance = new window.SpeechSynthesisUtterance(text);
+      const utterance = new window.SpeechSynthesisUtterance(toSpeakable(text));
       utterance.rate = 0.9;
       utterance.pitch = 1;
       utterance.lang = "en-US";
       const voice = pickEnglishVoice();
       if (voice) utterance.voice = voice;
 
+      // A cancelled utterance can still deliver its end/error event later.
+      // Only the CURRENT utterance may change the speaking state, or a stale
+      // callback would hide the Stop button while a newer reading plays.
       const finish = () => {
-        if (utteranceRef.current === utterance) utteranceRef.current = null;
+        if (utteranceRef.current !== utterance) return;
+        utteranceRef.current = null;
         setSpeaking(false);
       };
       utterance.onend = finish;
-      utterance.onerror = finish;
+      utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
+        // "canceled" and "interrupted" are what stop() and a new speak()
+        // produce on purpose. Anything else is a real failure worth a trace.
+        const code = event?.error;
+        if (code && code !== "canceled" && code !== "interrupted") {
+          console.warn("[read-aloud] speech failed:", code);
+        }
+        finish();
+      };
 
       utteranceRef.current = utterance;
       setSpeaking(true);
