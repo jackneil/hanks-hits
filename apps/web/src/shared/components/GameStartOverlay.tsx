@@ -117,40 +117,42 @@ export function GameStartOverlay({
       data-testid="game-start-overlay"
       className="absolute inset-0 z-40 bg-black/75 backdrop-blur-sm"
     >
-      {/* The card box is at most one viewport tall and sticks to the top of
-          the viewport. On a page taller than the screen (cookie-clicker is
-          about 1700px on a phone) the overlay fills the whole page, and
-          without this the card would center far below the fold. */}
-      <div className="sticky top-0 flex h-[min(100%,100dvh)] w-full overflow-y-auto p-4">
+      {/* The card box is at most one viewport (minus the shell header) tall
+          and sticks just under the header. On a page taller than the screen
+          (cookie-clicker is about 1700px on a phone) the overlay fills the
+          whole page, and without this the card would center below the fold.
+          The `short:` variant (viewport under 480px tall, a phone held
+          sideways) tightens the spacing so Play stays on screen. */}
+      <div className="sticky top-12 flex h-[min(100%,calc(100dvh-3rem))] w-full overflow-y-auto p-4 short:p-2 md:top-14 md:h-[min(100%,calc(100dvh-3.5rem))]">
         {/* m-auto (not items-center on the parent) so a card taller than the
             box scrolls from its top instead of clipping the title off */}
-        <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl">
+        <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl short:max-w-2xl short:p-3">
         {emoji && (
-          <div className="mb-2 text-6xl" aria-hidden="true">
+          <div className="mb-2 text-6xl short:mb-0 short:text-3xl" aria-hidden="true">
             {emoji}
           </div>
         )}
 
-        <h1 className="mb-1 break-words text-3xl font-bold md:text-4xl">
+        <h1 className="mb-1 break-words text-3xl font-bold md:text-4xl short:mb-0 short:text-2xl">
           {title}
         </h1>
 
         {subtitle && (
-          <p className="mb-3 break-words text-base opacity-80">{subtitle}</p>
+          <p className="mb-3 break-words text-base opacity-80 short:mb-1 short:text-sm">{subtitle}</p>
         )}
 
         {hints.length > 0 && (
-          <ul className="mb-4 space-y-1 text-base font-medium opacity-90">
+          <ul className="mb-4 space-y-1 text-base font-medium opacity-90 short:mb-2 short:columns-2 short:space-y-0 short:text-sm">
             {hints.map((hint) => (
               <li key={hint}>{hint}</li>
             ))}
           </ul>
         )}
 
-        <ReadAloudButton text={readAloudText} className="mb-4" />
+        <ReadAloudButton text={readAloudText} className="mb-4 short:mb-2 short:min-h-[44px]" />
 
         {children && (
-          <div className="mb-4 flex flex-col items-stretch gap-3">{children}</div>
+          <div className="mb-4 flex flex-col items-stretch gap-3 short:mb-2 short:gap-2">{children}</div>
         )}
 
         {showStartButton && (

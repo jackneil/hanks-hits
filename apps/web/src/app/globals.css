@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
+/* Short viewports: a phone held sideways (about 390px tall). Start cards
+   use this to tighten spacing so the Play button stays on screen. */
+@custom-variant short (@media (max-height: 480px));
+
 /* Kid-friendly theme for Neil's Adventure Hub */
 @plugin "daisyui/theme" {
   name: "adventure";

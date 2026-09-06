@@ -1163,7 +1163,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden">
+    <div className="relative w-full h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)] overflow-hidden">
       <canvas ref={canvasRef} className="absolute inset-0" style={{ touchAction: 'none' }} />
 
       {/* Shared start screen: a real DOM overlay inside the positioned root.
