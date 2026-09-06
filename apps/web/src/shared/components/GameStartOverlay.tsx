@@ -115,11 +115,16 @@ export function GameStartOverlay({
   return (
     <div
       data-testid="game-start-overlay"
-      className="absolute inset-0 z-40 flex overflow-y-auto bg-black/75 backdrop-blur-sm p-4"
+      className="absolute inset-0 z-40 bg-black/75 backdrop-blur-sm"
     >
-      {/* m-auto (not items-center on the parent) so a card taller than the
-          play area scrolls from its top instead of clipping the title off */}
-      <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl">
+      {/* The card box is at most one viewport tall and sticks to the top of
+          the viewport. On a page taller than the screen (cookie-clicker is
+          about 1700px on a phone) the overlay fills the whole page, and
+          without this the card would center far below the fold. */}
+      <div className="sticky top-0 flex h-[min(100%,100dvh)] w-full overflow-y-auto p-4">
+        {/* m-auto (not items-center on the parent) so a card taller than the
+            box scrolls from its top instead of clipping the title off */}
+        <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl">
         {emoji && (
           <div className="mb-2 text-6xl" aria-hidden="true">
             {emoji}
@@ -153,6 +158,7 @@ export function GameStartOverlay({
             {startLabel}
           </GameStartOverlayButton>
         )}
+        </div>
       </div>
     </div>
   );

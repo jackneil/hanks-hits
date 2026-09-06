@@ -86,10 +86,14 @@ html, body {
   overscroll-behavior: none;
 }
 
-/* Big touch targets for kids - 44px minimum */
-.btn {
-  min-height: 44px;
-  min-width: 44px;
+/* Big touch targets for kids - 44px minimum. Lives in the components
+   layer so a utility like min-h-[56px] can still make a button bigger;
+   an unlayered rule would beat every Tailwind utility. */
+@layer components {
+  .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 /* Fun hover effects */
