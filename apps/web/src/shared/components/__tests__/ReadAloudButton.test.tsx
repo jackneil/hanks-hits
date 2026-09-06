@@ -93,7 +93,7 @@ describe("ReadAloudButton icon variant", () => {
     expect(synth.speak).toHaveBeenCalledTimes(1);
     expect(synth.lastUtterance().text).toBe("Snake");
     expect(button).toHaveTextContent("⏹");
-    expect(button).toHaveAttribute("aria-label", "Stop reading");
+    expect(button).toHaveAttribute("aria-label", "Read it to me");
     expect(button).toHaveAttribute("aria-pressed", "true");
   });
 

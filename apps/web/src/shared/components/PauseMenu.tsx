@@ -14,6 +14,8 @@ interface PauseMenuProps {
   restartConfirmation?: "always" | "never";
   restartConfirmationMessage?: string;
   children?: React.ReactNode;
+  /** Labels of the extra buttons in the children slot, so the voice names every button the kid sees. */
+  spokenExtras?: string[];
 }
 
 export function PauseMenu({
@@ -25,6 +27,7 @@ export function PauseMenu({
   restartConfirmation = "always",
   restartConfirmationMessage,
   children,
+  spokenExtras = [],
 }: PauseMenuProps) {
   const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
@@ -41,7 +44,15 @@ export function PauseMenu({
     };
   }, [isOpen]);
 
-  const readAloudText = ["Paused", gameName, "Resume", onRestart ? "Restart" : null, "Go Home"]
+  // Same order as the buttons on screen: Resume, extras, Restart, Go Home.
+  const readAloudText = [
+    "Paused",
+    gameName,
+    "Resume",
+    ...spokenExtras,
+    onRestart ? "Restart" : null,
+    "Go Home",
+  ]
     .filter(Boolean)
     .join(". ");
 

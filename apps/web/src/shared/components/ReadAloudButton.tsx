@@ -40,7 +40,7 @@ export function ReadAloudButton({
       type="button"
       data-testid="read-aloud-button"
       aria-pressed={isSpeaking}
-      aria-label={isSpeaking ? "Stop reading" : "Read it to me"}
+      aria-label="Read it to me"
       onClick={() => (isSpeaking ? stop() : speak(text))}
       className={
         isIcon

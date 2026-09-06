@@ -253,11 +253,14 @@ export function HomeClient({ categories }: HomeClientProps) {
                 }`}
               >
                 {myGames.map((item) => (
-                  <div className="relative" key={item.href}>
+                  <div
+                  className="relative transition-transform duration-300 hover:-translate-y-1"
+                  key={item.href}
+                >
                     <Link
                       href={item.href}
                       onClick={() => handleGameClick(item)}
-                      className="group rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/15 active:scale-95"
+                      className="group block rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:border-white/20 hover:bg-white/15 active:scale-95"
                     >
                       <span className="mb-2 block text-5xl transition-transform duration-300 group-hover:scale-110">
                         {item.emoji}
@@ -309,11 +312,14 @@ export function HomeClient({ categories }: HomeClientProps) {
             </h2>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
               {recentItems.map((item) => (
-                <div className="relative" key={item.href}>
+                <div
+                  className="relative transition-transform duration-300 hover:-translate-y-1"
+                  key={item.href}
+                >
                   <Link
                     href={item.href}
                     onClick={() => handleGameClick(item)}
-                    className="group rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/15 active:scale-95"
+                    className="group block rounded-2xl border border-white/10 bg-white/10 p-4 text-center transition-all duration-300 hover:border-white/20 hover:bg-white/15 active:scale-95"
                   >
                     <span className="mb-2 block text-4xl transition-transform duration-300 group-hover:scale-110">
                       {item.emoji}
@@ -359,7 +365,10 @@ export function HomeClient({ categories }: HomeClientProps) {
                     : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6 max-w-6xl mx-auto'
             }`}>
               {category.items.map((item, itemIndex) => (
-                <div className="relative" key={item.href}>
+                <div
+                  className="relative transition-transform duration-300 hover:-translate-y-1"
+                  key={item.href}
+                >
                   <Link
                     href={item.href}
                     onClick={() => handleGameClick(item)}
@@ -376,7 +385,7 @@ export function HomeClient({ categories }: HomeClientProps) {
                       backdrop-blur-sm
                       p-4 md:p-6
                       transition-all duration-300 ease-out
-                      hover:scale-105 hover:-translate-y-1
+                      hover:scale-[1.03]
                       hover:shadow-2xl hover:shadow-white/10
                       hover:border-white/20
                       active:scale-95

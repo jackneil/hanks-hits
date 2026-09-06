@@ -1,3 +1,4 @@
+import { toSpeakable } from "@/shared/hooks/useReadAloud";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { VIRTUAL_PET_INSTRUCTIONS } from "../lib/readAloud";
 import {
@@ -130,7 +131,7 @@ describe("virtual pet read aloud", () => {
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
 
     expect(speech.speak).toHaveBeenCalledTimes(1);
-    expect(speech.lastUtterance().text).toBe(VIRTUAL_PET_INSTRUCTIONS);
+    expect(speech.lastUtterance().text).toBe(toSpeakable(VIRTUAL_PET_INSTRUCTIONS));
   });
 
   it("hides the button when the browser cannot speak", () => {

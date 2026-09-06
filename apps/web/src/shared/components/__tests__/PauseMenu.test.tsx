@@ -39,6 +39,27 @@ describe("PauseMenu read aloud", () => {
     expect(synth.lastUtterance().text).toBe("Paused. Snake. Resume. Restart. Go Home");
   });
 
+  it("names the extra buttons in the slot, in screen order", async () => {
+    const synth = installSpeechMock();
+    render(
+      <PauseMenu
+        isOpen
+        onResume={vi.fn()}
+        onHome={vi.fn()}
+        onRestart={vi.fn()}
+        gameName="Snake"
+        spokenExtras={["Leaderboard"]}
+      >
+        <button type="button">🏆 Leaderboard</button>
+      </PauseMenu>
+    );
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+    expect(synth.lastUtterance().text).toBe(
+      "Paused. Snake. Resume. Leaderboard. Restart. Go Home"
+    );
+  });
+
   it("leaves Restart out when the game has no restart action", async () => {
     const synth = installSpeechMock();
     render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);

@@ -7,6 +7,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DrawingApp } from "../DrawingApp";
+import { toSpeakable } from "@/shared/hooks/useReadAloud";
 
 vi.mock("../components/Canvas", () => ({
   Canvas: () => <div>Canvas</div>,
@@ -77,7 +78,7 @@ describe("drawing app read aloud", () => {
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
 
     expect(speech.speak).toHaveBeenCalledTimes(1);
-    expect(speech.lastUtterance().text).toBe(DRAWING_APP_INSTRUCTIONS);
+    expect(speech.lastUtterance().text).toBe(toSpeakable(DRAWING_APP_INSTRUCTIONS));
   });
 
   it("hides the button when the browser cannot speak", () => {

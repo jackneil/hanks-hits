@@ -150,6 +150,7 @@ export function GameShell({
           restartConfirmation={restartConfirmation}
           restartConfirmationMessage={restartConfirmationMessage}
           gameName={gameName}
+          spokenExtras={showLeaderboard ? ["Leaderboard"] : []}
         >
           {/* Leaderboard button in pause menu */}
           {showLeaderboard && (

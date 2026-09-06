@@ -8,6 +8,7 @@ import {
 import { RetroArcadeGame } from "../Game";
 import { useRetroArcadeStore } from "../lib/store";
 import { RETRO_ARCADE_INSTRUCTIONS } from "../lib/readAloud";
+import { toSpeakable } from "@/shared/hooks/useReadAloud";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: () => ({ isAuthenticated: false, syncStatus: "idle" }),
@@ -46,7 +47,7 @@ describe("retro arcade read aloud", () => {
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
 
     expect(speech.speak).toHaveBeenCalledTimes(1);
-    expect(speech.lastUtterance().text).toBe(RETRO_ARCADE_INSTRUCTIONS);
+    expect(speech.lastUtterance().text).toBe(toSpeakable(RETRO_ARCADE_INSTRUCTIONS));
   });
 
   it("hides the button when the browser cannot speak", () => {

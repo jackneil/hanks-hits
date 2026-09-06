@@ -19,7 +19,11 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *       card on a phone, or the card's buttons clip below the fold
  *       (2026-07-11 mobile audit). Either way the ancestor must be
  *       `relative`. Stacking: z-40 — above the play area, below
- * OrientationWarning and the GameShell header/pause layers.
+ * OrientationWarning and the GameShell header/pause layers. The host must
+ * NOT be a scroll container (no overflow-hidden/auto on the positioned
+ * ancestor): the card box is position: sticky, and a host that scrolls
+ * becomes its scrollport, which pushes the box down and clips Play
+ * (hill-climb, 2026-09-05).
  *
  * Mount contract: render it CONDITIONALLY on the menu/ready state
  * (`{state === "ready" && <GameStartOverlay .../>}`), never permanently
@@ -183,9 +187,9 @@ export function GameStartOverlay({
         )}
 
         {hints.length > 0 && (
-          <ul className="mb-4 space-y-1 text-base font-medium opacity-90 short:mb-2 short:columns-2 short:space-y-0 short:text-sm">
-            {hints.map((hint) => (
-              <li key={hint}>{hint}</li>
+          <ul className="mb-4 space-y-1 text-base font-medium opacity-90 short:mb-2 short:grid short:grid-cols-2 short:gap-x-4 short:space-y-0 short:text-sm">
+            {hints.map((hint, index) => (
+              <li key={`${index}-${hint}`}>{hint}</li>
             ))}
           </ul>
         )}
