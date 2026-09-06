@@ -214,7 +214,6 @@ export function VirtualPet() {
       <div className="w-full max-w-md mb-4">
         <ReadAloudButton
           text={VIRTUAL_PET_INSTRUCTIONS}
-          className="border-amber-500 text-amber-800 hover:bg-amber-100"
         />
       </div>
 

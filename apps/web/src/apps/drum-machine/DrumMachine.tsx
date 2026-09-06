@@ -314,7 +314,6 @@ export function DrumMachine() {
       <div className="w-full max-w-md mb-4">
         <ReadAloudButton
           text={DRUM_MACHINE_INSTRUCTIONS}
-          className="border-slate-500 text-slate-100 hover:bg-slate-700"
         />
       </div>
 

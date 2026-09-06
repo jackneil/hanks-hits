@@ -524,7 +524,6 @@ export function RetroArcadeGame() {
       <div className="w-full max-w-md mx-auto mb-4">
         <ReadAloudButton
           text={RETRO_ARCADE_INSTRUCTIONS}
-          className="border-white/40 text-white hover:bg-white/10"
         />
       </div>
 

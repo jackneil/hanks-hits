@@ -179,7 +179,6 @@ export function DrawingApp() {
       <div className="flex-shrink-0 px-2 pb-2 md:px-3">
         <ReadAloudButton
           text={DRAWING_APP_INSTRUCTIONS}
-          className="border-white/70 bg-white/20 text-white hover:bg-white/30"
         />
       </div>
 

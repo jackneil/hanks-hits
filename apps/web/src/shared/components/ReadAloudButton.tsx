@@ -45,7 +45,7 @@ export function ReadAloudButton({
       className={
         isIcon
           ? `btn btn-circle btn-sm min-h-[44px] min-w-[44px] h-11 w-11 text-xl ${className}`
-          : `btn btn-outline min-h-[56px] w-full text-lg ${className}`
+          : `btn border-base-300 bg-base-100 text-base-content shadow-md min-h-[56px] w-full text-lg ${className}`
       }
     >
       {isIcon ? (isSpeaking ? "⏹" : "🔊") : isSpeaking ? "⏹ Stop" : label}
