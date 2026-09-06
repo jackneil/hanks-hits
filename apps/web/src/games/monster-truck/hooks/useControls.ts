@@ -38,9 +38,14 @@ const initialState: ControlState = {
 // KEYBOARD CONTROLS
 // ============================================================================
 
+/**
+ * @param enabled Bind the window key listeners only after the player starts,
+ * so keys pressed on the start overlay never drive the truck.
+ */
 export function useKeyboardControls(
   onHorn?: () => void,
-  onReset?: () => void
+  onReset?: () => void,
+  enabled = true
 ) {
   const stateRef = useRef<ControlState>({ ...initialState });
   const [state, setState] = useState<ControlState>({ ...initialState });
@@ -130,14 +135,19 @@ export function useKeyboardControls(
   }, [updateState]);
 
   useEffect(() => {
+    if (!enabled) return;
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      // Release everything: a key held when input is switched off must not
+      // read as pressed the next time the listeners bind.
+      stateRef.current = { ...initialState };
+      setState({ ...initialState });
     };
-  }, [handleKeyDown, handleKeyUp]);
+  }, [enabled, handleKeyDown, handleKeyUp]);
 
   // Convert to control values
   const getControlValues = useCallback((): ControlValues => {
@@ -320,11 +330,15 @@ export function useDeviceOrientation() {
 // COMBINED CONTROLS
 // ============================================================================
 
+/**
+ * @param enabled False until the player presses Play on the start overlay.
+ */
 export function useCombinedControls(
   onHorn?: () => void,
-  onReset?: () => void
+  onReset?: () => void,
+  enabled = true
 ) {
-  const keyboard = useKeyboardControls(onHorn, onReset);
+  const keyboard = useKeyboardControls(onHorn, onReset, enabled);
   const touch = useTouchControls();
   const tilt = useDeviceOrientation();
 

@@ -11,8 +11,7 @@ import Matter from 'matter-js';
 import { useCombinedControls, useIsMobile, usePauseKeyboard } from './hooks/useControls';
 import { useHillClimbStore, type HillClimbProgress } from './lib/store';
 import { useAuthSync } from '@/shared/hooks/useAuthSync';
-import { useCoarsePointer } from '@/shared/hooks';
-import { clampDeltaTime, getControlsCopy } from './lib/gameHelpers';
+import { clampDeltaTime } from './lib/gameHelpers';
 import {
   createVehicle,
   applyWheelTorque,
@@ -33,7 +32,11 @@ import { MobileControls } from './ui/MobileControls';
 import { GameOverScreen } from './ui/GameOverScreen';
 import { PauseMenu } from './ui/PauseMenu';
 import { Garage } from './ui/Garage';
-import { OrientationWarning } from '@/shared/components';
+import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+  OrientationWarning,
+} from '@/shared/components';
 
 // =============================================================================
 // TYPES
@@ -61,6 +64,11 @@ interface Particle {
 // MAIN GAME COMPONENT
 // =============================================================================
 
+/**
+ * @param startActive Skip the start overlay and drop straight into the run.
+ * The shell passes this ONLY on a restart remount, where it has already
+ * called restartRun(); the first mount always shows the start overlay.
+ */
 export function HillClimbGame({ startActive = false }: { startActive?: boolean } = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
@@ -86,10 +94,12 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   const nitroRef = useRef<number>(NITRO.MAX);
   const shakeRef = useRef({ intensity: 0, duration: 0 });
 
-  const controls = useCombinedControls();
+  // Input is dead until the run is active, so taps on the start overlay never
+  // register as gas or brake (the touch/key layer is bound to window).
+  const isRunActive = useHillClimbStore((state) => state.isPlaying);
+  const controls = useCombinedControls(isRunActive);
   const controlsRef = useRef(controls);
   const isMobile = useIsMobile();
-  const isCoarsePointer = useCoarsePointer();
   usePauseKeyboard(); // Handle Escape key for pause menu
 
   // Store
@@ -139,15 +149,6 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   const [rotation, setRotation] = useState(0);
   const [showStartScreen, setShowStartScreen] = useState(!startActive);
   const [showGarage, setShowGarage] = useState(false);
-
-  // A remounted restart must enter an active run immediately. The lifecycle
-  // effect below owns engine and render-loop initialization, so this only
-  // changes store state and never initializes a second chain.
-  useEffect(() => {
-    if (startActive && !useHillClimbStore.getState().isPlaying) {
-      startRun();
-    }
-  }, [startActive, startRun]);
 
   // Update refs when state changes
   useEffect(() => {
@@ -1161,51 +1162,39 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     return <Garage onStartGame={handleStartFromGarage} />;
   }
 
-  // Show Start screen
-  if (showStartScreen) {
-    return (
-      // start-overlay layer: the title may render once here (measured by the battery)
-      <div
-        data-testid="game-start-overlay"
-        className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex items-center justify-center"
-      >
-        <div className="text-center px-4 max-w-full">
-          <h1 className="text-4xl sm:text-6xl font-bold text-white mb-4 drop-shadow-lg">
-            🏔️ Hill Climb Racing
-          </h1>
-          <p className="text-xl text-white/80 mb-8">
-            Drive as far as you can without running out of fuel!
-          </p>
-          {/* flex-wrap + smaller mobile padding: at 375px the fixed-width
-              pair overflowed the viewport and the whole page scrolled
-              sideways (2026-07-10 audit, High) */}
-          <div className="flex flex-wrap gap-4 justify-center mb-8">
-            <button
-              onClick={handleStart}
-              className="btn btn-primary btn-lg text-2xl px-6 sm:px-12"
-            >
-              🚗 Play Now
-            </button>
-            <button
-              onClick={handleGoToGarage}
-              className="btn btn-secondary btn-lg text-2xl px-5 sm:px-8"
-            >
-              🔧 Garage
-            </button>
-          </div>
-          <div className="text-white/70">
-            <p>
-              <strong>Controls:</strong> {getControlsCopy(isCoarsePointer)}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="relative w-full h-screen overflow-hidden">
       <canvas ref={canvasRef} className="absolute inset-0" style={{ touchAction: 'none' }} />
+
+      {/* Shared start screen: a real DOM overlay inside the positioned root.
+          It renders the title exactly once, so the game paints no title of
+          its own. The Garage opens from here without starting the run. */}
+      {showStartScreen && (
+        <GameStartOverlay
+          title="Hill Climb Racing"
+          emoji="🏔️"
+          subtitle="Drive as far as you can before the fuel runs out!"
+          startLabel="🚗 Play Now"
+          touchHints={[
+            "🦶 Tap the right side to go",
+            "🛑 Tap the left side to stop",
+            "🤸 Drag up to lean the truck",
+            "⚡ Tap NITRO for a big boost",
+          ]}
+          keyboardHints={[
+            "🦶 Press D or the right arrow to go",
+            "🛑 Press A or the left arrow to stop",
+            "🤸 Press W and S to lean",
+            "⚡ Press the space bar for nitro",
+            "🔄 Press R to flip back over",
+          ]}
+          onStart={handleStart}
+        >
+          <GameStartOverlayButton onClick={handleGoToGarage}>
+            🚗 Garage
+          </GameStartOverlayButton>
+        </GameStartOverlay>
+      )}
 
       {/* Orientation warning - shows in portrait mode */}
       <OrientationWarning />

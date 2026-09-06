@@ -25,7 +25,11 @@ export default function HillClimbGameShell() {
       showPauseButton={false}
       onRestart={restart}
     >
-      <HillClimbGame key={gameKey} startActive />
+      {/* startActive only on a RESTART remount: the first mount must show the
+          shared start overlay so the kid has a real start moment, while the
+          header restart keeps dropping straight into play (restartRun above
+          already flipped the run active). */}
+      <HillClimbGame key={gameKey} startActive={gameKey > 0} />
     </GameShell>
   );
 }

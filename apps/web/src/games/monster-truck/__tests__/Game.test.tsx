@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+
+import { resetWebGLSupportCache } from '@/shared/components/WebGLGate';
 
 // Mock the heavy 3D components
 vi.mock('@react-three/fiber', () => ({
@@ -18,6 +20,8 @@ vi.mock('@react-three/rapier', () => ({
   CuboidCollider: () => null,
   CylinderCollider: () => null,
   BallCollider: () => null,
+  HeightfieldCollider: () => null,
+  ConvexHullCollider: () => null,
   useRapier: () => ({ world: { castRay: () => null } }),
 }));
 
@@ -93,4 +97,93 @@ describe('Sound Manager', () => {
     // Should not throw
     expect(true).toBe(true);
   });
+});
+
+// ============================================================================
+// START MOMENT
+// ============================================================================
+
+/**
+ * The 1.5s LoadingScreen used to dismiss itself, so nobody ever started the
+ * game. The shared overlay is now a real start moment: it waits for Play, and
+ * the 3D world loads behind it.
+ */
+function mockPointer(coarse: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: query.includes('pointer: coarse') ? coarse : false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+describe('Monster Truck start overlay', () => {
+  beforeEach(() => {
+    resetWebGLSupportCache();
+    // jsdom creates no WebGL context, and WebGLGate would then render its
+    // fallback instead of the scene (and the overlay inside it).
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      {} as never
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockPointer(false);
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    resetWebGLSupportCache();
+  });
+
+  it('renders the shared overlay with the title exactly once', async () => {
+    const { MonsterTruckGame } = await import('../Game');
+    render(<MonsterTruckGame />);
+
+    expect(screen.getByTestId('game-start-overlay')).toBeInTheDocument();
+    expect(screen.getAllByText('Monster Truck Mayhem')).toHaveLength(1);
+  }, 30_000);
+
+  it('shows the touch instructions, tilt included, on a coarse pointer', async () => {
+    mockPointer(true);
+    const { MonsterTruckGame } = await import('../Game');
+    render(<MonsterTruckGame />);
+
+    expect(screen.getByText('📱 Tilt your phone to steer')).toBeInTheDocument();
+    expect(
+      screen.getByText('🦶 Tap GAS to go, BRAKE to stop')
+    ).toBeInTheDocument();
+    expect(screen.getByText('📣 Tap the horn!')).toBeInTheDocument();
+    expect(
+      screen.queryByText('🦶 Press W or the up arrow to go')
+    ).not.toBeInTheDocument();
+  }, 30_000);
+
+  it('never dismisses itself on a timer', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { MonsterTruckGame } = await import('../Game');
+    render(<MonsterTruckGame />);
+
+    vi.advanceTimersByTime(2000);
+
+    expect(screen.getByTestId('game-start-overlay')).toBeInTheDocument();
+  }, 30_000);
+
+  it('starts the game once and hides the overlay on Play', async () => {
+    const { MonsterTruckGame } = await import('../Game');
+    render(<MonsterTruckGame />);
+
+    const play = screen.getByRole('button', { name: /Play/ });
+    fireEvent.click(play);
+    fireEvent.click(play);
+
+    expect(screen.queryByTestId('game-start-overlay')).toBeNull();
+    expect(screen.getAllByTestId('r3f-canvas')).toHaveLength(1);
+  }, 30_000);
 });
