@@ -83,7 +83,12 @@ describe("hill-climb run lifecycle", () => {
     expect(cancelCalls).toBe(0);
   });
 
-  it("mounts a restart as one active fresh run, not the start screen", () => {
+  it("mounts a restart as one active fresh run, not the start overlay", () => {
+    // The shell flips the run active (restartRun) in the same batch as the
+    // remount, then passes startActive so the new mount skips the overlay.
+    act(() => {
+      useHillClimbStore.getState().restartRun();
+    });
     render(<HillClimbGame startActive />);
 
     expect(screen.queryByTestId("game-start-overlay")).toBeNull();
@@ -101,6 +106,9 @@ describe("hill-climb run lifecycle", () => {
       });
     });
 
+    act(() => {
+      useHillClimbStore.getState().restartRun();
+    });
     render(<HillClimbGame startActive />);
     const state = useHillClimbStore.getState();
 
@@ -112,6 +120,11 @@ describe("hill-climb run lifecycle", () => {
 
   it("header restart remounts directly into one active fresh run", () => {
     render(<HillClimbGameShell />);
+
+    // The route now opens on the shared start overlay; press Play to get into
+    // a run before restarting it.
+    expect(screen.getByTestId("game-start-overlay")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Play Now/ }));
 
     const beforeRestart = rafCalls;
     expect(useHillClimbStore.getState().isPlaying).toBe(true);

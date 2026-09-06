@@ -1,15 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Board } from "./components/Board";
 import { GameUI } from "./components/GameUI";
 import { useCheckersStore } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 
 export function CheckersGame() {
   const store = useCheckersStore();
-  const { status } = store;
+  const { status, progress } = store;
+
+  // Checkers plays from mount, so there is no store-level "before" state. This
+  // per-mount gate gives the player a real start moment: the shared overlay
+  // covers the board AND the config panel until Play is pressed, so a stray tap
+  // cannot move a piece before the player has read the hints.
+  const [hasStarted, setHasStarted] = useState(false);
 
   // Sync with auth system
   const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
@@ -28,13 +35,48 @@ export function CheckersGame() {
   }, [status, forceSync]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-800 to-amber-950 p-4 flex flex-col items-center justify-center gap-6">
+    <div className="relative min-h-screen bg-gradient-to-b from-amber-800 to-amber-950 p-4 flex flex-col items-center justify-center gap-6">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
 
-      <Board />
-      <GameUI />
+      {/* Everything under the start card. `inert` while the card is up so Tab
+          cannot reach the game's own controls before Play, and a stray tap
+          through the overlay cannot move a piece. `contents` keeps the flex
+          layout exactly as it was. */}
+      <div className="contents" inert={!hasStarted || undefined}>
+        <Board />
+        <GameUI />
+      </div>
+
+      {/* Shared start screen. Mounted on the relative page container (not the
+          board box) so the card never clips on a phone, and so it also covers
+          the mode/difficulty panel underneath. */}
+      {!hasStarted && (
+        <GameStartOverlay
+          title="Checkers"
+          emoji="🔴"
+          subtitle="Jump the other pieces and win!"
+          touchHints={[
+            "👆 Tap a piece, then tap where it goes",
+            "⭐ Jump over a piece to take it",
+            "👑 Reach the far row to get a crown",
+          ]}
+          keyboardHints={[
+            "🖱️ Click a piece, then click where it goes",
+            "⭐ Jump over a piece to take it",
+            "👑 Reach the far row to get a crown",
+          ]}
+          onStart={() => setHasStarted(true)}
+        >
+          {progress.gamesPlayed > 0 && (
+            <div className="text-base font-medium opacity-90">
+              🏆 Wins: {progress.gamesWon} · 🔥 Best streak:{" "}
+              {progress.bestWinStreak}
+            </div>
+          )}
+        </GameStartOverlay>
+      )}
 
       {/* Sync status indicator */}
       {isAuthenticated && (

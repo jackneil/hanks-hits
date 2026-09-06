@@ -2,12 +2,16 @@
 
 import { useState } from 'react';
 
+import { useStartOverlayShowing } from '../lib/startOverlayPresence';
+
 /**
  * iOS "Add to Home Screen" prompt
  *
  * Shows only on iPhone (not iPad which supports fullscreen).
  * Non-blocking banner at the bottom of the screen.
  * Can be dismissed and remembered via localStorage.
+ * Stays hidden while a game's start card is on screen, because the sheet
+ * sits over the Play button on an iPhone.
  */
 
 interface IOSInstallPromptProps {
@@ -41,7 +45,9 @@ export function IOSInstallPrompt({ onClose }: IOSInstallPromptProps) {
     onClose?.();
   };
 
-  if (dismissed) return null;
+  const startCardShowing = useStartOverlayShowing();
+
+  if (dismissed || startCardShowing) return null;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-[200] animate-slide-up">

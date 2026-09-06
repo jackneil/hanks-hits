@@ -23,6 +23,7 @@ import {
   type Explosion as ExplosionType,
   type DifficultyLevel,
 } from "./lib/constants";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // Difficulty choices shown in the start overlay. Each starts the game
 // immediately at the chosen difficulty (same effect as the old canvas buttons).
@@ -530,6 +531,11 @@ export function BlitzBomberGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "ready") return;
       // Pause is owned by the GameShell (it binds ESC + the pause button). Let
       // ESC through to the shell instead of treating it as an "any key" bomb
       // drop, and ignore all game keys while paused so nothing runs behind the
@@ -542,9 +548,6 @@ export function BlitzBomberGame() {
       } else if (e.code === "KeyR" && (gameState === "landed" || gameState === "crashed")) {
         e.preventDefault();
         reset();
-      } else if (gameState === "ready") {
-        // Any key starts in ready state
-        handleInput();
       } else if (gameState === "playing") {
         // Any key drops bomb while playing
         handleInput();
@@ -595,6 +598,9 @@ export function BlitzBomberGame() {
               "R restarts from level 1",
             ]}
             showStartButton={false}
+            spokenChoices={`Tap how hard you want it and the game starts: ${DIFFICULTY_CHOICES.map(
+              (choice) => choice.label
+            ).join(", ")}.`}
             onStart={startGame}
           >
             {progress.highScore > 0 && (

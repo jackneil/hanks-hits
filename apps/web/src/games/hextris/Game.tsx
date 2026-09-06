@@ -18,6 +18,8 @@ import {
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // CANVAS RENDERER
@@ -175,23 +177,11 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
       ctx.fillText("Tap to Play Again", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
     }
 
-    // Draw idle state
+    // Idle start screen is the shared DOM <GameStartOverlay>, not painted
+    // here — the canvas must never draw a second title.
     if (status === "idle") {
       ctx.fillStyle = COLORS.GAME_OVER_BG;
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#60a5fa";
-      ctx.font = "bold 40px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("HEXTRIS", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 40);
-
-      ctx.fillStyle = "#f8fafc";
-      ctx.font = "18px Arial";
-      ctx.fillText("Rotate the hexagon to catch blocks", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 10);
-      ctx.fillText("Match 3+ same color to clear", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 35);
-
-      ctx.font = "bold 20px Arial";
-      ctx.fillText("Tap to Start", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
     }
 
     // Draw paused state
@@ -294,7 +284,13 @@ export function HextrisGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (store.status === "idle" || store.status === "game-over") {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // Idle is owned by the start overlay: the only way to begin a game is
+      // its Play button. Space/Enter still restarts from the game-over screen.
+      if (store.status === "idle") return;
+
+      if (store.status === "game-over") {
         if (e.code === "Space" || e.code === "Enter") {
           e.preventDefault();
           store.startGame();
@@ -335,7 +331,11 @@ export function HextrisGame() {
     (e: React.MouseEvent | React.TouchEvent) => {
       e.preventDefault();
 
-      if (store.status === "idle" || store.status === "game-over") {
+      // The start overlay covers the canvas while idle, so a tap here can only
+      // mean "play again" from the game-over screen.
+      if (store.status === "idle") return;
+
+      if (store.status === "game-over") {
         store.startGame();
         return;
       }
@@ -376,8 +376,33 @@ export function HextrisGame() {
   return (
     <div
       ref={containerRef}
-      className="flex flex-col items-center justify-center min-h-screen bg-slate-900 p-4 select-none"
+      className="relative flex flex-col items-center justify-center min-h-screen bg-slate-900 p-4 select-none"
     >
+      {/* Shared start screen — mounted on the full-height page container so the
+          card never clips against the short scaled canvas box on a phone. */}
+      {store.status === "idle" && (
+        <GameStartOverlay
+          title="Hextris"
+          emoji="⬡"
+          subtitle="Spin the hexagon and stack the colors!"
+          touchHints={[
+            "👈 Tap the left side to spin left",
+            "👉 Tap the right side to spin right",
+            "🎨 Match 3 blocks of one color",
+          ]}
+          keyboardHints={[
+            "⌨️ Press A or the left arrow to spin left",
+            "⌨️ Press D or the right arrow to spin right",
+            "🎨 Match 3 blocks of one color",
+          ]}
+          onStart={() => store.startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 High Score: {store.progress.highScore.toLocaleString()}
+          </div>
+        </GameStartOverlay>
+      )}
+
       {/* Stats Bar */}
       <div className="flex items-center gap-4 mb-2 text-white text-sm">
         <span>High Score: {store.progress.highScore}</span>

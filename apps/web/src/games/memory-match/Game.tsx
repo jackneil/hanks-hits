@@ -12,7 +12,12 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
 import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // Card component with flip animation
 function Card({
@@ -306,6 +311,10 @@ function WinModal({
 // Main game component
 export function MemoryMatchGame() {
   const store = useMemoryMatchStore();
+  // The board is live from mount, so a local gate holds the cards still until
+  // the player presses Play on the shared start overlay. Header restart keeps
+  // its old behavior and does not send the player back to the start card.
+  const [hasStarted, setHasStarted] = useState(false);
   const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const requestNewGame = useCallback(() => setIsRestartConfirmationOpen(true), []);
@@ -355,6 +364,8 @@ export function MemoryMatchGame() {
   // Keyboard support
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+    // A focused button or link owns its own Space and Enter: never swallow them.
+    if (keyBelongsToTarget(e)) return;
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
         requestNewGame();
@@ -386,7 +397,52 @@ export function MemoryMatchGame() {
       store.currentTime <= previousBestTime);
 
   return (
-    <div className="min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-3">
+    <div className="relative min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-3">
+      {/* Shared start screen — mounted on the full-height page container so the
+          card and its picker never clip on a phone. */}
+      {!hasStarted && (
+        <GameStartOverlay
+          title="Memory Match"
+          emoji="🃏"
+          subtitle="Find the two cards that match!"
+          touchHints={[
+            "👆 Tap a card to flip it",
+            "🎯 Find two cards that look the same",
+            "⏱️ Match them all as fast as you can",
+          ]}
+          keyboardHints={[
+            "🖱️ Click a card to flip it",
+            "🎯 Find two cards that look the same",
+            "⏱️ Match them all as fast as you can",
+          ]}
+          spokenChoices={`Pick how many cards: ${(
+            Object.keys(DIFFICULTIES) as Difficulty[]
+          )
+            .map((level) => DIFFICULTIES[level].name)
+            .join(", ")}.`}
+          onStart={() => setHasStarted(true)}
+        >
+          {previousBestTime !== null && (
+            <div className="text-base font-medium opacity-90">
+              🏆 Best Time: {formatTime(previousBestTime)}
+            </div>
+          )}
+          <div className="text-sm font-bold opacity-80">How many cards?</div>
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.keys(DIFFICULTIES) as Difficulty[]).map((level) => (
+              <GameStartOverlayButton
+                key={level}
+                onClick={() => store.setDifficulty(level)}
+                aria-pressed={store.difficulty === level}
+                className={store.difficulty === level ? "btn-primary" : ""}
+              >
+                {DIFFICULTIES[level].name}
+              </GameStartOverlayButton>
+            ))}
+          </div>
+        </GameStartOverlay>
+      )}
+
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
@@ -435,8 +491,8 @@ export function MemoryMatchGame() {
             imageId={card.imageId}
             isFlipped={card.isFlipped}
             isMatched={card.isMatched}
-            onClick={() => store.flipCard(index)}
-            disabled={store.isProcessing}
+            onClick={() => hasStarted && store.flipCard(index)}
+            disabled={store.isProcessing || !hasStarted}
           />
         ))}
       </div>

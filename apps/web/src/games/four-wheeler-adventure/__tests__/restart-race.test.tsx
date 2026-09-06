@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FourWheelerAdventureGame } from "../Game";
 
@@ -18,6 +18,9 @@ afterEach(() => {
 describe("Four-Wheeler restart intent", () => {
   it("applies a restart confirmed before the child listener or iframe mounts", async () => {
     const view = render(<FourWheelerAdventureGame restartNonce={1} />);
+
+    // The shared start overlay owns the first screen; the iframe mounts on Play.
+    fireEvent.click(screen.getByRole("button", { name: /Play/ }));
 
     await waitFor(() => {
       expect(view.container.querySelector("iframe")).not.toBeNull();

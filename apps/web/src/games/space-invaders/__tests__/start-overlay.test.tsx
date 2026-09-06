@@ -21,30 +21,11 @@ vi.mock("next-auth/react", () => ({
 import SpaceInvadersGame from "../Game";
 import { DIFFICULTY_SETTINGS, type Difficulty } from "../lib/constants";
 import { useSpaceInvadersStore } from "../lib/store";
-
-/**
- * The global setup installs a matchMedia stub that always returns
- * matches: false. This helper swaps in a stub where "(pointer: coarse)"
- * resolves to the requested value so we can simulate touch vs keyboard/mouse.
- */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 afterEach(() => {
-  mockPointer(false);
+  resetPointerMock();
   // The one-tap test starts the game; put the module-global store back on
   // the ready screen so later tests see the overlay.
   useSpaceInvadersStore.setState({ gameState: "ready" });
@@ -114,5 +95,20 @@ describe("Space Invaders start overlay", () => {
       screen.getByText("SPACE or W to shoot (hold to auto-fire)")
     ).toBeInTheDocument();
     expect(screen.queryByText("Tap ◀ ▶ to move")).not.toBeInTheDocument();
+  });
+});
+
+describe("space-invaders spoken choices", () => {
+  it("says the picker choices out loud, so a kid who cannot read hears them", () => {
+    const speech = installSpeechMock();
+    render(<SpaceInvadersGame  />);
+
+    fireEvent.click(screen.getByTestId("read-aloud-button"));
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain("4 years old");
+    expect(spoken).toContain("99 years old");
+    expect(spoken).toContain("and the game starts");
+    removeSpeechMock();
   });
 });

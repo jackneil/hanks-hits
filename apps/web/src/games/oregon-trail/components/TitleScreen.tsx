@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useOregonTrailStore } from "../lib/store";
 import { OCCUPATIONS, MONTH_NAMES } from "../lib/constants";
 import type { OccupationType, Month } from "../types";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 
 export function TitleScreen() {
   const { setPhase, startGame, gamePhase } = useOregonTrailStore();
@@ -12,15 +13,29 @@ export function TitleScreen() {
   const [month, setMonth] = useState<Month>("march");
 
   if (gamePhase === "title") {
+    // The shared start screen replaces the old bespoke title card. It needs a
+    // positioned ancestor, so the title phase gets a relative full-height
+    // container of its own. Play moves to the first setup step, exactly like
+    // the old "Start Journey!" button did.
     return (
-      // start-overlay layer: the title may render once here (measured by the battery)
-      <div
-        data-testid="game-start-overlay"
-        className="flex flex-col items-center justify-center min-h-screen bg-amber-900 text-amber-100 p-4"
-      >
-        <h1 className="text-5xl font-bold mb-4">The Oregon Trail</h1>
-        <p className="text-xl mb-8">Adventure awaits on the trail to Oregon!</p>
-        <button onClick={() => setPhase("setup_name")} className="btn btn-primary btn-lg text-xl">Start Journey!</button>
+      <div className="relative min-h-screen bg-amber-900 text-amber-100">
+        <GameStartOverlay
+          title="The Oregon Trail"
+          emoji="🐂"
+          subtitle="Take your wagon all the way to Oregon!"
+          touchHints={[
+            "🛒 Tap to pick your job and buy supplies",
+            "🐂 Tap to travel, rest, and hunt",
+            "🏔️ Keep your family well and reach Oregon",
+          ]}
+          keyboardHints={[
+            "🖱️ Click to pick your job and buy supplies",
+            "🐂 Click to travel, rest, and hunt",
+            "🏔️ Keep your family well and reach Oregon",
+          ]}
+          startLabel="▶ Start Journey!"
+          onStart={() => setPhase("setup_name")}
+        />
       </div>
     );
   }

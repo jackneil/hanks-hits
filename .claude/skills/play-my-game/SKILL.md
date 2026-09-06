@@ -32,6 +32,8 @@ These launch the default browser **and bring it to the front**. If you have a br
 
 Then a quick *"Here it is — your **\<name\>** game! 🎉"*
 
+**Young kid (Player Card age 8 or under, or reading is hard)?** Point at the read-aloud button in kid words: *"See the 🔊 button? Tap it and the game reads the words to you!"* Every game's start screen, pause screen, and restart screen has it, and so do the cards on the home page.
+
 **After a CHANGE:** do this again — re-open/refocus the URL so the updated game jumps back to the front. The dev server hot-reloads, but you still bring the window forward so the kid SEES the change land and never goes hunting for it.
 
 ## Step 4 — Confirm it ACTUALLY works (don't just trust the page loaded)

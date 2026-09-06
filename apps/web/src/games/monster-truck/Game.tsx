@@ -20,25 +20,11 @@ import { useAuthSync } from '@/shared/hooks/useAuthSync';
 import { sounds } from './lib/sounds';
 import { WORLD } from './lib/constants';
 import { getTerrainHeight } from './lib/terrainUtils';
-import { OrientationWarning, WebGLGate } from '@/shared/components';
-
-// Loading screen component
-function LoadingScreen() {
-  return (
-    // start-overlay layer: the title may render once here (measured by the battery)
-    <div
-      data-testid="game-start-overlay"
-      className="fixed inset-0 bg-gradient-to-b from-orange-600 to-red-700 flex flex-col items-center justify-center z-50"
-    >
-      <div className="text-6xl mb-4 animate-bounce">🚛</div>
-      <h1 className="text-4xl font-bold text-white mb-4">Monster Truck Mayhem</h1>
-      <div className="w-64 h-2 bg-black/30 rounded-full overflow-hidden">
-        <div className="h-full bg-yellow-400 rounded-full animate-pulse" style={{ width: '60%' }} />
-      </div>
-      <p className="text-white/80 mt-4">Loading...</p>
-    </div>
-  );
-}
+import {
+  GameStartOverlay,
+  OrientationWarning,
+  WebGLGate,
+} from '@/shared/components';
 
 // Speed tracker component (inside Canvas)
 function SpeedTracker({
@@ -111,7 +97,9 @@ function GameScene({
 export function MonsterTruckGame() {
   const vehicleRef = useRef<RapierRigidBody | null>(null);
   const [speed, setSpeed] = useState(0);
-  const [isLoaded, setIsLoaded] = useState(false);
+  // The player starts the game. The 3D world loads behind the start overlay,
+  // so Play drops straight into a scene that is already warm.
+  const [hasStarted, setHasStarted] = useState(false);
 
   // Cloud sync for authenticated users
   const store = useGameStore();
@@ -141,7 +129,9 @@ export function MonsterTruckGame() {
     // Reset is handled in Vehicle component
   }, []);
 
-  const controls = useCombinedControls(handleHorn, handleReset);
+  // Keys are dead until Play, so nothing the kid presses on the start
+  // overlay drives the truck.
+  const controls = useCombinedControls(handleHorn, handleReset, hasStarted);
 
   // Resume audio context on first interaction
   useEffect(() => {
@@ -156,12 +146,6 @@ export function MonsterTruckGame() {
       window.removeEventListener('click', resumeAudio);
       window.removeEventListener('touchstart', resumeAudio);
     };
-  }, []);
-
-  // Simulate loading
-  useEffect(() => {
-    const timer = setTimeout(() => setIsLoaded(true), 1500);
-    return () => clearTimeout(timer);
   }, []);
 
   // Handle NOS sound
@@ -199,10 +183,6 @@ export function MonsterTruckGame() {
     window.location.href = '/';
   };
 
-  if (!isLoaded) {
-    return <LoadingScreen />;
-  }
-
   return (
     <div className="fixed inset-0 bg-black">
       {/* Orientation warning - shows in portrait mode */}
@@ -230,18 +210,45 @@ export function MonsterTruckGame() {
             />
           </Suspense>
         </Canvas>
+
+        {/* Shared start screen. It lives INSIDE the WebGL gate so a device
+            without WebGL shows the gate's friendly fallback instead of an
+            overlay covering it. It renders the title exactly once. */}
+        {!hasStarted && (
+          <GameStartOverlay
+            title="Monster Truck Mayhem"
+            emoji="🚛"
+            subtitle="Smash, jump, and collect stars in a big open world!"
+            touchHints={[
+              "👈👉 Tap the arrows to steer",
+              "🦶 Tap GAS to go, BRAKE to stop",
+              "📱 Tap TILT to steer by tilting your phone",
+              "📣 Tap the horn!",
+            ]}
+            keyboardHints={[
+              "🦶 Press W or the up arrow to go",
+              "🛑 Press S or the down arrow to stop",
+              "↔️ Press A and D to steer",
+              "🚀 Hold Shift for a speed boost",
+              "📣 Press H to honk, R to flip back over",
+            ]}
+            onStart={() => setHasStarted(true)}
+          />
+        )}
       </WebGLGate>
 
       {/* Game UI overlay */}
-      <GameUI
-        speed={speed}
-        isMobile={controls.isMobile}
-        onPause={() => setPaused(true)}
-        onOpenGarage={() => setShowGarage(true)}
-      />
+      {hasStarted && (
+        <GameUI
+          speed={speed}
+          isMobile={controls.isMobile}
+          onPause={() => setPaused(true)}
+          onOpenGarage={() => setShowGarage(true)}
+        />
+      )}
 
       {/* Mobile controls */}
-      {controls.isMobile && (
+      {hasStarted && controls.isMobile && (
         <MobileControls
           touchControls={controls.touch}
           onHorn={handleHorn}

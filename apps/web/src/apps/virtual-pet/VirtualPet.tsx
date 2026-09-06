@@ -11,6 +11,8 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { VIRTUAL_PET_INSTRUCTIONS } from "./lib/readAloud";
 
 // ============================================
 // STAT BAR
@@ -205,6 +207,14 @@ export function VirtualPet() {
           <span>💰</span>
           <span>{store.progress.coins}</span>
         </div>
+      </div>
+
+      {/* Read it to me — its own row under the header, above the pet card, so
+          it never covers a care button and needs no scrolling on a phone. */}
+      <div className="w-full max-w-md mb-4">
+        <ReadAloudButton
+          text={VIRTUAL_PET_INSTRUCTIONS}
+        />
       </div>
 
       {/* Pet display */}

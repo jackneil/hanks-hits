@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef } from "react";
 
+import { ReadAloudButton } from "./ReadAloudButton";
+
 interface RestartConfirmationDialogProps {
   isOpen: boolean;
   gameName: string;
@@ -44,24 +46,47 @@ export function RestartConfirmationDialog({
       }
       if (event.key !== "Tab") return;
 
-      const first = cancelRef.current;
-      const last = confirmRef.current;
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
+      // Cycle every focusable button inside the dialog, so the read-aloud
+      // button joins the trap instead of letting focus escape to the page.
+      // Order is Cancel first and Restart last (the two decisions bracket
+      // the cycle); anything between them keeps its DOM order.
+      const inDom = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLButtonElement>(
+          "button:not([disabled])"
+        ) ?? []
+      );
+      const cancel = cancelRef.current;
+      const confirm = confirmRef.current;
+      const middle = inDom.filter((node) => node !== cancel && node !== confirm);
+      const focusables = [cancel, ...middle, confirm].filter(
+        (node): node is HTMLButtonElement => node !== null
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      const index = active ? focusables.indexOf(active as HTMLButtonElement) : -1;
+
+      event.preventDefault();
+      if (index === -1) {
+        (event.shiftKey ? last : first).focus();
+        return;
       }
+      const step = event.shiftKey ? -1 : 1;
+      const next = (index + step + focusables.length) % focusables.length;
+      focusables[next].focus();
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [isOpen, onCancel, triggerRef]);
+
+  const readAloudText = [
+    "Restart game?",
+    message ?? `Start ${gameName} again from the beginning?`,
+    "Cancel",
+    "Restart",
+  ].join(". ");
 
   if (!isOpen) return null;
 
@@ -80,6 +105,8 @@ export function RestartConfirmationDialog({
         <p className="mt-3 text-base-content/75">
           {message ?? `Start ${gameName} again from the beginning?`}
         </p>
+        <ReadAloudButton text={readAloudText} className="mt-4" />
+
         <div className="mt-6 flex justify-end gap-3">
           <button ref={cancelRef} type="button" onClick={onCancel} className="btn btn-ghost min-h-[44px]">
             Cancel

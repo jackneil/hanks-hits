@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ReadAloudButton } from '@/shared/components/ReadAloudButton';
 import {
   getChallengeProgress,
   useGameStore,
@@ -293,8 +294,8 @@ export function PauseMenu({
   const toggleMusic = useGameStore((s) => s.toggleMusic);
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
-      <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center overflow-y-auto py-4 short:items-start">
+      <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl short:p-4">
         <h2 className="text-4xl font-bold text-center text-white mb-6">
           ⏸️ PAUSED
         </h2>
@@ -325,6 +326,12 @@ export function PauseMenu({
           >
             {musicEnabled ? '🎵' : '🎵❌'}
           </button>
+        </div>
+
+        {/* Read the menu out loud for players who cannot read yet.
+            Same order as the buttons below. */}
+        <div className="mb-4">
+          <ReadAloudButton text="Paused. Monster Truck. Resume. Garage. Quit to Menu." />
         </div>
 
         {/* Buttons */}

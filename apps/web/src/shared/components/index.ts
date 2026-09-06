@@ -17,6 +17,7 @@ export { RestartConfirmationDialog } from "./RestartConfirmationDialog";
 export { RestartGameButton } from "./RestartGameButton";
 export { GameStartOverlay, GameStartOverlayButton } from "./GameStartOverlay";
 export type { GameStartOverlayProps } from "./GameStartOverlay";
+export { ReadAloudButton } from "./ReadAloudButton";
 
 // Leaderboard components
 export { Leaderboard } from "./Leaderboard";

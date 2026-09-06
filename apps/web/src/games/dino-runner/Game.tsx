@@ -17,6 +17,7 @@ import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // DRAWING FUNCTIONS
@@ -482,6 +483,11 @@ export function DinoRunnerGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "idle") return;
       if (e.code === "Space" || e.code === "ArrowUp") {
         e.preventDefault();
         handleInput();

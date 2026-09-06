@@ -5,6 +5,7 @@ import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useArkanoidStore, type Ball } from "./lib/store";
 import { BALL_CONFIG, PHYSICS, PADDLE, WALLS, GAME, GRID, getSpawnedBallType } from "./lib/constants";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 export function ArkanoidGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -82,6 +83,11 @@ export function ArkanoidGame() {
   // to avoid stale closures, so this listener binds once.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "menu") return;
       if (e.key === " ") {
         const state = useArkanoidStore.getState();
         if (state.gameState === "playing" && state.balls.some((b) => b.stuck)) {
@@ -102,7 +108,7 @@ export function ArkanoidGame() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [launchBall, setPaddleX]);
+  }, [gameState, launchBall, setPaddleX]);
 
   // Render function
   const render = useCallback((

@@ -1,5 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+
+import { resetWebGLSupportCache } from '@/shared/components/WebGLGate';
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 // Mock the heavy 3D components
 vi.mock('@react-three/fiber', () => ({
@@ -18,6 +21,8 @@ vi.mock('@react-three/rapier', () => ({
   CuboidCollider: () => null,
   CylinderCollider: () => null,
   BallCollider: () => null,
+  HeightfieldCollider: () => null,
+  ConvexHullCollider: () => null,
   useRapier: () => ({ world: { castRay: () => null } }),
 }));
 
@@ -92,5 +97,112 @@ describe('Sound Manager', () => {
     sounds.setEnabled(true);
     // Should not throw
     expect(true).toBe(true);
+  });
+});
+
+// ============================================================================
+// START MOMENT
+// ============================================================================
+
+/**
+ * The 1.5s LoadingScreen used to dismiss itself, so nobody ever started the
+ * game. The shared overlay is now a real start moment: it waits for Play, and
+ * the 3D world loads behind it.
+ */
+describe('Monster Truck start overlay', () => {
+  beforeEach(() => {
+    resetWebGLSupportCache();
+    // jsdom creates no WebGL context, and WebGLGate would then render its
+    // fallback instead of the scene (and the overlay inside it).
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      {} as never
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    mockPointer(false);
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    resetWebGLSupportCache();
+  });
+
+  it('renders the shared overlay with the title exactly once', async () => {
+    const { MonsterTruckGame } = await import('../Game');
+    render(<MonsterTruckGame />);
+
+    expect(screen.getByTestId('game-start-overlay')).toBeInTheDocument();
+    expect(screen.getAllByText('Monster Truck Mayhem')).toHaveLength(1);
+  }, 30_000);
+
+  it('shows touch instructions that match the DEFAULT controls (tilt is off)', async () => {
+    // Regression: the card promised "Tilt your phone to steer" while useTilt
+    // defaults to false, so a kid tilted the phone and nothing happened. The
+    // hints now name the on-screen arrows and the TILT toggle that turns
+    // tilt steering on.
+    mockPointer(true);
+    const { MonsterTruckGame } = await import('../Game');
+    render(<MonsterTruckGame />);
+
+    expect(screen.getByText('👈👉 Tap the arrows to steer')).toBeInTheDocument();
+    expect(
+      screen.getByText('📱 Tap TILT to steer by tilting your phone')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('📱 Tilt your phone to steer')
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText('🦶 Tap GAS to go, BRAKE to stop')
+    ).toBeInTheDocument();
+    expect(screen.getByText('📣 Tap the horn!')).toBeInTheDocument();
+    expect(
+      screen.queryByText('🦶 Press W or the up arrow to go')
+    ).not.toBeInTheDocument();
+  }, 30_000);
+
+  it('never dismisses itself on a timer', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { MonsterTruckGame } = await import('../Game');
+    render(<MonsterTruckGame />);
+
+    vi.advanceTimersByTime(2000);
+
+    expect(screen.getByTestId('game-start-overlay')).toBeInTheDocument();
+  }, 30_000);
+
+  it('starts the game once and hides the overlay on Play', async () => {
+    const { MonsterTruckGame } = await import('../Game');
+    render(<MonsterTruckGame />);
+
+    const play = screen.getByRole('button', { name: /Play/ });
+    fireEvent.click(play);
+    fireEvent.click(play);
+
+    expect(screen.queryByTestId('game-start-overlay')).toBeNull();
+    expect(screen.getAllByTestId('r3f-canvas')).toHaveLength(1);
+  }, 30_000);
+});
+
+describe('monster-truck pause menu read aloud', () => {
+  it('reads the pause menu out loud, naming every button', async () => {
+    // CLAUDE.md promises a read-aloud button on every pause screen. This menu
+    // is the game's own, not the shared PauseMenu, so it needs its own.
+    const { installSpeechMock, removeSpeechMock } = await import(
+      '@/__tests__/speech-mock'
+    );
+    const speech = installSpeechMock();
+    const { PauseMenu } = await import('../components/GameUI');
+
+    render(<PauseMenu onResume={() => {}} onGarage={() => {}} onQuit={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /read it to me/i }));
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain('Paused');
+    expect(spoken).toContain('Monster Truck');
+    expect(spoken).toContain('Resume');
+    expect(spoken).toContain('Garage');
+    expect(spoken).toContain('Quit to Menu');
+    removeSpeechMock();
   });
 });

@@ -16,10 +16,11 @@ import {
   type CharacterId,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { useCoarsePointer } from "@/shared/hooks";
 import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { getInstructions } from "./lib/instructions";
+import { getInstructionLines } from "./lib/instructions";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 export function EndlessRunnerGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -29,7 +30,6 @@ export function EndlessRunnerGame() {
   const [scale, setScale] = useState(1);
 
   const store = useEndlessRunnerStore();
-  const isCoarsePointer = useCoarsePointer();
 
   // Cloud sync for authenticated users
   const { forceSync } = useAuthSync<EndlessRunnerProgress>({
@@ -369,52 +369,6 @@ export function EndlessRunnerGame() {
     ctx.stroke();
   }, [score, coinsThisRun]);
 
-  const drawReadyScreen = useCallback((ctx: CanvasRenderingContext2D) => {
-    ctx.font = UI.TITLE_FONT;
-    ctx.textAlign = "center";
-    ctx.fillStyle = COLORS.SCORE_SHADOW;
-    ctx.fillText("Endless Runner", CANVAS_WIDTH / 2 + 2, 102);
-    ctx.fillStyle = COLORS.SCORE_TEXT;
-    ctx.fillText("Endless Runner", CANVAS_WIDTH / 2, 100);
-
-    const instructions = getInstructions(isCoarsePointer);
-
-    ctx.font = UI.SMALL_FONT;
-    ctx.fillStyle = COLORS.SCORE_SHADOW;
-    ctx.fillText(instructions.jump, CANVAS_WIDTH / 2 + 1, 161);
-    ctx.fillStyle = COLORS.SCORE_TEXT;
-    ctx.fillText(instructions.jump, CANVAS_WIDTH / 2, 160);
-
-    ctx.fillStyle = COLORS.SCORE_SHADOW;
-    ctx.fillText(instructions.duck, CANVAS_WIDTH / 2 + 1, 191);
-    ctx.fillStyle = COLORS.SCORE_TEXT;
-    ctx.fillText(instructions.duck, CANVAS_WIDTH / 2, 190);
-
-    // High score
-    if (progress.highScore > 0) {
-      ctx.font = "20px Arial, sans-serif";
-      ctx.fillStyle = COLORS.SCORE_SHADOW;
-      ctx.fillText(`Best: ${progress.highScore}m`, CANVAS_WIDTH / 2 + 1, 231);
-      ctx.fillStyle = COIN.COLOR;
-      ctx.fillText(`Best: ${progress.highScore}m`, CANVAS_WIDTH / 2, 230);
-    }
-
-    // Total coins
-    ctx.font = "18px Arial, sans-serif";
-    ctx.fillStyle = COLORS.SCORE_TEXT;
-    ctx.fillText(`Total Coins: ${progress.totalCoins}`, CANVAS_WIDTH / 2, 270);
-
-    // Tap to start button area
-    ctx.fillStyle = "rgba(34, 197, 94, 0.9)";
-    ctx.fillRect(CANVAS_WIDTH / 2 - 100, 300, 200, 50);
-    ctx.strokeStyle = "#166534";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(CANVAS_WIDTH / 2 - 100, 300, 200, 50);
-    ctx.font = "bold 24px Arial, sans-serif";
-    ctx.fillStyle = "#FFF";
-    ctx.fillText("TAP TO PLAY", CANVAS_WIDTH / 2, 332);
-  }, [progress.highScore, progress.totalCoins, isCoarsePointer]);
-
   const drawGameOver = useCallback((ctx: CanvasRenderingContext2D) => {
     // Darken background
     ctx.fillStyle = COLORS.GAME_OVER_BG;
@@ -479,10 +433,9 @@ export function EndlessRunnerGame() {
     drawObstacles(ctx);
     drawPlayer(ctx);
 
-    // Draw UI based on state
-    if (gameState === "ready") {
-      drawReadyScreen(ctx);
-    } else if (gameState === "playing") {
+    // Draw UI based on state. The "ready" screen is the shared DOM
+    // GameStartOverlay now, so nothing is painted into the canvas for it.
+    if (gameState === "playing") {
       drawHUD(ctx);
     } else if (gameState === "gameOver") {
       drawGameOver(ctx);
@@ -497,7 +450,6 @@ export function EndlessRunnerGame() {
     drawObstacles,
     drawPlayer,
     drawHUD,
-    drawReadyScreen,
     drawGameOver,
   ]);
 
@@ -541,19 +493,24 @@ export function EndlessRunnerGame() {
   }, [gameState, update, render]);
 
   // Input handling
+  // Taps and keys never start the run any more: the shared start overlay owns
+  // that, so a tap on its Play button cannot also make the runner jump.
   const handleTap = useCallback(() => {
-    if (gameState === "ready") {
-      startGame();
-    } else if (gameState === "playing") {
+    if (gameState === "playing") {
       jump();
     } else if (gameState === "gameOver") {
       reset();
     }
-  }, [gameState, startGame, jump, reset]);
+  }, [gameState, jump, reset]);
 
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "ready") return;
       if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
         e.preventDefault();
         handleTap();
@@ -606,7 +563,7 @@ export function EndlessRunnerGame() {
   }, [stopDuck]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
+    <div className="relative min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
       {/* Orientation warning for landscape */}
       <OrientationWarning />
 
@@ -634,6 +591,27 @@ export function EndlessRunnerGame() {
           }}
         />
       </div>
+
+      {/* Shared DOM start screen (renders the title once). It mounts on the
+          full-height page container, not the canvas box: the canvas is wide
+          and short, so the start card would clip on a phone. */}
+      {gameState === "ready" && (
+        <GameStartOverlay
+          title="Endless Runner"
+          emoji="🏃"
+          subtitle="Run as far as you can!"
+          touchHints={getInstructionLines(true)}
+          keyboardHints={getInstructionLines(false)}
+          onStart={() => startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 Best: {progress.highScore}m
+          </div>
+          <div className="text-base font-medium opacity-90">
+            🪙 Coins: {progress.totalCoins}
+          </div>
+        </GameStartOverlay>
+      )}
 
       {/* Stats */}
       <div className="mt-4 text-center text-white/80 text-sm">

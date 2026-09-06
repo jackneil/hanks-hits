@@ -16,6 +16,8 @@ import {
 import { getLevel, getTotalLevels } from "./lib/levels";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // CANVAS RENDERER
@@ -257,7 +259,7 @@ function GameCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const store = useBreakoutStore();
-  const { status, movePaddle, launchBall, resumeGame, startGame, nextLevel } = store;
+  const { status, progress, movePaddle, launchBall, resumeGame, startGame, nextLevel } = store;
 
   const render = useCanvasRenderer(canvasRef);
 
@@ -317,6 +319,9 @@ function GameCanvas() {
       // deltas from synthesized pointer events would double-move.
       if (e.pointerType === "touch") return;
 
+      // Nothing moves while the start overlay is up.
+      if (useBreakoutStore.getState().status !== "playing") return;
+
       const { paddle } = useBreakoutStore.getState();
       const center = paddle.x + paddle.width / 2;
       movePaddle(center + e.movementX / scale);
@@ -338,6 +343,8 @@ function GameCanvas() {
 
     const handleTouchMove = (e: TouchEvent) => {
       e.preventDefault();
+      // Nothing moves while the start overlay is up.
+      if (useBreakoutStore.getState().status !== "playing") return;
       const touch = e.touches[0];
       if (!touch) return;
       const rect = canvas.getBoundingClientRect();
@@ -349,10 +356,10 @@ function GameCanvas() {
   }, [movePaddle, scale]);
 
   // Handle clicks/taps
+  // "idle" is the start state and the shared start overlay owns it, so a tap
+  // on the overlay's Play button can never also launch the ball.
   const handleClick = useCallback(() => {
-    if (status === "idle") {
-      startGame();
-    } else if (status === "playing") {
+    if (status === "playing") {
       // If ball is stuck, launch it
       if (store.balls.some(b => b.stuck)) {
         launchBall();
@@ -373,6 +380,8 @@ function GameCanvas() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
       if (["ArrowLeft", "ArrowRight", " "].includes(e.key)) {
         e.preventDefault();
       }
@@ -383,6 +392,10 @@ function GameCanvas() {
       // the game's own paused state (Space would resume the sim behind the
       // still-open menu).
       if (status === "paused") return;
+
+      // The start overlay owns the idle state; keys must not move or start
+      // the game underneath it.
+      if (status === "idle") return;
 
       switch (e.key) {
         case "ArrowLeft":
@@ -408,7 +421,7 @@ function GameCanvas() {
   return (
     <div
       ref={containerRef}
-      className="w-full max-w-lg mx-auto flex items-center justify-center"
+      className="relative w-full max-w-lg mx-auto flex items-center justify-center"
       style={{ aspectRatio: `${CANVAS_WIDTH}/${CANVAS_HEIGHT}` }}
     >
       <canvas
@@ -423,6 +436,22 @@ function GameCanvas() {
         onClick={handleClick}
         onTouchStart={handleClick}
       />
+
+      {/* Shared DOM start screen (renders the title once) */}
+      {status === "idle" && (
+        <GameStartOverlay
+          title="Breakout"
+          emoji="🧱"
+          subtitle="Smash every brick!"
+          touchHints={["👈👉 Drag to move the paddle", "👆 Tap to launch the ball"]}
+          keyboardHints={["👈👉 Arrow keys move the paddle", "⌨️ Space to launch the ball"]}
+          onStart={() => startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 High Score: {progress.highScore}
+          </div>
+        </GameStartOverlay>
+      )}
     </div>
   );
 }

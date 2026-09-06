@@ -104,6 +104,7 @@ export interface DisplayItem {
   emoji: string;
   name: string;
   id: string;
+  description?: string; // short blurb — read aloud with the name on the home cards
   madeByKid?: boolean; // true on the kid's own creations — powers the My Games shelf
 }
 
@@ -133,6 +134,7 @@ export async function discoverGamesAndApps(): Promise<DisplayCategory[]> {
       emoji: item.emoji,
       name: item.name,
       id: item.id,
+      description: item.description,
       madeByKid: item.madeByKid,
     });
     grouped.set(item.category, categoryItems);

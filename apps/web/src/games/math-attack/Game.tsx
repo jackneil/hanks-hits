@@ -5,6 +5,10 @@ import { useMathAttackStore, type MathAttackProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
+import {
   DIFFICULTY_SETTINGS,
   getDifficultySettings,
   POINTS,
@@ -65,11 +69,6 @@ export function MathAttackGame() {
 
   // Start game
   const handleStartGame = () => {
-    // Debug logging to help diagnose difficulty issues
-    console.log("[Math Attack] Starting game with difficulty:", settings.difficulty);
-    console.log("[Math Attack] Operations:", diffSettings.operations);
-    console.log("[Math Attack] Number range:", diffSettings.numberRange);
-
     problemsRef.current = [];
     lastSpawnRef.current = 0;
     setInputValue("");
@@ -258,72 +257,70 @@ export function MathAttackGame() {
   }, [gameState]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white">
+    <div className="relative min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white">
       <IOSInstallPrompt />
 
-      <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
-        {/* Ready Screen — start-overlay layer: the title may render once here (measured by the battery) */}
-        {gameState === "ready" && (
-          <div data-testid="game-start-overlay" className="text-center space-y-8 w-full">
-            <h1 className="text-5xl font-bold mb-4">🔢 Math Attack</h1>
-            <p className="text-xl text-purple-200">Solve problems before they hit the ground!</p>
-
-            {/* Stats */}
-            {gamesPlayed > 0 && (
-              <div className="bg-white/10 rounded-2xl p-4 space-y-2">
-                <div className="text-lg">🏆 High Score: {highScore}</div>
-                <div className="text-sm text-purple-200">
-                  {totalCorrect} problems solved
-                </div>
-                <div className="text-sm text-purple-200">
-                  🔥 Best Combo: {longestCombo}
-                </div>
+      {/* Shared start screen — mounted on the full-height page container so the
+          card, the age picker and the Play button never clip on a phone. */}
+      {gameState === "ready" && (
+        <GameStartOverlay
+          title="Math Attack"
+          emoji="🔢"
+          subtitle="Solve the problems before they hit the ground!"
+          touchHints={[
+            "🔢 Tap the box and type the answer",
+            "⚡ Tap the zap button to send it",
+            "❤️ Do not let a problem land",
+          ]}
+          keyboardHints={[
+            "⌨️ Type the answer with the number keys",
+            "↩️ Press Enter to send it",
+            "❤️ Do not let a problem land",
+          ]}
+          startLabel="🎮 Start Game!"
+          spokenChoices={`Pick how old you are: ${(
+            Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
+          )
+            .map((diff) => DIFFICULTY_SETTINGS[diff].label)
+            .join(", ")}.`}
+          onStart={handleStartGame}
+        >
+          {gamesPlayed > 0 && (
+            <div className="text-base font-medium opacity-90">
+              🏆 High Score: {highScore} · 🔥 Best Combo: {longestCombo}
+              <div className="text-sm opacity-80">
+                {totalCorrect} problems solved
               </div>
-            )}
-
-            {/* Age Selector */}
-            <div className="space-y-4">
-              <div className="text-xl font-bold">How old are you?</div>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => {
-                  const s = DIFFICULTY_SETTINGS[diff];
-                  const isSelected = settings.difficulty === diff;
-                  return (
-                    <button
-                      key={diff}
-                      onClick={() => setDifficulty(diff)}
-                      className={`px-4 py-3 rounded-xl font-bold text-base transition-all flex flex-col items-center min-w-[70px] ${
-                        isSelected
-                          ? `${s.color} text-white scale-110 ring-2 ring-white shadow-lg`
-                          : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                      }`}
-                    >
-                      <span className="text-2xl">{s.emoji}</span>
-                      <span>{diff}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="text-purple-300 text-sm">
-                Operations: {diffSettings.operations.join(", ")} | Lives: {diffSettings.lives}
-              </div>
-              {settings.difficulty === "99yo" && (
-                <div className="text-purple-300 text-sm">
-                  Grandpa mode: Big numbers, slow falling, extra lives!
-                </div>
-              )}
             </div>
-
-            {/* Start Button */}
-            <button
-              onClick={handleStartGame}
-              className="btn btn-primary btn-lg text-xl px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-transform"
-            >
-              🎮 Start Game!
-            </button>
+          )}
+          <div className="text-sm font-bold opacity-80">How old are you?</div>
+          {/* Two columns with the odd last choice spanning both, the same
+              pattern space-invaders uses: an odd count in a plain 2-up grid
+              left a lone half-width cell dangling. */}
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff, index, all) => (
+              <GameStartOverlayButton
+                key={diff}
+                onClick={() => setDifficulty(diff)}
+                aria-pressed={settings.difficulty === diff}
+                className={`${settings.difficulty === diff ? "btn-primary" : ""} ${
+                  all.length % 2 === 1 && index === all.length - 1
+                    ? "col-span-2"
+                    : ""
+                }`}
+              >
+                {DIFFICULTY_SETTINGS[diff].emoji} {diff}
+              </GameStartOverlayButton>
+            ))}
           </div>
-        )}
+          <div className="text-xs opacity-70">
+            Operations: {diffSettings.operations.join(", ")} | Lives:{" "}
+            {diffSettings.lives}
+          </div>
+        </GameStartOverlay>
+      )}
 
+      <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
         {/* Playing Screen */}
         {gameState === "playing" && (
           <div className="w-full space-y-4">

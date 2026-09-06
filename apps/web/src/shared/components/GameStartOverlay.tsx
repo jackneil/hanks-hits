@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useId, useRef } from "react";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { useStartOverlayPresence } from "../lib/startOverlayPresence";
+import { ReadAloudButton } from "./ReadAloudButton";
 
 /**
  * Shared start screen for every game: a DOM overlay (never in-canvas),
@@ -17,12 +19,18 @@ import { useCoarsePointer } from "../hooks/useCoarsePointer";
  *       card on a phone, or the card's buttons clip below the fold
  *       (2026-07-11 mobile audit). Either way the ancestor must be
  *       `relative`. Stacking: z-40 — above the play area, below
- * OrientationWarning and the GameShell header/pause layers.
+ * OrientationWarning and the GameShell header/pause layers. The host must
+ * NOT be a scroll container (no overflow-hidden/auto on the positioned
+ * ancestor): the card box is position: sticky, and a host that scrolls
+ * becomes its scrollport, which pushes the box down and clips Play
+ * (hill-climb, 2026-09-05).
  *
  * Mount contract: render it CONDITIONALLY on the menu/ready state
  * (`{state === "ready" && <GameStartOverlay .../>}`), never permanently
  * with CSS toggling — the fire-once guard is a per-mount ref, so an
- * always-mounted overlay would have a dead start button on replay. Note
+ * always-mounted overlay would have a dead start button on replay. A
+ * ReadAloudButton sits under the hints so a player who cannot read yet
+ * can hear the title, the subtitle and the instructions. Note
  * the guard covers only the built-in start button; picker buttons in the
  * children slot call the game's own start action directly (fine as long
  * as that action is an idempotent state reset, which every current game's
@@ -49,9 +57,11 @@ export function GameStartOverlayButton({
   className = "",
   variant = "choice",
   "aria-pressed": ariaPressed,
-}: GameStartOverlayButtonProps) {
+  ref,
+}: GameStartOverlayButtonProps & { ref?: React.Ref<HTMLButtonElement> }) {
   return (
     <button
+      ref={ref}
       onClick={onClick}
       aria-pressed={ariaPressed}
       className={`btn ${
@@ -84,6 +94,12 @@ export interface GameStartOverlayProps {
   showStartButton?: boolean;
   /** Picker slot (difficulty / level / age) rendered between hints and start */
   children?: React.ReactNode;
+  /**
+   * What the voice says about the picker slot, e.g. "Pick how old you are:
+   * 4, 8, or 12." Required when the slot decides how the game starts; a kid
+   * who cannot read has no other way to learn the choices.
+   */
+  spokenChoices?: string;
 }
 
 export function GameStartOverlay({
@@ -96,9 +112,28 @@ export function GameStartOverlay({
   onStart,
   showStartButton = true,
   children,
+  spokenChoices,
 }: GameStartOverlayProps) {
   const isCoarse = useCoarsePointer();
   const startedRef = useRef(false);
+  const titleId = useId();
+  const startRef = useRef<HTMLButtonElement>(null);
+
+  // Keyboard and screen-reader users land on Play, not on whatever game
+  // control sits under the card. (A finger is not affected: focusing a
+  // button opens no keyboard and moves no scroll on a phone.)
+  useEffect(() => {
+    startRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Tell bottom sheets (the iOS install banner) that a start card is up,
+  // so they stay hidden until the kid has pressed Play.
+  const enter = useStartOverlayPresence((s) => s.enter);
+  const leave = useStartOverlayPresence((s) => s.leave);
+  useEffect(() => {
+    enter();
+    return leave;
+  }, [enter, leave]);
 
   const handleStart = useCallback(() => {
     if (startedRef.current) return;
@@ -107,46 +142,70 @@ export function GameStartOverlay({
   }, [onStart]);
 
   const hints = isCoarse ? touchHints : keyboardHints;
+  // Also tell the kid HOW to start: some games hide the Play button and
+  // start from a picker choice instead, and a non-reader cannot tell.
+  const startInstruction = showStartButton
+    ? `Then tap ${startLabel} to start.`
+    : "Then tap one of the choices to start.";
+  const readAloudText = [title, subtitle, ...hints, spokenChoices, startInstruction]
+    .filter(Boolean)
+    .join(". ");
 
   return (
     <div
       data-testid="game-start-overlay"
-      className="absolute inset-0 z-40 flex overflow-y-auto bg-black/75 backdrop-blur-sm p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="absolute inset-0 z-40 bg-black/75 backdrop-blur-sm"
     >
-      {/* m-auto (not items-center on the parent) so a card taller than the
-          play area scrolls from its top instead of clipping the title off */}
-      <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center shadow-2xl">
+      {/* The card box is at most one viewport (minus the shell header) tall
+          and sticks just under the header. On a page taller than the screen
+          (cookie-clicker is about 1700px on a phone) the overlay fills the
+          whole page, and without this the card would center below the fold.
+          The `short:` variant (viewport under 480px tall, a phone held
+          sideways) tightens the spacing so Play stays on screen. */}
+      <div className="sticky top-12 flex h-[min(100%,calc(100dvh-3rem))] w-full overflow-y-auto p-4 short:p-2 md:top-14 md:h-[min(100%,calc(100dvh-3.5rem))]">
+        {/* m-auto (not items-center on the parent) so a card taller than the
+            box scrolls from its top instead of clipping the title off */}
+        <div className="m-auto w-full max-w-md rounded-3xl bg-base-100/95 p-6 text-center text-base-content shadow-2xl short:max-w-2xl short:p-3">
         {emoji && (
-          <div className="mb-2 text-6xl" aria-hidden="true">
+          <div className="mb-2 text-6xl short:mb-0 short:text-3xl" aria-hidden="true">
             {emoji}
           </div>
         )}
 
-        <h1 className="mb-1 break-words text-3xl font-bold md:text-4xl">
+        <h1
+          id={titleId}
+          className="mb-1 break-words text-3xl font-bold md:text-4xl short:mb-0 short:text-2xl"
+        >
           {title}
         </h1>
 
         {subtitle && (
-          <p className="mb-3 break-words text-base opacity-80">{subtitle}</p>
+          <p className="mb-3 break-words text-base opacity-80 short:mb-1 short:text-sm">{subtitle}</p>
         )}
 
         {hints.length > 0 && (
-          <ul className="mb-4 space-y-1 text-base font-medium opacity-90">
-            {hints.map((hint) => (
-              <li key={hint}>{hint}</li>
+          <ul className="mb-4 space-y-1 text-base font-medium opacity-90 short:mb-2 short:grid short:grid-cols-2 short:gap-x-4 short:space-y-0 short:text-sm">
+            {hints.map((hint, index) => (
+              <li key={`${index}-${hint}`}>{hint}</li>
             ))}
           </ul>
         )}
 
+        <ReadAloudButton text={readAloudText} className="mb-4 short:mb-2 short:min-h-[44px]" />
+
         {children && (
-          <div className="mb-4 flex flex-col items-stretch gap-3">{children}</div>
+          <div className="mb-4 flex flex-col items-stretch gap-3 short:mb-2 short:gap-2">{children}</div>
         )}
 
         {showStartButton && (
-          <GameStartOverlayButton variant="primary" onClick={handleStart}>
+          <GameStartOverlayButton ref={startRef} variant="primary" onClick={handleStart}>
             {startLabel}
           </GameStartOverlayButton>
         )}
+        </div>
       </div>
     </div>
   );

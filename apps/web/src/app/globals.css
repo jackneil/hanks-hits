@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
+/* Short viewports: a phone held sideways (about 390px tall). Start cards
+   use this to tighten spacing so the Play button stays on screen. */
+@custom-variant short (@media (max-height: 480px));
+
 /* Kid-friendly theme for Neil's Adventure Hub */
 @plugin "daisyui/theme" {
   name: "adventure";
@@ -86,10 +90,14 @@ html, body {
   overscroll-behavior: none;
 }
 
-/* Big touch targets for kids - 44px minimum */
-.btn {
-  min-height: 44px;
-  min-width: 44px;
+/* Big touch targets for kids - 44px minimum. Lives in the components
+   layer so a utility like min-h-[56px] can still make a button bigger;
+   an unlayered rule would beat every Tailwind utility. */
+@layer components {
+  .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 /* Fun hover effects */

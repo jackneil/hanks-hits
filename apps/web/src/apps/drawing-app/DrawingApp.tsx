@@ -9,6 +9,8 @@ import { BrushSettings } from "./components/BrushSettings";
 import { Gallery } from "./components/Gallery";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { DRAWING_APP_INSTRUCTIONS } from "./lib/readAloud";
 import type { useCanvas } from "./hooks/useCanvas";
 
 /**
@@ -170,6 +172,14 @@ export function DrawingApp() {
           </button>
 
         </div>
+      </div>
+
+      {/* Read it to me — its own full-width row directly under the tight
+          toolbar, so it covers no control and stays above the fold. */}
+      <div className="flex-shrink-0 px-2 pb-2 md:px-3">
+        <ReadAloudButton
+          text={DRAWING_APP_INSTRUCTIONS}
+        />
       </div>
 
       {/* Main canvas area */}

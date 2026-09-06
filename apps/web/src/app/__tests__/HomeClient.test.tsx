@@ -1,5 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  installSpeechMock,
+  removeSpeechMock,
+} from "@/__tests__/speech-mock";
 
 import { HomeClient } from "../HomeClient";
 import type { DisplayCategory } from "@/shared/lib/game-registry";
@@ -25,7 +30,13 @@ const categories: DisplayCategory[] = [
     gradient: "from-green-400 to-teal-500",
     bgClass: "bg-slate-900",
     items: [
-      { id: "snake", name: "Snake", emoji: "🐍", href: "/games/snake" },
+      {
+        id: "snake",
+        name: "Snake",
+        emoji: "🐍",
+        href: "/games/snake",
+        description: "Eat food and grow longer.",
+      },
       { id: "2048", name: "2048", emoji: "🔢", href: "/games/2048" },
     ],
   },
@@ -290,4 +301,81 @@ describe("HomeClient", () => {
       );
     });
   });
+
+  describe("read aloud on the cards", () => {
+    afterEach(() => {
+      removeSpeechMock();
+    });
+
+    /** The card wrapper that holds the link for `name` and its speaker button. */
+    function cardFor(name: string): HTMLElement {
+      const link = screen.getAllByRole("link", { name: new RegExp(name, "i") })[0];
+      return link.parentElement as HTMLElement;
+    }
+
+    it("speaks the name and description of a catalog card", async () => {
+      const synth = installSpeechMock();
+      render(<HomeClient categories={categories} />);
+
+      const card = cardFor("Snake");
+      const button = await within(card).findByTestId("read-aloud-button");
+      fireEvent.click(button);
+
+      expect(synth.speak).toHaveBeenCalledTimes(1);
+      expect(synth.lastUtterance().text).toBe(
+        "Snake. Eat food and grow longer."
+      );
+    });
+
+    it("speaks just the name when a card has no description", async () => {
+      const synth = installSpeechMock();
+      render(<HomeClient categories={categories} />);
+
+      const card = cardFor("Trivia Quiz");
+      fireEvent.click(await within(card).findByTestId("read-aloud-button"));
+
+      expect(synth.lastUtterance().text).toBe("Trivia Quiz");
+    });
+
+    it("does not open the game when the speaker button is tapped", async () => {
+      installSpeechMock();
+      render(<HomeClient categories={categories} />);
+
+      const card = cardFor("Snake");
+      fireEvent.click(await within(card).findByTestId("read-aloud-button"));
+
+      // The Link's onClick saves a recently-played entry; it must not fire.
+      expect(
+        window.localStorage.getItem("hanks-hits-recently-played")
+      ).toBeNull();
+      expect(screen.queryByText("Recently Played")).not.toBeInTheDocument();
+    });
+
+    it("puts a speaker button on My Games and Recently Played cards too", async () => {
+      installSpeechMock();
+      render(<HomeClient categories={categoriesWithCreation} />);
+
+      const shelf = screen.getByTestId("my-games-shelf");
+      expect(
+        await within(shelf).findByTestId("read-aloud-button")
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getAllByRole("link", { name: /Snake/i })[0]);
+      const recent = screen.getByText("Recently Played")
+        .parentElement as HTMLElement;
+      expect(
+        within(recent).getAllByTestId("read-aloud-button").length
+      ).toBeGreaterThan(0);
+    });
+
+    it("renders no speaker buttons when the browser cannot speak", async () => {
+      removeSpeechMock();
+      render(<HomeClient categories={categories} />);
+
+      await waitFor(() =>
+        expect(screen.queryAllByTestId("read-aloud-button")).toHaveLength(0)
+      );
+    });
+  });
+
 });

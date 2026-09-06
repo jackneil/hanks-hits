@@ -29,12 +29,34 @@ export function clampDeltaTime(deltaSeconds: number, max: number = MAX_DELTA_TIM
   return Math.min(deltaSeconds, max);
 }
 
+/** The kid-level control hints shown on the start overlay. */
+export type ControlsCopy = {
+  /** Hints for a touchscreen (coarse pointer). */
+  touch: string[];
+  /** Hints for a keyboard/mouse viewport. */
+  keyboard: string[];
+};
+
 /**
- * Controls legend for the start screen. Touch viewports get finger-friendly
- * copy; keyboard viewports get the key legend. Coarse pointer = touchscreen.
+ * Controls legend for the start screen. This is the single source of the
+ * hint copy: Game.tsx passes these lines straight to GameStartOverlay,
+ * which picks the touch set on a coarse-pointer (touchscreen) viewport and
+ * the keyboard set everywhere else.
  */
-export function getControlsCopy(isCoarsePointer: boolean): string {
-  return isCoarsePointer
-    ? 'Hold the green pedal to GO, red to brake. Drag up on a pedal to lean!'
-    : 'D/→ Gas | A/← Brake | W/↑ Lean Back | S/↓ Lean Forward | Space Nitro';
+export function getControlsCopy(): ControlsCopy {
+  return {
+    touch: [
+      '🦶 Tap the right side to go',
+      '🛑 Tap the left side to stop',
+      '🤸 Drag up to lean the truck',
+      '⚡ Tap NITRO for a big boost',
+    ],
+    keyboard: [
+      '🦶 Press D or the right arrow to go',
+      '🛑 Press A or the left arrow to stop',
+      '🤸 Press W and S to lean',
+      '⚡ Press the space bar for nitro',
+      '🔄 Press R to flip back over',
+    ],
+  };
 }

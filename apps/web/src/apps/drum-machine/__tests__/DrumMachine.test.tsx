@@ -1,5 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DRUM_MACHINE_INSTRUCTIONS } from "../lib/readAloud";
+import { toSpeakable } from "@/shared/hooks/useReadAloud";
+import {
+  installSpeechMock,
+  removeSpeechMock,
+} from "@/__tests__/speech-mock";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: () => ({ isAuthenticated: false, syncStatus: "idle" }),
@@ -11,22 +17,7 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 
 import { DrumMachine } from "../DrumMachine";
 import { useDrumMachineStore } from "../lib/store";
-
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 beforeEach(() => {
   mockPointer(false);
@@ -99,5 +90,62 @@ describe("drum-machine mobile layout", () => {
     const play = screen.getByRole("button", { name: "▶" });
     expect(play.parentElement?.className).toContain("sticky");
     expect(play.parentElement?.className).toContain("bottom-0");
+  });
+});
+
+describe("drum machine read aloud", () => {
+  afterEach(() => {
+    removeSpeechMock();
+  });
+
+  it("shows the read-aloud button when the browser can speak", async () => {
+    installSpeechMock();
+    render(<DrumMachine />);
+
+    expect(await screen.findByTestId("read-aloud-button")).toBeInTheDocument();
+  });
+
+  it("speaks the drum machine instructions when tapped", async () => {
+    const speech = installSpeechMock();
+    render(<DrumMachine />);
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    // The hook strips emoji before speaking, so compare against the words the
+    // voice really says, not the raw constant.
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toBe(toSpeakable(DRUM_MACHINE_INSTRUCTIONS));
+    // And those words must describe the real flow: Record first, then pads.
+    expect(spoken).toContain("Tap the pads to make sounds");
+    expect(spoken).toContain("Tap Record. The beat plays while you tap the pads");
+    expect(spoken).toContain("Tap the red button to stop");
+    expect(spoken).toContain("Tap the green button to hear your beat again");
+  });
+
+  it("hides the button when the browser cannot speak", () => {
+    removeSpeechMock();
+    render(<DrumMachine />);
+
+    expect(screen.queryByTestId("read-aloud-button")).not.toBeInTheDocument();
+  });
+});
+
+describe("drum-machine keyboard focus", () => {
+  it("lets a focused button keep its own Space key instead of starting playback", () => {
+    // Regression: the window keydown handler mapped Space to play/stop for
+    // every target, so Space on a focused button (the read-aloud speaker)
+    // started the beat instead of pressing the button.
+    render(<DrumMachine />);
+
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.focus();
+
+    const notPrevented = fireEvent.keyDown(button, { code: "Space", key: " " });
+
+    expect(notPrevented).toBe(true);
+    expect(useDrumMachineStore.getState().isPlaying).toBe(false);
+    button.remove();
   });
 });

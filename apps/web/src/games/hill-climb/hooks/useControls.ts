@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHillClimbStore } from '../lib/store';
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // =============================================================================
 // TYPES
@@ -31,7 +32,20 @@ export interface TouchZone {
 // KEYBOARD CONTROLS HOOK
 // =============================================================================
 
-export function useKeyboardControls(): ControlState {
+const IDLE_CONTROLS: ControlState = {
+  gas: false,
+  brake: false,
+  leanBack: false,
+  leanForward: false,
+  nitro: false,
+  reset: false,
+};
+
+/**
+ * @param enabled Bind the window listeners only while the run is active, so
+ * key presses and taps on the start overlay never drive the vehicle.
+ */
+export function useKeyboardControls(enabled = true): ControlState {
   const [controls, setControls] = useState<ControlState>({
     gas: false,
     brake: false,
@@ -42,6 +56,8 @@ export function useKeyboardControls(): ControlState {
   });
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // A focused button or link owns its own Space and Enter: never swallow them.
+    if (keyBelongsToTarget(e)) return;
     // Prevent default for game keys
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyR', 'Space'].includes(e.code)) {
       e.preventDefault();
@@ -101,22 +117,29 @@ export function useKeyboardControls(): ControlState {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      // Release everything: a key held when the run ends must not read as
+      // pressed when the next run binds the listeners again.
+      setControls(IDLE_CONTROLS);
     };
-  }, [handleKeyDown, handleKeyUp]);
+  }, [enabled, handleKeyDown, handleKeyUp]);
 
-  return controls;
+  return enabled ? controls : IDLE_CONTROLS;
 }
 
 // =============================================================================
 // TOUCH CONTROLS HOOK
 // =============================================================================
 
-export function useTouchControls(): ControlState & { setNitro: (active: boolean) => void } {
+/**
+ * @param enabled Bind the window touch layer only while the run is active.
+ */
+export function useTouchControls(enabled = true): ControlState & { setNitro: (active: boolean) => void } {
   const [controls, setControls] = useState<ControlState>({
     gas: false,
     brake: false,
@@ -213,6 +236,8 @@ export function useTouchControls(): ControlState & { setNitro: (active: boolean)
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
+    const touchZones = touchZonesRef.current;
     window.addEventListener('touchstart', handleTouchStart, { passive: true });
     window.addEventListener('touchmove', handleTouchMove, { passive: true });
     window.addEventListener('touchend', handleTouchEnd, { passive: true });
@@ -223,19 +248,26 @@ export function useTouchControls(): ControlState & { setNitro: (active: boolean)
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
       window.removeEventListener('touchcancel', handleTouchEnd);
+      // Drop any finger still down: it must not drive the next run.
+      touchZones.clear();
+      setControls(IDLE_CONTROLS);
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
+  }, [enabled, handleTouchStart, handleTouchMove, handleTouchEnd]);
 
-  return { ...controls, setNitro };
+  return { ...(enabled ? controls : IDLE_CONTROLS), setNitro };
 }
 
 // =============================================================================
 // COMBINED CONTROLS HOOK
 // =============================================================================
 
-export function useCombinedControls(): ControlState & { setNitro: (active: boolean) => void } {
-  const keyboardControls = useKeyboardControls();
-  const touchControls = useTouchControls();
+/**
+ * @param enabled False while the start overlay, garage, or game-over screen
+ * owns the screen: every control reads as released.
+ */
+export function useCombinedControls(enabled = true): ControlState & { setNitro: (active: boolean) => void } {
+  const keyboardControls = useKeyboardControls(enabled);
+  const touchControls = useTouchControls(enabled);
 
   // Combine - keyboard OR touch triggers action
   return {
@@ -281,6 +313,8 @@ export function useIsMobile(): boolean {
 export function usePauseKeyboard(): void {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
       if (e.code !== 'Escape') return;
 
       // Get fresh state to avoid stale closure issues

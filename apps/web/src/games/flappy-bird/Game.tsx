@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useFlappyStore } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -14,6 +15,7 @@ import {
   UI,
   getMedal,
 } from "./lib/constants";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 export function FlappyBirdGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -183,33 +185,6 @@ export function FlappyBirdGame() {
     [gameState, score]
   );
 
-  const drawReadyScreen = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      ctx.font = "bold 36px Arial, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.strokeStyle = COLORS.SCORE_SHADOW;
-      ctx.lineWidth = 3;
-
-      ctx.strokeText("Flappy Bird", CANVAS_WIDTH / 2, 100);
-      ctx.fillText("Flappy Bird", CANVAS_WIDTH / 2, 100);
-
-      ctx.font = UI.SMALL_FONT;
-      ctx.strokeText("Tap or Press Space", CANVAS_WIDTH / 2, 320);
-      ctx.fillText("Tap or Press Space", CANVAS_WIDTH / 2, 320);
-      ctx.strokeText("to Start!", CANVAS_WIDTH / 2, 350);
-      ctx.fillText("to Start!", CANVAS_WIDTH / 2, 350);
-
-      // High score
-      if (progress.highScore > 0) {
-        ctx.font = "18px Arial, sans-serif";
-        ctx.strokeText(`Best: ${progress.highScore}`, CANVAS_WIDTH / 2, 400);
-        ctx.fillText(`Best: ${progress.highScore}`, CANVAS_WIDTH / 2, 400);
-      }
-    },
-    [progress.highScore]
-  );
-
   const drawGameOver = useCallback(
     (ctx: CanvasRenderingContext2D) => {
       // Darken background
@@ -299,10 +274,9 @@ export function FlappyBirdGame() {
       // Draw bird
       drawBird(ctx);
 
-      // Draw UI based on state
-      if (gameState === "ready") {
-        drawReadyScreen(ctx);
-      } else if (gameState === "playing") {
+      // Draw UI based on state. The "ready" screen is the shared DOM
+      // GameStartOverlay now, so nothing is painted into the canvas for it.
+      if (gameState === "playing") {
         drawScore(ctx);
       } else if (gameState === "gameOver") {
         drawGameOver(ctx);
@@ -315,7 +289,6 @@ export function FlappyBirdGame() {
       drawGround,
       drawBird,
       drawScore,
-      drawReadyScreen,
       drawGameOver,
     ]
   );
@@ -360,19 +333,24 @@ export function FlappyBirdGame() {
   }, [gameState, update, render]);
 
   // Input handling
+  // Taps and keys never start the game any more: the shared start overlay
+  // owns that, so a tap on its Play button cannot also flap the bird.
   const handleInput = useCallback(() => {
-    if (gameState === "ready") {
-      startGame();
-    } else if (gameState === "playing") {
+    if (gameState === "playing") {
       flap();
     } else if (gameState === "gameOver") {
       reset();
     }
-  }, [gameState, startGame, flap, reset]);
+  }, [gameState, flap, reset]);
 
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "ready") return;
       if (e.code === "Space" || e.code === "Enter" || e.code === "ArrowUp") {
         e.preventDefault();
         handleInput();
@@ -381,7 +359,7 @@ export function FlappyBirdGame() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleInput]);
+  }, [gameState, handleInput]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
@@ -398,17 +376,32 @@ export function FlappyBirdGame() {
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
-          onClick={handleInput}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            handleInput();
-          }}
+          // One handler for finger and mouse. A React onTouchStart cannot
+          // preventDefault (React attaches it passive), so a tap used to fire
+          // touchstart AND the compatibility click: two flaps per tap.
+          onPointerDown={handleInput}
           className="rounded-lg shadow-2xl cursor-pointer touch-manipulation"
           style={{
             width: CANVAS_WIDTH * scale,
             height: CANVAS_HEIGHT * scale,
           }}
         />
+
+        {/* Shared DOM start screen (renders the title once) */}
+        {gameState === "ready" && (
+          <GameStartOverlay
+            title="Flappy Bird"
+            emoji="🐦"
+            subtitle="Fly through the pipes!"
+            touchHints={["👆 Tap to flap", "🟩 Fly through the gaps"]}
+            keyboardHints={["⌨️ Space to flap", "🟩 Fly through the gaps"]}
+            onStart={() => startGame()}
+          >
+            <div className="text-base font-medium opacity-90">
+              🏆 Best: {progress.highScore}
+            </div>
+          </GameStartOverlay>
+        )}
       </div>
 
       {/* Stats */}

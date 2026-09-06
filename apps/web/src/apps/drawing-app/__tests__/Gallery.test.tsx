@@ -3,22 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { Gallery } from "../components/Gallery";
 import { useDrawingStore } from "../lib/store";
-
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 const artwork = {
   id: "art-1",

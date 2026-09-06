@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { GameStartOverlay } from "@/shared/components";
 
 interface FourWheelerAdventureGameProps {
   /** Changes whenever the shell confirms a fresh game restart. */
@@ -38,7 +40,26 @@ export function FourWheelerAdventureGame({
   const [gameHtml, setGameHtml] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loadedRestartNonce, setLoadedRestartNonce] = useState<number | null>(null);
+  // The kid presses Play on the shared start overlay before the iframe mounts.
+  // A restart keeps hasStarted true, so it drops straight back into play.
+  const [hasStarted, setHasStarted] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const isReady = loadedRestartNonce === restartNonce;
+
+  // The game document carries its own start panel. Press its button for the
+  // kid so one Play press is all it takes. srcDoc iframes are same-origin, so
+  // the button is reachable. This also runs on a restart remount.
+  const handleIframeLoad = useCallback(() => {
+    setLoadedRestartNonce(restartNonce);
+    const playBtn = iframeRef.current?.contentDocument?.getElementById(
+      "playBtn"
+    ) as HTMLElement | null;
+    playBtn?.click();
+    // Hand the keyboard to the iframe: arrow/WASD keys go to the focused
+    // document, and without this the parent page keeps focus, so a desktop
+    // player has to click the game before any key does anything.
+    iframeRef.current?.contentWindow?.focus();
+  }, [restartNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +86,7 @@ export function FourWheelerAdventureGame({
 
   return (
     <div className="fixed left-0 right-0 bottom-0 top-12 md:top-14 bg-[#1f6b3a]">
-      {!isReady && (
+      {hasStarted && !isReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#1f6b3a] z-10">
           <div className="text-6xl mb-4 animate-bounce">🐕</div>
           <p className="text-white text-xl font-bold">
@@ -76,14 +97,38 @@ export function FourWheelerAdventureGame({
         </div>
       )}
 
-      {gameHtml !== null && (
+      {/* The iframe mounts only after Play: its own start panel is pressed
+          automatically on load, so mounting it earlier would start the game
+          behind the overlay. The HTML itself is already fetched and cached. */}
+      {hasStarted && gameHtml !== null && (
         <iframe
+          ref={iframeRef}
           key={restartNonce}
           srcDoc={gameHtml}
           title="Four-Wheeler Adventure"
           className="w-full h-full border-0"
           allow="autoplay; fullscreen"
-          onLoad={() => setLoadedRestartNonce(restartNonce)}
+          onLoad={handleIframeLoad}
+        />
+      )}
+
+      {!hasStarted && (
+        <GameStartOverlay
+          title="Four-Wheeler Adventure"
+          emoji="🛻"
+          subtitle="Ride around, race, fish, and explore with your dog!"
+          touchHints={[
+            "🦶 Tap GAS to go, BRAKE to stop",
+            "👈👉 Tap the arrows to steer",
+            "🤸 Tap JUMP for a stunt",
+          ]}
+          keyboardHints={[
+            "🦶 Press W or the up arrow to go",
+            "🛑 Press S or the down arrow to stop",
+            "👈👉 Press A and D to steer",
+            "🤸 Press the space bar to jump",
+          ]}
+          onStart={() => setHasStarted(true)}
         />
       )}
 

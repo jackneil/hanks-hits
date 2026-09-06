@@ -12,6 +12,11 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // GAME BOARD COMPONENT
@@ -188,13 +193,17 @@ function MobileControls() {
   if (progress.controlMode === "swipe") {
     return (
       <>
-        {/* Invisible touch layer for swipe detection */}
-        <div
-          className="fixed inset-0 z-10 pointer-events-auto"
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          style={{ touchAction: "none" }}
-        />
+        {/* Invisible touch layer for swipe detection. Mounted only while the
+            game is actually running: before the first Play it would sit under
+            the start overlay and swallow taps meant for the start card. */}
+        {status === "playing" && (
+          <div
+            className="fixed inset-0 z-10 pointer-events-auto"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            style={{ touchAction: "none" }}
+          />
+        )}
         {/* Visible swipe instruction */}
         <div className="mt-4 text-center text-green-200 animate-pulse">
           <div className="text-4xl mb-2">👆</div>
@@ -281,15 +290,6 @@ function GameUI() {
 
       {/* Game controls */}
       <div className="flex gap-4">
-        {status === "idle" && (
-          <button
-            onClick={startGame}
-            className="bg-green-600 hover:bg-green-500 text-white text-2xl font-bold px-8 py-4 rounded-xl shadow-lg transition-all active:scale-95"
-          >
-            START GAME
-          </button>
-        )}
-
         {status === "playing" && (
           <button
             onClick={pauseGame}
@@ -475,6 +475,11 @@ export function SnakeGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (status === "idle") return;
       // Prevent default for arrow keys to avoid scrolling
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
         e.preventDefault();
@@ -505,7 +510,9 @@ export function SnakeGame() {
           // Pause is owned by the GameShell now (ESC + pause button). Space is
           // kept only as a start/restart shortcut so it can't resume the sim
           // behind the shell's still-open pause menu (the desync we're fixing).
-          if (status === "idle" || status === "game-over") {
+          // Idle belongs to the start overlay: its Play button is the only way
+          // to begin. Space still restarts from the game-over screen.
+          if (status === "game-over") {
             store.startGame();
           }
           break;
@@ -545,7 +552,55 @@ export function SnakeGame() {
   }, [status, tick, progress.speed, store.snake.length]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-800 to-green-950 p-4 flex flex-col items-center justify-center gap-6">
+    <div className="relative min-h-screen bg-gradient-to-b from-green-800 to-green-950 p-4 flex flex-col items-center justify-center gap-6">
+      {/* Shared start screen — mounted on the full-height page container so the
+          card and its speed picker never clip against the small board box. */}
+      {status === "idle" && (
+        <GameStartOverlay
+          title="Snake"
+          emoji="🐍"
+          subtitle="Eat the snacks and grow long!"
+          touchHints={[
+            // The hint must match the mode the kid is actually in: buttons is
+            // the default, and swipe only listens for swipes when picked.
+            progress.controlMode === "swipe"
+              ? "👆 Swipe to turn the snake"
+              : "🔼🔽 Tap the arrow buttons to turn",
+            "🍎 Eat the food to grow",
+            "🚫 Do not bump into yourself",
+          ]}
+          keyboardHints={[
+            "⌨️ Arrow keys or WASD to turn",
+            "🍎 Eat the food to grow",
+            "🚫 Do not bump into yourself",
+          ]}
+          spokenChoices="Pick how fast: Slow, Medium, or Fast."
+          onStart={() => store.startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 Best Score: {progress.highScore.toLocaleString()}
+          </div>
+          <div className="text-sm font-bold opacity-80">How fast?</div>
+          {/* grid, not flex: the buttons are w-full and daisyUI .btn does not
+              shrink, so a flex row fitted only "Slow" and pushed the rest off
+              the card. */}
+          <div className="grid grid-cols-3 gap-2">
+            {(["slow", "medium", "fast"] as const).map((speed) => (
+              <GameStartOverlayButton
+                key={speed}
+                onClick={() => store.setSpeed(speed)}
+                aria-pressed={progress.speed === speed}
+                className={`capitalize ${
+                  progress.speed === speed ? "btn-primary" : ""
+                }`}
+              >
+                {speed}
+              </GameStartOverlayButton>
+            ))}
+          </div>
+        </GameStartOverlay>
+      )}
+
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

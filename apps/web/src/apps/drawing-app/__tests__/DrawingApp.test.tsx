@@ -1,7 +1,13 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { DRAWING_APP_INSTRUCTIONS } from "../lib/readAloud";
+import {
+  installSpeechMock,
+  removeSpeechMock,
+} from "@/__tests__/speech-mock";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DrawingApp } from "../DrawingApp";
+import { toSpeakable } from "@/shared/hooks/useReadAloud";
 
 vi.mock("../components/Canvas", () => ({
   Canvas: () => <div>Canvas</div>,
@@ -50,5 +56,35 @@ describe("DrawingApp", () => {
     expect(
       screen.queryByRole("heading", { name: /drawing app/i })
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("drawing app read aloud", () => {
+  afterEach(() => {
+    removeSpeechMock();
+  });
+
+  it("shows the read-aloud button when the browser can speak", async () => {
+    installSpeechMock();
+    render(<DrawingApp />);
+
+    expect(await screen.findByTestId("read-aloud-button")).toBeInTheDocument();
+  });
+
+  it("speaks the drawing app instructions when tapped", async () => {
+    const speech = installSpeechMock();
+    render(<DrawingApp />);
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    expect(speech.lastUtterance().text).toBe(toSpeakable(DRAWING_APP_INSTRUCTIONS));
+  });
+
+  it("hides the button when the browser cannot speak", () => {
+    removeSpeechMock();
+    render(<DrawingApp />);
+
+    expect(screen.queryByTestId("read-aloud-button")).not.toBeInTheDocument();
   });
 });

@@ -9,25 +9,11 @@ vi.mock("next-auth/react", () => ({
 
 import BombermanGame from "../Game";
 import { useBombermanStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 // The global setup stubs matchMedia to always return matches:false. Swap in a
 // stub where "(pointer: coarse)" resolves to the requested value so we can
 // simulate touch vs keyboard/mouse viewports (mirrors GameStartOverlay tests).
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 beforeEach(() => {
   mockPointer(false);

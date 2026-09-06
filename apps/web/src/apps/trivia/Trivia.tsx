@@ -5,6 +5,10 @@ import { useTriviaStore, type TriviaProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
+  GameStartOverlay,
+  GameStartOverlayButton,
+} from "@/shared/components/GameStartOverlay";
+import {
   DIFFICULTY_SETTINGS,
   getDifficultySettings,
   POINTS,
@@ -60,8 +64,15 @@ export function Trivia() {
   const [showResult, setShowResult] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const [bestStreakThisGame, setBestStreakThisGame] = useState(0);
+  // Bumped on every FAILED start. It keys the start overlay, so a failed
+  // attempt remounts it and clears the overlay's fire-once start guard --
+  // otherwise the Play button would stay dead for the rest of this mount.
+  const [attempt, setAttempt] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const handleAnswerRef = useRef<(answer: string | null) => void>(() => {});
+  // The 1.5s "show the answer" pause. Held in a ref so a restart can cancel
+  // it: otherwise it fired endGame() over the fresh start card.
+  const nextQuestionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const diffSettings = getDifficultySettings(settings.difficulty);
   const currentQuestion = questions[questionIndex];
@@ -73,7 +84,7 @@ export function Trivia() {
     const rawQuestions = getQuestions(diff.questionsPerRound, diff.difficulty);
 
     if (rawQuestions.length === 0) {
-      setError("No questions available right now. Please try again!");
+      setError("😕 The questions did not load. Press Play to try again.");
       return [];
     }
 
@@ -86,10 +97,16 @@ export function Trivia() {
   const handleStartGame = () => {
     const loadedQuestions = loadQuestions();
     if (loadedQuestions.length === 0) {
-      // Error state will be shown
+      // loadQuestions() has set a visible error. Remount the overlay so its
+      // per-mount start guard resets and Play works again.
+      setAttempt((previous) => previous + 1);
       return;
     }
     setBestStreakThisGame(0);
+    // A restart can leave the last answer highlighted; clear it before the
+    // first question of the new game paints.
+    setSelectedAnswer(null);
+    setShowResult(false);
     startGame();
     setTimeLeft(diffSettings.timerSec);
   };
@@ -115,7 +132,9 @@ export function Trivia() {
     }
 
     // Move to next question after delay
-    setTimeout(() => {
+    if (nextQuestionTimeoutRef.current) clearTimeout(nextQuestionTimeoutRef.current);
+    nextQuestionTimeoutRef.current = setTimeout(() => {
+      nextQuestionTimeoutRef.current = null;
       setSelectedAnswer(null);
       setShowResult(false);
 
@@ -132,6 +151,24 @@ export function Trivia() {
   useEffect(() => {
     handleAnswerRef.current = handleAnswer;
   }, [handleAnswer]);
+
+  // A restart (the header button) puts the store back to "ready" and shows the
+  // start card. Cancel the pending answer pause: left running it called
+  // endGame() over the fresh start card and counted a game nobody played.
+  useEffect(() => {
+    if (gameState !== "ready") return;
+    if (nextQuestionTimeoutRef.current) {
+      clearTimeout(nextQuestionTimeoutRef.current);
+      nextQuestionTimeoutRef.current = null;
+    }
+  }, [gameState]);
+
+  // Never leave the pause running after the app unmounts.
+  useEffect(() => {
+    return () => {
+      if (nextQuestionTimeoutRef.current) clearTimeout(nextQuestionTimeoutRef.current);
+    };
+  }, []);
 
   // Timer countdown. The updater only counts — side effects in a state
   // updater are illegal (calling handleAnswer inside it fired React's
@@ -165,77 +202,89 @@ export function Trivia() {
     setTimeLeft(0);
     setError(null);
     setBestStreakThisGame(0);
+    setAttempt(0);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-900 via-purple-900 to-pink-900 text-white">
+    <div className="relative min-h-screen bg-gradient-to-b from-indigo-900 via-purple-900 to-pink-900 text-white">
       <IOSInstallPrompt />
 
       <div className="container mx-auto px-4 py-8 max-w-2xl">
-        {/* Ready Screen — start-overlay layer: the title may render once here (measured by the battery) */}
+        {/* Ready screen: the shared start overlay. It renders the title once
+            and carries the read-aloud button; the age picker and this round's
+            stats live in its children slot. */}
         {gameState === "ready" && (
-          <div data-testid="game-start-overlay" className="text-center space-y-8">
-            <h1 className="text-5xl font-bold mb-4">🧠 Trivia Quiz</h1>
-            <p className="text-xl text-purple-200">Test your knowledge!</p>
-
-            {/* Stats */}
+          <GameStartOverlay
+            key={attempt}
+            title="Trivia Quiz"
+            emoji="🧠"
+            subtitle="Test your knowledge!"
+            touchHints={[
+              "👆 Tap the right answer",
+              "⏱️ Answer fast to get more points",
+              "🔥 Get them right in a row for a streak",
+            ]}
+            keyboardHints={[
+              "🖱️ Click the right answer",
+              "⏱️ Answer fast to get more points",
+              "🔥 Get them right in a row for a streak",
+            ]}
+            startLabel="🎮 Start Quiz!"
+            spokenChoices={`Pick how old you are: ${(
+              Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
+            )
+              .map((diff) => DIFFICULTY_SETTINGS[diff].label)
+              .join(", ")}.`}
+            onStart={handleStartGame}
+          >
             {gamesPlayed > 0 && (
-              <div className="bg-white/10 rounded-2xl p-4 space-y-2">
-                <div className="text-lg">🏆 High Score: {highScore}</div>
-                <div className="text-sm text-purple-200">
-                  {totalCorrect}/{totalAnswered} correct ({totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0}%)
-                </div>
-                <div className="text-sm text-purple-200">
-                  🔥 Best Streak: {longestStreak}
+              <div className="text-base font-medium opacity-90">
+                🏆 High Score: {highScore}
+                <div className="text-sm opacity-80">
+                  {totalCorrect}/{totalAnswered} correct (
+                  {totalAnswered > 0
+                    ? Math.round((totalCorrect / totalAnswered) * 100)
+                    : 0}
+                  %) · 🔥 Best Streak: {longestStreak}
                 </div>
               </div>
             )}
 
-            {/* Age Selector */}
-            <div className="space-y-4">
-              <div className="text-xl font-bold">How old are you?</div>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => {
-                  const s = DIFFICULTY_SETTINGS[diff];
-                  const isSelected = settings.difficulty === diff;
-                  return (
-                    <button
-                      key={diff}
-                      onClick={() => setDifficulty(diff)}
-                      className={`px-4 py-3 rounded-xl font-bold text-base transition-all flex flex-col items-center min-w-[70px] ${
-                        isSelected
-                          ? `${s.color} text-white scale-110 ring-2 ring-white shadow-lg`
-                          : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                      }`}
-                    >
-                      <span className="text-2xl">{s.emoji}</span>
-                      <span>{diff}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {settings.difficulty === "99yo" && (
-                <div className="text-purple-300 text-sm">
-                  Grandpa mode: Big text, more time, easy questions!
-                </div>
-              )}
+            <div className="text-sm font-bold opacity-80">How old are you?</div>
+            {/* Two columns with the odd last choice spanning both, the same
+                pattern space-invaders uses: an odd count in a plain 2-up grid
+                left a lone half-width cell dangling. */}
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff, index, all) => (
+                <GameStartOverlayButton
+                  key={diff}
+                  onClick={() => setDifficulty(diff)}
+                  aria-pressed={settings.difficulty === diff}
+                  className={`${settings.difficulty === diff ? "btn-primary" : ""} ${
+                    all.length % 2 === 1 && index === all.length - 1
+                      ? "col-span-2"
+                      : ""
+                  }`}
+                >
+                  {DIFFICULTY_SETTINGS[diff].emoji} {diff}
+                </GameStartOverlayButton>
+              ))}
             </div>
+            {settings.difficulty === "99yo" && (
+              <div className="text-sm opacity-80">
+                Grandpa mode: Big text, more time, easy questions!
+              </div>
+            )}
 
-            {/* Error State */}
             {error && (
-              <div className="bg-red-500/20 border border-red-500 rounded-xl p-4 text-red-200">
+              <div
+                role="alert"
+                className="rounded-xl bg-red-500/20 p-3 text-base font-bold text-red-200"
+              >
                 {error}
               </div>
             )}
-
-            {/* Start Button */}
-            <button
-              onClick={handleStartGame}
-              className="btn btn-primary btn-lg text-xl px-12 py-4 rounded-full shadow-lg hover:scale-105 transition-transform"
-            >
-              🎮 Start Quiz!
-            </button>
-          </div>
+          </GameStartOverlay>
         )}
 
         {/* Playing Screen */}

@@ -8,6 +8,7 @@ import {
   type BuildingId,
   type UpgradeId,
 } from "../lib/constants";
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: vi.fn(),
@@ -142,6 +143,9 @@ describe("CookieClickerGame achievement toast tap-through", () => {
   it("still increments the click counter when the cookie is tapped while a toast shows", () => {
     render(<CookieClickerGame />);
 
+    // The bakery is gated behind the shared start overlay.
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+
     act(() => {
       vi.advanceTimersByTime(0);
     });
@@ -154,4 +158,73 @@ describe("CookieClickerGame achievement toast tap-through", () => {
 
     expect(useCookieClickerStore.getState().totalClicks).toBe(before + 1);
   });
+});
+
+describe("CookieClickerGame start overlay", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useCookieClickerStore.setState({
+      cookies: 0,
+      totalCookiesBaked: 0,
+      totalClicks: 0,
+      buildings: createBuildings(),
+      purchasedUpgrades: [] as UpgradeId[],
+      unlockedAchievements: [] as AchievementId[],
+      newAchievements: [],
+      floatingTexts: [],
+      goldenCookie: null,
+    });
+  });
+
+  afterEach(() => {
+    resetPointerMock();
+  });
+
+  it("shows the shared overlay with the title exactly once", () => {
+    render(<CookieClickerGame />);
+
+    expect(screen.getByTestId("game-start-overlay")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("heading", { name: "Cookie Clicker" })
+    ).toHaveLength(1);
+    expect(screen.getAllByText("Cookie Clicker")).toHaveLength(1);
+  }, 30_000);
+
+  it("shows touch hints (not mouse copy) on coarse pointers", () => {
+    mockPointer(true);
+    render(<CookieClickerGame />);
+
+    expect(screen.getByText("🍪 Tap the cookie to bake")).toBeInTheDocument();
+    expect(
+      screen.queryByText("🍪 Click the cookie to bake")
+    ).not.toBeInTheDocument();
+  }, 30_000);
+
+  it("shows mouse hints (not touch copy) on fine pointers", () => {
+    mockPointer(false);
+    render(<CookieClickerGame />);
+
+    expect(screen.getByText("🍪 Click the cookie to bake")).toBeInTheDocument();
+    expect(
+      screen.queryByText("🍪 Tap the cookie to bake")
+    ).not.toBeInTheDocument();
+  }, 30_000);
+
+  it("bakes nothing before Play, and starts exactly once when Play is mashed", () => {
+    render(<CookieClickerGame />);
+
+    // The cookie is dead under the overlay.
+    fireEvent.click(screen.getByRole("button", { name: "cookie" }));
+    expect(useCookieClickerStore.getState().totalClicks).toBe(0);
+
+    const play = screen.getByRole("button", { name: /play/i });
+    fireEvent.click(play);
+    fireEvent.click(play);
+
+    expect(screen.queryByTestId("game-start-overlay")).not.toBeInTheDocument();
+
+    // One start, and the cookie is live exactly once per real tap.
+    fireEvent.click(screen.getByRole("button", { name: "cookie" }));
+    expect(useCookieClickerStore.getState().totalClicks).toBe(1);
+  }, 30_000);
 });

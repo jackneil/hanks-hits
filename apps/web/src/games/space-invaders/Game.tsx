@@ -25,6 +25,7 @@ import {
   type AlienType,
   type Difficulty,
 } from "./lib/constants";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // Sound Manager
@@ -704,6 +705,11 @@ export function SpaceInvadersGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "ready") return;
       keysRef.current.add(e.code);
 
       if (e.code === "Space" || e.code === "KeyW" || e.code === "ArrowUp") {
@@ -1016,6 +1022,11 @@ export function SpaceInvadersGame() {
               "ESC to pause",
             ]}
             showStartButton={false}
+            spokenChoices={`Tap how old you are and the game starts: ${(
+              Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
+            )
+              .map((diff) => DIFFICULTY_SETTINGS[diff].label)
+              .join(", ")}.`}
             onStart={startGame}
           >
             {progress.highScore > 0 && (

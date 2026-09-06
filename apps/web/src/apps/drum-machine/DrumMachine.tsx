@@ -12,6 +12,9 @@ import {
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { DRUM_MACHINE_INSTRUCTIONS } from "./lib/readAloud";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // DRUM PAD COMPONENT
@@ -233,6 +236,8 @@ export function DrumMachine() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
       // Don't trigger drums when typing in inputs
       if (
         e.target instanceof HTMLInputElement ||
@@ -305,6 +310,14 @@ export function DrumMachine() {
           <span>|</span>
           <span>Pads Hit: {store.progress.stats.padsHit}</span>
         </div>
+      </div>
+
+      {/* Read it to me — its own row under the header, above the toolbar, so
+          it never covers a control and needs no scrolling on a phone. */}
+      <div className="w-full max-w-md mb-4">
+        <ReadAloudButton
+          text={DRUM_MACHINE_INSTRUCTIONS}
+        />
       </div>
 
       {/* Controls */}

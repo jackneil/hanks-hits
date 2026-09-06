@@ -15,6 +15,7 @@ import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 const CANVAS_WIDTH = GRID_WIDTH * TILE_SIZE;
 const CANVAS_HEIGHT = GRID_HEIGHT * TILE_SIZE;
@@ -53,6 +54,11 @@ export function BombermanGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (store.gameState === "menu") return;
       keysRef.current.add(e.key.toLowerCase());
 
       if (store.gameState === "playing") {
@@ -62,10 +68,6 @@ export function BombermanGame() {
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
           store.placeBomb();
-        }
-      } else if (store.gameState === "menu") {
-        if (e.key === " " || e.key === "Enter") {
-          store.startGame();
         }
       } else if (store.gameState === "won") {
         if (e.key === " " || e.key === "Enter") {

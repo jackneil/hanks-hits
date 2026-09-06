@@ -1,0 +1,138 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { FlappyBirdGame } from "../Game";
+import { useFlappyStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
+
+// useAuthSync pulls in next-auth's useSession, which needs a provider we don't
+// mount in unit tests. Stub it with the shape the game destructures.
+vi.mock("@/shared/hooks/useAuthSync", () => ({
+  useAuthSync: () => ({
+    isAuthenticated: false,
+    isGuest: true,
+    syncStatus: "idle",
+    lastSynced: null,
+    forceSync: vi.fn(),
+  }),
+}));
+
+vi.mock("@/shared/components/IOSInstallPrompt", () => ({
+  IOSInstallPrompt: () => null,
+}));
+
+beforeEach(() => {
+  // The canvas render loop is irrelevant to the start screen.
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+  localStorage.clear();
+  // A zustand set() swaps the state object, so a spy installed on the old one
+  // survives restoreAllMocks and its call count would leak across tests.
+  vi.clearAllMocks();
+  useFlappyStore.setState({ gameState: "ready" });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  mockPointer(false);
+});
+
+describe("FlappyBirdGame start overlay", () => {
+  it("shows the shared overlay with the title exactly once", () => {
+    render(<FlappyBirdGame />);
+
+    expect(screen.getByTestId("game-start-overlay")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("heading", { name: "Flappy Bird" })
+    ).toHaveLength(1);
+    expect(screen.getAllByText("Flappy Bird")).toHaveLength(1);
+  });
+
+  it("shows touch hints (not keyboard copy) on coarse pointers", () => {
+    mockPointer(true);
+    render(<FlappyBirdGame />);
+
+    expect(screen.getByText("👆 Tap to flap")).toBeInTheDocument();
+    expect(screen.queryByText("⌨️ Space to flap")).not.toBeInTheDocument();
+  });
+
+  it("shows keyboard hints (not touch copy) on fine pointers", () => {
+    mockPointer(false);
+    render(<FlappyBirdGame />);
+
+    expect(screen.getByText("⌨️ Space to flap")).toBeInTheDocument();
+    expect(screen.queryByText("👆 Tap to flap")).not.toBeInTheDocument();
+  });
+
+  it("starts the game exactly once however hard Play is mashed", () => {
+    const startGame = vi.spyOn(useFlappyStore.getState(), "startGame");
+    render(<FlappyBirdGame />);
+
+    const play = screen.getByRole("button", { name: /play/i });
+    fireEvent.click(play);
+    fireEvent.click(play);
+
+    expect(startGame).toHaveBeenCalledTimes(1);
+    expect(useFlappyStore.getState().gameState).toBe("playing");
+  });
+
+  it("flaps exactly once per finger tap on the canvas", () => {
+    const flap = vi.spyOn(useFlappyStore.getState(), "flap");
+    render(<FlappyBirdGame />);
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+
+    // A real tap on a touchscreen fires touchstart, then the compatibility
+    // click. Only the pointer handler must flap, so one tap = one flap.
+    const canvas = document.querySelector("canvas")!;
+    fireEvent.pointerDown(canvas, { pointerType: "touch" });
+    fireEvent.touchStart(canvas);
+    fireEvent.click(canvas);
+
+    expect(flap).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes the overlay once the game is playing", () => {
+    render(<FlappyBirdGame />);
+
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+
+    expect(screen.queryByTestId("game-start-overlay")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Flappy Bird" })
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("FlappyBirdGame keyboard focus", () => {
+  it("lets a focused button keep its own Space key while playing", () => {
+    // Regression: the window keydown handler called preventDefault() on Space
+    // for every target, so Tab-to-a-button + Space never activated the button
+    // and flapped the bird instead.
+    useFlappyStore.setState({ gameState: "playing" });
+    const flap = vi.spyOn(useFlappyStore.getState(), "flap");
+    render(<FlappyBirdGame />);
+
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.focus();
+
+    const notPrevented = fireEvent.keyDown(button, { code: "Space", key: " " });
+
+    expect(notPrevented).toBe(true);
+    expect(flap).not.toHaveBeenCalled();
+    button.remove();
+  });
+
+  it("does not swallow Space while the start card is up", () => {
+    render(<FlappyBirdGame />);
+
+    const notPrevented = fireEvent.keyDown(document.body, {
+      code: "Space",
+      key: " ",
+    });
+
+    expect(notPrevented).toBe(true);
+    expect(useFlappyStore.getState().gameState).toBe("ready");
+  });
+});
