@@ -97,6 +97,21 @@ describe("FlappyBirdGame start overlay", () => {
     expect(useFlappyStore.getState().gameState).toBe("playing");
   });
 
+  it("flaps exactly once per finger tap on the canvas", () => {
+    const flap = vi.spyOn(useFlappyStore.getState(), "flap");
+    render(<FlappyBirdGame />);
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+
+    // A real tap on a touchscreen fires touchstart, then the compatibility
+    // click. Only the pointer handler must flap, so one tap = one flap.
+    const canvas = document.querySelector("canvas")!;
+    fireEvent.pointerDown(canvas, { pointerType: "touch" });
+    fireEvent.touchStart(canvas);
+    fireEvent.click(canvas);
+
+    expect(flap).toHaveBeenCalledTimes(1);
+  });
+
   it("removes the overlay once the game is playing", () => {
     render(<FlappyBirdGame />);
 

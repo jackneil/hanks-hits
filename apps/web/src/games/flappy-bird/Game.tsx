@@ -370,11 +370,10 @@ export function FlappyBirdGame() {
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
-          onClick={handleInput}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            handleInput();
-          }}
+          // One handler for finger and mouse. A React onTouchStart cannot
+          // preventDefault (React attaches it passive), so a tap used to fire
+          // touchstart AND the compatibility click: two flaps per tap.
+          onPointerDown={handleInput}
           className="rounded-lg shadow-2xl cursor-pointer touch-manipulation"
           style={{
             width: CANVAS_WIDTH * scale,
