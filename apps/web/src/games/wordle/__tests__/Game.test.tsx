@@ -106,6 +106,26 @@ describe("Wordle start overlay", () => {
     );
   });
 
+  it("keeps the physical keyboard working after an on-screen letter is tapped", () => {
+    render(<WordleGame />);
+    fireEvent.click(screen.getByRole("button", { name: /start game/i }));
+
+    // Tapping an on-screen key leaves that button focused; the next key
+    // typed on a real keyboard must still reach the game.
+    const onScreenA = screen.getByRole("button", { name: /^A$/ });
+    onScreenA.focus();
+    fireEvent.click(onScreenA);
+    fireEvent.keyDown(onScreenA, { key: "b" });
+    expect(useWordleStore.getState().currentGuess.toLowerCase()).toBe("ab");
+
+    fireEvent.keyDown(onScreenA, { key: "Backspace" });
+    expect(useWordleStore.getState().currentGuess.toLowerCase()).toBe("a");
+
+    // Space and Enter on the focused button stay with the button.
+    const spaceEvent = fireEvent.keyDown(onScreenA, { key: " " });
+    expect(spaceEvent).toBe(true);
+  });
+
   it("opens the tutorial from the overlay's How to Play button", () => {
     render(<WordleGame />);
 

@@ -17,7 +17,7 @@ import {
   GameStartOverlayButton,
 } from "@/shared/components/GameStartOverlay";
 import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
-import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // Card component with flip animation
 function Card({
@@ -365,7 +365,7 @@ export function MemoryMatchGame() {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
     // A focused button or link owns its own Space and Enter: never swallow them.
-    if (isInteractiveTarget(e)) return;
+    if (keyBelongsToTarget(e)) return;
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
         requestNewGame();

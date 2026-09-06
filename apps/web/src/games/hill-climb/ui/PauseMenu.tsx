@@ -47,8 +47,8 @@ export function PauseMenu({ onGoToGarage }: PauseMenuProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-      <div className="bg-base-100 rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 py-4 short:items-start">
+      <div className="bg-base-100 rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl short:p-4">
         {/* Header */}
         <div className="text-center mb-6">
           <div className="text-5xl mb-2">⏸️</div>

@@ -118,8 +118,9 @@ describe("drum machine read aloud", () => {
     expect(spoken).toBe(toSpeakable(DRUM_MACHINE_INSTRUCTIONS));
     // And those words must describe the real flow: Record first, then pads.
     expect(spoken).toContain("Tap the pads to make sounds");
-    expect(spoken).toContain("Tap Record, then tap the pads to make a beat");
-    expect(spoken).toContain("Tap the green button to hear it");
+    expect(spoken).toContain("Tap Record. The beat plays while you tap the pads");
+    expect(spoken).toContain("Tap the red button to stop");
+    expect(spoken).toContain("Tap the green button to hear your beat again");
   });
 
   it("hides the button when the browser cannot speak", () => {

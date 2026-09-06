@@ -15,7 +15,7 @@ import {
   UI,
   getMedal,
 } from "./lib/constants";
-import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 export function FlappyBirdGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -347,7 +347,7 @@ export function FlappyBirdGame() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // A focused button or link owns its own Space and Enter: never swallow them.
-      if (isInteractiveTarget(e)) return;
+      if (keyBelongsToTarget(e)) return;
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
       if (gameState === "ready") return;

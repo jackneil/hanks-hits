@@ -18,7 +18,7 @@ import {
   type Difficulty,
 } from "./lib/constants";
 import { getKeyboardStatus, type LetterStatus } from "./lib/utils";
-import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 export function WordleGame() {
   const store = useWordleStore();
@@ -77,7 +77,7 @@ export function WordleGame() {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
     // A focused button or link owns its own Space and Enter: never swallow them.
-    if (isInteractiveTarget(e)) return;
+    if (keyBelongsToTarget(e)) return;
       if (gameState !== "playing") return;
 
       if (e.key === "Enter") {

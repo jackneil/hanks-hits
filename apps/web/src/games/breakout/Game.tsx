@@ -17,7 +17,7 @@ import { getLevel, getTotalLevels } from "./lib/levels";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
-import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // CANVAS RENDERER
@@ -381,7 +381,7 @@ function GameCanvas() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // A focused button or link owns its own Space and Enter: never swallow them.
-      if (isInteractiveTarget(e)) return;
+      if (keyBelongsToTarget(e)) return;
       if (["ArrowLeft", "ArrowRight", " "].includes(e.key)) {
         e.preventDefault();
       }

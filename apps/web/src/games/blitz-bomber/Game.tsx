@@ -23,7 +23,7 @@ import {
   type Explosion as ExplosionType,
   type DifficultyLevel,
 } from "./lib/constants";
-import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // Difficulty choices shown in the start overlay. Each starts the game
 // immediately at the chosen difficulty (same effect as the old canvas buttons).
@@ -532,7 +532,7 @@ export function BlitzBomberGame() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // A focused button or link owns its own Space and Enter: never swallow them.
-      if (isInteractiveTarget(e)) return;
+      if (keyBelongsToTarget(e)) return;
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
       if (gameState === "ready") return;

@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================================================
 // TYPES
@@ -58,7 +58,7 @@ export function useKeyboardControls(
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // A focused button or link owns its own Space and Enter: never swallow them.
-    if (isInteractiveTarget(e)) return;
+    if (keyBelongsToTarget(e)) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
       return;
     }

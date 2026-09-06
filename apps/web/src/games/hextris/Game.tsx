@@ -19,7 +19,7 @@ import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
-import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // CANVAS RENDERER
@@ -285,7 +285,7 @@ export function HextrisGame() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // A focused button or link owns its own Space and Enter: never swallow them.
-      if (isInteractiveTarget(e)) return;
+      if (keyBelongsToTarget(e)) return;
       // Idle is owned by the start overlay: the only way to begin a game is
       // its Play button. Space/Enter still restarts from the game-over screen.
       if (store.status === "idle") return;

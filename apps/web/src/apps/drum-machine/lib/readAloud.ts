@@ -7,5 +7,6 @@
  */
 export const DRUM_MACHINE_INSTRUCTIONS =
   "🥁 Drum Machine. Tap the pads to make sounds. " +
-  "⏺ Tap Record, then tap the pads to make a beat. " +
-  "▶ Tap the green button to hear it.";
+  "⏺ Tap Record. The beat plays while you tap the pads. " +
+  "🟥 Tap the red button to stop. " +
+  "▶ Tap the green button to hear your beat again.";
