@@ -18,6 +18,7 @@ import {
   type Difficulty,
 } from "./lib/constants";
 import { getKeyboardStatus, type LetterStatus } from "./lib/utils";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 export function WordleGame() {
   const store = useWordleStore();
@@ -75,6 +76,8 @@ export function WordleGame() {
   // Keyboard input
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+    // A focused button or link owns its own Space and Enter: never swallow them.
+    if (isInteractiveTarget(e)) return;
       if (gameState !== "playing") return;
 
       if (e.key === "Enter") {
@@ -153,6 +156,13 @@ export function WordleGame() {
             "🟩 Green means the letter is right",
           ]}
           startLabel="🎮 Start Game!"
+          // Built from the same list the buttons render, so the voice can
+          // never name a choice the card does not show.
+          spokenChoices={`Pick how old you are: ${(
+            Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
+          )
+            .map((diff) => DIFFICULTY_SETTINGS[diff].label)
+            .join(", ")}. Tap How to Play to learn the rules.`}
           onStart={() => startGame()}
         >
           {gamesPlayed > 0 && (
@@ -162,13 +172,20 @@ export function WordleGame() {
             </div>
           )}
           <div className="text-sm font-bold opacity-80">How old are you?</div>
+          {/* Two columns with the odd last choice spanning both, the same
+              pattern space-invaders uses: an odd count in a plain 2-up grid
+              left a lone half-width cell dangling. */}
           <div className="grid grid-cols-2 gap-2">
-            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => (
+            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff, index, all) => (
               <GameStartOverlayButton
                 key={diff}
                 onClick={() => setDifficulty(diff)}
                 aria-pressed={settings.difficulty === diff}
-                className={settings.difficulty === diff ? "btn-primary" : ""}
+                className={`${settings.difficulty === diff ? "btn-primary" : ""} ${
+                  all.length % 2 === 1 && index === all.length - 1
+                    ? "col-span-2"
+                    : ""
+                }`}
               >
                 {DIFFICULTY_SETTINGS[diff].emoji} {diff}
               </GameStartOverlayButton>

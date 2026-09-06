@@ -220,8 +220,9 @@ export function MonsterTruckGame() {
             emoji="🚛"
             subtitle="Smash, jump, and collect stars in a big open world!"
             touchHints={[
-              "📱 Tilt your phone to steer",
+              "👈👉 Tap the arrows to steer",
               "🦶 Tap GAS to go, BRAKE to stop",
+              "📱 Tap TILT to steer by tilting your phone",
               "📣 Tap the horn!",
             ]}
             keyboardHints={[

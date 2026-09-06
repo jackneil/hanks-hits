@@ -16,30 +16,14 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 }));
 
 import { QuoridorGame } from "../Game";
-
-/** Swap the global always-false matchMedia stub for a pointer-aware one. */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 beforeEach(() => {
   localStorage.clear();
 });
 
 afterEach(() => {
-  mockPointer(false);
+  resetPointerMock();
 });
 
 describe("Quoridor start overlay", () => {
@@ -86,5 +70,17 @@ describe("Quoridor start overlay", () => {
     expect(
       screen.queryByRole("heading", { name: "Quoridor" })
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("quoridor leftover onboarding flag", () => {
+  it("clears the orphaned onboarding key the start card replaced", () => {
+    // The first-run "How to Play" modal and its writer are gone, but players
+    // who saw it still carry the flag. Nothing reads it any more, so clean it.
+    localStorage.setItem("quoridor-onboarding-seen", "true");
+
+    render(<QuoridorGame />);
+
+    expect(localStorage.getItem("quoridor-onboarding-seen")).toBeNull();
   });
 });

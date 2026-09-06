@@ -16,30 +16,14 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 }));
 
 import { ChessGame } from "../Game";
-
-/** Swap the global always-false matchMedia stub for a pointer-aware one. */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 beforeEach(() => {
   localStorage.clear();
 });
 
 afterEach(() => {
-  mockPointer(false);
+  resetPointerMock();
 });
 
 describe("Chess start overlay", () => {

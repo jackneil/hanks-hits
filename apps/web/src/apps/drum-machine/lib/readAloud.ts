@@ -6,4 +6,6 @@
  * and only name controls that are really on that screen.
  */
 export const DRUM_MACHINE_INSTRUCTIONS =
-  "🥁 Drum Machine. Tap the pads to make sounds. Tap the green button to hear your beat.";
+  "🥁 Drum Machine. Tap the pads to make sounds. " +
+  "⏺ Tap Record, then tap the pads to make a beat. " +
+  "▶ Tap the green button to hear it.";

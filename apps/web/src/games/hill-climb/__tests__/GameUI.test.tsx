@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -7,22 +8,7 @@ vi.mock("next/navigation", () => ({
 
 import { GameUI } from "../ui/GameUI";
 import { PauseMenu } from "../ui/PauseMenu";
-
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 describe("hill-climb GameUI HUD layer", () => {
   it("anchors below the GameShell header instead of inset-0 (pause button was buried)", () => {
@@ -66,5 +52,34 @@ describe("hill-climb PauseMenu hint copy", () => {
     expect(
       screen.queryByText("Tap Continue to keep driving")
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("hill-climb pause menu read aloud", () => {
+  let speech: ReturnType<typeof installSpeechMock>;
+
+  beforeEach(() => {
+    speech = installSpeechMock();
+  });
+
+  afterEach(() => {
+    removeSpeechMock();
+  });
+
+  it("reads the pause menu out loud, naming every button", () => {
+    // CLAUDE.md promises a read-aloud button on every pause screen. This menu
+    // is the game's own, not the shared PauseMenu, so it needs its own.
+    render(<PauseMenu onGoToGarage={() => {}} />);
+
+    const speaker = screen.getByRole("button", { name: /read it to me/i });
+    fireEvent.click(speaker);
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain("Paused");
+    expect(spoken).toContain("Hill Climb Racing");
+    expect(spoken).toContain("Continue");
+    expect(spoken).toContain("Settings");
+    expect(spoken).toContain("Garage");
+    expect(spoken).toContain("Quit to Main");
   });
 });

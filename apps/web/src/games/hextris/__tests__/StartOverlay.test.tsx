@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HextrisGame } from "../Game";
 import { useHextrisStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: () => ({
@@ -17,23 +18,6 @@ vi.mock("@/shared/hooks/useAuthSync", () => ({
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
-
-/** Swap the global always-false matchMedia stub for a pointer-aware one. */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", () => 0);

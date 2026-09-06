@@ -15,26 +15,12 @@ vi.mock("@/shared/hooks/useAuthSync", () => ({
 
 import { ArkanoidGame } from "../Game";
 import { useArkanoidStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 // The global setup stubs matchMedia to always return matches:false. Swap in a
 // stub where "(pointer: coarse)" resolves to the requested value so we can
 // simulate touch vs keyboard/mouse viewports (drives the GameStartOverlay hint
 // switch, mirroring the other games' tests).
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 describe("ArkanoidGame Component (GameShell-wrapped)", () => {
   beforeEach(() => {
@@ -117,6 +103,25 @@ describe("ArkanoidGame Component (GameShell-wrapped)", () => {
       screen.getByText("Move the paddle with your mouse")
     ).toBeInTheDocument();
     expect(screen.getByText("Click to launch the ball")).toBeInTheDocument();
+  });
+
+  it("keeps the arrow keys alive after Play (the ready guard must not go stale)", () => {
+    render(<ArkanoidGame />);
+    const before = useArkanoidStore.getState().paddleX;
+
+    // On the start card the keys do nothing.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+    });
+    expect(useArkanoidStore.getState().paddleX).toBe(before);
+
+    act(() => {
+      screen.getByRole("button", { name: /play/i }).click();
+    });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+    });
+    expect(useArkanoidStore.getState().paddleX).toBeLessThan(before);
   });
 
   it("shows game over screen with correct content", () => {

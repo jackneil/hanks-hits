@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WordleGame } from "../Game";
 import { useWordleStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
+import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: () => ({
@@ -17,23 +19,6 @@ vi.mock("@/shared/hooks/useAuthSync", () => ({
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
-
-/** Swap the global always-false matchMedia stub for a pointer-aware one. */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 beforeEach(() => {
   localStorage.clear();
@@ -127,5 +112,43 @@ describe("Wordle start overlay", () => {
     fireEvent.click(screen.getByRole("button", { name: /how to play/i }));
 
     expect(useWordleStore.getState().showTutorial).toBe(true);
+  });
+});
+
+describe("wordle spoken choices", () => {
+  it("says the picker choices out loud, so a kid who cannot read hears them", () => {
+    const speech = installSpeechMock();
+    render(<WordleGame  />);
+
+    fireEvent.click(screen.getByTestId("read-aloud-button"));
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain("4 years old");
+    expect(spoken).toContain("8 years old");
+    expect(spoken).toContain("12 years old");
+    expect(spoken).toContain("24 years old");
+    expect(spoken).toContain("99 years old");
+    expect(spoken).toContain("How to Play");
+    removeSpeechMock();
+  });
+});
+
+describe("wordle age picker layout", () => {
+  it("gives the odd last age the full width, so no half cell dangles", () => {
+    render(<WordleGame  />);
+
+    const buttons = screen
+      .getAllByRole("button")
+      .filter((b) => /years old|^\S+ \d+yo$|\d+yo/.test(b.textContent ?? ""));
+    const grid = screen.getByText("How old are you?").nextElementSibling!;
+    expect(grid.className).toContain("grid-cols-2");
+
+    const cells = Array.from(grid.children);
+    expect(cells.length % 2).toBe(1);
+    expect(cells[cells.length - 1].className).toContain("col-span-2");
+    cells.slice(0, -1).forEach((cell) => {
+      expect(cell.className).not.toContain("col-span-2");
+    });
+    expect(buttons.length).toBeGreaterThan(0);
   });
 });

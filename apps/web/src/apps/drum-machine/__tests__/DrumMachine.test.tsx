@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { DRUM_MACHINE_INSTRUCTIONS } from "../lib/readAloud";
+import { toSpeakable } from "@/shared/hooks/useReadAloud";
 import {
   installSpeechMock,
   removeSpeechMock,
@@ -16,22 +17,7 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 
 import { DrumMachine } from "../DrumMachine";
 import { useDrumMachineStore } from "../lib/store";
-
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 beforeEach(() => {
   mockPointer(false);
@@ -126,7 +112,14 @@ describe("drum machine read aloud", () => {
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
 
     expect(speech.speak).toHaveBeenCalledTimes(1);
-    expect(speech.lastUtterance().text).toBe(DRUM_MACHINE_INSTRUCTIONS);
+    // The hook strips emoji before speaking, so compare against the words the
+    // voice really says, not the raw constant.
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toBe(toSpeakable(DRUM_MACHINE_INSTRUCTIONS));
+    // And those words must describe the real flow: Record first, then pads.
+    expect(spoken).toContain("Tap the pads to make sounds");
+    expect(spoken).toContain("Tap Record, then tap the pads to make a beat");
+    expect(spoken).toContain("Tap the green button to hear it");
   });
 
   it("hides the button when the browser cannot speak", () => {
@@ -134,5 +127,24 @@ describe("drum machine read aloud", () => {
     render(<DrumMachine />);
 
     expect(screen.queryByTestId("read-aloud-button")).not.toBeInTheDocument();
+  });
+});
+
+describe("drum-machine keyboard focus", () => {
+  it("lets a focused button keep its own Space key instead of starting playback", () => {
+    // Regression: the window keydown handler mapped Space to play/stop for
+    // every target, so Space on a focused button (the read-aloud speaker)
+    // started the beat instead of pressing the button.
+    render(<DrumMachine />);
+
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.focus();
+
+    const notPrevented = fireEvent.keyDown(button, { code: "Space", key: " " });
+
+    expect(notPrevented).toBe(true);
+    expect(useDrumMachineStore.getState().isPlaying).toBe(false);
+    button.remove();
   });
 });

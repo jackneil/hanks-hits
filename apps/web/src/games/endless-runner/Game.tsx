@@ -20,6 +20,7 @@ import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { getInstructionLines } from "./lib/instructions";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 export function EndlessRunnerGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -505,6 +506,11 @@ export function EndlessRunnerGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (isInteractiveTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "ready") return;
       if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
         e.preventDefault();
         handleTap();

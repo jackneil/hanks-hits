@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { resetWebGLSupportCache } from '@/shared/components/WebGLGate';
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 // Mock the heavy 3D components
 vi.mock('@react-three/fiber', () => ({
@@ -108,22 +109,6 @@ describe('Sound Manager', () => {
  * game. The shared overlay is now a real start moment: it waits for Play, and
  * the 3D world loads behind it.
  */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes('pointer: coarse') ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
-
 describe('Monster Truck start overlay', () => {
   beforeEach(() => {
     resetWebGLSupportCache();
@@ -150,12 +135,22 @@ describe('Monster Truck start overlay', () => {
     expect(screen.getAllByText('Monster Truck Mayhem')).toHaveLength(1);
   }, 30_000);
 
-  it('shows the touch instructions, tilt included, on a coarse pointer', async () => {
+  it('shows touch instructions that match the DEFAULT controls (tilt is off)', async () => {
+    // Regression: the card promised "Tilt your phone to steer" while useTilt
+    // defaults to false, so a kid tilted the phone and nothing happened. The
+    // hints now name the on-screen arrows and the TILT toggle that turns
+    // tilt steering on.
     mockPointer(true);
     const { MonsterTruckGame } = await import('../Game');
     render(<MonsterTruckGame />);
 
-    expect(screen.getByText('📱 Tilt your phone to steer')).toBeInTheDocument();
+    expect(screen.getByText('👈👉 Tap the arrows to steer')).toBeInTheDocument();
+    expect(
+      screen.getByText('📱 Tap TILT to steer by tilting your phone')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('📱 Tilt your phone to steer')
+    ).not.toBeInTheDocument();
     expect(
       screen.getByText('🦶 Tap GAS to go, BRAKE to stop')
     ).toBeInTheDocument();
@@ -186,4 +181,28 @@ describe('Monster Truck start overlay', () => {
     expect(screen.queryByTestId('game-start-overlay')).toBeNull();
     expect(screen.getAllByTestId('r3f-canvas')).toHaveLength(1);
   }, 30_000);
+});
+
+describe('monster-truck pause menu read aloud', () => {
+  it('reads the pause menu out loud, naming every button', async () => {
+    // CLAUDE.md promises a read-aloud button on every pause screen. This menu
+    // is the game's own, not the shared PauseMenu, so it needs its own.
+    const { installSpeechMock, removeSpeechMock } = await import(
+      '@/__tests__/speech-mock'
+    );
+    const speech = installSpeechMock();
+    const { PauseMenu } = await import('../components/GameUI');
+
+    render(<PauseMenu onResume={() => {}} onGarage={() => {}} onQuit={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /read it to me/i }));
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain('Paused');
+    expect(spoken).toContain('Monster Truck');
+    expect(spoken).toContain('Resume');
+    expect(spoken).toContain('Garage');
+    expect(spoken).toContain('Quit to Menu');
+    removeSpeechMock();
+  });
 });

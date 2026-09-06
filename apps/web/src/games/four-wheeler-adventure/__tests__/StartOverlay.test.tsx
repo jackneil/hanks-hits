@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FourWheelerAdventureGame } from "../Game";
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 /**
  * Start-moment tests for the shared GameStartOverlay migration.
@@ -13,22 +14,6 @@ import { FourWheelerAdventureGame } from "../Game";
 
 const gameHtml = "<!doctype html><html><body>four-wheeler</body></html>";
 
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
-
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
@@ -37,7 +22,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  mockPointer(false);
+  resetPointerMock();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -103,8 +88,16 @@ describe("four-wheeler start overlay", () => {
     expect(doc).not.toBeNull();
     doc!.body.appendChild(playBtn);
 
+    // Desktop keys only reach the game when its own window has focus.
+    const focus = vi.fn();
+    Object.defineProperty(iframe.contentWindow!, "focus", {
+      configurable: true,
+      value: focus,
+    });
+
     fireEvent.load(iframe);
 
     expect(click).toHaveBeenCalledTimes(1);
+    expect(focus).toHaveBeenCalledTimes(1);
   });
 });

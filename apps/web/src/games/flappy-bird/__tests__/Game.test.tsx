@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FlappyBirdGame } from "../Game";
 import { useFlappyStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 // useAuthSync pulls in next-auth's useSession, which needs a provider we don't
 // mount in unit tests. Stub it with the shape the game destructures.
@@ -19,27 +20,6 @@ vi.mock("@/shared/hooks/useAuthSync", () => ({
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
-
-/**
- * The global setup installs a matchMedia stub that always returns
- * matches: false. This swaps in one where "(pointer: coarse)" resolves to the
- * requested value so we can simulate touch vs keyboard/mouse viewports.
- */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 beforeEach(() => {
   // The canvas render loop is irrelevant to the start screen.
@@ -121,5 +101,38 @@ describe("FlappyBirdGame start overlay", () => {
     expect(
       screen.queryByRole("heading", { name: "Flappy Bird" })
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("FlappyBirdGame keyboard focus", () => {
+  it("lets a focused button keep its own Space key while playing", () => {
+    // Regression: the window keydown handler called preventDefault() on Space
+    // for every target, so Tab-to-a-button + Space never activated the button
+    // and flapped the bird instead.
+    useFlappyStore.setState({ gameState: "playing" });
+    const flap = vi.spyOn(useFlappyStore.getState(), "flap");
+    render(<FlappyBirdGame />);
+
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.focus();
+
+    const notPrevented = fireEvent.keyDown(button, { code: "Space", key: " " });
+
+    expect(notPrevented).toBe(true);
+    expect(flap).not.toHaveBeenCalled();
+    button.remove();
+  });
+
+  it("does not swallow Space while the start card is up", () => {
+    render(<FlappyBirdGame />);
+
+    const notPrevented = fireEvent.keyDown(document.body, {
+      code: "Space",
+      key: " ",
+    });
+
+    expect(notPrevented).toBe(true);
+    expect(useFlappyStore.getState().gameState).toBe("ready");
   });
 });

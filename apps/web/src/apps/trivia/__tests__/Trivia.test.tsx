@@ -24,23 +24,8 @@ vi.mock("../lib/api", async (importOriginal) => {
 import { Trivia } from "../Trivia";
 import { useTriviaStore } from "../lib/store";
 import { DIFFICULTY_SETTINGS } from "../lib/constants";
-
-/** Swap the global always-false matchMedia stub for a pointer-aware one. */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer } from "@/__tests__/pointer-mock";
+import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 beforeEach(() => {
   questionBank.empty = false;
@@ -164,5 +149,80 @@ describe("trivia timer expiry", () => {
     );
     expect(renderWarnings).toHaveLength(0);
     consoleError.mockRestore();
+  });
+});
+
+describe("trivia restart during the answer pause", () => {
+  it("does not end the fresh game when the pending 1.5s pause fires", () => {
+    // Regression: the "show the answer" setTimeout kept running after the
+    // header restart put the store back to "ready", so endGame() fired over
+    // the new start card and counted a game the kid never played.
+    render(<Trivia />);
+
+    fireEvent.click(screen.getByRole("button", { name: /start quiz/i }));
+    // Jump to the last question so the pending timeout would call endGame().
+    // The question count lives in component state; read it off the header.
+    const total = Number(
+      screen.getByText(/^Question \d+\/\d+$/).textContent!.split("/")[1]
+    );
+    act(() => {
+      useTriviaStore.setState({ questionIndex: total - 1 });
+    });
+
+    const answer = document.querySelector<HTMLButtonElement>(
+      ".grid.grid-cols-1 button"
+    )!;
+    fireEvent.click(answer);
+
+    const playedBefore = useTriviaStore.getState().gamesPlayed;
+
+    // The kid taps restart before the pause is up.
+    act(() => {
+      useTriviaStore.getState().reset();
+    });
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(screen.getByTestId("game-start-overlay")).toBeInTheDocument();
+    expect(useTriviaStore.getState().gameState).toBe("ready");
+    expect(useTriviaStore.getState().gamesPlayed).toBe(playedBefore);
+  });
+});
+
+describe("trivia spoken choices", () => {
+  it("says the picker choices out loud, so a kid who cannot read hears them", () => {
+    const speech = installSpeechMock();
+    render(<Trivia  />);
+
+    fireEvent.click(screen.getByTestId("read-aloud-button"));
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain("4 years old");
+    expect(spoken).toContain("8 years old");
+    expect(spoken).toContain("12 years old");
+    expect(spoken).toContain("24 years old");
+    expect(spoken).toContain("99 years old");
+    removeSpeechMock();
+  });
+});
+
+describe("trivia age picker layout", () => {
+  it("gives the odd last age the full width, so no half cell dangles", () => {
+    render(<Trivia  />);
+
+    const buttons = screen
+      .getAllByRole("button")
+      .filter((b) => /years old|^\S+ \d+yo$|\d+yo/.test(b.textContent ?? ""));
+    const grid = screen.getByText("How old are you?").nextElementSibling!;
+    expect(grid.className).toContain("grid-cols-2");
+
+    const cells = Array.from(grid.children);
+    expect(cells.length % 2).toBe(1);
+    expect(cells[cells.length - 1].className).toContain("col-span-2");
+    cells.slice(0, -1).forEach((cell) => {
+      expect(cell.className).not.toContain("col-span-2");
+    });
+    expect(buttons.length).toBeGreaterThan(0);
   });
 });

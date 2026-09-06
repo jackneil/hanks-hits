@@ -16,6 +16,7 @@ import {
   GameStartOverlay,
   GameStartOverlayButton,
 } from "@/shared/components/GameStartOverlay";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // GAME BOARD COMPONENT
@@ -474,6 +475,11 @@ export function SnakeGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (isInteractiveTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (status === "idle") return;
       // Prevent default for arrow keys to avoid scrolling
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
         e.preventDefault();
@@ -555,7 +561,11 @@ export function SnakeGame() {
           emoji="🐍"
           subtitle="Eat the snacks and grow long!"
           touchHints={[
-            "👆 Swipe to turn the snake",
+            // The hint must match the mode the kid is actually in: buttons is
+            // the default, and swipe only listens for swipes when picked.
+            progress.controlMode === "swipe"
+              ? "👆 Swipe to turn the snake"
+              : "🔼🔽 Tap the arrow buttons to turn",
             "🍎 Eat the food to grow",
             "🚫 Do not bump into yourself",
           ]}
@@ -564,13 +574,17 @@ export function SnakeGame() {
             "🍎 Eat the food to grow",
             "🚫 Do not bump into yourself",
           ]}
+          spokenChoices="Pick how fast: Slow, Medium, or Fast."
           onStart={() => store.startGame()}
         >
           <div className="text-base font-medium opacity-90">
             🏆 Best Score: {progress.highScore.toLocaleString()}
           </div>
           <div className="text-sm font-bold opacity-80">How fast?</div>
-          <div className="flex gap-2">
+          {/* grid, not flex: the buttons are w-full and daisyUI .btn does not
+              shrink, so a flex row fitted only "Slow" and pushed the rest off
+              the card. */}
+          <div className="grid grid-cols-3 gap-2">
             {(["slow", "medium", "fast"] as const).map((speed) => (
               <GameStartOverlayButton
                 key={speed}

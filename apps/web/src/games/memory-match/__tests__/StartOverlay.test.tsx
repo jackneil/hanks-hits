@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryMatchGame } from "../Game";
 import { useMemoryMatchStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
+import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: () => ({
@@ -17,23 +19,6 @@ vi.mock("@/shared/hooks/useAuthSync", () => ({
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
-
-/** Swap the global always-false matchMedia stub for a pointer-aware one. */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 beforeEach(() => {
   localStorage.clear();
@@ -120,5 +105,21 @@ describe("Memory Match start overlay", () => {
         name: "Easy",
       })
     ).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("memory-match spoken choices", () => {
+  it("says the picker choices out loud, so a kid who cannot read hears them", () => {
+    const speech = installSpeechMock();
+    render(<MemoryMatchGame  />);
+
+    fireEvent.click(screen.getByTestId("read-aloud-button"));
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain("Easy");
+    expect(spoken).toContain("Medium");
+    expect(spoken).toContain("Hard");
+    expect(spoken).toContain("Expert");
+    removeSpeechMock();
   });
 });

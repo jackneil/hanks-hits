@@ -11,7 +11,7 @@ import Matter from 'matter-js';
 import { useCombinedControls, useIsMobile, usePauseKeyboard } from './hooks/useControls';
 import { useHillClimbStore, type HillClimbProgress } from './lib/store';
 import { useAuthSync } from '@/shared/hooks/useAuthSync';
-import { clampDeltaTime } from './lib/gameHelpers';
+import { clampDeltaTime, getControlsCopy } from './lib/gameHelpers';
 import {
   createVehicle,
   applyWheelTorque,
@@ -37,6 +37,9 @@ import {
   GameStartOverlayButton,
   OrientationWarning,
 } from '@/shared/components';
+
+/** Start-screen control hints, from the single source in gameHelpers. */
+const CONTROLS_COPY = getControlsCopy();
 
 // =============================================================================
 // TYPES
@@ -149,6 +152,19 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   const [rotation, setRotation] = useState(0);
   const [showStartScreen, setShowStartScreen] = useState(!startActive);
   const [showGarage, setShowGarage] = useState(false);
+
+  // The store is a singleton, so a finished run leaves isGameOver true. Coming
+  // back to the game showed the old game-over screen (z-50) on top of the new
+  // start card. Clear the run-session flags while the start card is up. Coins,
+  // unlocks and best distance are separate fields and stay untouched.
+  useEffect(() => {
+    if (!showStartScreen) return;
+    useHillClimbStore.setState({
+      isPlaying: false,
+      isGameOver: false,
+      isPaused: false,
+    });
+  }, [showStartScreen]);
 
   // Update refs when state changes
   useEffect(() => {
@@ -1162,8 +1178,12 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     return <Garage onStartGame={handleStartFromGarage} />;
   }
 
+  // No overflow-hidden on the root below: it makes that div the start card's
+  // scroll container, which pushes the card's sticky box down by the header
+  // offset and clips Play off the bottom on a phone held sideways (844x390).
+  // The canvas is absolute inset-0, so there is nothing to clip.
   return (
-    <div className="relative w-full h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="relative w-full h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)]">
       <canvas ref={canvasRef} className="absolute inset-0" style={{ touchAction: 'none' }} />
 
       {/* Shared start screen: a real DOM overlay inside the positioned root.
@@ -1175,19 +1195,9 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
           emoji="🏔️"
           subtitle="Drive as far as you can before the fuel runs out!"
           startLabel="🚗 Play Now"
-          touchHints={[
-            "🦶 Tap the right side to go",
-            "🛑 Tap the left side to stop",
-            "🤸 Drag up to lean the truck",
-            "⚡ Tap NITRO for a big boost",
-          ]}
-          keyboardHints={[
-            "🦶 Press D or the right arrow to go",
-            "🛑 Press A or the left arrow to stop",
-            "🤸 Press W and S to lean",
-            "⚡ Press the space bar for nitro",
-            "🔄 Press R to flip back over",
-          ]}
+          touchHints={CONTROLS_COPY.touch}
+          keyboardHints={CONTROLS_COPY.keyboard}
+          spokenChoices="Tap Garage to pick a truck."
           onStart={handleStart}
         >
           <GameStartOverlayButton onClick={handleGoToGarage}>
@@ -1200,7 +1210,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
       <OrientationWarning />
 
 
-      {isPlaying && (
+      {!showStartScreen && isPlaying && (
         <>
           <GameUI
             fuel={fuel}
@@ -1215,11 +1225,11 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
         </>
       )}
 
-      {isPaused && !isGameOver && (
+      {!showStartScreen && isPaused && !isGameOver && (
         <PauseMenu onGoToGarage={handleGoToGarage} />
       )}
 
-      {isGameOver && (
+      {!showStartScreen && isGameOver && (
         <GameOverScreen onRestart={handleRestart} onGoToGarage={handleGoToGarage} />
       )}
     </div>

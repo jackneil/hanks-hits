@@ -23,6 +23,7 @@ import {
   UI,
   LEVELS,
 } from "./lib/constants";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 export function PlatformerGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -656,6 +657,11 @@ export function PlatformerGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (isInteractiveTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "ready") return;
       if (
         e.code === "Space" ||
         e.code === "ArrowUp" ||
@@ -787,6 +793,9 @@ export function PlatformerGame() {
             touchHints={["Tap ◀ ▶ to move", "Tap JUMP to jump"]}
             keyboardHints={["A/D or Arrows to move", "SPACE to jump"]}
             showStartButton={false}
+            spokenChoices={`Tap a level and the game starts: ${LEVELS.map(
+              (level, index) => `Level ${index + 1}, ${level.name}`
+            ).join(", ")}.`}
             onStart={() => startGame(currentLevelIndex)}
           >
             {LEVELS.map((level, index) => {

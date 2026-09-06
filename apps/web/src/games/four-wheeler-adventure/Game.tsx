@@ -55,6 +55,10 @@ export function FourWheelerAdventureGame({
       "playBtn"
     ) as HTMLElement | null;
     playBtn?.click();
+    // Hand the keyboard to the iframe: arrow/WASD keys go to the focused
+    // document, and without this the parent page keeps focus, so a desktop
+    // player has to click the game before any key does anything.
+    iframeRef.current?.contentWindow?.focus();
   }, [restartNonce]);
 
   useEffect(() => {

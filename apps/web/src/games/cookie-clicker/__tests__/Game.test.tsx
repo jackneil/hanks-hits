@@ -8,6 +8,7 @@ import {
   type BuildingId,
   type UpgradeId,
 } from "../lib/constants";
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: vi.fn(),
@@ -20,27 +21,6 @@ vi.mock("@/shared/components/FullscreenButton", () => ({
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
-
-/**
- * The global setup installs a matchMedia stub that always returns
- * matches: false. This swaps in one where "(pointer: coarse)" resolves to the
- * requested value so we can simulate touch vs mouse viewports.
- */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 const buildingIds: BuildingId[] = [
   "cursor",
@@ -197,7 +177,7 @@ describe("CookieClickerGame start overlay", () => {
   });
 
   afterEach(() => {
-    mockPointer(false);
+    resetPointerMock();
   });
 
   it("shows the shared overlay with the title exactly once", () => {

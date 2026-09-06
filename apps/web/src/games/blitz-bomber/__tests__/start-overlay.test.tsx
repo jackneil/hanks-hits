@@ -9,27 +9,8 @@ vi.mock("next-auth/react", () => ({
 
 import BlitzBomberGame from "../Game";
 import { useBlitzBomberStore } from "../lib/store";
-
-/**
- * The global setup installs a matchMedia stub that always returns
- * matches: false. This helper swaps in a stub where "(pointer: coarse)"
- * resolves to the requested value so we can simulate touch vs keyboard/mouse.
- */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 beforeEach(() => {
   // Keep the rAF game loop from ticking during assertions.
@@ -42,7 +23,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  mockPointer(false);
+  resetPointerMock();
   vi.unstubAllGlobals();
   act(() => {
     useBlitzBomberStore.setState({ gameState: "ready" });
@@ -129,5 +110,21 @@ describe("Blitz Bomber start overlay", () => {
     expect(
       within(card).queryByText("Tap anywhere to drop bombs")
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("blitz-bomber spoken choices", () => {
+  it("says the picker choices out loud, so a kid who cannot read hears them", () => {
+    const speech = installSpeechMock();
+    render(<BlitzBomberGame  />);
+
+    fireEvent.click(screen.getByTestId("read-aloud-button"));
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain("Easy");
+    expect(spoken).toContain("Normal");
+    expect(spoken).toContain("Hard");
+    expect(spoken).toContain("and the game starts");
+    removeSpeechMock();
   });
 });

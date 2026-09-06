@@ -8,6 +8,7 @@ import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 // Tile component with animations
 function Tile({
@@ -204,6 +205,8 @@ function useKeyboardControls(onNewGame: () => void, enabled: boolean) {
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+    // A focused button or link owns its own Space and Enter: never swallow them.
+    if (isInteractiveTarget(e)) return;
       // Nothing responds to keys before the player presses Play.
       if (!enabled) return;
 

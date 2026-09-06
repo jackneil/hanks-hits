@@ -46,6 +46,18 @@ export function QuoridorGame() {
     };
   }, []);
 
+  // The first-run "How to Play" modal is gone, but players who saw it still
+  // carry its flag. Clear the orphan so no stale key is left behind.
+  // localStorage throws in private browsing, and a leftover key is not worth
+  // breaking the game over.
+  useEffect(() => {
+    try {
+      localStorage.removeItem("quoridor-onboarding-seen");
+    } catch {
+      // Storage is unavailable; nothing to clean up.
+    }
+  }, []);
+
   const handleInvalidPlacement = (row: number, col: number, orientation: WallOrientation) => {
     if (invalidTimeoutRef.current) {
       clearTimeout(invalidTimeoutRef.current);
@@ -431,12 +443,12 @@ export function QuoridorGame() {
           subtitle="Race to the other side!"
           touchHints={[
             "👆 Tap your pawn, then tap a green dot",
-            "🧱 Tap a groove to place a wall",
+            "🧱 Tap the wall button, then tap a groove",
             "🏁 Get to the far side first to win",
           ]}
           keyboardHints={[
             "🖱️ Click your pawn, then click a green dot",
-            "🧱 Click a groove to place a wall",
+            "🧱 Click the wall button, then click a groove",
             "🏁 Get to the far side first to win",
           ]}
           onStart={() => setHasStarted(true)}
@@ -451,239 +463,245 @@ export function QuoridorGame() {
       )}
 
 
-      {/* Turn indicator */}
-      <div className="flex items-center justify-center gap-4 py-3 px-6 bg-gray-800 rounded-lg">
-        <div
-          className={`flex items-center gap-2 px-3 py-1 rounded ${
-            store.currentPlayer === 1 ? "bg-blue-600" : "bg-gray-700"
-          }`}
-        >
+      {/* Everything under the start card. `inert` while the card is up so Tab
+          cannot reach the game's own controls before Play, and a stray tap
+          through the overlay cannot move a piece. `contents` keeps the flex
+          layout exactly as it was. */}
+      <div className="contents" inert={!hasStarted || undefined}>
+        {/* Turn indicator */}
+        <div className="flex items-center justify-center gap-4 py-3 px-6 bg-gray-800 rounded-lg">
           <div
-            className="w-4 h-4 rounded-full"
-            style={{ backgroundColor: COLORS.PLAYER1 }}
-          />
-          <span className="font-bold text-white">
-            P1: {store.wallsRemaining[1]}
-          </span>
-        </div>
+            className={`flex items-center gap-2 px-3 py-1 rounded ${
+              store.currentPlayer === 1 ? "bg-blue-600" : "bg-gray-700"
+            }`}
+          >
+            <div
+              className="w-4 h-4 rounded-full"
+              style={{ backgroundColor: COLORS.PLAYER1 }}
+            />
+            <span className="font-bold text-white">
+              P1: {store.wallsRemaining[1]}
+            </span>
+          </div>
 
-        <div className="text-white font-bold text-lg">
-          {store.status === "playing" ? (
-            store.isAIThinking ? (
-              "AI Thinking..."
-            ) : store.gameMode === "local" ? (
-              `Player ${store.currentPlayer}'s Turn`
-            ) : store.currentPlayer === 1 ? (
-              "Your Turn!"
+          <div className="text-white font-bold text-lg">
+            {store.status === "playing" ? (
+              store.isAIThinking ? (
+                "AI Thinking..."
+              ) : store.gameMode === "local" ? (
+                `Player ${store.currentPlayer}'s Turn`
+              ) : store.currentPlayer === 1 ? (
+                "Your Turn!"
+              ) : (
+                "..."
+              )
+            ) : store.status === "player1-wins" ? (
+              store.gameMode === "ai" ? "You Win!" : "Player 1 Wins!"
             ) : (
-              "..."
-            )
-          ) : store.status === "player1-wins" ? (
-            store.gameMode === "ai" ? "You Win!" : "Player 1 Wins!"
-          ) : (
-            store.gameMode === "ai" ? "AI Wins!" : "Player 2 Wins!"
-          )}
+              store.gameMode === "ai" ? "AI Wins!" : "Player 2 Wins!"
+            )}
+          </div>
+
+          <div
+            className={`flex items-center gap-2 px-3 py-1 rounded ${
+              store.currentPlayer === 2 ? "bg-orange-600" : "bg-gray-700"
+            }`}
+          >
+            <div
+              className="w-4 h-4 rounded-full"
+              style={{ backgroundColor: COLORS.PLAYER2 }}
+            />
+            <span className="font-bold text-white">
+              {store.gameMode === "ai" ? "AI" : "P2"}: {store.wallsRemaining[2]}
+            </span>
+          </div>
         </div>
 
+        {/* Board */}
         <div
-          className={`flex items-center gap-2 px-3 py-1 rounded ${
-            store.currentPlayer === 2 ? "bg-orange-600" : "bg-gray-700"
-          }`}
+          className="bg-amber-900 p-2 md:p-3 rounded-lg shadow-2xl w-full max-w-[90vw] md:max-w-[min(80vh,700px)]"
+          style={{ zIndex: Z_INDEX.BOARD_BG }}
         >
           <div
-            className="w-4 h-4 rounded-full"
-            style={{ backgroundColor: COLORS.PLAYER2 }}
-          />
-          <span className="font-bold text-white">
-            {store.gameMode === "ai" ? "AI" : "P2"}: {store.wallsRemaining[2]}
-          </span>
-        </div>
-      </div>
+            className="grid gap-0"
+            style={{
+              gridTemplateColumns: `repeat(${BOARD_SIZE * 2 - 1}, 1fr)`,
+              gridTemplateRows: `repeat(${BOARD_SIZE * 2 - 1}, 1fr)`,
+              willChange: "transform",
+            }}
+          >
+            {/* Render board from top (row 8) to bottom (row 0) */}
+            {Array.from({ length: BOARD_SIZE * 2 - 1 }).map((_, gridRow) => {
+              const boardRow = BOARD_SIZE - 1 - Math.floor(gridRow / 2);
+              const isSquareRow = gridRow % 2 === 0;
 
-      {/* Board */}
-      <div
-        className="bg-amber-900 p-2 md:p-3 rounded-lg shadow-2xl w-full max-w-[90vw] md:max-w-[min(80vh,700px)]"
-        style={{ zIndex: Z_INDEX.BOARD_BG }}
-      >
-        <div
-          className="grid gap-0"
-          style={{
-            gridTemplateColumns: `repeat(${BOARD_SIZE * 2 - 1}, 1fr)`,
-            gridTemplateRows: `repeat(${BOARD_SIZE * 2 - 1}, 1fr)`,
-            willChange: "transform",
-          }}
-        >
-          {/* Render board from top (row 8) to bottom (row 0) */}
-          {Array.from({ length: BOARD_SIZE * 2 - 1 }).map((_, gridRow) => {
-            const boardRow = BOARD_SIZE - 1 - Math.floor(gridRow / 2);
-            const isSquareRow = gridRow % 2 === 0;
+              return Array.from({ length: BOARD_SIZE * 2 - 1 }).map(
+                (_, gridCol) => {
+                  const boardCol = Math.floor(gridCol / 2);
+                  const isSquareCol = gridCol % 2 === 0;
 
-            return Array.from({ length: BOARD_SIZE * 2 - 1 }).map(
-              (_, gridCol) => {
-                const boardCol = Math.floor(gridCol / 2);
-                const isSquareCol = gridCol % 2 === 0;
-
-                if (isSquareRow && isSquareCol) {
-                  // Square
-                  return renderSquare(boardRow, boardCol);
-                } else if (!isSquareRow && isSquareCol) {
-                  // Horizontal groove (between rows)
-                  return renderHorizontalGroove(boardRow, boardCol);
-                } else if (isSquareRow && !isSquareCol) {
-                  // Vertical groove (between columns)
-                  return renderVerticalGroove(boardRow, boardCol + 1);
-                } else {
-                  // Intersection
-                  return renderIntersection(boardRow, boardCol + 1);
+                  if (isSquareRow && isSquareCol) {
+                    // Square
+                    return renderSquare(boardRow, boardCol);
+                  } else if (!isSquareRow && isSquareCol) {
+                    // Horizontal groove (between rows)
+                    return renderHorizontalGroove(boardRow, boardCol);
+                  } else if (isSquareRow && !isSquareCol) {
+                    // Vertical groove (between columns)
+                    return renderVerticalGroove(boardRow, boardCol + 1);
+                  } else {
+                    // Intersection
+                    return renderIntersection(boardRow, boardCol + 1);
+                  }
                 }
-              }
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-      {/* Controls */}
-      <div className="flex flex-col gap-4 w-full max-w-lg">
-        {/* Mode buttons */}
-        {store.status === "playing" && !store.isAIThinking && (
-          <div className="flex gap-2 justify-center">
+        {/* Controls */}
+        <div className="flex flex-col gap-4 w-full max-w-lg">
+          {/* Mode buttons */}
+          {store.status === "playing" && !store.isAIThinking && (
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={() => store.selectPawn()}
+                className={`px-6 py-3 font-bold rounded-lg transition-colors ${
+                  store.selectedPawn
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-600 hover:bg-gray-500 text-white"
+                }`}
+              >
+                Move Pawn
+              </button>
+              <button
+                onClick={() =>
+                  store.wallMode ? store.exitWallMode() : store.enterWallMode()
+                }
+                disabled={store.wallsRemaining[store.currentPlayer] <= 0}
+                className={`px-6 py-3 font-bold rounded-lg transition-colors ${
+                  store.wallMode
+                    ? "bg-amber-600 text-white"
+                    : store.wallsRemaining[store.currentPlayer] > 0
+                    ? "bg-gray-600 hover:bg-gray-500 text-white"
+                    : "bg-gray-700 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                Place Wall
+              </button>
+              {store.wallMode && (
+                <button
+                  onClick={() => store.toggleWallOrientation()}
+                  className="px-4 py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg transition-colors"
+                >
+                  {store.wallOrientation === "horizontal" ? "Horiz" : "Vert"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Game mode selector */}
+          <div className="flex gap-2 justify-center flex-wrap">
             <button
-              onClick={() => store.selectPawn()}
-              className={`px-6 py-3 font-bold rounded-lg transition-colors ${
-                store.selectedPawn
-                  ? "bg-blue-600 text-white"
+              onClick={() => store.setGameMode("local")}
+              className={`px-5 py-3 rounded-lg font-bold transition-colors touch-manipulation ${
+                store.gameMode === "local"
+                  ? "bg-green-500 text-white"
                   : "bg-gray-600 hover:bg-gray-500 text-white"
               }`}
             >
-              Move Pawn
+              2 Players
             </button>
             <button
-              onClick={() =>
-                store.wallMode ? store.exitWallMode() : store.enterWallMode()
-              }
-              disabled={store.wallsRemaining[store.currentPlayer] <= 0}
-              className={`px-6 py-3 font-bold rounded-lg transition-colors ${
-                store.wallMode
-                  ? "bg-amber-600 text-white"
-                  : store.wallsRemaining[store.currentPlayer] > 0
-                  ? "bg-gray-600 hover:bg-gray-500 text-white"
-                  : "bg-gray-700 text-gray-400 cursor-not-allowed"
+              onClick={() => store.setGameMode("ai")}
+              className={`px-5 py-3 rounded-lg font-bold transition-colors touch-manipulation ${
+                store.gameMode === "ai"
+                  ? "bg-green-500 text-white"
+                  : "bg-gray-600 hover:bg-gray-500 text-white"
               }`}
             >
-              Place Wall
+              vs AI
             </button>
-            {store.wallMode && (
-              <button
-                onClick={() => store.toggleWallOrientation()}
-                className="px-4 py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg transition-colors"
-              >
-                {store.wallOrientation === "horizontal" ? "Horiz" : "Vert"}
-              </button>
-            )}
           </div>
-        )}
 
-        {/* Game mode selector */}
-        <div className="flex gap-2 justify-center flex-wrap">
-          <button
-            onClick={() => store.setGameMode("local")}
-            className={`px-5 py-3 rounded-lg font-bold transition-colors touch-manipulation ${
-              store.gameMode === "local"
-                ? "bg-green-500 text-white"
-                : "bg-gray-600 hover:bg-gray-500 text-white"
-            }`}
-          >
-            2 Players
-          </button>
-          <button
-            onClick={() => store.setGameMode("ai")}
-            className={`px-5 py-3 rounded-lg font-bold transition-colors touch-manipulation ${
-              store.gameMode === "ai"
-                ? "bg-green-500 text-white"
-                : "bg-gray-600 hover:bg-gray-500 text-white"
-            }`}
-          >
-            vs AI
-          </button>
-        </div>
+          {/* Difficulty selector (only for AI mode) */}
+          {store.gameMode === "ai" && (
+            <div className="flex gap-2 justify-center flex-wrap">
+              {(["easy", "medium", "hard"] as Difficulty[]).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => store.setDifficulty(d)}
+                  className={`px-5 py-3 rounded-lg font-bold text-white transition-colors touch-manipulation ${
+                    store.difficulty === d
+                      ? d === "easy"
+                        ? "bg-green-500"
+                        : d === "medium"
+                        ? "bg-yellow-500"
+                        : "bg-red-500"
+                      : "bg-gray-600 hover:bg-gray-500"
+                  }`}
+                >
+                  {d.charAt(0).toUpperCase() + d.slice(1)}
+                </button>
+              ))}
+            </div>
+          )}
 
-        {/* Difficulty selector (only for AI mode) */}
-        {store.gameMode === "ai" && (
-          <div className="flex gap-2 justify-center flex-wrap">
-            {(["easy", "medium", "hard"] as Difficulty[]).map((d) => (
-              <button
-                key={d}
-                onClick={() => store.setDifficulty(d)}
-                className={`px-5 py-3 rounded-lg font-bold text-white transition-colors touch-manipulation ${
-                  store.difficulty === d
-                    ? d === "easy"
-                      ? "bg-green-500"
-                      : d === "medium"
-                      ? "bg-yellow-500"
-                      : "bg-red-500"
-                    : "bg-gray-600 hover:bg-gray-500"
-                }`}
-              >
-                {d.charAt(0).toUpperCase() + d.slice(1)}
-              </button>
-            ))}
+          {/* Action buttons */}
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => setShowStats(!showStats)}
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-colors"
+            >
+              Stats
+            </button>
           </div>
-        )}
 
-        {/* Action buttons */}
-        <div className="flex gap-2 justify-center">
-          <button
-            onClick={() => setShowStats(!showStats)}
-            className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-colors"
-          >
-            Stats
-          </button>
-        </div>
-
-        {/* Stats panel */}
-        {showStats && (
-          <div className="p-4 bg-gray-800 rounded-lg text-white">
-            <h3 className="text-lg font-bold mb-2">Your Stats</h3>
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div>Games Played: {store.progress.gamesPlayed}</div>
-              <div>Games Won: {store.progress.gamesWon}</div>
-              <div>Win Streak: {store.progress.currentWinStreak}</div>
-              <div>Best Streak: {store.progress.bestWinStreak}</div>
-              <div>Total Walls Placed: {store.progress.totalWallsPlaced}</div>
-              <div>
-                Fastest Win:{" "}
-                {store.progress.fastestWin !== null
-                  ? `${store.progress.fastestWin} moves`
-                  : "N/A"}
+          {/* Stats panel */}
+          {showStats && (
+            <div className="p-4 bg-gray-800 rounded-lg text-white">
+              <h3 className="text-lg font-bold mb-2">Your Stats</h3>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>Games Played: {store.progress.gamesPlayed}</div>
+                <div>Games Won: {store.progress.gamesWon}</div>
+                <div>Win Streak: {store.progress.currentWinStreak}</div>
+                <div>Best Streak: {store.progress.bestWinStreak}</div>
+                <div>Total Walls Placed: {store.progress.totalWallsPlaced}</div>
+                <div>
+                  Fastest Win:{" "}
+                  {store.progress.fastestWin !== null
+                    ? `${store.progress.fastestWin} moves`
+                    : "N/A"}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Win/Loss celebration */}
-        {store.status !== "playing" && (
-          <div
-            className={`p-4 rounded-lg text-center text-white font-bold text-xl ${
-              store.status === "player1-wins"
-                ? "bg-green-600"
-                : "bg-red-600"
-            }`}
-          >
-            {store.status === "player1-wins"
-              ? store.gameMode === "ai"
-                ? "Congratulations! You won!"
-                : "Player 1 wins!"
-              : store.gameMode === "ai"
-              ? "AI wins! Try again?"
-              : "Player 2 wins!"}
-            <button
-              onClick={() => store.newGame()}
-              className="block mx-auto mt-2 px-4 py-2 bg-white text-gray-800 rounded-lg"
+          {/* Win/Loss celebration */}
+          {store.status !== "playing" && (
+            <div
+              className={`p-4 rounded-lg text-center text-white font-bold text-xl ${
+                store.status === "player1-wins"
+                  ? "bg-green-600"
+                  : "bg-red-600"
+              }`}
             >
-              Play Again
-            </button>
-          </div>
-        )}
+              {store.status === "player1-wins"
+                ? store.gameMode === "ai"
+                  ? "Congratulations! You won!"
+                  : "Player 1 wins!"
+                : store.gameMode === "ai"
+                ? "AI wins! Try again?"
+                : "Player 2 wins!"}
+              <button
+                onClick={() => store.newGame()}
+                className="block mx-auto mt-2 px-4 py-2 bg-white text-gray-800 rounded-lg"
+              >
+                Play Again
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Sync status indicator */}

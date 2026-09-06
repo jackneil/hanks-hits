@@ -16,30 +16,14 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 }));
 
 import { CheckersGame } from "../Game";
-
-/** Swap the global always-false matchMedia stub for a pointer-aware one. */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 beforeEach(() => {
   localStorage.clear();
 });
 
 afterEach(() => {
-  mockPointer(false);
+  resetPointerMock();
 });
 
 describe("Checkers start overlay", () => {
@@ -86,5 +70,27 @@ describe("Checkers start overlay", () => {
     expect(
       screen.queryByRole("heading", { name: "Checkers" })
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("checkers controls under the start card", () => {
+  it("makes the covered game controls inert until Play is pressed", () => {
+    // Regression: the board and its New Game button mount UNDER the start
+    // card, so Tab reached them before Play and a tap could land on them.
+    render(<CheckersGame />);
+
+    const newGame = screen.getByRole("button", { name: /New Game/i });
+    const covered = newGame.closest("[inert]");
+    expect(covered).not.toBeNull();
+    expect(covered!.contains(screen.getByTestId("game-start-overlay"))).toBe(
+      false
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Play/i }));
+
+    expect(screen.queryByTestId("game-start-overlay")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /New Game/i }).closest("[inert]")
+    ).toBeNull();
   });
 });

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BreakoutGame } from "../Game";
 import { useBreakoutStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 // useAuthSync pulls in next-auth's useSession, which needs a provider we don't
 // mount in unit tests. Stub it with the shape the game destructures.
@@ -19,27 +20,6 @@ vi.mock("@/shared/hooks/useAuthSync", () => ({
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
-
-/**
- * The global setup installs a matchMedia stub that always returns
- * matches: false. This swaps in one where "(pointer: coarse)" resolves to the
- * requested value so we can simulate touch vs keyboard/mouse viewports.
- */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 beforeEach(() => {
   // The canvas render loop is irrelevant to the start screen.

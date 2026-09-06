@@ -278,6 +278,11 @@ export function MathAttackGame() {
             "❤️ Do not let a problem land",
           ]}
           startLabel="🎮 Start Game!"
+          spokenChoices={`Pick how old you are: ${(
+            Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
+          )
+            .map((diff) => DIFFICULTY_SETTINGS[diff].label)
+            .join(", ")}.`}
           onStart={handleStartGame}
         >
           {gamesPlayed > 0 && (
@@ -289,13 +294,20 @@ export function MathAttackGame() {
             </div>
           )}
           <div className="text-sm font-bold opacity-80">How old are you?</div>
+          {/* Two columns with the odd last choice spanning both, the same
+              pattern space-invaders uses: an odd count in a plain 2-up grid
+              left a lone half-width cell dangling. */}
           <div className="grid grid-cols-2 gap-2">
-            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => (
+            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff, index, all) => (
               <GameStartOverlayButton
                 key={diff}
                 onClick={() => setDifficulty(diff)}
                 aria-pressed={settings.difficulty === diff}
-                className={settings.difficulty === diff ? "btn-primary" : ""}
+                className={`${settings.difficulty === diff ? "btn-primary" : ""} ${
+                  all.length % 2 === 1 && index === all.length - 1
+                    ? "col-span-2"
+                    : ""
+                }`}
               >
                 {DIFFICULTY_SETTINGS[diff].emoji} {diff}
               </GameStartOverlayButton>

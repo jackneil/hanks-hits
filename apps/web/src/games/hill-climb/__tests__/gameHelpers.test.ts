@@ -25,19 +25,33 @@ describe('clampDeltaTime', () => {
 
 describe('getControlsCopy', () => {
   it('gives touch viewports finger-friendly copy, no keyboard keys', () => {
-    const copy = getControlsCopy(true);
-    expect(copy).toContain('pedal');
-    expect(copy).not.toMatch(/D\/|Space/);
+    const { touch } = getControlsCopy();
+    expect(touch).toEqual([
+      '🦶 Tap the right side to go',
+      '🛑 Tap the left side to stop',
+      '🤸 Drag up to lean the truck',
+      '⚡ Tap NITRO for a big boost',
+    ]);
+    for (const line of touch) {
+      expect(line).not.toMatch(/Press|arrow|space bar/);
+    }
   });
 
   it('gives keyboard viewports the key legend', () => {
-    const copy = getControlsCopy(false);
-    expect(copy).toContain('Gas');
-    expect(copy).toContain('Space Nitro');
+    const { keyboard } = getControlsCopy();
+    expect(keyboard).toEqual([
+      '🦶 Press D or the right arrow to go',
+      '🛑 Press A or the left arrow to stop',
+      '🤸 Press W and S to lean',
+      '⚡ Press the space bar for nitro',
+      '🔄 Press R to flip back over',
+    ]);
   });
 
   it('kid-facing copy uses no em-dashes', () => {
-    expect(getControlsCopy(true)).not.toContain('—');
-    expect(getControlsCopy(false)).not.toContain('—');
+    const { touch, keyboard } = getControlsCopy();
+    for (const line of [...touch, ...keyboard]) {
+      expect(line).not.toContain('—');
+    }
   });
 });

@@ -15,6 +15,7 @@ import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
 import { getOverlayCopy } from "./lib/overlayCopy";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // CANVAS RENDERER
@@ -306,7 +307,12 @@ export function AsteroidsGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (store.status === "ready" || store.status === "gameOver") {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (isInteractiveTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (store.status === "ready") return;
+      if (store.status === "gameOver") {
         if (e.code === "Space") {
           e.preventDefault();
           store.startGame();

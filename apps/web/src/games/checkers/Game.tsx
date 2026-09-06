@@ -40,8 +40,14 @@ export function CheckersGame() {
       <IOSInstallPrompt />
 
 
-      <Board />
-      <GameUI />
+      {/* Everything under the start card. `inert` while the card is up so Tab
+          cannot reach the game's own controls before Play, and a stray tap
+          through the overlay cannot move a piece. `contents` keeps the flex
+          layout exactly as it was. */}
+      <div className="contents" inert={!hasStarted || undefined}>
+        <Board />
+        <GameUI />
+      </div>
 
       {/* Shared start screen. Mounted on the relative page container (not the
           board box) so the card never clips on a phone, and so it also covers

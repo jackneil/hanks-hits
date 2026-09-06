@@ -10,25 +10,12 @@ vi.mock("next-auth/react", () => ({
 import PlatformerGame from "../Game";
 import { usePlatformerStore } from "../lib/store";
 import { LEVELS } from "../lib/constants";
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 // The global setup stubs matchMedia to always return matches:false. Swap in a
 // stub where "(pointer: coarse)" resolves to the requested value so we can
 // simulate touch vs keyboard/mouse viewports (mirrors GameStartOverlay tests).
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 beforeEach(() => {
   mockPointer(false);
@@ -38,7 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  mockPointer(false);
+  resetPointerMock();
 });
 
 describe("Platformer start overlay", () => {
@@ -192,5 +179,20 @@ describe("Platformer on-screen mobile controls", () => {
     expect(screen.queryByRole("button", { name: "JUMP" })).toBeNull();
     expect(screen.queryByRole("button", { name: "◀" })).toBeNull();
     expect(screen.queryByRole("button", { name: "▶" })).toBeNull();
+  });
+});
+
+describe("platformer spoken choices", () => {
+  it("says the picker choices out loud, so a kid who cannot read hears them", () => {
+    const speech = installSpeechMock();
+    render(<PlatformerGame  />);
+
+    fireEvent.click(screen.getByTestId("read-aloud-button"));
+
+    const spoken = speech.lastUtterance().text;
+    expect(spoken).toContain("Level 1");
+    expect(spoken).toContain("Grassland Start");
+    expect(spoken).toContain("and the game starts");
+    removeSpeechMock();
   });
 });

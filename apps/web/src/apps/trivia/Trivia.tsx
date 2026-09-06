@@ -70,6 +70,9 @@ export function Trivia() {
   const [attempt, setAttempt] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const handleAnswerRef = useRef<(answer: string | null) => void>(() => {});
+  // The 1.5s "show the answer" pause. Held in a ref so a restart can cancel
+  // it: otherwise it fired endGame() over the fresh start card.
+  const nextQuestionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const diffSettings = getDifficultySettings(settings.difficulty);
   const currentQuestion = questions[questionIndex];
@@ -100,6 +103,10 @@ export function Trivia() {
       return;
     }
     setBestStreakThisGame(0);
+    // A restart can leave the last answer highlighted; clear it before the
+    // first question of the new game paints.
+    setSelectedAnswer(null);
+    setShowResult(false);
     startGame();
     setTimeLeft(diffSettings.timerSec);
   };
@@ -125,7 +132,9 @@ export function Trivia() {
     }
 
     // Move to next question after delay
-    setTimeout(() => {
+    if (nextQuestionTimeoutRef.current) clearTimeout(nextQuestionTimeoutRef.current);
+    nextQuestionTimeoutRef.current = setTimeout(() => {
+      nextQuestionTimeoutRef.current = null;
       setSelectedAnswer(null);
       setShowResult(false);
 
@@ -142,6 +151,24 @@ export function Trivia() {
   useEffect(() => {
     handleAnswerRef.current = handleAnswer;
   }, [handleAnswer]);
+
+  // A restart (the header button) puts the store back to "ready" and shows the
+  // start card. Cancel the pending answer pause: left running it called
+  // endGame() over the fresh start card and counted a game nobody played.
+  useEffect(() => {
+    if (gameState !== "ready") return;
+    if (nextQuestionTimeoutRef.current) {
+      clearTimeout(nextQuestionTimeoutRef.current);
+      nextQuestionTimeoutRef.current = null;
+    }
+  }, [gameState]);
+
+  // Never leave the pause running after the app unmounts.
+  useEffect(() => {
+    return () => {
+      if (nextQuestionTimeoutRef.current) clearTimeout(nextQuestionTimeoutRef.current);
+    };
+  }, []);
 
   // Timer countdown. The updater only counts — side effects in a state
   // updater are illegal (calling handleAnswer inside it fired React's
@@ -203,6 +230,11 @@ export function Trivia() {
               "🔥 Get them right in a row for a streak",
             ]}
             startLabel="🎮 Start Quiz!"
+            spokenChoices={`Pick how old you are: ${(
+              Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
+            )
+              .map((diff) => DIFFICULTY_SETTINGS[diff].label)
+              .join(", ")}.`}
             onStart={handleStartGame}
           >
             {gamesPlayed > 0 && (
@@ -219,13 +251,20 @@ export function Trivia() {
             )}
 
             <div className="text-sm font-bold opacity-80">How old are you?</div>
+            {/* Two columns with the odd last choice spanning both, the same
+                pattern space-invaders uses: an odd count in a plain 2-up grid
+                left a lone half-width cell dangling. */}
             <div className="grid grid-cols-2 gap-2">
-              {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff) => (
+              {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff, index, all) => (
                 <GameStartOverlayButton
                   key={diff}
                   onClick={() => setDifficulty(diff)}
                   aria-pressed={settings.difficulty === diff}
-                  className={settings.difficulty === diff ? "btn-primary" : ""}
+                  className={`${settings.difficulty === diff ? "btn-primary" : ""} ${
+                    all.length % 2 === 1 && index === all.length - 1
+                      ? "col-span-2"
+                      : ""
+                  }`}
                 >
                   {DIFFICULTY_SETTINGS[diff].emoji} {diff}
                 </GameStartOverlayButton>

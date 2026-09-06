@@ -17,6 +17,7 @@ import {
   GameStartOverlayButton,
 } from "@/shared/components/GameStartOverlay";
 import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 // Card component with flip animation
 function Card({
@@ -363,6 +364,8 @@ export function MemoryMatchGame() {
   // Keyboard support
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+    // A focused button or link owns its own Space and Enter: never swallow them.
+    if (isInteractiveTarget(e)) return;
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
         requestNewGame();
@@ -412,6 +415,11 @@ export function MemoryMatchGame() {
             "🎯 Find two cards that look the same",
             "⏱️ Match them all as fast as you can",
           ]}
+          spokenChoices={`Pick how many cards: ${(
+            Object.keys(DIFFICULTIES) as Difficulty[]
+          )
+            .map((level) => DIFFICULTIES[level].name)
+            .join(", ")}.`}
           onStart={() => setHasStarted(true)}
         >
           {previousBestTime !== null && (

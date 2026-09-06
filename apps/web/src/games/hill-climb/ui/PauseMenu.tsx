@@ -8,6 +8,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCoarsePointer } from '@/shared/hooks';
+import { ReadAloudButton } from '@/shared/components/ReadAloudButton';
 import { useHillClimbStore } from '../lib/store';
 import { SettingsMenu } from './SettingsMenu';
 
@@ -52,6 +53,12 @@ export function PauseMenu({ onGoToGarage }: PauseMenuProps) {
         <div className="text-center mb-6">
           <div className="text-5xl mb-2">⏸️</div>
           <h2 className="text-3xl font-bold text-base-content">PAUSED</h2>
+        </div>
+
+        {/* Read the menu out loud for players who cannot read yet.
+            Same order as the buttons below. */}
+        <div className="mb-4">
+          <ReadAloudButton text="Paused. Hill Climb Racing. Continue. Settings. Garage. Quit to Main." />
         </div>
 
         {/* Menu Buttons */}

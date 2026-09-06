@@ -14,6 +14,7 @@ import { useCoarsePointer } from "@/shared/hooks";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
 import { DRUM_MACHINE_INSTRUCTIONS } from "./lib/readAloud";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 // ============================================
 // DRUM PAD COMPONENT
@@ -235,6 +236,8 @@ export function DrumMachine() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (isInteractiveTarget(e)) return;
       // Don't trigger drums when typing in inputs
       if (
         e.target instanceof HTMLInputElement ||

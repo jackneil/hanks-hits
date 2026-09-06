@@ -9,6 +9,7 @@ vi.mock("next/navigation", () => ({
 import { HillClimbGame } from "../Game";
 import { useCombinedControls } from "../hooks/useControls";
 import { useHillClimbStore } from "../lib/store";
+import { mockPointer } from "@/__tests__/pointer-mock";
 
 /**
  * Start-moment tests for the shared GameStartOverlay migration.
@@ -18,23 +19,6 @@ import { useHillClimbStore } from "../lib/store";
  * overlay is now the real start moment, and the window-level touch/key layer
  * stays dead until the player presses Play.
  */
-
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
-
 beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", () => 1);
   vi.stubGlobal("cancelAnimationFrame", () => {});
@@ -130,5 +114,66 @@ describe("hill-climb window control layer", () => {
     });
 
     expect(result.current.gas).toBe(true);
+  });
+});
+
+describe("hill-climb start card after a finished run", () => {
+  it("hides the old game-over screen and the HUD behind the start card", () => {
+    // Regression: the store is a singleton, so isGameOver stayed true after a
+    // run. Re-entering the game painted the z-50 game-over screen on top of
+    // the new start card.
+    act(() => {
+      useHillClimbStore.setState({ isGameOver: true, isPlaying: false });
+    });
+
+    render(<HillClimbGame />);
+
+    expect(screen.getByTestId("game-start-overlay")).toBeInTheDocument();
+    expect(screen.queryByText("CRASHED!")).not.toBeInTheDocument();
+    expect(screen.queryByText("OUT OF FUEL!")).not.toBeInTheDocument();
+    expect(useHillClimbStore.getState().isGameOver).toBe(false);
+  });
+
+  it("keeps the saved coins and best distance while it clears the run flags", () => {
+    act(() => {
+      useHillClimbStore.setState({
+        isGameOver: true,
+        coins: 1234,
+        bestDistance: 999,
+      });
+    });
+
+    render(<HillClimbGame />);
+
+    expect(useHillClimbStore.getState().coins).toBe(1234);
+    expect(useHillClimbStore.getState().bestDistance).toBe(999);
+  });
+
+  it("starts the run when Play is pressed", () => {
+    act(() => {
+      useHillClimbStore.setState({ isGameOver: true });
+    });
+    render(<HillClimbGame />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Play Now/ }));
+
+    expect(screen.queryByTestId("game-start-overlay")).not.toBeInTheDocument();
+    expect(useHillClimbStore.getState().isPlaying).toBe(true);
+    expect(useHillClimbStore.getState().isGameOver).toBe(false);
+  });
+});
+
+describe("hill-climb start card clipping", () => {
+  it("keeps overflow-hidden off the root, so the sticky start card is not clipped", () => {
+    // Regression: overflow-hidden made this root the card's scroll container,
+    // which offset the sticky box by the header height and pushed Play off the
+    // bottom on a phone held sideways (844x390). The canvas is absolute
+    // inset-0, so there is nothing to clip.
+    const { container } = render(<HillClimbGame />);
+
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.className).toContain("relative");
+    expect(root.className).not.toContain("overflow-hidden");
+    expect(screen.getByRole("button", { name: /Play Now/ })).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { Game2048 } from "../Game";
 import { use2048Store } from "../lib/store";
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: () => ({
@@ -19,27 +20,6 @@ vi.mock("@/shared/components/FullscreenButton", () => ({
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
-
-/**
- * The global setup installs a matchMedia stub that always returns
- * matches: false. This swaps in one where "(pointer: coarse)" resolves to the
- * requested value so we can simulate touch vs keyboard viewports.
- */
-function mockPointer(coarse: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes("pointer: coarse") ? coarse : false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
 
 /** Press the start overlay's Play button. */
 function startPlaying() {
@@ -76,7 +56,7 @@ describe("Game2048 start overlay", () => {
   });
 
   afterEach(() => {
-    mockPointer(false);
+    resetPointerMock();
   });
 
   it("shows the shared overlay with the title exactly once", () => {

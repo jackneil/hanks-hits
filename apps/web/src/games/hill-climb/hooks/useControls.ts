@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHillClimbStore } from '../lib/store';
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 // =============================================================================
 // TYPES
@@ -55,6 +56,8 @@ export function useKeyboardControls(enabled = true): ControlState {
   });
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // A focused button or link owns its own Space and Enter: never swallow them.
+    if (isInteractiveTarget(e)) return;
     // Prevent default for game keys
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyR', 'Space'].includes(e.code)) {
       e.preventDefault();
@@ -310,6 +313,8 @@ export function useIsMobile(): boolean {
 export function usePauseKeyboard(): void {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (isInteractiveTarget(e)) return;
       if (e.code !== 'Escape') return;
 
       // Get fresh state to avoid stale closure issues

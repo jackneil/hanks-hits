@@ -15,6 +15,7 @@ import {
   UI,
   getMedal,
 } from "./lib/constants";
+import { isInteractiveTarget } from "@/shared/lib/keyboardTarget";
 
 export function FlappyBirdGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -345,6 +346,11 @@ export function FlappyBirdGame() {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (isInteractiveTarget(e)) return;
+      // The start card owns the ready state: keys must not act or block the
+      // browser's own Space/Enter handling while it is up.
+      if (gameState === "ready") return;
       if (e.code === "Space" || e.code === "Enter" || e.code === "ArrowUp") {
         e.preventDefault();
         handleInput();
@@ -353,7 +359,7 @@ export function FlappyBirdGame() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleInput]);
+  }, [gameState, handleInput]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
