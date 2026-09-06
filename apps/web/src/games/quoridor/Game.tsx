@@ -4,12 +4,12 @@ import { useState, useEffect, useRef } from "react";
 import { useQuoridorStore } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import {
   type Position,
   type Wall,
   type WallOrientation,
   type Difficulty,
-  type GameMode,
   BOARD_SIZE,
   COLORS,
   SHADOWS,
@@ -24,11 +24,12 @@ export function QuoridorGame() {
   const store = useQuoridorStore();
   const [showStats, setShowStats] = useState(false);
 
-  // Onboarding modal - show for first-time players
-  const [showOnboarding, setShowOnboarding] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return !localStorage.getItem("quoridor-onboarding-seen");
-  });
+  // Quoridor plays from mount, so there is no store-level "before" state. This
+  // per-mount gate gives the player a real start moment: the shared overlay
+  // covers the board AND the mode/difficulty panel until Play is pressed. It
+  // replaces the old first-run "How to Play" modal (and its localStorage flag),
+  // which showed the same rules but did not gate the board.
+  const [hasStarted, setHasStarted] = useState(false);
 
   // Invalid wall placement feedback
   const [invalidFlash, setInvalidFlash] = useState<{
@@ -44,11 +45,6 @@ export function QuoridorGame() {
       if (invalidTimeoutRef.current) clearTimeout(invalidTimeoutRef.current);
     };
   }, []);
-
-  const dismissOnboarding = () => {
-    localStorage.setItem("quoridor-onboarding-seen", "true");
-    setShowOnboarding(false);
-  };
 
   const handleInvalidPlacement = (row: number, col: number, orientation: WallOrientation) => {
     if (invalidTimeoutRef.current) {
@@ -421,9 +417,38 @@ export function QuoridorGame() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-800 to-amber-950 p-4 flex flex-col items-center justify-center gap-6">
+    <div className="relative min-h-screen bg-gradient-to-b from-amber-800 to-amber-950 p-4 flex flex-col items-center justify-center gap-6">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
+
+      {/* Shared start screen. Mounted on the relative page container (not the
+          board box) so the card never clips on a phone, and so it also covers
+          the mode/difficulty panel underneath. */}
+      {!hasStarted && (
+        <GameStartOverlay
+          title="Quoridor"
+          emoji="🧱"
+          subtitle="Race to the other side!"
+          touchHints={[
+            "👆 Tap your pawn, then tap a green dot",
+            "🧱 Tap a groove to place a wall",
+            "🏁 Get to the far side first to win",
+          ]}
+          keyboardHints={[
+            "🖱️ Click your pawn, then click a green dot",
+            "🧱 Click a groove to place a wall",
+            "🏁 Get to the far side first to win",
+          ]}
+          onStart={() => setHasStarted(true)}
+        >
+          {store.progress.gamesPlayed > 0 && (
+            <div className="text-base font-medium opacity-90">
+              🏆 Wins: {store.progress.gamesWon} · 🔥 Best streak:{" "}
+              {store.progress.bestWinStreak}
+            </div>
+          )}
+        </GameStartOverlay>
+      )}
 
 
       {/* Turn indicator */}
@@ -672,68 +697,6 @@ export function QuoridorGame() {
         </div>
       )}
 
-      {/* Onboarding modal for first-time players */}
-      {showOnboarding && (
-        <div
-          className="fixed inset-0 bg-black/60 flex items-center justify-center p-4"
-          style={{ zIndex: Z_INDEX.MODALS }}
-        >
-          <div className="bg-white rounded-xl p-6 max-w-md text-center shadow-2xl">
-            <h2 className="text-2xl font-bold mb-4 text-gray-800">
-              How to Play
-            </h2>
-
-            <div className="space-y-3 text-left text-gray-700">
-              <p>
-                <span className="text-xl mr-2">🎯</span>
-                <strong>Goal:</strong> Get your pawn to the opposite side of the board first!
-              </p>
-              <p>
-                <span className="text-xl mr-2">👆</span>
-                <strong>Move:</strong> Tap your pawn, then tap a green dot to move one square
-              </p>
-              <p>
-                <span className="text-xl mr-2">🧱</span>
-                <strong>Walls:</strong> Place red walls in the dark grooves to block your opponent
-              </p>
-              <p>
-                <span className="text-xl mr-2">⚠️</span>
-                <strong>Rule:</strong> You can&apos;t completely trap anyone - there must always be a path!
-              </p>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-gray-200 text-sm text-gray-500">
-              <p className="flex items-center justify-center gap-2">
-                <span
-                  className="w-4 h-4 rounded-full inline-block"
-                  style={{ backgroundColor: COLORS.PLAYER1 }}
-                />
-                Blue reaches the{" "}
-                <span className="font-bold" style={{ color: COLORS.PLAYER1 }}>
-                  top
-                </span>
-              </p>
-              <p className="flex items-center justify-center gap-2">
-                <span
-                  className="w-4 h-4 rounded-full inline-block"
-                  style={{ backgroundColor: COLORS.PLAYER2 }}
-                />
-                Orange reaches the{" "}
-                <span className="font-bold" style={{ color: COLORS.PLAYER2 }}>
-                  bottom
-                </span>
-              </p>
-            </div>
-
-            <button
-              onClick={dismissOnboarding}
-              className="mt-6 px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors text-lg"
-            >
-              Got it, let&apos;s play!
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

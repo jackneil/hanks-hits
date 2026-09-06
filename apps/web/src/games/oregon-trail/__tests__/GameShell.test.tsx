@@ -90,6 +90,24 @@ describe("OregonTrailGameShell pause wiring (hunting minigame)", () => {
     expect(state.party.map((member) => member.name)).toEqual(["Scout", "Ranger"]);
   });
 
+  it("starts the journey from the shared title-phase overlay, exactly once", () => {
+    render(<OregonTrailGameShell />);
+
+    // The title phase now renders the shared start overlay, with the game name
+    // as its single heading.
+    expect(screen.getByTestId("game-start-overlay")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("heading", { name: "The Oregon Trail" })
+    ).toHaveLength(1);
+
+    const start = screen.getByRole("button", { name: /start journey/i });
+    fireEvent.click(start);
+    fireEvent.click(start);
+
+    expect(useOregonTrailStore.getState().gamePhase).toBe("setup_name");
+    expect(screen.queryByTestId("game-start-overlay")).not.toBeInTheDocument();
+  });
+
   it("hides the shell pause button outside the hunt (canPause is gated to hunting)", () => {
     render(<OregonTrailGameShell />);
     expect(

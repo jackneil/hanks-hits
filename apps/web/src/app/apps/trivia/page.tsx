@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { GameShell } from "@/shared/components";
+import { useTriviaStore } from "@/apps/trivia/lib/store";
 
 const Trivia = dynamic(() => import("@/apps/trivia"), {
   ssr: false,
@@ -22,7 +23,15 @@ const Trivia = dynamic(() => import("@/apps/trivia"), {
 
 export default function TriviaPage() {
   return (
-    <GameShell gameName="Trivia Quiz" appId="trivia" canPause={false}>
+    <GameShell
+      gameName="Trivia Quiz"
+      appId="trivia"
+      canPause={false}
+      // Header restart drops the quiz back to the start screen. Saved scores
+      // and streaks are progress, not session state, so they stay.
+      onRestart={() => useTriviaStore.getState().reset()}
+      restartConfirmationMessage="This ends the quiz and goes back to the start screen. Your high score and streaks stay saved."
+    >
       <Trivia />
     </GameShell>
   );

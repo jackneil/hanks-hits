@@ -12,9 +12,16 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+
 export function ChessGame() {
   const store = useChessStore();
   const [showStats, setShowStats] = useState(false);
+
+  // Chess plays from mount, so there is no store-level "before" state. This
+  // per-mount gate gives the player a real start moment: the shared overlay
+  // covers the board AND the mode/difficulty/side row until Play is pressed.
+  const [hasStarted, setHasStarted] = useState(false);
 
   // Sync with auth system
   const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
@@ -156,9 +163,38 @@ export function ChessGame() {
   return (
     // px on the base breakpoint is trimmed so the 8-wide board keeps >=44px
     // squares at a 375px viewport; full p-4 padding is restored at md+
-    <div className="min-h-screen bg-gradient-to-b from-emerald-800 to-emerald-950 px-2 py-4 md:px-4 flex flex-col items-center justify-center gap-4">
+    <div className="relative min-h-screen bg-gradient-to-b from-emerald-800 to-emerald-950 px-2 py-4 md:px-4 flex flex-col items-center justify-center gap-4">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
+
+      {/* Shared start screen. Mounted on the relative page container (not the
+          board box) so the card never clips on a phone, and so it also covers
+          the mode/difficulty/side pickers underneath. */}
+      {!hasStarted && (
+        <GameStartOverlay
+          title="Chess"
+          emoji="♟️"
+          subtitle="Catch the other king!"
+          touchHints={[
+            "👆 Tap a piece, then tap where it goes",
+            "✋ Or drag a piece to its new square",
+            "👑 Trap the king to win",
+          ]}
+          keyboardHints={[
+            "🖱️ Click a piece, then click where it goes",
+            "✋ Or drag a piece to its new square",
+            "👑 Trap the king to win",
+          ]}
+          onStart={() => setHasStarted(true)}
+        >
+          {store.progress.gamesPlayed > 0 && (
+            <div className="text-base font-medium opacity-90">
+              🏆 Wins: {store.progress.gamesWon} · 🔥 Best streak:{" "}
+              {store.progress.bestWinStreak}
+            </div>
+          )}
+        </GameStartOverlay>
+      )}
 
 
       {/* Turn indicator */}
