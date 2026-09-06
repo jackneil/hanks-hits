@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { useStartOverlayPresence } from "../lib/startOverlayPresence";
 import { ReadAloudButton } from "./ReadAloudButton";
 
 /**
@@ -102,6 +103,15 @@ export function GameStartOverlay({
 }: GameStartOverlayProps) {
   const isCoarse = useCoarsePointer();
   const startedRef = useRef(false);
+
+  // Tell bottom sheets (the iOS install banner) that a start card is up,
+  // so they stay hidden until the kid has pressed Play.
+  const enter = useStartOverlayPresence((s) => s.enter);
+  const leave = useStartOverlayPresence((s) => s.leave);
+  useEffect(() => {
+    enter();
+    return leave;
+  }, [enter, leave]);
 
   const handleStart = useCallback(() => {
     if (startedRef.current) return;
