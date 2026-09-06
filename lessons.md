@@ -9,3 +9,15 @@
 - [1x] The `next dev` (Turbopack) server can silently serve STALE modules after on-disk edits to API routes and lib files - it bit twice in one session (an edited /api route kept 404ing; an edited game lib kept old behavior). Before browser-verifying an edit through the dev server, if behavior doesn't match the code, restart `next dev` FIRST instead of debugging the code.
 
 - [2x] NEVER build a fix on a browser-agent audit finding without hand-verifying it first, and never trust an agent PASS to mean full coverage. Strike 1: a sweep agent tapped at iframe-relative coords (missing the iframe bounding-box offset) and reported a false FAIL (four-wheeler "vehicle never moves"). Strike 2: an apps-sweep agent reported weather's fun-fact button dead across 13 taps (false positive - an instrumented hand tap fired touchstart/touchend/click and the fact changed; their coords went stale after scroll), while ALSO passing drawing-app without ever opening its Gallery, missing an invisible hover-gated delete button that a 30-second code grep (`opacity-0 group-hover:`) caught. Verify FAILs by hand with instrumentation, and pair agent sweeps with a code sweep for hover-gating/passive-preventDefault patterns.
+
+- [1x] `pnpm --filter web test -- <paths>` runs the WHOLE suite (the `--` passes through and vitest ignores the paths as filters). The scoped form is `pnpm --filter web exec vitest run <paths>`. Ten "scoped" runs in one session were silently full runs.
+
+- [1x] Any full-suite gate must run on a QUIET machine: four unrelated tests hit the 5s vitest timeout at 6-7s because a Playwright sweep and a second gate were running at the same time, and they passed at under 1s alone. Never run the browser gate and the test gate concurrently, and never read a timeout under load as a flaky test.
+
+- [1x] Unlayered CSS in `globals.css` beats every Tailwind utility regardless of specificity (the kid-target `.btn { min-height: 44px }` rule ate `min-h-[56px]` for a day). Repo-level component rules go inside `@layer components`; a utility that "does nothing" is the tell.
+
+- [1x] Test with the iPhone user agent, not just a touch viewport: the pre-existing `IOSInstallPrompt` bottom sheet only renders for an iPhone UA and covered the Play button on every start card. Anything fixed at the bottom of the screen needs the `useStartOverlayPresence` check or it will sit on top of the next start card too.
+
+- [1x] `next dev` served a stale `GameStartOverlay` for cookie-clicker while every other route had the new one (identical measurements before and after an edit are the tell). Restart the dev server before believing a browser measurement that contradicts the code; same lesson as the earlier stale-module entry, now seen on a shared component.
+
+- [1x] A window keydown guard must be keyed on the state it reads: two fixer-added `if (gameState === "menu") return` guards sat in effects whose dependency arrays did not include `gameState`, so after Play the listener still thought the game was on the start card and every key was dead. The `react-hooks/exhaustive-deps` WARNING was the only signal; treat a new warning in a touched file as an error.
