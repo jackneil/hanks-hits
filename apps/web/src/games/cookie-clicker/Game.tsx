@@ -14,6 +14,7 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 
 // ============================================================================
 // MAIN GAME COMPONENT
@@ -21,6 +22,9 @@ import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 
 export function CookieClickerGame() {
   const store = useCookieClickerStore();
+  // The bakery is live from mount, so a local gate gives the player a real
+  // start moment. Nothing bakes and no golden cookie appears before Play.
+  const [hasStarted, setHasStarted] = useState(false);
   const [showOfflinePopup, setShowOfflinePopup] = useState(false);
   const [offlineEarnings, setOfflineEarnings] = useState(0);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
@@ -67,6 +71,8 @@ export function CookieClickerGame() {
 
   // Game loop tick
   useEffect(() => {
+    if (!hasStarted) return;
+
     tickRef.current = setInterval(() => {
       store.tick();
     }, GAME_CONFIG.TICK_RATE);
@@ -76,10 +82,12 @@ export function CookieClickerGame() {
         clearInterval(tickRef.current);
       }
     };
-  }, []);
+  }, [hasStarted]);
 
   // Golden cookie spawn loop
   useEffect(() => {
+    if (!hasStarted) return;
+
     const scheduleGoldenCookie = () => {
       const delay =
         GAME_CONFIG.GOLDEN_COOKIE_MIN_SPAWN +
@@ -102,10 +110,10 @@ export function CookieClickerGame() {
       if (goldenSpawnRef.current) clearTimeout(goldenSpawnRef.current);
       if (goldenExpireRef.current) clearTimeout(goldenExpireRef.current);
     };
-  }, []);
+  }, [hasStarted]);
 
   return (
-    <div className="min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col">
+    <div className="relative min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
@@ -137,7 +145,7 @@ export function CookieClickerGame() {
       <main className="flex-1 flex flex-col lg:flex-row gap-4 p-4 overflow-hidden">
         {/* Left side - Cookie clicker area */}
         <div className="flex-1 flex flex-col items-center justify-center min-h-[300px] lg:min-h-0">
-          <CookieButton />
+          <CookieButton disabled={!hasStarted} />
           <div className="mt-4 text-amber-800 text-lg">
             Click power: {formatNumber(store.cookiesPerClick)} per click
           </div>
@@ -161,8 +169,9 @@ export function CookieClickerGame() {
       {/* Achievement notifications */}
       <AchievementPopups />
 
-      {/* Offline earnings popup */}
-      {showOfflinePopup && (
+      {/* Offline earnings popup - held back until the player presses Play so
+          it never covers the start card */}
+      {hasStarted && showOfflinePopup && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-xl">
             <div className="text-6xl mb-4">Welcome back!</div>
@@ -180,6 +189,22 @@ export function CookieClickerGame() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Shared DOM start screen (renders the title once) */}
+      {!hasStarted && (
+        <GameStartOverlay
+          title="Cookie Clicker"
+          emoji="🍪"
+          subtitle="Bake a mountain of cookies!"
+          touchHints={["🍪 Tap the cookie to bake", "🏪 Buy helpers in the shop"]}
+          keyboardHints={["🍪 Click the cookie to bake", "🏪 Buy helpers in the shop"]}
+          onStart={() => setHasStarted(true)}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 Cookies baked: {formatNumber(store.totalCookiesBaked)}
+          </div>
+        </GameStartOverlay>
       )}
 
       {/* Stats footer */}
@@ -223,13 +248,16 @@ function GoldenCookie() {
 // COOKIE BUTTON COMPONENT
 // ============================================================================
 
-function CookieButton() {
+function CookieButton({ disabled = false }: { disabled?: boolean }) {
   const store = useCookieClickerStore();
   const [isPressed, setIsPressed] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const handleClick = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
+      // The start overlay covers the cookie; ignore anything that reaches it.
+      if (disabled) return;
+
       // Get click position relative to button for floating text
       let x = 50;
       let y = 50;
@@ -251,7 +279,7 @@ function CookieButton() {
       setIsPressed(true);
       setTimeout(() => setIsPressed(false), 100);
     },
-    [store]
+    [disabled, store]
   );
 
   return (

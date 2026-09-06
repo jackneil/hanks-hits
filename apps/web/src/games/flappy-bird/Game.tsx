@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useFlappyStore } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -183,33 +184,6 @@ export function FlappyBirdGame() {
     [gameState, score]
   );
 
-  const drawReadyScreen = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      ctx.font = "bold 36px Arial, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.strokeStyle = COLORS.SCORE_SHADOW;
-      ctx.lineWidth = 3;
-
-      ctx.strokeText("Flappy Bird", CANVAS_WIDTH / 2, 100);
-      ctx.fillText("Flappy Bird", CANVAS_WIDTH / 2, 100);
-
-      ctx.font = UI.SMALL_FONT;
-      ctx.strokeText("Tap or Press Space", CANVAS_WIDTH / 2, 320);
-      ctx.fillText("Tap or Press Space", CANVAS_WIDTH / 2, 320);
-      ctx.strokeText("to Start!", CANVAS_WIDTH / 2, 350);
-      ctx.fillText("to Start!", CANVAS_WIDTH / 2, 350);
-
-      // High score
-      if (progress.highScore > 0) {
-        ctx.font = "18px Arial, sans-serif";
-        ctx.strokeText(`Best: ${progress.highScore}`, CANVAS_WIDTH / 2, 400);
-        ctx.fillText(`Best: ${progress.highScore}`, CANVAS_WIDTH / 2, 400);
-      }
-    },
-    [progress.highScore]
-  );
-
   const drawGameOver = useCallback(
     (ctx: CanvasRenderingContext2D) => {
       // Darken background
@@ -299,10 +273,9 @@ export function FlappyBirdGame() {
       // Draw bird
       drawBird(ctx);
 
-      // Draw UI based on state
-      if (gameState === "ready") {
-        drawReadyScreen(ctx);
-      } else if (gameState === "playing") {
+      // Draw UI based on state. The "ready" screen is the shared DOM
+      // GameStartOverlay now, so nothing is painted into the canvas for it.
+      if (gameState === "playing") {
         drawScore(ctx);
       } else if (gameState === "gameOver") {
         drawGameOver(ctx);
@@ -315,7 +288,6 @@ export function FlappyBirdGame() {
       drawGround,
       drawBird,
       drawScore,
-      drawReadyScreen,
       drawGameOver,
     ]
   );
@@ -360,15 +332,15 @@ export function FlappyBirdGame() {
   }, [gameState, update, render]);
 
   // Input handling
+  // Taps and keys never start the game any more: the shared start overlay
+  // owns that, so a tap on its Play button cannot also flap the bird.
   const handleInput = useCallback(() => {
-    if (gameState === "ready") {
-      startGame();
-    } else if (gameState === "playing") {
+    if (gameState === "playing") {
       flap();
     } else if (gameState === "gameOver") {
       reset();
     }
-  }, [gameState, startGame, flap, reset]);
+  }, [gameState, flap, reset]);
 
   // Keyboard controls
   useEffect(() => {
@@ -409,6 +381,22 @@ export function FlappyBirdGame() {
             height: CANVAS_HEIGHT * scale,
           }}
         />
+
+        {/* Shared DOM start screen (renders the title once) */}
+        {gameState === "ready" && (
+          <GameStartOverlay
+            title="Flappy Bird"
+            emoji="🐦"
+            subtitle="Fly through the pipes!"
+            touchHints={["👆 Tap to flap", "🟩 Fly through the gaps"]}
+            keyboardHints={["⌨️ Space to flap", "🟩 Fly through the gaps"]}
+            onStart={() => startGame()}
+          >
+            <div className="text-base font-medium opacity-90">
+              🏆 Best: {progress.highScore}
+            </div>
+          </GameStartOverlay>
+        )}
       </div>
 
       {/* Stats */}

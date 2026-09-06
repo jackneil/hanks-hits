@@ -7,6 +7,7 @@ import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 
 // Tile component with animations
 function Tile({
@@ -197,12 +198,15 @@ function WinOverlay({ onNewGame }: { onNewGame: () => void }) {
 }
 
 // Hook for keyboard controls
-function useKeyboardControls(onNewGame: () => void) {
+function useKeyboardControls(onNewGame: () => void, enabled: boolean) {
   const move = use2048Store((s) => s.move);
   const undo = use2048Store((s) => s.undo);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Nothing responds to keys before the player presses Play.
+      if (!enabled) return;
+
       // Ignore if modifier keys are pressed (except for undo)
       if (e.metaKey || e.altKey) return;
 
@@ -251,7 +255,7 @@ function useKeyboardControls(onNewGame: () => void) {
         move(direction);
       }
     },
-    [move, undo, onNewGame]
+    [enabled, move, undo, onNewGame]
   );
 
   useEffect(() => {
@@ -261,17 +265,26 @@ function useKeyboardControls(onNewGame: () => void) {
 }
 
 // Hook for swipe controls
-function useSwipeControls(containerRef: React.RefObject<HTMLDivElement | null>) {
+function useSwipeControls(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  enabled: boolean
+) {
   const move = use2048Store((s) => s.move);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  const handleTouchStart = useCallback((e: TouchEvent) => {
-    const touch = e.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }, []);
+  const handleTouchStart = useCallback(
+    (e: TouchEvent) => {
+      // Swipes do nothing before the player presses Play.
+      if (!enabled) return;
+      const touch = e.touches[0];
+      touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    },
+    [enabled]
+  );
 
   const handleTouchEnd = useCallback(
     (e: TouchEvent) => {
+      if (!enabled) return;
       if (!touchStartRef.current) return;
 
       const touch = e.changedTouches[0];
@@ -301,7 +314,7 @@ function useSwipeControls(containerRef: React.RefObject<HTMLDivElement | null>) 
       move(direction);
       touchStartRef.current = null;
     },
-    [move]
+    [enabled, move]
   );
 
   useEffect(() => {
@@ -333,9 +346,14 @@ export function Game2048() {
   // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
   const isCoarse = useCoarsePointer();
 
-  // Set up controls
-  useKeyboardControls(requestNewGame);
-  useSwipeControls(containerRef);
+  // The board is live from mount, so a local gate gives the player a real
+  // start moment. The header restart keeps its own behavior and does not
+  // bring the start card back.
+  const [hasStarted, setHasStarted] = useState(false);
+
+  // Set up controls (dead until the player presses Play)
+  useKeyboardControls(requestNewGame, hasStarted);
+  useSwipeControls(containerRef, hasStarted);
 
   // Sync with auth system
   const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
@@ -403,6 +421,28 @@ export function Game2048() {
         <Grid />
         <GameOverOverlay onNewGame={requestNewGame} />
         <WinOverlay onNewGame={requestNewGame} />
+
+        {/* Shared DOM start screen (renders the title once) */}
+        {!hasStarted && (
+          <GameStartOverlay
+            title="2048"
+            emoji="🔢"
+            subtitle="Slide the tiles and add them up!"
+            touchHints={[
+              "👈👉 Swipe to slide the tiles",
+              "✨ Two of the same number join up",
+            ]}
+            keyboardHints={[
+              "⬅️➡️ Arrow keys slide the tiles",
+              "✨ Two of the same number join up",
+            ]}
+            onStart={() => setHasStarted(true)}
+          >
+            <div className="text-base font-medium opacity-90">
+              🏆 Best: {store.progress.highScore}
+            </div>
+          </GameStartOverlay>
+        )}
       </div>
 
       <Controls onNewGame={requestNewGame} restartTriggerRef={restartTriggerRef} />
