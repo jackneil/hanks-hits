@@ -97,6 +97,8 @@ export function FourWheeler3dGame() {
         <GameContextProvider value={gameContext}>
           <Canvas
             shadows
+            dpr={[1, 1.5]}
+            gl={{ antialias: true, powerPreference: "high-performance" }}
             camera={{ fov: 60, near: 0.3, far: 1500, position: [-400, 6, 24] }}
             style={{ touchAction: "none" }}
           >

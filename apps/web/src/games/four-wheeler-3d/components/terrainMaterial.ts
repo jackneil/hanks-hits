@@ -24,10 +24,24 @@ export function getTerrainMaterial(): THREE.MeshStandardMaterial {
 
   const built = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    flatShading: true,
+    flatShading: false,
     roughness: 0.92,
     metalness: 0,
   });
+
+  const loader = new THREE.TextureLoader();
+  const color = loader.load("/games/four-wheeler-3d/textures/ground-color.jpg");
+  const height = loader.load(
+    "/games/four-wheeler-3d/textures/ground-height.jpg",
+  );
+  for (const texture of [color, height]) {
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.anisotropy = 4;
+  }
+  color.colorSpace = THREE.SRGBColorSpace;
+  built.map = color;
+  built.bumpMap = height;
+  built.bumpScale = 0.12;
 
   built.onBeforeCompile = (shader) => {
     shader.uniforms.uSnow = snowUniform;
@@ -35,23 +49,31 @@ export function getTerrainMaterial(): THREE.MeshStandardMaterial {
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying float vUpFacing;"
+        "#include <common>\nvarying float vUpFacing;",
       )
       .replace(
         "#include <beginnormal_vertex>",
-        "#include <beginnormal_vertex>\nvUpFacing = normalize(objectNormal).y;"
+        "#include <beginnormal_vertex>\nvUpFacing = normalize(objectNormal).y;",
       );
 
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
-        "#include <common>\nuniform float uSnow;\nvarying float vUpFacing;"
+        "#include <common>\nuniform float uSnow;\nvarying float vUpFacing;",
+      )
+      .replace(
+        "#include <map_fragment>",
+        `#ifdef USE_MAP
+          vec3 ground = texture2D(map, vMapUv).rgb;
+          float grain = dot(ground, vec3(0.299, 0.587, 0.114));
+          diffuseColor.rgb *= mix(0.48, 1.7, smoothstep(0.015, 0.48, grain));
+        #endif`,
       )
       .replace(
         "#include <color_fragment>",
         `#include <color_fragment>
         float snowCover = uSnow * smoothstep(0.55, 0.92, vUpFacing) * ${MAX_SNOW_WHITENESS.toFixed(2)};
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.96, 0.99), snowCover);`
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.96, 0.99), snowCover);`,
       );
   };
 

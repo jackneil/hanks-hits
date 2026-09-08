@@ -29,6 +29,7 @@ import { ChaseCamera, type LandingReport } from "./ChaseCamera";
 import { Water } from "./Water";
 import { Roads } from "./Roads";
 import { Buildings } from "./Buildings";
+import { OutdoorEnvironment } from "./OutdoorEnvironment";
 import { GameSky } from "./Sky";
 import { WeatherEffects } from "./Weather";
 
@@ -72,6 +73,7 @@ export function World({ controls, onSpeed }: WorldProps) {
   return (
     <>
       <GameSky timeOfDay={timeOfDay} weather={weather} />
+      <OutdoorEnvironment timeOfDay={timeOfDay} />
       <WeatherEffects weather={weather} snowLevel={snowLevel} />
       <Buildings timeOfDay={timeOfDay} />
       <Roads />

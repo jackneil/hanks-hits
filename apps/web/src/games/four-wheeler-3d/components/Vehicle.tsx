@@ -30,6 +30,7 @@ import { tuningFor, type VehicleId } from "../lib/vehicles";
 import type { ControlValues, OneShot } from "../lib/controls";
 import { sounds } from "../lib/sounds";
 import { VehicleModel } from "./models";
+import { WheelModel } from "./models/WheelModel";
 
 /**
  * The Rapier raycast vehicle controller.
@@ -416,31 +417,7 @@ export function Vehicle({
             tuning.wheelPositions[i][2],
           ]}
         >
-          <group>
-            <mesh castShadow rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry
-                args={[
-                  tuning.wheelRadius,
-                  tuning.wheelRadius,
-                  tuning.wheelRadius * 0.6,
-                  14,
-                ]}
-              />
-              <meshStandardMaterial color="#22262c" roughness={0.95} />
-            </mesh>
-            {/* The hub, so a spinning wheel is easy to see. */}
-            <mesh rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry
-                args={[
-                  tuning.wheelRadius * 0.42,
-                  tuning.wheelRadius * 0.42,
-                  tuning.wheelRadius * 0.64,
-                  10,
-                ]}
-              />
-              <meshStandardMaterial color="#c9ced6" roughness={0.5} metalness={0.3} />
-            </mesh>
-          </group>
+          <WheelModel radius={tuning.wheelRadius} />
         </group>
       ))}
     </RigidBody>

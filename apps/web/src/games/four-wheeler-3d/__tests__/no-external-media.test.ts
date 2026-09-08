@@ -3,8 +3,8 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Four-Wheeler Adventure 3D uses procedural models and procedural WebAudio
- * only. Nothing in the module may load media or call out to another site: the
+ * Four-Wheeler Adventure 3D uses procedural models, locally vendored CC0
+ * textures and procedural WebAudio. Nothing may call out to another site: the
  * site CSP blocks cross-origin media anyway, and a kids' game must never phone
  * an outside server. This scan pins that invariant for every source file in
  * the module.
@@ -29,6 +29,17 @@ describe("four-wheeler-3d module media", () => {
 
   it("scans the module source", () => {
     expect(files.length).toBeGreaterThan(0);
+  });
+
+  it("vendors both ground maps within the mobile download budget", () => {
+    const assets = join(MODULE_DIR, "../../../public/games/four-wheeler-3d/textures");
+    let bytes = 0;
+    for (const name of ["ground-color.jpg", "ground-height.jpg"]) {
+      const content = readFileSync(join(assets, name));
+      expect([...content.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+      bytes += content.length;
+    }
+    expect(bytes).toBeLessThan(1024 * 1024);
   });
 
   for (const pattern of [

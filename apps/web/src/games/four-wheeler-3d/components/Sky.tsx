@@ -4,7 +4,7 @@
  * The sky, the sun, the moon, the stars and the fog.
  *
  * The sun light follows the player so its shadow box only has to cover the
- * 60 m the rider can actually see in detail. Everything past that is handled
+ * 40 m the rider can actually see in detail. Everything past that is handled
  * by fog, which is also what hides the edge of the loaded chunks.
  */
 
@@ -17,7 +17,7 @@ import { nightFactor, skyColors, sunPosition, type Weather } from "../lib/dayNig
 import { useGameContext } from "../lib/gameContext";
 
 /** How wide the shadow box around the player is, in meters. */
-const SHADOW_BOX = 30;
+const SHADOW_BOX = 20;
 
 /** How far up the sun light sits above the player. */
 const SUN_DISTANCE = 90;
@@ -58,7 +58,9 @@ export function GameSky({
     light.shadow.camera.bottom = -SHADOW_BOX;
     light.shadow.camera.near = 1;
     light.shadow.camera.far = SUN_DISTANCE * 2.4;
-    light.shadow.bias = -0.0009;
+    light.shadow.bias = -0.0004;
+    light.shadow.normalBias = 0.025;
+    light.shadow.radius = 2;
     light.shadow.camera.updateProjectionMatrix();
   }, []);
 
@@ -113,12 +115,12 @@ export function GameSky({
         ]}
       />
 
-      <ambientLight intensity={palette.ambientIntensity} color={palette.skyBottom} />
+      <hemisphereLight intensity={Math.max(0.38, palette.ambientIntensity * 0.8)} color={night > 0.5 ? "#9cadc9" : palette.skyBottom} groundColor="#62543b" />
 
       <directionalLight
         ref={sunRef}
         castShadow
-        intensity={palette.sunIntensity}
+        intensity={palette.sunIntensity * 1.6}
         color={night > 0.2 ? "#ffd9a8" : "#fff6e0"}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}

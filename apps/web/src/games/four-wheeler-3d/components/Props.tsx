@@ -4,10 +4,10 @@
  * Trees, rocks and grass for one chunk, drawn as instanced meshes.
  *
  * Every model is built from Three primitives, so the game ships no art files
- * at all. The models are made once at module load and shared by every chunk.
+ * for its vegetation. The models are made once at module load and shared by every chunk.
  *
  * Level of detail works per chunk rather than per tree: a chunk 200 m away
- * swaps its detailed trees for a single instanced cone. One distance check
+ * swaps to a smaller leaf mesh for each species. One distance check
  * per chunk, ten frames apart, replaces a per tree test that would cost more
  * than it saves.
  */
@@ -19,6 +19,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 import { LOD_FRAME_INTERVAL, TREE_LOD_DISTANCE, WORLD } from "../lib/constants";
 import { chunkOrigin, propsForChunk, type PlacedProp } from "../lib/terrain";
+import { foliageGeometry } from "./foliageGeometry";
 import { useGameContext } from "../lib/gameContext";
 
 // ============================================================================
@@ -26,11 +27,33 @@ import { useGameContext } from "../lib/gameContext";
 // ============================================================================
 
 const BARK = new THREE.MeshStandardMaterial({ color: "#6b4a2f", roughness: 1 });
-const BIRCH_BARK = new THREE.MeshStandardMaterial({ color: "#e8e4d8", roughness: 1 });
-const PINE_LEAF = new THREE.MeshStandardMaterial({ color: "#2c5c33", roughness: 1, flatShading: true });
-const OAK_LEAF = new THREE.MeshStandardMaterial({ color: "#4a8236", roughness: 1, flatShading: true });
-const BIRCH_LEAF = new THREE.MeshStandardMaterial({ color: "#7fae4c", roughness: 1, flatShading: true });
-const ROCK_MAT = new THREE.MeshStandardMaterial({ color: "#7a7a7e", roughness: 1, flatShading: true });
+const BIRCH_BARK = new THREE.MeshStandardMaterial({
+  color: "#e8e4d8",
+  roughness: 1,
+});
+const PINE_LEAF = new THREE.MeshStandardMaterial({
+  color: "#4d693e",
+  roughness: 1,
+  vertexColors: true,
+  side: THREE.DoubleSide,
+});
+const OAK_LEAF = new THREE.MeshStandardMaterial({
+  color: "#698444",
+  roughness: 1,
+  vertexColors: true,
+  side: THREE.DoubleSide,
+});
+const BIRCH_LEAF = new THREE.MeshStandardMaterial({
+  color: "#879657",
+  roughness: 1,
+  vertexColors: true,
+  side: THREE.DoubleSide,
+});
+const ROCK_MAT = new THREE.MeshStandardMaterial({
+  color: "#7a7a7e",
+  roughness: 1,
+  flatShading: true,
+});
 const GRASS_MAT = new THREE.MeshStandardMaterial({
   // The color comes from the blade itself, dark at the root and bright at the
   // tip, so a tuft reads as grass rather than as a green block.
@@ -40,61 +63,44 @@ const GRASS_MAT = new THREE.MeshStandardMaterial({
   transparent: false,
 });
 
-/** Stack a trunk under a crown and keep them as two material groups. */
-function tree(trunk: THREE.BufferGeometry, crown: THREE.BufferGeometry) {
-  return mergeGeometries([trunk, crown], true);
-}
-
-function shifted(geometry: THREE.BufferGeometry, y: number) {
-  geometry.translate(0, y, 0);
-  return geometry;
-}
-
-const PINE = tree(
-  shifted(new THREE.CylinderGeometry(0.3, 0.45, 3, 6), 1.5),
-  shifted(new THREE.ConeGeometry(2.2, 7, 7), 6.5)
-);
-const OAK = tree(
-  shifted(new THREE.CylinderGeometry(0.35, 0.5, 3.5, 6), 1.75),
-  shifted(new THREE.SphereGeometry(2.6, 8, 6), 5.6)
-);
-const BIRCH = tree(
-  shifted(new THREE.CylinderGeometry(0.2, 0.28, 6, 6), 3),
-  shifted(new THREE.SphereGeometry(1.5, 7, 5), 7)
-);
-const BILLBOARD = shifted(new THREE.ConeGeometry(2.2, 9, 5), 4.5);
-const ROCK = new THREE.DodecahedronGeometry(1, 0);
+const PINE = foliageGeometry(true);
+const OAK = foliageGeometry(false);
+const BIRCH = foliageGeometry(false, true);
+const ROCK = new THREE.DodecahedronGeometry(1, 1);
 /** How tall one tuft stands before the per-clump scale, in meters. */
-const GRASS_HEIGHT = 0.5;
+const GRASS_HEIGHT = 0.24;
 
 /** One blade: wide at the root, narrow at the tip, dark at the bottom. */
 function grassBlade(): THREE.BufferGeometry {
-  const halfBase = 0.08;
-  const halfTip = 0.025;
+  const halfBase = 0.024;
+  const halfTip = 0.002;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
     new THREE.Float32BufferAttribute(
       [
-        -halfBase, 0, 0,
-        halfBase, 0, 0,
-        halfTip, GRASS_HEIGHT, 0,
-        -halfTip, GRASS_HEIGHT, 0,
+        -halfBase,
+        0,
+        0,
+        halfBase,
+        0,
+        0,
+        halfTip,
+        GRASS_HEIGHT,
+        0,
+        -halfTip,
+        GRASS_HEIGHT,
+        0,
       ],
-      3
-    )
+      3,
+    ),
   );
   geometry.setAttribute(
     "color",
     new THREE.Float32BufferAttribute(
-      [
-        0.16, 0.28, 0.12,
-        0.16, 0.28, 0.12,
-        0.44, 0.64, 0.3,
-        0.44, 0.64, 0.3,
-      ],
-      3
-    )
+      [0.16, 0.28, 0.12, 0.16, 0.28, 0.12, 0.44, 0.64, 0.3, 0.44, 0.64, 0.3],
+      3,
+    ),
   );
   geometry.setIndex([0, 1, 2, 0, 2, 3]);
   geometry.computeVertexNormals();
@@ -110,9 +116,21 @@ const GRASS = (() => {
 })();
 
 const SPECIES = [
-  { geometry: PINE, materials: [BARK, PINE_LEAF] },
-  { geometry: OAK, materials: [BARK, OAK_LEAF] },
-  { geometry: BIRCH, materials: [BIRCH_BARK, BIRCH_LEAF] },
+  {
+    geometry: PINE,
+    distant: foliageGeometry(true, false, true),
+    materials: [BARK, PINE_LEAF],
+  },
+  {
+    geometry: OAK,
+    distant: foliageGeometry(false, false, true),
+    materials: [BARK, OAK_LEAF],
+  },
+  {
+    geometry: BIRCH,
+    distant: foliageGeometry(false, true, true),
+    materials: [BIRCH_BARK, BIRCH_LEAF],
+  },
 ] as const;
 
 /** Scratch objects at module scope, so no frame ever allocates. */
@@ -127,7 +145,7 @@ function fillInstances(
   mesh: THREE.InstancedMesh | null,
   items: PlacedProp[],
   originX: number,
-  originZ: number
+  originZ: number,
 ): void {
   if (!mesh) return;
   for (let i = 0; i < items.length; i++) {
@@ -150,25 +168,33 @@ export function ChunkProps({ cx, cz }: { cx: number; cz: number }) {
   const props = useMemo(() => propsForChunk(cx, cz), [cx, cz]);
 
   const bySpecies = useMemo(
-    () => [0, 1, 2].map((id) => props.trees.filter((tree) => tree.species === id)),
-    [props]
+    () =>
+      [0, 1, 2].map((id) => props.trees.filter((tree) => tree.species === id)),
+    [props],
   );
 
-  const nearMeshRef = useRef<Array<THREE.InstancedMesh | null>>([null, null, null]);
-  const farRef = useRef<THREE.InstancedMesh | null>(null);
+  const nearMeshRef = useRef<Array<THREE.InstancedMesh | null>>([
+    null,
+    null,
+    null,
+  ]);
+  const farRef = useRef<Array<THREE.InstancedMesh | null>>([null, null, null]);
   const rockRef = useRef<THREE.InstancedMesh | null>(null);
   const grassRef = useRef<THREE.InstancedMesh | null>(null);
   const frame = useRef(0);
 
   // Which set of trees is drawn. It flips at most once per crossing of the
   // LOD distance, so a chunk re-renders only when the player rides past it.
-  const [far, setFar] = useState(false);
+  // Incoming distant chunks start inexpensive until the first distance check.
+  const [far, setFar] = useState(true);
 
   useEffect(() => {
     bySpecies.forEach((items, index) =>
-      fillInstances(nearMeshRef.current[index], items, origin.x, origin.z)
+      fillInstances(nearMeshRef.current[index], items, origin.x, origin.z),
     );
-    fillInstances(farRef.current, props.trees, origin.x, origin.z);
+    bySpecies.forEach((items, index) =>
+      fillInstances(farRef.current[index], items, origin.x, origin.z),
+    );
     fillInstances(rockRef.current, props.rocks, origin.x, origin.z);
     fillInstances(grassRef.current, props.grass, origin.x, origin.z);
   }, [bySpecies, props, origin]);
@@ -189,18 +215,31 @@ export function ChunkProps({ cx, cz }: { cx: number; cz: number }) {
           ref={(mesh) => {
             nearMeshRef.current[index] = mesh;
           }}
-          args={[species.geometry, species.materials as unknown as THREE.Material[], Math.max(1, bySpecies[index].length)]}
+          args={[
+            species.geometry,
+            species.materials as unknown as THREE.Material[],
+            Math.max(1, bySpecies[index].length),
+          ]}
           visible={!far}
           castShadow
           receiveShadow
         />
       ))}
 
-      <instancedMesh
-        ref={farRef}
-        args={[BILLBOARD, PINE_LEAF, Math.max(1, props.trees.length)]}
-        visible={far}
-      />
+      {SPECIES.map((species, index) => (
+        <instancedMesh
+          key={`far-${index}`}
+          ref={(mesh) => {
+            farRef.current[index] = mesh;
+          }}
+          args={[
+            species.distant,
+            species.materials as unknown as THREE.Material[],
+            Math.max(1, bySpecies[index].length),
+          ]}
+          visible={far}
+        />
+      ))}
 
       <instancedMesh
         ref={rockRef}

@@ -96,8 +96,9 @@ itself. Each one belongs to the milestone shown and ships with it:
 - `three@0.182`, `@react-three/fiber@9.6.1`, `@react-three/drei@10.7.7`,
   `@react-three/rapier@2.2.0` (pins `@dimforge/rapier3d-compat@0.19.2`, which ships
   `DynamicRayCastVehicleController`).
-- No new packages. No external assets. All models are procedural low-poly from Three
-  primitives. All sounds are procedural WebAudio (the monster-truck `SoundManager`
+- No new packages or external runtime media. Locally vendored CC0 assets are allowed
+  for the September graphics pass; see `four-wheeler-graphics.html`. Models use
+  detailed batched geometry and the ground uses local scanned textures. All sounds are procedural WebAudio (the monster-truck `SoundManager`
   pattern).
 
 ### Module layout
@@ -204,7 +205,7 @@ within a radius of 3 (a 7 x 7 window, 49 chunks) loaded around the player and
 disposes the rest. Each chunk builds its geometry and heightfield from `heightAt` in
 a `useMemo` keyed on the chunk coordinates. Props (trees, rocks, grass) are placed by
 a seeded hash of the chunk coordinates so the same chunk always looks the same.
-Instanced meshes per prop kind per chunk, with a far LOD (billboard cone) beyond 200 m.
+Instanced meshes per prop kind per chunk, with a smaller leaf-mesh LOD per species beyond 200 m. The graphics pass adds individual leaves, a local scanned ground material, detailed ATV geometry, and an outdoor light probe.
 The dev HUD shows the loaded chunk count so the bound is visible.
 
 ### Camera
