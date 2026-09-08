@@ -131,8 +131,12 @@ export type TouchState = {
   brake: boolean;
   left: boolean;
   right: boolean;
+  /** True while the finger is on the button. This is what colors it in. */
   jump: boolean;
   horn: boolean;
+  /** A press waiting to be read. See ONE_SHOTS above. */
+  jumpPending: boolean;
+  hornPending: boolean;
   /** Tilt steering, -1 to 1. Zero when tilt is off. */
   steerAxis: number;
 };
@@ -144,6 +148,8 @@ export const NEUTRAL_TOUCH: TouchState = {
   right: false,
   jump: false,
   horn: false,
+  jumpPending: false,
+  hornPending: false,
   steerAxis: 0,
 };
 
@@ -171,8 +177,15 @@ export function steerFromGamma(gammaDegrees: number): number {
  * space bar jumps, left shift or X is the handbrake, H honks, R flips you
  * back over, C switches the camera, E uses the thing in front of you, and N
  * is the boost.
+ *
+ * `pending` holds the one-shot presses waiting to be read. With only one set
+ * given, a key that is down counts as a press, which is what a plain reading
+ * of the keyboard means.
  */
-export function reduceKeyboard(keys: Set<string>): ControlValues {
+export function reduceKeyboard(
+  keys: Set<string>,
+  pending: Set<string> = keys
+): ControlValues {
   const forward = keys.has("KeyW") || keys.has("ArrowUp");
   const backward = keys.has("KeyS") || keys.has("ArrowDown");
   const left = keys.has("KeyA") || keys.has("ArrowLeft");
@@ -183,12 +196,12 @@ export function reduceKeyboard(keys: Set<string>): ControlValues {
     steer: (right ? 1 : 0) - (left ? 1 : 0),
     brake: 0,
     handbrake: keys.has("ShiftLeft") || keys.has("KeyX"),
-    jump: keys.has("Space"),
-    horn: keys.has("KeyH"),
-    reset: keys.has("KeyR"),
-    camera: keys.has("KeyC"),
-    interact: keys.has("KeyE"),
-    nos: keys.has("KeyN"),
+    jump: pending.has("Space"),
+    horn: pending.has("KeyH"),
+    reset: pending.has("KeyR"),
+    camera: pending.has("KeyC"),
+    interact: pending.has("KeyE"),
+    nos: pending.has("KeyN"),
   };
 }
 
@@ -210,8 +223,8 @@ export function reduceTouch(touch: TouchState): ControlValues {
     steer,
     brake: touch.brake ? 1 : 0,
     handbrake: false,
-    jump: touch.jump,
-    horn: touch.horn,
+    jump: touch.jumpPending,
+    horn: touch.hornPending,
     reset: false,
     camera: false,
     interact: false,

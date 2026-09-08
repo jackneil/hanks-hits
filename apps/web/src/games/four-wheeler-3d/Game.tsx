@@ -15,6 +15,7 @@ import { World } from "./components/World";
 import { ClockBadge } from "./components/hud/ClockBadge";
 import { ChunkCounter } from "./components/hud/ChunkCounter";
 import { Speedo } from "./components/hud/Speedo";
+import { HintToast } from "./components/hud/HintToast";
 import { MobileControls } from "./components/MobileControls";
 import { useGameControls } from "./hooks/useControls";
 import {
@@ -109,6 +110,7 @@ export function FourWheeler3dGame() {
               <ClockBadge timeOfDay={timeOfDay} day={day} weather={weather} />
               <ChunkCounter />
               <Speedo speed={speed} vehicleId="atv" raised={controls.isMobile} />
+              <HintToast raised={controls.isMobile} />
 
               {controls.isMobile ? (
                 <MobileControls controls={controls} />

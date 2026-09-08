@@ -83,13 +83,14 @@ export function World({ controls, onSpeed }: WorldProps) {
           id="atv"
           spawn={spawn}
           getControls={controls.getControlValues}
+          takeOneShot={controls.takeOneShot}
           onSpeed={onSpeed}
           onAir={handleAir}
         />
         <Effects />
         <ChaseCamera
           id="atv"
-          getControls={controls.getControlValues}
+          takeOneShot={controls.takeOneShot}
           landing={landing}
         />
       </Physics>

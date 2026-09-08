@@ -28,7 +28,7 @@ import {
   type Vec3,
 } from "../lib/camera";
 import { tuningFor, type VehicleId } from "../lib/vehicles";
-import type { ControlValues } from "../lib/controls";
+import type { OneShot } from "../lib/controls";
 
 /** How hard the camera pulls toward where it wants to be. */
 const SPRING_STIFFNESS = 90;
@@ -67,12 +67,17 @@ export type LandingReport = {
 
 export type ChaseCameraProps = {
   id: VehicleId;
-  getControls: () => ControlValues;
+  /** Read one waiting one-shot press and take it away. */
+  takeOneShot: (action: OneShot) => boolean;
   /** Written by the vehicle when it touches down. */
   landing: React.RefObject<LandingReport>;
 };
 
-export function ChaseCamera({ id, getControls, landing }: ChaseCameraProps) {
+export function ChaseCamera({
+  id,
+  takeOneShot,
+  landing,
+}: ChaseCameraProps) {
   const camera = useThree((state) => state.camera);
   const { playerPos, playerQuat, playerSpeedRef } = useGameContext();
   const { world, rapier } = useRapier();
@@ -87,7 +92,6 @@ export function ChaseCamera({ id, getControls, landing }: ChaseCameraProps) {
   const springY = useRef<SpringState>({ value: 0, velocity: 0 });
   const springZ = useRef<SpringState>({ value: 0, velocity: 0 });
   const seeded = useRef(false);
-  const cameraPressed = useRef(false);
   const shakeSince = useRef(Number.POSITIVE_INFINITY);
   const shakeFrom = useRef(0);
   const seenLanding = useRef(0);
@@ -103,13 +107,8 @@ export function ChaseCamera({ id, getControls, landing }: ChaseCameraProps) {
   }, [rapier]);
 
   useFrame((_, delta) => {
-    const controls = getControls();
-
     // C swaps between riding behind and riding in the helmet.
-    if (controls.camera && !cameraPressed.current) {
-      updateSettings({ helmetCam: !helmetCam });
-    }
-    cameraPressed.current = controls.camera;
+    if (takeOneShot("camera")) updateSettings({ helmetCam: !helmetCam });
 
     const position = playerPos.current;
     const rotation = playerQuat.current;

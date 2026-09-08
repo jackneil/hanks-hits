@@ -33,13 +33,19 @@ function fakeControls() {
       throttle: 0, steer: 0, brake: 0, handbrake: false, jump: false,
       horn: false, reset: false, camera: false, interact: false, nos: false,
     }),
+    takeOneShot: () => false,
     isMobile: true,
     touch: {
       state: {
-        gas: false, brake: false, left: false, right: false,
-        jump: false, horn: false, steerAxis: 0,
+        gas: false, brake: false, left: false, right: false, jump: false,
+        horn: false, jumpPending: false, hornPending: false, steerAxis: 0,
       },
-      stateRef: { current: { gas: false, brake: false, left: false, right: false, jump: false, horn: false, steerAxis: 0 } },
+      stateRef: {
+        current: {
+          gas: false, brake: false, left: false, right: false, jump: false,
+          horn: false, jumpPending: false, hornPending: false, steerAxis: 0,
+        },
+      },
       handlers: {
         gas: handlers, brake: handlers, left: handlers,
         right: handlers, jump: handlers, horn: handlers,

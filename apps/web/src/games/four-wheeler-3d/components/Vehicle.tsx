@@ -27,7 +27,7 @@ import { useGameContext } from "../lib/gameContext";
 import { heightAt, surfaceAt } from "../lib/terrain";
 import { attachDevHandle } from "../lib/devParams";
 import { tuningFor, type VehicleId } from "../lib/vehicles";
-import type { ControlValues } from "../lib/controls";
+import type { ControlValues, OneShot } from "../lib/controls";
 import { sounds } from "../lib/sounds";
 import { VehicleModel } from "./models";
 
@@ -83,6 +83,8 @@ export type VehicleProps = {
   spawn: readonly [number, number, number];
   /** Read once per physics step. */
   getControls: () => ControlValues;
+  /** Read one waiting one-shot press and take it away. */
+  takeOneShot: (action: OneShot) => boolean;
   bodyRef?: React.RefObject<RapierRigidBody | null>;
   /** Called every frame with the speed in meters per second. */
   onSpeed?: (metersPerSecond: number) => void;
@@ -94,6 +96,7 @@ export function Vehicle({
   id,
   spawn,
   getControls,
+  takeOneShot,
   bodyRef,
   onSpeed,
   onAir,
@@ -115,7 +118,6 @@ export function Vehicle({
   const jumpCooldown = useRef(0);
   const upsideDownFor = useRef(0);
   const airborneFor = useRef(0);
-  const wasPressed = useRef({ jump: false, horn: false, reset: false, nos: false });
   const icy = useRef(false);
 
   // What the browser test handle reads back. Written by the physics step.
@@ -237,8 +239,7 @@ export function Vehicle({
     const store = useFourWheeler3dStore.getState();
 
     // The boost, from the 2D game: three seconds of double push.
-    if (controls.nos && !wasPressed.current.nos) store.startNos();
-    wasPressed.current.nos = controls.nos;
+    if (takeOneShot("nos")) store.startNos();
     const boosting = store.nosUntil > Date.now();
     const boost = boosting ? NOS_MULTIPLIER : 1;
 
@@ -308,12 +309,7 @@ export function Vehicle({
 
     // The jump: a push straight up plus a little forward, on all four wheels.
     jumpCooldown.current = Math.max(0, jumpCooldown.current - dt);
-    if (
-      controls.jump &&
-      !wasPressed.current.jump &&
-      grounded === 4 &&
-      jumpCooldown.current === 0
-    ) {
+    if (takeOneShot("jump") && grounded === 4 && jumpCooldown.current === 0) {
       const rotation = chassis.rotation();
       scratchQuat.set(rotation.x, rotation.y, rotation.z, rotation.w);
       scratchForward.copy(LOCAL_FORWARD).applyQuaternion(scratchQuat);
@@ -323,7 +319,6 @@ export function Vehicle({
       chassis.applyImpulse(impulse, true);
       jumpCooldown.current = JUMP_COOLDOWN;
     }
-    wasPressed.current.jump = controls.jump;
 
     // Airtime, reported once on landing.
     if (grounded === 0) {
@@ -345,15 +340,13 @@ export function Vehicle({
     } else {
       upsideDownFor.current = 0;
     }
-    if (controls.reset && !wasPressed.current.reset) recover.current();
-    wasPressed.current.reset = controls.reset;
+    if (takeOneShot("reset")) recover.current();
 
     // The horn.
-    if (controls.horn && !wasPressed.current.horn) {
+    if (takeOneShot("horn")) {
       sounds.setEnabled(store.progress.settings.soundEnabled);
       sounds.playHorn();
     }
-    wasPressed.current.horn = controls.horn;
 
     // The engine note follows how hard the vehicle is working.
     sounds.setEngine(Math.min(1, absSpeed / Math.max(1, tuning.maxSpeed)));

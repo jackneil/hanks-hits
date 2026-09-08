@@ -14,13 +14,19 @@ import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 import {
+  clearLatch,
   combine,
+  createLatch,
+  latchDown,
+  latchUp,
   NEUTRAL,
   NEUTRAL_TOUCH,
   reduceKeyboard,
   reduceTouch,
   steerFromGamma,
+  takeOneShot,
   type ControlValues,
+  type OneShot,
   type TouchState,
 } from "../lib/controls";
 
@@ -44,14 +50,14 @@ export type TouchHandlers = {
 };
 
 function useKeyboard(enabled: boolean) {
-  const keys = useRef<Set<string>>(new Set());
+  const latch = useRef(createLatch());
 
   useEffect(() => {
-    // One Set for the life of the hook. Held here so the cleanup below clears
-    // the same one it started with.
-    const held = keys.current;
+    // One latch for the life of the hook. Held here so the cleanup below
+    // clears the same one it started with.
+    const held = latch.current;
     if (!enabled) {
-      held.clear();
+      clearLatch(held);
       return;
     }
 
@@ -67,15 +73,15 @@ function useKeyboard(enabled: boolean) {
       if (!GAME_KEYS.has(event.code)) return;
       // The space bar and the arrows scroll the page. The game owns them here.
       event.preventDefault();
-      held.add(event.code);
+      latchDown(held, event.code);
     };
 
     const onKeyUp = (event: KeyboardEvent) => {
-      held.delete(event.code);
+      latchUp(held, event.code);
     };
 
     // A tab away leaves a key stuck down. Let go of everything instead.
-    const onBlur = () => held.clear();
+    const onBlur = () => clearLatch(held);
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -84,11 +90,11 @@ function useKeyboard(enabled: boolean) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
-      held.clear();
+      clearLatch(held);
     };
   }, [enabled]);
 
-  return keys;
+  return latch;
 }
 
 /** The on-screen buttons. Pointer events, so two thumbs work at once. */
@@ -98,8 +104,13 @@ function useTouch() {
 
   const set = useCallback((button: TouchButton, down: boolean) => {
     if (stateRef.current[button] === down) return;
-    stateRef.current = { ...stateRef.current, [button]: down };
-    setState(stateRef.current);
+    const next = { ...stateRef.current, [button]: down };
+    // JUMP and HORN happen once per press, so the press is remembered until
+    // the game reads it. A tap shorter than one frame still counts.
+    if (down && button === "jump") next.jumpPending = true;
+    if (down && button === "horn") next.hornPending = true;
+    stateRef.current = next;
+    setState(next);
   }, []);
 
   const handlersFor = useCallback(
@@ -203,7 +214,7 @@ export type GameControls = ReturnType<typeof useGameControls>;
  * a key pressed on a menu never drives the ATV.
  */
 export function useGameControls(enabled: boolean) {
-  const keys = useKeyboard(enabled);
+  const latch = useKeyboard(enabled);
   const touch = useTouch();
   const tilt = useDeviceOrientation();
 
@@ -211,19 +222,36 @@ export function useGameControls(enabled: boolean) {
   const isMobile = useCoarsePointer();
   const [useTilt, setUseTilt] = useState(false);
 
+  /**
+   * Everything the player is doing right now.
+   *
+   * Reading this does NOT use up a waiting one-shot press: `takeOneShot` does
+   * that, and each action has exactly one reader in the game, so the camera
+   * can never swallow a jump on its way past.
+   */
   const getControlValues = useCallback((): ControlValues => {
     if (!enabled) return NEUTRAL;
     touch.setSteerAxis(
       useTilt && tilt.isPermissionGranted ? tilt.steerRef.current : 0
     );
     return combine(
-      reduceKeyboard(keys.current),
+      reduceKeyboard(latch.current.held, latch.current.pending),
       reduceTouch(touch.stateRef.current)
     );
-  }, [enabled, keys, touch, tilt, useTilt]);
+  }, [enabled, latch, touch, tilt, useTilt]);
+
+  /** Read one waiting press and take it away. False when nothing is waiting. */
+  const takeAction = useCallback(
+    (action: OneShot): boolean => {
+      if (!enabled) return false;
+      return takeOneShot(latch.current, touch.stateRef.current, action);
+    },
+    [enabled, latch, touch]
+  );
 
   return {
     getControlValues,
+    takeOneShot: takeAction,
     isMobile,
     touch,
     tilt,
