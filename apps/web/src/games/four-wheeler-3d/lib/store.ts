@@ -2,6 +2,12 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { FISH_TYPES, START_MONEY } from "./constants";
+import {
+  advanceClock,
+  rollWeather,
+  updateSnowLevel,
+  type Weather,
+} from "./dayNight";
 
 // ============================================================================
 // TYPES
@@ -44,6 +50,21 @@ export interface FourWheeler3dState {
   hasStarted: boolean;
   mode: RideMode;
   hint: string | null;
+  /**
+   * How deep the snow lies, 0 to 1. It is session only on purpose: a fresh
+   * ride starts on clear ground rather than in yesterday's drifts.
+   */
+  snowLevel: number;
+
+  /**
+   * The live clock, 0 to 24. This is the one every part of the scene reads.
+   * It is session state so a ticking minute hand never touches the saved
+   * progress, which is polled and uploaded whenever it changes.
+   */
+  clock: number;
+
+  /** Real seconds since the clock was last written into progress. */
+  clockSinceFlush: number;
 }
 
 export interface FourWheeler3dActions {
@@ -60,6 +81,25 @@ export interface FourWheeler3dActions {
   setMode: (mode: RideMode) => void;
   setHint: (hint: string | null) => void;
   resetSession: () => void;
+
+  /**
+   * Move the world clock forward by `dtSeconds` of real time. One real second
+   * is one game minute. At midnight the day counts up and the weather rolls.
+   *
+   * Only the session clock moves on a normal tick. Progress is written on a
+   * day rollover and once per game hour, so the cloud sync is not woken by a
+   * minute hand it does not need to save.
+   */
+  tick: (dtSeconds: number) => void;
+
+  /** Copy the saved clock into the session clock, on mount. */
+  seedClock: () => void;
+
+  /** Write the live clock into progress. Used on pause and on leaving. */
+  flushClock: () => void;
+
+  /** Jump the clock, used by the development ?tod= parameter. */
+  setTimeOfDay: (timeOfDay: number) => void;
 
   // Settings
   updateSettings: (
@@ -97,7 +137,16 @@ const defaultSession = {
   hasStarted: false,
   mode: "vehicle" as RideMode,
   hint: null,
+  snowLevel: 0,
+  clock: defaultProgress.timeOfDay,
+  clockSinceFlush: 0,
 };
+
+/**
+ * One game hour of real time. The clock is saved this often, plus whenever a
+ * new day starts, the game is paused, or the page goes away.
+ */
+const CLOCK_FLUSH_SECONDS = 60;
 
 /** A fresh copy, so no two stores ever share the nested objects. */
 function createDefaultProgress(): FourWheeler3dProgress {
@@ -140,6 +189,79 @@ export const useFourWheeler3dStore = create<
             lastModified: Date.now(),
           },
         })),
+
+      tick: (dtSeconds) =>
+        set((state) => {
+          const { timeOfDay, newDay } = advanceClock(state.clock, dtSeconds);
+          const weather = newDay
+            ? rollWeather(Math.random)
+            : (state.progress.weather as Weather);
+          const snowLevel = updateSnowLevel(state.snowLevel, weather, dtSeconds);
+
+          // A new day is real news: the day counts up, the weather changes,
+          // and the kid gets a hint about it. That is worth a save.
+          if (newDay) {
+            return {
+              clock: timeOfDay,
+              clockSinceFlush: 0,
+              snowLevel,
+              hint: `🌤️ A new day! It is ${weather}.`,
+              progress: {
+                ...state.progress,
+                timeOfDay,
+                day: state.progress.day + 1,
+                weather,
+                lastModified: Date.now(),
+              },
+            };
+          }
+
+          const sinceFlush = state.clockSinceFlush + dtSeconds;
+          if (sinceFlush >= CLOCK_FLUSH_SECONDS) {
+            return {
+              clock: timeOfDay,
+              clockSinceFlush: 0,
+              snowLevel,
+              progress: {
+                ...state.progress,
+                timeOfDay,
+                lastModified: Date.now(),
+              },
+            };
+          }
+
+          // The usual tick: the session clock moves, nothing is saved.
+          return { clock: timeOfDay, clockSinceFlush: sinceFlush, snowLevel };
+        }),
+
+      seedClock: () =>
+        set((state) => ({
+          clock: state.progress.timeOfDay,
+          clockSinceFlush: 0,
+        })),
+
+      flushClock: () =>
+        set((state) => {
+          if (state.clock === state.progress.timeOfDay) return {};
+          return {
+            clockSinceFlush: 0,
+            progress: {
+              ...state.progress,
+              timeOfDay: state.clock,
+              lastModified: Date.now(),
+            },
+          };
+        }),
+
+      setTimeOfDay: (timeOfDay) =>
+        set((state) => {
+          const wrapped = ((timeOfDay % 24) + 24) % 24;
+          return {
+            clock: wrapped,
+            clockSinceFlush: 0,
+            progress: { ...state.progress, timeOfDay: wrapped },
+          };
+        }),
 
       setPaused: (paused) => set({ isPaused: paused }),
       setHasStarted: (started) => set({ hasStarted: started }),

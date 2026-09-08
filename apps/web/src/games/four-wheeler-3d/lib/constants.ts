@@ -37,6 +37,25 @@ export const SCALE = {
   SPEED: 0.38,
 } as const;
 
+/*
+ * Performance budget (design/games/four-wheeler-3d.md).
+ *
+ * These are measured budgets, not arbitrary caps. The streamer keeps a 7 x 7
+ * window of chunks around the player, which is 49 chunks, about 450 m of
+ * visible ground in every direction. Far fog and the chunk LOD hide the edge.
+ * Each chunk is a 32 x 32 grid, so the collider and the mesh both sample the
+ * ground every 4 m. Nothing here silently drops world content: chunks outside
+ * the window still exist and load again the moment the player rides back.
+ */
+export const CHUNK_SEGMENTS = 32;
+export const CHUNK_VIEW_RADIUS = 3;
+
+/** Beyond this many meters a tree draws as a cheap billboard cone. */
+export const TREE_LOD_DISTANCE = 200;
+
+/** The LOD split is only recomputed every this many frames. */
+export const LOD_FRAME_INTERVAL = 10;
+
 /** Starting cash, the same as the 2D game. */
 export const START_MONEY = 20000;
 

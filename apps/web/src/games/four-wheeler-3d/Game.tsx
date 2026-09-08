@@ -2,8 +2,6 @@
 
 import { Suspense, useEffect } from "react";
 import { Canvas } from "@react-three/fiber";
-import { Physics, RigidBody } from "@react-three/rapier";
-import { Sky } from "@react-three/drei";
 
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import {
@@ -13,48 +11,19 @@ import {
   WebGLGate,
 } from "@/shared/components";
 
-import { WORLD } from "./lib/constants";
+import { World } from "./components/World";
+import { ClockBadge } from "./components/hud/ClockBadge";
+import { ChunkCounter } from "./components/hud/ChunkCounter";
+import {
+  GameContextProvider,
+  useCreateGameContext,
+} from "./lib/gameContext";
+import type { Weather } from "./lib/dayNight";
 import { useFourWheeler3dStore, type FourWheeler3dProgress } from "./lib/store";
 
-/**
- * Milestone 2 placeholder scene: flat ground, one box for the ATV, and a sky.
- * Milestone 3 replaces this with the streamed terrain world.
- */
-function PlaceholderScene() {
-  return (
-    <>
-      <Sky sunPosition={[100, 40, 100]} />
-      <ambientLight intensity={0.6} />
-      <directionalLight
-        position={[60, 90, 40]}
-        intensity={1.1}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-      />
-
-      <Physics gravity={[0, -9.81, 0]}>
-        {/* Ground */}
-        <RigidBody type="fixed" colliders="cuboid">
-          <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-            <boxGeometry args={[WORLD.SIZE, WORLD.SIZE, 0.5]} />
-            <meshStandardMaterial color="#4c9a3f" />
-          </mesh>
-        </RigidBody>
-
-        {/* ATV placeholder */}
-        <RigidBody type="dynamic" colliders="cuboid" position={[0, 2, 0]}>
-          <mesh castShadow>
-            <boxGeometry args={[1.2, 0.8, 1.9]} />
-            <meshStandardMaterial color="#e63946" />
-          </mesh>
-        </RigidBody>
-      </Physics>
-    </>
-  );
-}
-
 export function FourWheeler3dGame() {
+  const gameContext = useCreateGameContext();
+
   const store = useFourWheeler3dStore();
   useAuthSync<FourWheeler3dProgress>({
     appId: "four-wheeler-3d",
@@ -68,6 +37,9 @@ export function FourWheeler3dGame() {
   const setHasStarted = useFourWheeler3dStore((s) => s.setHasStarted);
   const isPaused = useFourWheeler3dStore((s) => s.isPaused);
   const setPaused = useFourWheeler3dStore((s) => s.setPaused);
+  const timeOfDay = useFourWheeler3dStore((s) => s.clock);
+  const day = useFourWheeler3dStore((s) => s.progress.day);
+  const weather = useFourWheeler3dStore((s) => s.progress.weather) as Weather;
 
   // Escape pauses and unpauses, the same as the other 3D game.
   useEffect(() => {
@@ -83,15 +55,24 @@ export function FourWheeler3dGame() {
       <OrientationWarning />
 
       <WebGLGate gameName="Four-Wheeler Adventure 3D">
-        <Canvas
-          shadows
-          camera={{ fov: 60, near: 0.3, far: 1500, position: [0, 3, 8] }}
-          style={{ touchAction: "none" }}
-        >
-          <Suspense fallback={null}>
-            <PlaceholderScene />
-          </Suspense>
-        </Canvas>
+        <GameContextProvider value={gameContext}>
+          <Canvas
+            shadows
+            camera={{ fov: 60, near: 0.3, far: 1500, position: [-400, 6, 24] }}
+            style={{ touchAction: "none" }}
+          >
+            <Suspense fallback={null}>
+              <World />
+            </Suspense>
+          </Canvas>
+
+          {hasStarted && (
+            <>
+              <ClockBadge timeOfDay={timeOfDay} day={day} weather={weather} />
+              <ChunkCounter />
+            </>
+          )}
+        </GameContextProvider>
 
         {!hasStarted && (
           <GameStartOverlay
