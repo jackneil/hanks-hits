@@ -6,6 +6,7 @@ vi.mock("@react-three/fiber", () => ({
     <div data-testid="r3f-canvas">{children}</div>
   ),
   useFrame: vi.fn(),
+  useLoader: vi.fn(),
   useThree: (selector?: (state: unknown) => unknown) => {
     const camera = {
       position: { copy: vi.fn(), set: vi.fn() },
@@ -17,6 +18,26 @@ vi.mock("@react-three/fiber", () => ({
   },
 }));
 
+// The vehicle controller the raycast vehicle builds, with every call the
+// component makes present and doing nothing.
+const vehicleController = {
+  addWheel: vi.fn(),
+  setWheelSuspensionStiffness: vi.fn(),
+  setWheelSuspensionCompression: vi.fn(),
+  setWheelSuspensionRelaxation: vi.fn(),
+  setWheelMaxSuspensionTravel: vi.fn(),
+  setWheelFrictionSlip: vi.fn(),
+  setWheelSideFrictionStiffness: vi.fn(),
+  setWheelSteering: vi.fn(),
+  setWheelEngineForce: vi.fn(),
+  setWheelBrake: vi.fn(),
+  wheelIsInContact: vi.fn(() => true),
+  wheelSuspensionLength: vi.fn(() => 0.3),
+  currentVehicleSpeed: vi.fn(() => 0),
+  updateVehicle: vi.fn(),
+  free: vi.fn(),
+};
+
 vi.mock("@react-three/rapier", () => ({
   Physics: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   RigidBody: ({ children }: { children: React.ReactNode }) => (
@@ -26,7 +47,29 @@ vi.mock("@react-three/rapier", () => ({
   CylinderCollider: () => null,
   BallCollider: () => null,
   HeightfieldCollider: () => null,
-  useRapier: () => ({ world: { castRay: () => null } }),
+  useBeforePhysicsStep: vi.fn(),
+  useAfterPhysicsStep: vi.fn(),
+  useRapier: () => ({
+    world: {
+      castRay: () => null,
+      createVehicleController: () => vehicleController,
+      removeVehicleController: vi.fn(),
+    },
+    rapier: {
+      Ray: class {
+        origin: { x: number; y: number; z: number };
+        dir: { x: number; y: number; z: number };
+        constructor(
+          origin: { x: number; y: number; z: number },
+          dir: { x: number; y: number; z: number }
+        ) {
+          this.origin = origin;
+          this.dir = dir;
+        }
+      },
+      QueryFilterFlags: { EXCLUDE_DYNAMIC: 2 },
+    },
+  }),
 }));
 
 vi.mock("@react-three/drei", () => ({
@@ -83,5 +126,39 @@ describe("Four-Wheeler Adventure 3D module", () => {
     // A radius of 3 is the 7 x 7 window the design doc budgets for.
     expect((CHUNK_VIEW_RADIUS * 2 + 1) ** 2).toBe(49);
     expect(TREE_LOD_DISTANCE).toBe(200);
+  });
+  it("exports the ride, the camera and the effects", async () => {
+    const vehicle = await import("../components/Vehicle");
+    expect(vehicle.Vehicle).toBeDefined();
+    const camera = await import("../components/ChaseCamera");
+    expect(camera.ChaseCamera).toBeDefined();
+    const effects = await import("../components/Effects");
+    expect(effects.Effects).toBeDefined();
+  }, 30_000);
+
+  it("exports the speedometer and the phone controls", async () => {
+    const speedo = await import("../components/hud/Speedo");
+    expect(speedo.Speedo).toBeDefined();
+    const mobile = await import("../components/MobileControls");
+    expect(mobile.MobileControls).toBeDefined();
+  }, 30_000);
+
+  it("draws a body for the quad and for every other vehicle", async () => {
+    const models = await import("../components/models");
+    expect(models.VehicleModel).toBeTypeOf("function");
+    expect(models.AtvModel).toBeTypeOf("function");
+    expect(models.GenericVehicleModel).toBeTypeOf("function");
+  }, 30_000);
+
+  it("gives the boost the three seconds the 2D game gives it", async () => {
+    const { NOS_SECONDS, useFourWheeler3dStore } = await import("../lib/store");
+    expect(NOS_SECONDS).toBe(3);
+    const store = useFourWheeler3dStore.getState();
+    store.clearNos();
+    expect(store.startNos()).toBe(true);
+    // A second press while it is running does nothing.
+    expect(useFourWheeler3dStore.getState().startNos()).toBe(false);
+    useFourWheeler3dStore.getState().clearNos();
+    expect(useFourWheeler3dStore.getState().nosUntil).toBe(0);
   });
 });

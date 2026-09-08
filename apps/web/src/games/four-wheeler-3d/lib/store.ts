@@ -65,6 +65,13 @@ export interface FourWheeler3dState {
 
   /** Real seconds since the clock was last written into progress. */
   clockSinceFlush: number;
+
+  /**
+   * When the current boost runs out, as a millisecond clock reading. Zero
+   * means no boost. It is written twice per boost, never every frame, so the
+   * heads up display can watch it without slowing the ride down.
+   */
+  nosUntil: number;
 }
 
 export interface FourWheeler3dActions {
@@ -100,6 +107,15 @@ export interface FourWheeler3dActions {
 
   /** Jump the clock, used by the development ?tod= parameter. */
   setTimeOfDay: (timeOfDay: number) => void;
+
+  /**
+   * Start the boost. Returns false when a boost is already running, which is
+   * what keeps it from being held down forever.
+   */
+  startNos: () => boolean;
+
+  /** End the boost early. */
+  clearNos: () => void;
 
   // Settings
   updateSettings: (
@@ -140,7 +156,11 @@ const defaultSession = {
   snowLevel: 0,
   clock: defaultProgress.timeOfDay,
   clockSinceFlush: 0,
+  nosUntil: 0,
 };
+
+/** How long one boost lasts, in seconds. The 2D game uses the same 3. */
+export const NOS_SECONDS = 3;
 
 /**
  * One game hour of real time. The clock is saved this often, plus whenever a
@@ -262,6 +282,15 @@ export const useFourWheeler3dStore = create<
             progress: { ...state.progress, timeOfDay: wrapped },
           };
         }),
+
+      startNos: () => {
+        const now = Date.now();
+        if (get().nosUntil > now) return false;
+        set({ nosUntil: now + NOS_SECONDS * 1000 });
+        return true;
+      },
+
+      clearNos: () => set({ nosUntil: 0 }),
 
       setPaused: (paused) => set({ isPaused: paused }),
       setHasStarted: (started) => set({ hasStarted: started }),

@@ -32,7 +32,9 @@ const OAK_LEAF = new THREE.MeshStandardMaterial({ color: "#4a8236", roughness: 1
 const BIRCH_LEAF = new THREE.MeshStandardMaterial({ color: "#7fae4c", roughness: 1, flatShading: true });
 const ROCK_MAT = new THREE.MeshStandardMaterial({ color: "#7a7a7e", roughness: 1, flatShading: true });
 const GRASS_MAT = new THREE.MeshStandardMaterial({
-  color: "#5f9243",
+  // The color comes from the blade itself, dark at the root and bright at the
+  // tip, so a tuft reads as grass rather than as a green block.
+  vertexColors: true,
   roughness: 1,
   side: THREE.DoubleSide,
   transparent: false,
@@ -62,11 +64,49 @@ const BIRCH = tree(
 );
 const BILLBOARD = shifted(new THREE.ConeGeometry(2.2, 9, 5), 4.5);
 const ROCK = new THREE.DodecahedronGeometry(1, 0);
+/** How tall one tuft stands before the per-clump scale, in meters. */
+const GRASS_HEIGHT = 0.5;
+
+/** One blade: wide at the root, narrow at the tip, dark at the bottom. */
+function grassBlade(): THREE.BufferGeometry {
+  const halfBase = 0.08;
+  const halfTip = 0.025;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(
+      [
+        -halfBase, 0, 0,
+        halfBase, 0, 0,
+        halfTip, GRASS_HEIGHT, 0,
+        -halfTip, GRASS_HEIGHT, 0,
+      ],
+      3
+    )
+  );
+  geometry.setAttribute(
+    "color",
+    new THREE.Float32BufferAttribute(
+      [
+        0.16, 0.28, 0.12,
+        0.16, 0.28, 0.12,
+        0.44, 0.64, 0.3,
+        0.44, 0.64, 0.3,
+      ],
+      3
+    )
+  );
+  geometry.setIndex([0, 1, 2, 0, 2, 3]);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** Two blades crossed, so a tuft looks the same from every side. */
 const GRASS = (() => {
-  const blade = new THREE.PlaneGeometry(0.7, 0.9);
-  const crossed = blade.clone();
+  const blade = grassBlade();
+  const crossed = grassBlade();
   crossed.rotateY(Math.PI / 2);
-  return shifted(mergeGeometries([blade, crossed]), 0.45);
+  return mergeGeometries([blade, crossed]);
 })();
 
 const SPECIES = [
