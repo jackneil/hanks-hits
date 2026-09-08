@@ -125,6 +125,10 @@ const extractorSamples = {
     expectedType: "wins",
     data: { gamesWon: 5, maxStreak: 4, gamesPlayed: 7 },
   },
+  "four-wheeler-3d": {
+    expectedType: "fastest_time",
+    data: { bestRaceTimeMs: 92500, money: 51000, trophies: 4 },
+  },
   "memory-match": {
     expectedType: "fastest_time",
     data: {

@@ -66,6 +66,25 @@ export function extractGameStats(
         ].filter(Boolean) as { label: string; value: string }[],
       };
 
+    case "four-wheeler-3d":
+      return {
+        ...baseInfo,
+        primaryStat: data.money
+          ? { label: "Money", value: `$${formatNumber(data.money as number)}` }
+          : null,
+        secondaryStats: [
+          data.trophies && { label: "Trophies", value: String(data.trophies) },
+          data.bestRaceTimeMs && {
+            label: "Best Race",
+            value: formatRaceTime(data.bestRaceTimeMs as number),
+          },
+          data.biggestFish && {
+            label: "Biggest Fish",
+            value: String(data.biggestFish),
+          },
+        ].filter(Boolean) as { label: string; value: string }[],
+      };
+
     case "2048":
       return {
         ...baseInfo,
@@ -491,6 +510,16 @@ export function extractGameStats(
  */
 function formatNumber(n: number): string {
   return n.toLocaleString();
+}
+
+/**
+ * Format a race time in milliseconds as m:ss.t (e.g. 92500 -> "1:32.5")
+ */
+function formatRaceTime(ms: number): string {
+  const totalSeconds = ms / 1000;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds - minutes * 60;
+  return `${minutes}:${seconds.toFixed(1).padStart(4, "0")}`;
 }
 
 /**

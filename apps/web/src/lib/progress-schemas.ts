@@ -729,6 +729,42 @@ const achievementsSchema = z.object({
 }).strict();
 
 // ============================================================================
+// Four-Wheeler Adventure 3D
+// ============================================================================
+// bestRaceTimeMs is a lap time in milliseconds. MAX_COUNT * 1000 is one
+// million seconds (about 11 days), which no real lap can reach and still
+// bounds a hostile payload.
+const fourWheeler3dSchema = z.object({
+  money: z.number().min(0).max(MAX_CURRENCY),
+  totalEarned: z.number().min(0).max(MAX_CURRENCY),
+  ownedVehicles: z.array(boundedString).max(100),
+  currentVehicle: boundedString,
+  paint: boundedString,
+  trophies: z.number().min(0).max(MAX_COUNT),
+  fishCaught: boundedRecord(z.number().min(0).max(MAX_COUNT)),
+  biggestFish: boundedString,
+  bestRaceTimeMs: z.number().min(0).max(MAX_COUNT * 1000),
+  racesWon: z.number().min(0).max(MAX_COUNT),
+  airPoints: z.number().min(0).max(MAX_COUNT),
+  land: boundedRecord(
+    z.object({
+      size: z.number().int().min(0).max(4),
+      slots: z.array(boundedString).max(2),
+    }).strict()
+  ),
+  hunger: z.number().min(0).max(100),
+  day: z.number().min(1).max(MAX_COUNT),
+  timeOfDay: z.number().min(0).max(24),
+  weather: boundedString,
+  settings: z.object({
+    soundEnabled: z.boolean(),
+    tiltEnabled: z.boolean(),
+    helmetCam: z.boolean(),
+  }).strict(),
+  lastModified: timestampSchema,
+}).strict();
+
+// ============================================================================
 // Schema Registry
 // ============================================================================
 
@@ -743,6 +779,7 @@ export const PROGRESS_SCHEMAS: Partial<Record<ValidAppId, z.ZodSchema>> = {
   quoridor: quoridorSchema,
   "oregon-trail": oregonTrailSchema,
   "monster-truck": monsterTruckSchema,
+  "four-wheeler-3d": fourWheeler3dSchema,
   "hill-climb": hillClimbSchema,
   "endless-runner": endlessRunnerSchema,
   platformer: platformerSchema,
