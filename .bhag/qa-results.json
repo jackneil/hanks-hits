@@ -180,6 +180,19 @@
     "original_2d": {
       "status": "unchanged",
       "method": "Path-limited git diff exit0"
+    },
+    "full_pre_push_script": {
+      "status": "passed",
+      "exit_code": 0,
+      "log": "/tmp/fw3d-local-push-gate.log",
+      "steps": [
+        "frozen install",
+        "lint",
+        "typecheck",
+        "1146tests/150files",
+        "productionbuild"
+      ],
+      "publication": "Not performed; automaticapprovalreview rejection"
     }
   }
 }

@@ -9319,5 +9319,15 @@
       "limits": "No AAA/10 rating; physical devices and exhaustive browser permutations not claimed."
     }
   },
-  "status": "implementation_and_local_acceptance_complete"
+  "status": "local_implementation_and_acceptance_complete_publication_requires_approval",
+  "delivery": {
+    "status": "blocked_pending_explicit_user_authorization",
+    "action": "Push local four-wheeler source, assets and verification artifacts to origin feat/four-wheeler-3d, updating draftPR21",
+    "destination": "https://github.com/jackneil/hanks-hits.git",
+    "remote_head_verified": "9f50a774a95eb76375fcf03ddc7cd82bf6f2bfd3",
+    "reason": "Automatic approval review rejected both attempts: external source/artifact export requires explicit user authorization for destination and payload. Existing PR metadata and full passing local gates were verified before the second attempt.",
+    "local_push_gate": "passed;1146tests/150files,lint,typecheck,productionbuild,frozeninstall",
+    "log": "/tmp/fw3d-local-push-gate.log",
+    "captured": "2026-09-09T09:49:42.022474+00:00"
+  }
 }
