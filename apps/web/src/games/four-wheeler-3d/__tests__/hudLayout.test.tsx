@@ -30,25 +30,51 @@ function fakeControls() {
   };
   return {
     getControlValues: () => ({
-      throttle: 0, steer: 0, brake: 0, handbrake: false, jump: false,
-      horn: false, reset: false, camera: false, interact: false, nos: false,
+      throttle: 0,
+      steer: 0,
+      brake: 0,
+      handbrake: false,
+      jump: false,
+      horn: false,
+      reset: false,
+      camera: false,
+      interact: false,
+      nos: false,
     }),
     takeOneShot: () => false,
     isMobile: true,
     touch: {
       state: {
-        gas: false, brake: false, left: false, right: false, jump: false,
-        horn: false, jumpPending: false, hornPending: false, steerAxis: 0,
+        gas: false,
+        brake: false,
+        left: false,
+        right: false,
+        jump: false,
+        horn: false,
+        jumpPending: false,
+        hornPending: false,
+        steerAxis: 0,
       },
       stateRef: {
         current: {
-          gas: false, brake: false, left: false, right: false, jump: false,
-          horn: false, jumpPending: false, hornPending: false, steerAxis: 0,
+          gas: false,
+          brake: false,
+          left: false,
+          right: false,
+          jump: false,
+          horn: false,
+          jumpPending: false,
+          hornPending: false,
+          steerAxis: 0,
         },
       },
       handlers: {
-        gas: handlers, brake: handlers, left: handlers,
-        right: handlers, jump: handlers, horn: handlers,
+        gas: handlers,
+        brake: handlers,
+        left: handlers,
+        right: handlers,
+        jump: handlers,
+        horn: handlers,
       },
       setSteerAxis: noop,
     },
@@ -87,16 +113,16 @@ describe("the touch controls never cover each other", () => {
   it("keeps them apart on a small phone too", () => {
     // The TILT chip used to sit under the BRAKE pedal. This is that check.
     expect(
-      overlaps("tilt", "brake", SMALL_PHONE.width, SMALL_PHONE.height)
+      overlaps("tilt", "brake", SMALL_PHONE.width, SMALL_PHONE.height),
+    ).toBe(false);
+    expect(overlaps("tilt", "gas", SMALL_PHONE.width, SMALL_PHONE.height)).toBe(
+      false,
+    );
+    expect(
+      overlaps("speedo", "horn", SMALL_PHONE.width, SMALL_PHONE.height),
     ).toBe(false);
     expect(
-      overlaps("tilt", "gas", SMALL_PHONE.width, SMALL_PHONE.height)
-    ).toBe(false);
-    expect(
-      overlaps("speedo", "horn", SMALL_PHONE.width, SMALL_PHONE.height)
-    ).toBe(false);
-    expect(
-      overlaps("speedo", "jump", SMALL_PHONE.width, SMALL_PHONE.height)
+      overlaps("speedo", "jump", SMALL_PHONE.width, SMALL_PHONE.height),
     ).toBe(false);
   });
 
@@ -126,8 +152,12 @@ describe("the controls render where the layout says", () => {
   it("puts every button on screen with the layout's own box", () => {
     render(
       <MobileControls
-        controls={fakeControls() as unknown as Parameters<typeof MobileControls>[0]["controls"]}
-      />
+        controls={
+          fakeControls() as unknown as Parameters<
+            typeof MobileControls
+          >[0]["controls"]
+        }
+      />,
     );
 
     const cases: [string, ControlName][] = [
@@ -152,8 +182,12 @@ describe("the controls render where the layout says", () => {
   it("shows the tilt chip where the layout puts it, clear of the pedals", () => {
     render(
       <MobileControls
-        controls={fakeControls() as unknown as Parameters<typeof MobileControls>[0]["controls"]}
-      />
+        controls={
+          fakeControls() as unknown as Parameters<
+            typeof MobileControls
+          >[0]["controls"]
+        }
+      />,
     );
     const tilt = screen.getByText("📱 TILT");
     expect(tilt.style.bottom).toBe(boxStyle("tilt").bottom);

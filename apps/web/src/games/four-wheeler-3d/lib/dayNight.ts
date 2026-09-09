@@ -30,7 +30,7 @@ function lerp(a: number, b: number, t: number): number {
 /** Move the clock forward. `newDay` is true on the tick that passes midnight. */
 export function advanceClock(
   timeOfDay: number,
-  dtSeconds: number
+  dtSeconds: number,
 ): { timeOfDay: number; newDay: boolean } {
   const next = timeOfDay + dtSeconds * GAME_HOURS_PER_REAL_SECOND;
   if (next >= 24) return { timeOfDay: next % 24, newDay: true };
@@ -55,7 +55,7 @@ export function nightFactor(timeOfDay: number): number {
  * below the horizon, which is what puts the moon light in charge.
  */
 export function sunPosition(timeOfDay: number): [number, number, number] {
-  const dayProgress = (((timeOfDay - 6) % 24) + 24) % 24 / 14;
+  const dayProgress = ((((timeOfDay - 6) % 24) + 24) % 24) / 14;
   const angle = Math.PI * dayProgress;
   const x = Math.cos(angle);
   const y = Math.sin(angle);
@@ -76,7 +76,14 @@ export function rollWeather(rand: () => number): Weather {
 /** How thick the air is, 0 clear to 1 soup. */
 export function fogDensity(timeOfDay: number, weather: Weather): number {
   const night = nightFactor(timeOfDay);
-  const base = weather === "foggy" ? 0.8 : weather === "snowy" ? 0.45 : weather === "rainy" ? 0.35 : 0.12;
+  const base =
+    weather === "foggy"
+      ? 0.8
+      : weather === "snowy"
+        ? 0.45
+        : weather === "rainy"
+          ? 0.35
+          : 0.12;
   return clamp01(base + night * 0.18);
 }
 
@@ -84,7 +91,7 @@ export function fogDensity(timeOfDay: number, weather: Weather): number {
 export function updateSnowLevel(
   snowLevel: number,
   weather: Weather,
-  dtSeconds: number
+  dtSeconds: number,
 ): number {
   if (weather === "snowy") {
     return Math.min(1, snowLevel + dtSeconds * SNOW_FALL_PER_SECOND);
@@ -149,7 +156,9 @@ export function skyColors(timeOfDay: number, weather: Weather): SkyPalette {
   const tint = WEATHER_TINT[weather];
 
   const blend = (day: Rgb, dark: Rgb): string =>
-    toHex(mix(mix(day, dark, night), tint.color, tint.amount * (1 - night * 0.5)));
+    toHex(
+      mix(mix(day, dark, night), tint.color, tint.amount * (1 - night * 0.5)),
+    );
 
   const density = fogDensity(timeOfDay, weather);
 

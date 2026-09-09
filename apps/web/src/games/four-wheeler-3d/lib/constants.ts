@@ -62,7 +62,13 @@ export const START_MONEY = 20000;
 /** One in-game day lasts this many real minutes. */
 export const DAY_MINUTES = 24;
 
-export const FISH_TYPES = ["little", "middle", "big", "huge", "rainbow"] as const;
+export const FISH_TYPES = [
+  "little",
+  "middle",
+  "big",
+  "huge",
+  "rainbow",
+] as const;
 export type FishType = (typeof FISH_TYPES)[number];
 
 export const PLOT_IDS = [

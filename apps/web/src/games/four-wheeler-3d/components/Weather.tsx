@@ -113,7 +113,14 @@ export function WeatherEffects({
 
   if (!falling) return null;
 
-  return <points ref={pointsRef} geometry={geometry} material={material} frustumCulled={false} />;
+  return (
+    <points
+      ref={pointsRef}
+      geometry={geometry}
+      material={material}
+      frustumCulled={false}
+    />
+  );
 }
 
 export default WeatherEffects;

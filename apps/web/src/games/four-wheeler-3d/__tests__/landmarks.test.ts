@@ -73,7 +73,9 @@ describe("four-wheeler-3d landmarks", () => {
     const spur = trainSpurPoints(320);
     expect(spur).toHaveLength(321);
     expect(spur[0].x).toBeCloseTo(TRAIN_STATIONS[3].x, 6);
-    expect(insideHub(spur[spur.length - 1].x, spur[spur.length - 1].z)).toBe(true);
+    expect(insideHub(spur[spur.length - 1].x, spur[spur.length - 1].z)).toBe(
+      true,
+    );
   });
 
   it("spreads the cabins away from the lake and from each other", () => {
@@ -86,7 +88,7 @@ describe("four-wheeler-3d landmarks", () => {
       for (let j = i + 1; j < CABINS.length; j++) {
         const gap = Math.hypot(
           CABINS[i].x - CABINS[j].x,
-          CABINS[i].z - CABINS[j].z
+          CABINS[i].z - CABINS[j].z,
         );
         expect(gap).toBeGreaterThan(300);
       }

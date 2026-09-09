@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 /**
  * Four-Wheeler Adventure 3D uses procedural models, locally vendored CC0
- * textures and procedural WebAudio. Nothing may call out to another site: the
+ * textures, engine recordings and procedural WebAudio. Nothing may call out to another site: the
  * site CSP blocks cross-origin media anyway, and a kids' game must never phone
  * an outside server. This scan pins that invariant for every source file in
  * the module.
@@ -32,7 +32,10 @@ describe("four-wheeler-3d module media", () => {
   });
 
   it("vendors both ground maps within the mobile download budget", () => {
-    const assets = join(MODULE_DIR, "../../../public/games/four-wheeler-3d/textures");
+    const assets = join(
+      MODULE_DIR,
+      "../../../public/games/four-wheeler-3d/textures",
+    );
     let bytes = 0;
     for (const name of ["ground-color.jpg", "ground-height.jpg"]) {
       const content = readFileSync(join(assets, name));
@@ -43,15 +46,18 @@ describe("four-wheeler-3d module media", () => {
   });
 
   for (const pattern of [
-    { name: "<img tags", regex: /<img/i },
-    { name: "<audio tags", regex: /<audio/i },
-    { name: "fetch calls", regex: /fetch\(/ },
+    { name: "<img tags", regex: /<img(?:\s|>)/i },
+    { name: "<audio tags", regex: /<audio(?:\s|>)/i },
+    {
+      name: "nonlocal fetch calls",
+      regex: /fetch\((?!\s*"\/games\/four-wheeler-3d\/)/,
+    },
     { name: "http:// URLs", regex: /http:\/\// },
     { name: "https:// URLs", regex: /https:\/\// },
   ]) {
     it(`has no ${pattern.name}`, () => {
       const offenders = files.filter((file) =>
-        pattern.regex.test(readFileSync(file, "utf8"))
+        pattern.regex.test(readFileSync(file, "utf8")),
       );
       expect(offenders).toEqual([]);
     });

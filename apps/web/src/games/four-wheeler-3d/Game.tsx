@@ -4,27 +4,32 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import {
-  GameStartOverlay,
-  OrientationWarning,
-  PauseMenu,
-  WebGLGate,
-} from "@/shared/components";
+import { OrientationWarning, PauseMenu, WebGLGate } from "@/shared/components";
 
 import { World } from "./components/World";
-import { ClockBadge } from "./components/hud/ClockBadge";
 import { ChunkCounter } from "./components/hud/ChunkCounter";
 import { Speedo } from "./components/hud/Speedo";
 import { HintToast } from "./components/hud/HintToast";
 import { MobileControls } from "./components/MobileControls";
 import { useGameControls } from "./hooks/useControls";
-import {
-  GameContextProvider,
-  useCreateGameContext,
-} from "./lib/gameContext";
+import { GameContextProvider, useCreateGameContext } from "./lib/gameContext";
 import { sounds } from "./lib/sounds";
-import type { Weather } from "./lib/dayNight";
 import { useFourWheeler3dStore, type FourWheeler3dProgress } from "./lib/store";
+import { useAdventureSession } from "./lib/adventureSession";
+import { AdventureHUD } from "./components/ui/AdventureHUD";
+import { HuntingScope } from "./components/ui/HuntingPanel";
+import { InventoryPanel } from "./components/ui/InventoryPanel";
+import { StartScreen } from "./components/StartScreen";
+import { SceneCapture } from "./components/SceneCapture";
+import { SpaceTouchControls } from "./components/SpaceTouchControls";
+import { FishingPanel, RainbowCelebration } from "./components/ui/FishingPanel";
+import { RacePanel, RaceStatus } from "./components/ui/RacePanel";
+import { TrainPanel, TrainHUD } from "./components/ui/TrainPanel";
+import { SpacePanel, SpaceHUD } from "./components/ui/SpacePanel";
+import {
+  ActivitiesPanel,
+  ActivitiesControls,
+} from "./components/ui/ActivitiesPanel";
 
 /** The speedometer is redrawn no more often than this, in milliseconds. */
 const SPEEDO_INTERVAL = 80;
@@ -42,20 +47,23 @@ export function FourWheeler3dGame() {
   });
 
   const hasStarted = useFourWheeler3dStore((s) => s.hasStarted);
-  const setHasStarted = useFourWheeler3dStore((s) => s.setHasStarted);
   const isPaused = useFourWheeler3dStore((s) => s.isPaused);
   const setPaused = useFourWheeler3dStore((s) => s.setPaused);
-  const timeOfDay = useFourWheeler3dStore((s) => s.clock);
-  const day = useFourWheeler3dStore((s) => s.progress.day);
-  const weather = useFourWheeler3dStore((s) => s.progress.weather) as Weather;
-  const soundEnabled = useFourWheeler3dStore(
-    (s) => s.progress.settings.soundEnabled
+  const generation = useAdventureSession((s) => s.generation);
+  const panel = useAdventureSession((s) => s.panel);
+  const racing = useAdventureSession(
+    (s) => s.race?.phase === "countdown" || s.race?.phase === "racing",
   );
-  const helmetCam = useFourWheeler3dStore((s) => s.progress.settings.helmetCam);
-  const updateSettings = useFourWheeler3dStore((s) => s.updateSettings);
+  const mode = useFourWheeler3dStore((s) => s.mode);
+  const currentVehicle = useFourWheeler3dStore(
+    (s) => s.progress.currentVehicle,
+  );
+  const soundEnabled = useFourWheeler3dStore(
+    (s) => s.progress.settings.soundEnabled,
+  );
 
   // Keys and buttons are dead on the start card and while the game is paused.
-  const controls = useGameControls(hasStarted && !isPaused);
+  const controls = useGameControls(hasStarted && !isPaused && !panel);
 
   // The speedometer reads a number, not every frame of the ride.
   const [speed, setSpeed] = useState(0);
@@ -70,7 +78,12 @@ export function FourWheeler3dGame() {
   // Escape pauses and unpauses, the same as the other 3D game.
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.code === "Escape") setPaused(!isPaused);
+      if (event.code === "Escape") {
+        const session = useAdventureSession.getState();
+        if (session.panel) session.openPanel(null);
+        else if (session.scope) useAdventureSession.setState({ scope: false });
+        else setPaused(!isPaused);
+      }
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
@@ -80,14 +93,19 @@ export function FourWheeler3dGame() {
   // browser needs before it will play any sound at all.
   useEffect(() => {
     sounds.setEnabled(soundEnabled);
-    if (!hasStarted || isPaused || !soundEnabled) {
+    if (
+      !hasStarted ||
+      isPaused ||
+      !soundEnabled ||
+      !["vehicle", "boat", "aircraft"].includes(mode)
+    ) {
       sounds.stopEngine();
       return;
     }
     sounds.resume();
     sounds.startEngine();
     return () => sounds.stopEngine();
-  }, [hasStarted, isPaused, soundEnabled]);
+  }, [hasStarted, isPaused, soundEnabled, mode]);
 
   return (
     <div className="fixed inset-0 bg-black">
@@ -103,67 +121,80 @@ export function FourWheeler3dGame() {
             style={{ touchAction: "none" }}
           >
             <Suspense fallback={null}>
-              <World controls={controls} onSpeed={onSpeed} />
+              <World key={generation} controls={controls} onSpeed={onSpeed} />
+              <SceneCapture />
             </Suspense>
           </Canvas>
 
           {hasStarted && (
             <>
-              <ClockBadge timeOfDay={timeOfDay} day={day} weather={weather} />
               <ChunkCounter />
-              <Speedo speed={speed} vehicleId="atv" raised={controls.isMobile} />
-              <HintToast raised={controls.isMobile} />
-
-              {controls.isMobile ? (
-                <MobileControls controls={controls} />
-              ) : (
-                <div className="pointer-events-auto fixed bottom-4 left-3 z-40 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => updateSettings({ helmetCam: !helmetCam })}
-                    className="h-11 rounded-xl bg-slate-700 px-4 text-sm font-black text-white shadow-md active:translate-y-0.5"
-                  >
-                    📷 {helmetCam ? "RIDER VIEW" : "CHASE VIEW"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sounds.setEnabled(soundEnabled);
-                      sounds.playHorn();
-                    }}
-                    className="h-11 rounded-xl bg-sky-600 px-4 text-sm font-black text-white shadow-md active:translate-y-0.5"
-                  >
-                    📣 HORN
-                  </button>
-                </div>
+              {["vehicle", "boat", "aircraft"].includes(mode) && (
+                <Speedo
+                  speed={speed}
+                  vehicleId={currentVehicle}
+                  raised={controls.isMobile}
+                  racing={racing}
+                />
               )}
+              <HintToast raised={controls.isMobile} />
+              {mode !== "space" && mode !== "planet" && (
+                <AdventureHUD mobile={controls.isMobile}>
+                  {panel === "inventory" ? (
+                    <InventoryPanel />
+                  ) : panel === "fishing" ? (
+                    <FishingPanel />
+                  ) : panel === "race" ? (
+                    <RacePanel />
+                  ) : panel === "train" ? (
+                    <TrainPanel />
+                  ) : panel === "space" ? (
+                    <SpacePanel />
+                  ) : panel === "activities" ? (
+                    <ActivitiesPanel />
+                  ) : null}
+                </AdventureHUD>
+              )}
+              <RaceStatus />
+              <RainbowCelebration />
+              <TrainHUD />
+              <SpaceHUD />
+              {mode !== "space" && mode !== "planet" && <ActivitiesControls />}
+              <HuntingScope />
+              {controls.isMobile && ["space", "planet"].includes(mode) && (
+                <SpaceTouchControls controls={controls} />
+              )}
+
+              {mode !== "space" &&
+                mode !== "planet" &&
+                mode !== "train" &&
+                (controls.isMobile ? (
+                  <MobileControls
+                    controls={controls}
+                    forwardLabel={mode === "parachute" ? "GLIDE" : undefined}
+                    walking={["foot", "interior", "deck", "stand"].includes(
+                      mode,
+                    )}
+                  />
+                ) : mode !== "interior" ? (
+                  <div className="pointer-events-auto fixed bottom-4 left-3 z-40 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.setEnabled(soundEnabled);
+                        sounds.playHorn();
+                      }}
+                      className="h-11 rounded-xl bg-[#263b2d] px-4 text-sm font-black text-white shadow-md active:translate-y-0.5"
+                    >
+                      📣 HORN
+                    </button>
+                  </div>
+                ) : null)}
             </>
           )}
         </GameContextProvider>
 
-        {!hasStarted && (
-          <GameStartOverlay
-            title="Four-Wheeler Adventure 3D"
-            emoji="🏍️"
-            subtitle="Ride around, race, fish, and explore with your dog!"
-            touchHints={[
-              "🦶 Tap GAS to go, BRAKE to stop",
-              "👈👉 Tap the arrows to steer",
-              "📱 Tap TILT to steer by tilting your phone",
-              "🤸 Tap JUMP for a stunt",
-              "📣 Tap the horn!",
-            ]}
-            keyboardHints={[
-              "🦶 Press W or the up arrow to go",
-              "🛑 Press S or the down arrow to stop",
-              "👈👉 Press A and D to steer",
-              "🤸 Press the space bar to jump",
-              "📷 Press C to switch camera",
-              "🔄 Press R to flip back over",
-            ]}
-            onStart={() => setHasStarted(true)}
-          />
-        )}
+        {!hasStarted && <StartScreen />}
       </WebGLGate>
 
       <PauseMenu

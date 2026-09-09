@@ -3,12 +3,26 @@
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import type { VehicleTuning } from "../../lib/vehicles";
-import { bar, combine, ellipsoid, rounded, type Point } from "./modelGeometry";
+import { bar, combine, rounded } from "./modelGeometry";
 
-export type VehicleModelProps = { tuning: VehicleTuning; paint: string };
+import { RiderModel } from "./RiderModel";
+
+export type VehicleModelProps = {
+  tuning: VehicleTuning;
+  paint: string;
+  detail?: "full" | "parked";
+  lightsEnabled?: boolean;
+  mud?: number;
+};
 
 /** Full-size utility quad, facing +Z. All positions are relative to the physics chassis. */
-export function AtvModel({ tuning, paint }: VehicleModelProps) {
+export function AtvModel({
+  tuning,
+  paint,
+  detail = "full",
+  lightsEnabled = true,
+  mud = 0,
+}: VehicleModelProps) {
   const headlightTarget = useMemo(() => {
     const target = new THREE.Object3D();
     target.position.set(0, -0.5, 12);
@@ -125,8 +139,11 @@ export function AtvModel({ tuning, paint }: VehicleModelProps) {
     >
       <mesh geometry={parts.shell} castShadow>
         <meshPhysicalMaterial
-          color={paint}
-          roughness={0.3}
+          color={new THREE.Color(paint).lerp(
+            new THREE.Color("#51412a"),
+            mud * 0.75,
+          )}
+          roughness={0.3 + mud * 0.6}
           metalness={0.08}
           clearcoat={0.7}
           clearcoatRoughness={0.25}
@@ -156,105 +173,23 @@ export function AtvModel({ tuning, paint }: VehicleModelProps) {
         <meshStandardMaterial
           color="#fff4d6"
           emissive="#ffe1a1"
-          emissiveIntensity={2.2}
+          emissiveIntensity={lightsEnabled ? 2.2 : 0.15}
         />
       </mesh>
       <primitive object={headlightTarget} />
-      <spotLight
-        position={[0, 0.08, 0.98]}
-        target={headlightTarget}
-        color="#ffe6b7"
-        intensity={85}
-        distance={28}
-        angle={0.65}
-        penumbra={0.7}
-        decay={2}
-      />
-      <Rider paint={paint} />
-    </group>
-  );
-}
-
-function Rider({ paint }: { paint: string }) {
-  const parts = useMemo(() => {
-    const jersey: THREE.BufferGeometry[] = [
-      ellipsoid([0.21, 0.28, 0.14], [0, 0.69, -0.12]),
-    ];
-    const pants: THREE.BufferGeometry[] = [];
-    const boots: THREE.BufferGeometry[] = [];
-    for (const side of [-1, 1]) {
-      const shoulder: Point = [side * 0.18, 0.82, -0.08];
-      const elbow: Point = [side * 0.3, 0.65, 0.015];
-      const hand: Point = [side * 0.33, 0.6, 0.16];
-      jersey.push(
-        bar(shoulder, elbow, 0.07, 0.085),
-        bar(elbow, hand, 0.055, 0.067),
-        ellipsoid([0.075, 0.075, 0.075], elbow),
-      );
-      pants.push(
-        bar([side * 0.13, 0.45, -0.2], [side * 0.29, 0.2, 0.14], 0.095, 0.12),
-        bar([side * 0.29, 0.2, 0.14], [side * 0.34, -0.1, -0.02], 0.065, 0.09),
-      );
-      boots.push(
-        rounded([0.14, 0.18, 0.28], [side * 0.34, -0.14, 0.045], 0.04),
-        ellipsoid([0.065, 0.055, 0.07], hand),
-      );
-    }
-    return {
-      jersey: combine(jersey),
-      pants: combine(pants),
-      boots: combine(boots),
-    };
-  }, []);
-  useEffect(
-    () => () => Object.values(parts).forEach((g) => g.dispose()),
-    [parts],
-  );
-  return (
-    <group name="helmeted-rider">
-      <mesh geometry={parts.jersey} castShadow>
-        <meshStandardMaterial color="#d3c6a3" roughness={0.98} />
-      </mesh>
-      <mesh geometry={parts.pants} castShadow>
-        <meshStandardMaterial color="#303d43" roughness={1} />
-      </mesh>
-      <mesh geometry={parts.boots} castShadow>
-        <meshStandardMaterial color="#242b29" roughness={0.85} />
-      </mesh>
-      <mesh position={[0, 0.72, -0.252]} scale={[0.15, 0.22, 0.075]} castShadow>
-        <sphereGeometry args={[1, 16, 12]} />
-        <meshStandardMaterial color="#4b5948" roughness={0.95} />
-      </mesh>
-      <group position={[0, 1.06, -0.045]} rotation={[0.1, 0, 0]}>
-        <mesh scale={[0.19, 0.215, 0.215]} castShadow>
-          <sphereGeometry args={[1, 28, 20]} />
-          <meshPhysicalMaterial color={paint} roughness={0.3} clearcoat={0.8} />
-        </mesh>
-        <mesh position={[0, 0.01, 0.157]} scale={[0.172, 0.082, 0.087]}>
-          <sphereGeometry args={[1, 24, 12]} />
-          <meshStandardMaterial
-            color="#162c32"
-            metalness={0.5}
-            roughness={0.12}
-          />
-        </mesh>
-        <mesh
-          position={[0, 0.113, 0.14]}
-          scale={[0.205, 0.025, 0.18]}
-          castShadow
-        >
-          <sphereGeometry args={[1, 20, 10]} />
-          <meshStandardMaterial color="#232b2b" roughness={0.45} />
-        </mesh>
-        <mesh
-          position={[0, -0.11, 0.14]}
-          scale={[0.14, 0.065, 0.12]}
-          castShadow
-        >
-          <sphereGeometry args={[1, 20, 12]} />
-          <meshStandardMaterial color="#263332" roughness={0.5} />
-        </mesh>
-      </group>
+      {lightsEnabled && (
+        <spotLight
+          position={[0, 0.08, 0.98]}
+          target={headlightTarget}
+          color="#ffe6b7"
+          intensity={85}
+          distance={28}
+          angle={0.65}
+          penumbra={0.7}
+          decay={2}
+        />
+      )}
+      {detail === "full" && <RiderModel paint={paint} />}
     </group>
   );
 }

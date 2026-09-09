@@ -1,0 +1,68 @@
+{
+  "captured": "2026-09-09T01:39:29.743267+00:00",
+  "scope": "Four-wheeler3D module, assets, save schema/merge, shared read-aloud delta. Original2D unchanged.",
+  "status": "passed",
+  "source_manifest": ".bhag/reviewed-files.json",
+  "reviews": [
+    {
+      "reviewer": "dcr_logic_data",
+      "lenses": "Logic and data integrity",
+      "result": "passed after applicable fixes"
+    },
+    {
+      "reviewer": "dcr_ux_testing",
+      "lenses": "UX and testing",
+      "result": "passed after applicable fixes"
+    },
+    {
+      "reviewer": "dcr_performance_simple",
+      "lenses": "Performance and simplicity",
+      "result": "passed after applicable fixes"
+    },
+    {
+      "reviewer": "dcr_guard_maintain",
+      "lenses": "Guardrails and maintainability",
+      "result": "passed after applicable fixes"
+    },
+    {
+      "reviewer": "dcr_security",
+      "lenses": "Security",
+      "result": "passed after applicable fixes"
+    },
+    {
+      "reviewer": "dcr_access_errors",
+      "lenses": "Accessibility and error handling",
+      "result": "passed after applicable fixes"
+    },
+    {
+      "reviewer": "dcr_premortem",
+      "lenses": "Pre-mortem",
+      "result": "passed after applicable fixes"
+    },
+    {
+      "reviewer": "dcr_frontend",
+      "lenses": "Frontend, screenshot review and final QA deltas",
+      "result": "passed after applicable fixes"
+    }
+  ],
+  "resolved": [
+    "Monotonic action/relocation IDs and world generations",
+    "Fish/race session invalidation on cloud adoption",
+    "Minimum positive cloud race record",
+    "Shared wheel buffers, capped detailed fleet, independent nearby collisions",
+    "Disposal of instanced mesh buffers",
+    "ATV parachute touch action and read-aloud coverage",
+    "Reserved fleet references and bounded grass/snow saves",
+    "Scope repeat/focused-button arrow ownership and map release",
+    "Optional radio failure recovery",
+    "Honest displayed vehicle speeds",
+    "Compact speedometer and labeled hunger meters",
+    "Nearest usable destination and live-train Use",
+    "Exact interior relocation across pause/save",
+    "No remote on-foot boat actions",
+    "Race options available away from start, reserved compact HUD area",
+    "Station label size, unambiguous steering arrows, below-ground recovery"
+  ],
+  "remaining_introduced_defects": 0,
+  "advisory": "Large subsystem files remain a maintainability consideration; no independent reviewer found a remaining concrete blocker. Physical device certification and subjective AAA/10 scoring not performed."
+}

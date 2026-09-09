@@ -19,7 +19,9 @@ export function ClockBadge({
   weather: Weather;
 }) {
   return (
-    <div className={`pointer-events-none absolute left-3 ${HUD_TOP} z-20 select-none`}>
+    <div
+      className={`pointer-events-none absolute left-3 ${HUD_TOP} z-20 select-none`}
+    >
       <div className="flex items-center gap-2 rounded-2xl bg-black/55 px-4 py-2 text-white shadow-lg backdrop-blur-sm">
         <span className="text-2xl" aria-hidden="true">
           {clockIcon(timeOfDay, weather)}

@@ -32,10 +32,22 @@ import {
 
 /** Every key the game listens for. Anything else falls through to the page. */
 const GAME_KEYS = new Set([
-  "KeyW", "KeyA", "KeyS", "KeyD",
-  "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
-  "Space", "ShiftLeft", "KeyX",
-  "KeyH", "KeyR", "KeyC", "KeyE", "KeyN",
+  "KeyW",
+  "KeyA",
+  "KeyS",
+  "KeyD",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Space",
+  "ShiftLeft",
+  "KeyX",
+  "KeyH",
+  "KeyR",
+  "KeyC",
+  "KeyE",
+  "KeyN",
 ]);
 
 /** The touch buttons the on-screen controls drive. */
@@ -129,7 +141,7 @@ function useTouch() {
       onPointerLeave: () => set(button, false),
       onContextMenu: (event) => event.preventDefault(),
     }),
-    [set]
+    [set],
   );
 
   const handlers = useMemo(
@@ -141,7 +153,7 @@ function useTouch() {
       jump: handlersFor("jump"),
       horn: handlersFor("horn"),
     }),
-    [handlersFor]
+    [handlersFor],
   );
 
   const setSteerAxis = useCallback((axis: number) => {
@@ -159,7 +171,7 @@ export function useDeviceOrientation() {
     isSupported && !("requestPermission" in DeviceOrientationEvent);
 
   const [isPermissionGranted, setIsPermissionGranted] = useState(
-    hasImplicitPermission
+    hasImplicitPermission,
   );
   const steerRef = useRef(0);
   const smoothed = useRef(0);
@@ -202,7 +214,13 @@ export function useDeviceOrientation() {
       window.removeEventListener("deviceorientation", handleOrientation);
   }, [isPermissionGranted, handleOrientation]);
 
-  return { isSupported, isPermissionGranted, requestPermission, calibrate, steerRef };
+  return {
+    isSupported,
+    isPermissionGranted,
+    requestPermission,
+    calibrate,
+    steerRef,
+  };
 }
 
 export type GameControls = ReturnType<typeof useGameControls>;
@@ -232,11 +250,11 @@ export function useGameControls(enabled: boolean) {
   const getControlValues = useCallback((): ControlValues => {
     if (!enabled) return NEUTRAL;
     touch.setSteerAxis(
-      useTilt && tilt.isPermissionGranted ? tilt.steerRef.current : 0
+      useTilt && tilt.isPermissionGranted ? tilt.steerRef.current : 0,
     );
     return combine(
       reduceKeyboard(latch.current.held, latch.current.pending),
-      reduceTouch(touch.stateRef.current)
+      reduceTouch(touch.stateRef.current),
     );
   }, [enabled, latch, touch, tilt, useTilt]);
 
@@ -246,7 +264,7 @@ export function useGameControls(enabled: boolean) {
       if (!enabled) return false;
       return takeOneShot(latch.current, touch.stateRef.current, action);
     },
-    [enabled, latch, touch]
+    [enabled, latch, touch],
   );
 
   return {

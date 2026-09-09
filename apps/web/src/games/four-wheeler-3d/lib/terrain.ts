@@ -99,7 +99,11 @@ function getNoise(): ReturnType<typeof createNoise2D> {
 }
 
 /** The classic smooth 0..1 ramp between two edges. */
-export function smoothstep(edge0: number, edge1: number, value: number): number {
+export function smoothstep(
+  edge0: number,
+  edge1: number,
+  value: number,
+): number {
   if (edge1 === edge0) return value < edge0 ? 0 : 1;
   const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
@@ -188,7 +192,13 @@ type RoadNetwork = {
   segments: RoadSegment[];
   grid: Map<number, number[]>;
   /** Flat pads that must match the road that ends on them. */
-  pads: Array<{ x: number; z: number; half: number; skirt: number; height: number }>;
+  pads: Array<{
+    x: number;
+    z: number;
+    half: number;
+    skirt: number;
+    height: number;
+  }>;
 };
 
 let network: RoadNetwork | null = null;
@@ -203,7 +213,11 @@ function cellKey(cellX: number, cellZ: number): number {
  * the ground under it. Smoothing over neighbours is what stops a road from
  * copying every bump and giving the ATV a step to hit.
  */
-function buildRoad(points: Vec2[], halfWidth: number, closed: boolean): RoadSegment[] {
+function buildRoad(
+  points: Vec2[],
+  halfWidth: number,
+  closed: boolean,
+): RoadSegment[] {
   const raw = points.map((p) => stageHeight(p.x, p.z));
   const window = 4;
   const smooth = raw.map((_, index) => {
@@ -286,6 +300,22 @@ function getNetwork(): RoadNetwork {
   segments.push(...buildRoad(trainLoopPoints(1200), ROAD_HALF.train, true));
   segments.push(...buildRoad(trainSpurPoints(320), ROAD_HALF.train, false));
   segments.push(...buildRoad([...RUNWAY_ENDS], ROAD_HALF.runway, false));
+  // The taxi lane leaves the shop entrance and passes east of all farm buildings.
+  segments.push(
+    ...buildRoad(
+      [
+        { x: -429, z: -58 },
+        { x: -419, z: -58 },
+        { x: -419, z: -74 },
+        { x: -407, z: -82 },
+        { x: RUNWAY.x, z: RUNWAY.z },
+      ],
+      2.2,
+      false,
+    ),
+  );
+  // Recreation lawn extends the compound without overlapping its shop entrances.
+  pads.push({ x: -479, z: 39, half: 38, skirt: 12, height: HUB_HEIGHT });
 
   /** A spoke plus the flat pad it lands on, both at the same height. */
   const addSpoke = (target: Vec2, half: number, skirt: number) => {
@@ -303,10 +333,18 @@ function getNetwork(): RoadNetwork {
   const grid = new Map<number, number[]>();
   segments.forEach((segment, index) => {
     const reach = segment.halfWidth + ROAD_BLEND;
-    const minX = Math.floor((Math.min(segment.x1, segment.x2) - reach) / ROAD_CELL);
-    const maxX = Math.floor((Math.max(segment.x1, segment.x2) + reach) / ROAD_CELL);
-    const minZ = Math.floor((Math.min(segment.z1, segment.z2) - reach) / ROAD_CELL);
-    const maxZ = Math.floor((Math.max(segment.z1, segment.z2) + reach) / ROAD_CELL);
+    const minX = Math.floor(
+      (Math.min(segment.x1, segment.x2) - reach) / ROAD_CELL,
+    );
+    const maxX = Math.floor(
+      (Math.max(segment.x1, segment.x2) + reach) / ROAD_CELL,
+    );
+    const minZ = Math.floor(
+      (Math.min(segment.z1, segment.z2) - reach) / ROAD_CELL,
+    );
+    const maxZ = Math.floor(
+      (Math.max(segment.z1, segment.z2) + reach) / ROAD_CELL,
+    );
     for (let cx = minX; cx <= maxX; cx++) {
       for (let cz = minZ; cz <= maxZ; cz++) {
         const key = cellKey(cx, cz);
@@ -338,7 +376,7 @@ const NO_ROAD: RoadInfluence = { t: 0, height: 0 };
 export function roadInfluence(x: number, z: number): RoadInfluence {
   const { segments, grid } = getNetwork();
   const bucket = grid.get(
-    cellKey(Math.floor(x / ROAD_CELL), Math.floor(z / ROAD_CELL))
+    cellKey(Math.floor(x / ROAD_CELL), Math.floor(z / ROAD_CELL)),
   );
   if (!bucket) return NO_ROAD;
 
@@ -356,8 +394,8 @@ export function roadInfluence(x: number, z: number): RoadInfluence {
             1,
             Math.max(
               0,
-              ((x - segment.x1) * dx + (z - segment.z1) * dz) / lengthSquared
-            )
+              ((x - segment.x1) * dx + (z - segment.z1) * dz) / lengthSquared,
+            ),
           );
     const nearX = segment.x1 + dx * along;
     const nearZ = segment.z1 + dz * along;
@@ -451,7 +489,10 @@ export function chunkOrigin(cx: number, cz: number): { x: number; z: number } {
 }
 
 /** Which chunk a world position falls in. */
-export function chunkCoordsFor(x: number, z: number): { cx: number; cz: number } {
+export function chunkCoordsFor(
+  x: number,
+  z: number,
+): { cx: number; cz: number } {
   return {
     cx: Math.floor(x / WORLD.CHUNK),
     cz: Math.floor(z / WORLD.CHUNK),
@@ -469,7 +510,7 @@ export function chunkCoordsFor(x: number, z: number): { cx: number; cz: number }
 export function buildChunkHeights(
   cx: number,
   cz: number,
-  segments = 32
+  segments = 32,
 ): { heights: Float32Array; scale: { x: number; y: number; z: number } } {
   const size = WORLD.CHUNK;
   const origin = chunkOrigin(cx, cz);
@@ -503,7 +544,7 @@ function mixInto(
   at: number,
   a: readonly number[],
   b: readonly number[],
-  t: number
+  t: number,
 ): void {
   out[at] = a[0] + (b[0] - a[0]) * t;
   out[at + 1] = a[1] + (b[1] - a[1]) * t;
@@ -526,7 +567,7 @@ export type ChunkGeometryData = {
 export function buildChunkGeometryData(
   cx: number,
   cz: number,
-  segments = 32
+  segments = 32,
 ): ChunkGeometryData {
   const size = WORLD.CHUNK;
   const origin = chunkOrigin(cx, cz);
@@ -555,19 +596,55 @@ export function buildChunkGeometryData(
       const road = roadInfluence(worldX, worldZ).t;
       const beach =
         1 -
-        smoothstep(SHORE_RADIUS, SHORE_RADIUS + SAND_BAND, lakeDistance(worldX, worldZ));
+        smoothstep(
+          SHORE_RADIUS,
+          SHORE_RADIUS + SAND_BAND,
+          lakeDistance(worldX, worldZ),
+        );
 
-      mixInto(colors, at, COLORS.grassLow, COLORS.grassHigh, smoothstep(2, 20, height));
-      if (beach > 0) mixInto(colors, at, [colors[at], colors[at + 1], colors[at + 2]], COLORS.sand, beach);
+      mixInto(
+        colors,
+        at,
+        COLORS.grassLow,
+        COLORS.grassHigh,
+        smoothstep(2, 20, height),
+      );
+      if (beach > 0)
+        mixInto(
+          colors,
+          at,
+          [colors[at], colors[at + 1], colors[at + 2]],
+          COLORS.sand,
+          beach,
+        );
       if (slope > 0.5) {
         const rocky = smoothstep(0.5, 1.1, slope);
-        mixInto(colors, at, [colors[at], colors[at + 1], colors[at + 2]], COLORS.rock, rocky);
+        mixInto(
+          colors,
+          at,
+          [colors[at], colors[at + 1], colors[at + 2]],
+          COLORS.rock,
+          rocky,
+        );
       }
       if (height > SNOW_LINE) {
         const snowy = smoothstep(SNOW_LINE, SNOW_LINE + 6, height);
-        mixInto(colors, at, [colors[at], colors[at + 1], colors[at + 2]], COLORS.snow, snowy);
+        mixInto(
+          colors,
+          at,
+          [colors[at], colors[at + 1], colors[at + 2]],
+          COLORS.snow,
+          snowy,
+        );
       }
-      if (road > 0) mixInto(colors, at, [colors[at], colors[at + 1], colors[at + 2]], COLORS.dirt, road);
+      if (road > 0)
+        mixInto(
+          colors,
+          at,
+          [colors[at], colors[at + 1], colors[at + 2]],
+          COLORS.dirt,
+          road,
+        );
     }
   }
 
@@ -640,6 +717,16 @@ function rand01(a: number, b: number, c: number): number {
 /** True where a prop would be in the way or in the water. */
 function blocksProps(x: number, z: number): boolean {
   if (roadInfluence(x, z).t > 0) return true;
+  // Reserve both building sites through every plot upgrade. Buildings grow east.
+  if (
+    LAND_PLOTS.some(
+      (p) =>
+        x > p.x - 18 &&
+        x < p.x + p.size * 2.8 * 0.55 + 18 &&
+        Math.abs(z - p.z) < 18,
+    )
+  )
+    return true;
   if (lakeDistance(x, z) < SHORE_RADIUS + 4) return true;
   if (hubDistance(x, z) < 8) return true;
   if (padInfluence(x, z).t > 0) return true;
@@ -662,7 +749,7 @@ export function propsForChunk(cx: number, cz: number): ChunkProps {
   const place = (
     salt: number,
     count: number,
-    kind: "trees" | "rocks" | "grass"
+    kind: "trees" | "rocks" | "grass",
   ): PlacedProp[] => {
     const out: PlacedProp[] = [];
     for (let i = 0; i < count; i++) {
@@ -671,7 +758,9 @@ export function propsForChunk(cx: number, cz: number): ChunkProps {
       if (blocksProps(x, z)) continue;
       const roll = rand01(cx + salt, cz + salt, i * 3 + 3);
       const species: 0 | 1 | 2 =
-        kind === "trees" ? ((roll < 0.5 ? 0 : roll < 0.82 ? 1 : 2) as 0 | 1 | 2) : 0;
+        kind === "trees"
+          ? ((roll < 0.5 ? 0 : roll < 0.82 ? 1 : 2) as 0 | 1 | 2)
+          : 0;
       const scale =
         kind === "trees"
           ? 0.75 + roll * 0.7

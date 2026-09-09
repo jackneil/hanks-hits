@@ -2,55 +2,60 @@
 
 import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
+import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 import * as THREE from "three";
 import { nightFactor } from "../lib/dayNight";
 
-/** A baked outdoor light probe gives metal, rubber and paint different reflections. */
+/** Local 1K HDR sky, filtered once for realistic paint, glass and water reflections. */
 export function OutdoorEnvironment({ timeOfDay }: { timeOfDay: number }) {
   const { gl, scene } = useThree();
   useEffect(() => {
     const previous = scene.environment;
-    const probe = new THREE.Scene();
-    const geometry = new THREE.SphereGeometry(50, 32, 16);
-    const positions = geometry.getAttribute("position");
-    const colors = new Float32Array(positions.count * 3);
-    const sky = new THREE.Color("#96b9db");
-    const horizon = new THREE.Color("#eee3cd");
-    const ground = new THREE.Color("#4e5840");
-    const color = new THREE.Color();
-    for (let i = 0; i < positions.count; i++) {
-      const y = positions.getY(i) / 50;
-      color
-        .copy(horizon)
-        .lerp(y > 0 ? sky : ground, Math.min(1, Math.abs(y) * 2));
-      color.toArray(colors, i * 3);
-    }
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    const material = new THREE.MeshBasicMaterial({
-      vertexColors: true,
-      side: THREE.BackSide,
-    });
-    probe.add(new THREE.Mesh(geometry, material));
-    const generator = new THREE.PMREMGenerator(gl);
-    const target = generator.fromScene(probe, 0.04, 0.1, 100);
-    // Three scenes are mutable renderer objects, not React state.
-    // eslint-disable-next-line react-hooks/immutability
-    scene.environment = target.texture;
-    geometry.dispose();
-    material.dispose();
-    generator.dispose();
+    const previousBackground = scene.background;
+    let skyTexture: THREE.DataTexture | undefined;
+    let cancelled = false;
+    let target: THREE.WebGLRenderTarget | undefined;
+    const loader = new HDRLoader();
+    loader.load(
+      "/games/four-wheeler-3d/assets/kloofendal_48d_partly_cloudy_puresky/kloofendal_48d_partly_cloudy_puresky_1k.hdr",
+      (texture) => {
+        if (cancelled) {
+          texture.dispose();
+          return;
+        }
+        const generator = new THREE.PMREMGenerator(gl);
+        target = generator.fromEquirectangular(texture);
+        // The Three scene is an imperative renderer resource, not React state.
+        scene.environment = target.texture;
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        skyTexture = texture;
+        scene.background = texture;
+        generator.dispose();
+      },
+      undefined,
+      () => {
+        /* The hemisphere and sun still light the world if an optional asset fails. */
+      },
+    );
     return () => {
-      scene.environment = previous;
-      target.dispose();
+      cancelled = true;
+      if (target && scene.environment === target.texture)
+        scene.environment = previous;
+      if (skyTexture && scene.background === skyTexture)
+        scene.background = previousBackground;
+      skyTexture?.dispose();
+      target?.dispose();
     };
   }, [gl, scene]);
   useEffect(() => {
     const previous = scene.environmentIntensity;
-    // Keep the mutable Three light probe in sync with the game clock.
+    const previousBackgroundIntensity = scene.backgroundIntensity;
     // eslint-disable-next-line react-hooks/immutability
-    scene.environmentIntensity = 0.6 * (1 - nightFactor(timeOfDay) * 0.85);
+    scene.environmentIntensity = 0.58 * (1 - nightFactor(timeOfDay) * 0.93);
+    scene.backgroundIntensity = 0.72;
     return () => {
       scene.environmentIntensity = previous;
+      scene.backgroundIntensity = previousBackgroundIntensity;
     };
   }, [scene, timeOfDay]);
   return null;

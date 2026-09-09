@@ -1,13 +1,7 @@
-/**
- * Every sound in the game, made by the browser as it plays.
- *
- * No files are loaded and nothing comes from the internet: the engine, the
- * horn and the landing thump are all built out of Web Audio nodes, the same
- * way the monster-truck game does it.
- */
-
+/** Locally hosted engine texture and original Web Audio exhaust, horn and impacts. */
+import { engineTargets, exhaustSamples } from "./engineAudio";
 type ContextFactory = () => AudioContext;
-
+type RecordingLoader = (context: AudioContext) => Promise<AudioBuffer | null>;
 function defaultFactory(): AudioContext {
   const Ctor =
     window.AudioContext ??
@@ -15,126 +9,137 @@ function defaultFactory(): AudioContext {
       .webkitAudioContext;
   return new Ctor();
 }
-
-/** The engine note at a standstill and at the top of the rev range, in hertz. */
-export const ENGINE_MIN_HZ = 60;
-export const ENGINE_MAX_HZ = 220;
-
+const recording: RecordingLoader = async (ctx) => {
+  const response = await fetch(
+    "/games/four-wheeler-3d/audio/engine-rumble.wav",
+  );
+  if (!response.ok) throw new Error("Local engine recording unavailable");
+  return ctx.decodeAudioData(await response.arrayBuffer());
+};
+type Engine = {
+  exhaust: AudioBufferSourceNode;
+  recorded: AudioBufferSourceNode | null;
+  gain: GainNode;
+  filter: BiquadFilterNode;
+  nodes: AudioNode[];
+};
 export class FourWheelerSounds {
-  private makeContext: ContextFactory;
   private context: AudioContext | null = null;
+  private engine: Engine | null = null;
   private enabled = true;
   private volume = 0.5;
-
-  private engine: {
-    osc: OscillatorNode;
-    noise: AudioBufferSourceNode;
-    gain: GainNode;
-  } | null = null;
-
-  /** The last engine level, already clamped to 0..1. Read by the tests. */
   private engineLevel = 0;
-
-  constructor(makeContext: ContextFactory = defaultFactory) {
-    this.makeContext = makeContext;
-  }
-
-  private ctx(): AudioContext {
+  private throttle = 0;
+  private recordingPromise: Promise<AudioBuffer | null> | null = null;
+  constructor(
+    private makeContext: ContextFactory = defaultFactory,
+    private loadRecording: RecordingLoader = recording,
+  ) {}
+  private ctx() {
     if (!this.context) this.context = this.makeContext();
+    if (this.context.state === "suspended")
+      void this.context.resume().catch(() => {});
     return this.context;
   }
-
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
     if (!enabled) this.stopEngine();
   }
-
-  isEnabled(): boolean {
+  isEnabled() {
     return this.enabled;
   }
-
   setVolume(volume: number) {
-    this.volume = Math.max(0, Math.min(1, volume));
+    this.volume = Number.isFinite(volume)
+      ? Math.max(0, Math.min(1, volume))
+      : 0;
+    this.setEngine(this.engineLevel, this.throttle);
   }
-
-  /** Browsers keep audio asleep until a tap. Call this on the first tap. */
   resume() {
-    if (this.context?.state === "suspended") {
-      void this.context.resume();
-    }
+    if (this.context?.state === "suspended")
+      void this.context.resume().catch(() => {});
   }
-
-  getEngineLevel(): number {
+  getEngineLevel() {
     return this.engineLevel;
   }
-
-  isEngineRunning(): boolean {
+  isEngineRunning() {
     return this.engine !== null;
   }
-
-  /** A short loop of white noise, which is the gravel under the engine note. */
-  private makeNoise(ctx: AudioContext): AudioBufferSourceNode {
-    const seconds = 1;
-    const buffer = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < data.length; i += 1) {
-      data[i] = Math.random() * 2 - 1;
-    }
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.loop = true;
-    return source;
-  }
-
-  /** Start the engine idling. Calling it twice does nothing the second time. */
   startEngine() {
     if (!this.enabled || this.engine) return;
-    const ctx = this.ctx();
-
-    const osc = ctx.createOscillator();
-    osc.type = "sawtooth";
-    osc.frequency.value = ENGINE_MIN_HZ;
-
-    const noise = this.makeNoise(ctx);
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.value = 0.04 * this.volume;
-
+    const ctx = this.ctx(),
+      samples = exhaustSamples(ctx.sampleRate),
+      buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
+    buffer.getChannelData(0).set(samples);
+    const exhaust = ctx.createBufferSource();
+    exhaust.buffer = buffer;
+    exhaust.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.Q.value = 0.55;
     const gain = ctx.createGain();
-    gain.gain.value = 0.12 * this.volume;
-
-    osc.connect(gain);
-    noise.connect(noiseGain);
-    noiseGain.connect(gain);
+    gain.gain.value = 0;
+    exhaust.connect(filter);
+    filter.connect(gain);
     gain.connect(ctx.destination);
-
-    osc.start();
-    noise.start();
-    this.engine = { osc, noise, gain };
-    this.setEngine(this.engineLevel);
+    const engine: Engine = {
+      exhaust,
+      recorded: null,
+      gain,
+      filter,
+      nodes: [exhaust, filter, gain],
+    };
+    this.engine = engine;
+    exhaust.start();
+    this.setEngine(this.engineLevel, this.throttle);
+    // Exhaust is ready immediately. A delayed decode may never revive a stopped engine.
+    this.recordingPromise ??= this.loadRecording(ctx).catch(() => null);
+    void this.recordingPromise.then((buffer) => {
+      if (!buffer || this.engine !== engine) return;
+      const source = ctx.createBufferSource(),
+        textureGain = ctx.createGain();
+      source.buffer = buffer;
+      source.loop = true;
+      textureGain.gain.value = 0.4;
+      source.connect(textureGain);
+      textureGain.connect(filter);
+      engine.recorded = source;
+      engine.nodes.push(source, textureGain);
+      source.start();
+      this.setEngine(this.engineLevel, this.throttle);
+    });
   }
-
   stopEngine() {
-    if (!this.engine) return;
-    this.engine.osc.stop();
-    this.engine.noise.stop();
+    const engine = this.engine,
+      ctx = this.context;
+    if (!engine || !ctx) return;
     this.engine = null;
+    engine.gain.gain.cancelScheduledValues(ctx.currentTime);
+    engine.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.012);
+    engine.exhaust.onended = () =>
+      engine.nodes.forEach((node) => node.disconnect());
+    engine.exhaust.stop(ctx.currentTime + 0.06);
+    engine.recorded?.stop(ctx.currentTime + 0.06);
   }
-
-  /**
-   * How hard the engine is working, 0 at a standstill and 1 flat out.
-   *
-   * Anything outside that range is pulled back into it, so a speed reading
-   * that overshoots for one frame can never scream.
-   */
-  setEngine(level: number) {
-    const clamped = Number.isFinite(level)
+  setEngine(level: number, throttle = level) {
+    this.engineLevel = Number.isFinite(level)
       ? Math.max(0, Math.min(1, level))
       : 0;
-    this.engineLevel = clamped;
-    if (!this.engine) return;
-    const hz = ENGINE_MIN_HZ + (ENGINE_MAX_HZ - ENGINE_MIN_HZ) * clamped;
-    this.engine.osc.frequency.value = hz;
-    this.engine.gain.gain.value = (0.09 + 0.09 * clamped) * this.volume;
+    this.throttle = Number.isFinite(throttle)
+      ? Math.min(1, Math.abs(throttle))
+      : 0;
+    const engine = this.engine,
+      ctx = this.context;
+    if (!engine || !ctx) return;
+    const target = engineTargets(this.engineLevel, this.throttle),
+      now = ctx.currentTime;
+    engine.exhaust.playbackRate.setTargetAtTime(target.rate, now, 0.16);
+    engine.recorded?.playbackRate.setTargetAtTime(
+      0.72 + this.engineLevel * 0.78 + this.throttle * 0.22,
+      now,
+      0.2,
+    );
+    engine.filter.frequency.setTargetAtTime(target.cutoff, now, 0.12);
+    engine.gain.gain.setTargetAtTime(target.volume * this.volume, now, 0.07);
   }
 
   /** HONK. */

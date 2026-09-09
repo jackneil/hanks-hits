@@ -14,7 +14,9 @@ import {
   buildChunkGeometryData,
   buildChunkHeights,
   chunkOrigin,
+  roadInfluence,
 } from "../lib/terrain";
+import { hubBounds } from "../lib/landmarks";
 import { CHUNK_SEGMENTS } from "../lib/constants";
 import { getTerrainMaterial } from "./terrainMaterial";
 import { ChunkProps } from "./Props";
@@ -29,11 +31,27 @@ export function TerrainChunk({ cx, cz }: { cx: number; cz: number }) {
     geo.setAttribute("color", new THREE.BufferAttribute(data.colors, 3));
     // World-aligned texture coordinates stay continuous at chunk boundaries.
     const uv = new Float32Array((data.positions.length / 3) * 2);
+    const surfaceBlend = new Float32Array((data.positions.length / 3) * 2);
     for (let i = 0; i < uv.length / 2; i++) {
-      uv[i * 2] = (data.positions[i * 3] + origin.x) / 8;
-      uv[i * 2 + 1] = (data.positions[i * 3 + 2] + origin.z) / 8;
+      const x = data.positions[i * 3] + origin.x;
+      const z = data.positions[i * 3 + 2] + origin.z;
+      uv[i * 2] = x / 6;
+      uv[i * 2 + 1] = z / 6;
+      const road = roadInfluence(x, z).t;
+      surfaceBlend[i * 2] = road;
+      const insideHub = Math.min(
+        x - hubBounds.minX,
+        hubBounds.maxX - x,
+        z - hubBounds.minZ,
+        hubBounds.maxZ - z,
+      );
+      surfaceBlend[i * 2 + 1] = road * Math.min(1, Math.max(0, insideHub / 5));
     }
     geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute(
+      "surfaceBlend",
+      new THREE.BufferAttribute(surfaceBlend, 2),
+    );
     geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
     geo.computeVertexNormals();
     return geo;

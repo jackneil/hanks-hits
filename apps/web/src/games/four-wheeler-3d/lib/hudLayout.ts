@@ -101,7 +101,7 @@ export function boxStyle(name: ControlName): React.CSSProperties {
 export function rectOf(
   name: ControlName,
   screenWidth: number,
-  screenHeight: number
+  screenHeight: number,
 ): { left: number; right: number; top: number; bottom: number } {
   const box = TOUCH_LAYOUT[name];
   const left =
@@ -120,7 +120,7 @@ export function overlaps(
   a: ControlName,
   b: ControlName,
   screenWidth: number,
-  screenHeight: number
+  screenHeight: number,
 ): boolean {
   const one = rectOf(a, screenWidth, screenHeight);
   const two = rectOf(b, screenWidth, screenHeight);

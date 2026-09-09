@@ -1,0 +1,185 @@
+{
+  "capture": "2026-09-08",
+  "environment": "Isolated localhost PostgreSQL QA database and disposable browser contexts; final production context qa=hank-production-20260908.",
+  "limits": "Representative journeys across keyboard and touch-emulated Chromium. Fixtures seed only disposable QA storage, with the game unmounted. No physical-device certification, human listening claim, exhaustive browser matrix, or AAA/10 rating. Prior development observations are identified separately.",
+  "journeys": [
+    {
+      "id": "steering-stability",
+      "status": "passed",
+      "evidence": "Actual right input yaw -1.0277, min upDot .997579, max49.3236mph; left +.91637/up.999982; recovery up.999915/four wheels."
+    },
+    {
+      "id": "engine-rumble",
+      "status": "passed",
+      "evidence": "Browser recording idle/accelerate/coast /tmp/fw3d-engine-recorded.wav, peak -16.2584 dBFS, RMS -29.9631; synth+localCC0recording; async lifecycle unit tests."
+    },
+    {
+      "id": "physical-dealer",
+      "status": "passed",
+      "evidence": "Actual F250 purchase subtracts20000, adds truck with terrain-grounded pose; model preview opened."
+    },
+    {
+      "id": "phone-media",
+      "status": "passed",
+      "evidence": "Disney10titles and LionKingplayer; YouTube10channels/MrBeast10videos. Actual Like and Subscribe toggle. Reload resets pretend-media library by design; original inventory requires hints, not saved subscriptions. Game-world persistence remains separate."
+    },
+    {
+      "id": "phone-calculator",
+      "status": "passed",
+      "evidence": "Actual2+3=5."
+    },
+    {
+      "id": "phone-gps",
+      "status": "passed",
+      "evidence": "Map searches112destinations; plot1 pin selected route. Property door autoarrival radius fix awaiting final retest."
+    },
+    {
+      "id": "delivery",
+      "status": "passed",
+      "evidence": "ActualAmazonrod order debits100,38second delivery completes,inventoryrod1. Indoor home order also succeeds with exactxyz savedposition."
+    },
+    {
+      "id": "property",
+      "status": "passed",
+      "evidence": "Buyplot1 6000,garage3000,house4000,expand8000; ownedstructures/levelpersistafterreload. Entergarage y2000, correctexitprompt, Gooutside returns x858.708,z245. Parking/retrieval pending."
+    },
+    {
+      "id": "fishing",
+      "status": "passed",
+      "evidence": "Actualboatboard, Findfish route, Cast line, keyboardSpace short pulses catches1bigfish; Sellfish credits15000 and clearsbag."
+    },
+    {
+      "id": "dog-feed",
+      "status": "passed",
+      "evidence": "ActualGearFeed dog subtracts10, sendsdogtobowl."
+    },
+    {
+      "id": "home-meal",
+      "status": "passed",
+      "evidence": "Eat100 resets hunger, entershome; indoorAmazon order succeeds. Eexit ultimately correctposition; immediatepause race underfix."
+    },
+    {
+      "id": "starvation",
+      "status": "passed",
+      "evidence": "24gamehour timeout resetscash20000/fleet while preservingplot1 buildings/expansion."
+    },
+    {
+      "id": "phone-photo",
+      "status": "passed",
+      "evidence": "Takephoto and Savephoto actualPNGdownload /tmp/fw3d-qa-phone-camera.png succeeds. Exposedgaragecanopyobstruction colliderfix needsretake. Final production retake/download passed."
+    },
+    {
+      "id": "mobile-layout",
+      "status": "passed",
+      "evidence": "844x390desktopviewport nohorizontaloverflow apparent /tmp/fw3d-qa-mobile-landscape.png. RealhasTouchcontext pending. Final native touch multi-pointer, portrait continuation and tablet phone checks passed."
+    },
+    {
+      "id": "console",
+      "status": "passed",
+      "evidence": "TemporaryQAcontext monitored windowerror+console.error, zero observed throughabovejourneys. DevelopmentHMR reloads occurduringedits."
+    },
+    {
+      "id": "production-touch-driving",
+      "status": "passed",
+      "evidence": "Native two simultaneous touch pointers on Gas and Steer right: 23 MPH; heading from .001252 to -1.900712. No errors."
+    },
+    {
+      "id": "production-atv-parachute",
+      "status": "passed",
+      "evidence": "Actual Open ATV parachute button: parked quad, parachute-open hint, glide controls."
+    },
+    {
+      "id": "production-space",
+      "status": "passed",
+      "evidence": "Launch pad Use, Blast off, real keyboard steering and thrust, Mars landing, movement to gem, +$5,000, Board rocket, Return to Earth. Saved Mars visited and mars-gem-3, balance $5,005,000."
+    },
+    {
+      "id": "production-train",
+      "status": "passed",
+      "evidence": "Use boards train. Stations chooses West, NOS reaches77m/s, sky railway63m/s, Hop off triggers automatic return. Zero errors."
+    },
+    {
+      "id": "production-horse",
+      "status": "passed",
+      "evidence": "Seeded owned saddled horse, actual Gear Ride a horse, forward movement, E dismount."
+    },
+    {
+      "id": "production-milking",
+      "status": "passed",
+      "evidence": "Actual Gear Milk a cow and ten-second wait: Red bucket20% full,1/5 milkings."
+    },
+    {
+      "id": "production-hunting-controls",
+      "status": "passed",
+      "evidence": "Actual Gear Raise scope, keyboard arrow moves aim, Enter fires, Lower scope exit. This observation does not assert a successful animal hit; ray hits/retrieval/rewards covered in focused tests."
+    },
+    {
+      "id": "production-race",
+      "status": "passed",
+      "evidence": "Actual Start race, countdown, throttle20MPH, elapsed/checkpoint HUD. Exposed remote options and narrow layout gaps, now fixed with rendered regression; final retest recorded separately."
+    },
+    {
+      "id": "production-camera",
+      "status": "passed",
+      "evidence": "Actual Photos Take photo and Save photo downloaded hank-county.png with real world image; no canvas/CSP errors."
+    },
+    {
+      "id": "production-layout",
+      "status": "passed",
+      "evidence": "390x844 portrait prompt, Continue anyway, Phone;1024x768 tablet Phone; no horizontal overflow or console errors."
+    },
+    {
+      "id": "production-performance",
+      "status": "passed",
+      "evidence": "844x390, native120Hz host: normal ATV120.125FPS/p95 9.7ms;4xCPU throttle79.455FPS/p95 26.6ms. 500-vehicle save119.901FPS/p95 9.7ms/max16.5ms. 3-4s stationary samples, Chrome emulation not physical phones."
+    },
+    {
+      "id": "final-race-options",
+      "status": "passed",
+      "evidence": "Production: start/countdown, actual throttle47MPH, Race options opens away from start, End race clears run. Card rect y64..108, toolbar y120..164; compact speedo hidden, both \u2190/\u2192 labels correct. Zero errors."
+    },
+    {
+      "id": "final-space-layout",
+      "status": "passed",
+      "evidence": "Production space heading y77 below app header, return button works. Screenshot retained."
+    },
+    {
+      "id": "below-ground-recovery",
+      "status": "passed",
+      "evidence": "Deliberately seeded invalid ground height y2.1 at raceway ground8.614. Without pressing R, resumed aboveground, started race and drove47MPH. Later persisted rider x27.897,y8.0308,z1981.142. Recovery clears fall airtime."
+    }
+  ],
+  "evidence_directory": "design/audits/four-wheeler-evidence",
+  "updated": "2026-09-09T01:35:55.487743+00:00",
+  "gates": {
+    "tests": {
+      "status": "passed",
+      "files": 150,
+      "tests": 1146,
+      "log": "/tmp/fw3d-all-tests-accepted.log",
+      "note": "Final fixture typing-only change followed by focused regression pass."
+    },
+    "lint": {
+      "status": "passed",
+      "log": "/tmp/fw3d-lint-accepted.log"
+    },
+    "typecheck": {
+      "status": "passed",
+      "log": "/tmp/fw3d-typecheck-accepted.log"
+    },
+    "production_build": {
+      "status": "passed",
+      "log": "/tmp/fw3d-production-build-accepted.log"
+    },
+    "asset_integrity": {
+      "status": "passed",
+      "files": 46,
+      "bytes": 33808226,
+      "audio_bytes": 35726
+    },
+    "original_2d": {
+      "status": "unchanged",
+      "method": "Path-limited git diff exit0"
+    }
+  }
+}

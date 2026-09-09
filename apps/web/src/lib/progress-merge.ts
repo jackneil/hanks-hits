@@ -56,10 +56,12 @@ const isMonotonicKey = (key: string) =>
   MONOTONIC_PREFIX.test(key) || MONOTONIC_ALLOWLIST.has(key);
 
 // Collections a player unlocks/earns — safe to union across sessions.
-const UNLOCKABLE_KEY = /(unlocked|purchased|achievement|badge|upgrade|trophies)/i;
+const UNLOCKABLE_KEY =
+  /(unlocked|purchased|achievement|badge|upgrade|trophies)/i;
 
 const isPrimitiveArray = (v: unknown): v is (string | number)[] =>
-  Array.isArray(v) && v.every((x) => typeof x === "string" || typeof x === "number");
+  Array.isArray(v) &&
+  v.every((x) => typeof x === "string" || typeof x === "number");
 
 // Unlockable OBJECT maps (id -> unlockedAt epoch ms), e.g. the Trophy Case's
 // `unlocked` record. These must UNION like unlockable arrays do — pure
@@ -89,7 +91,7 @@ const isTimestampRecord = (v: unknown): v is Record<string, number> =>
  */
 function reconcileFields(
   winner: AppProgressData,
-  loser: AppProgressData
+  loser: AppProgressData,
 ): [AppProgressData, boolean] {
   const out: AppProgressData = { ...winner };
   let changed = false;
@@ -99,18 +101,40 @@ function reconcileFields(
     const w = winner[key];
     const l = loser[key];
 
-    if (typeof w === "number" && typeof l === "number" && isMonotonicKey(key)) {
+    if (
+      key === "bestRaceTimeMs" &&
+      typeof w === "number" &&
+      typeof l === "number"
+    ) {
+      // Lower positive race times are records; zero means no completed race.
+      if (l > 0 && (w <= 0 || l < w)) {
+        out[key] = l;
+        changed = true;
+      }
+    } else if (
+      typeof w === "number" &&
+      typeof l === "number" &&
+      isMonotonicKey(key)
+    ) {
       if (l > w) {
         out[key] = l;
         changed = true;
       }
-    } else if (isPrimitiveArray(w) && isPrimitiveArray(l) && UNLOCKABLE_KEY.test(key)) {
+    } else if (
+      isPrimitiveArray(w) &&
+      isPrimitiveArray(l) &&
+      UNLOCKABLE_KEY.test(key)
+    ) {
       const extras = l.filter((x) => !w.includes(x));
       if (extras.length > 0) {
         out[key] = [...w, ...extras];
         changed = true;
       }
-    } else if (isTimestampRecord(w) && isTimestampRecord(l) && UNLOCKABLE_RECORD_KEY.test(key)) {
+    } else if (
+      isTimestampRecord(w) &&
+      isTimestampRecord(l) &&
+      UNLOCKABLE_RECORD_KEY.test(key)
+    ) {
       // Union ids across sessions; a trophy both sides know keeps its
       // EARLIEST unlock time. Built via Map + fromEntries (define-own-property
       // semantics) so a hostile "__proto__" id can never reach a [[Set]] path.
@@ -152,7 +176,7 @@ export function mergeProgress(
   localData: AppProgressData | null,
   serverData: AppProgressData | null,
   localTimestamp: number | null,
-  serverTimestamp: number | null
+  serverTimestamp: number | null,
 ): MergeResult {
   // No local data - use server
   if (!localData) {
@@ -214,7 +238,7 @@ const MAX_ORDERING_CLOCK_SKEW_MS = 5 * 60_000;
 
 function clampOrderingTimestamp(
   ts: number | null,
-  receivedAtMs: number
+  receivedAtMs: number,
 ): number | null {
   if (ts === null) return null;
   return Math.min(ts, receivedAtMs + MAX_ORDERING_CLOCK_SKEW_MS);
@@ -222,18 +246,18 @@ function clampOrderingTimestamp(
 
 export function mergeForSave(
   incomingData: AppProgressData,
-  existing: { data: AppProgressData; updatedAt: Date } | null
+  existing: { data: AppProgressData; updatedAt: Date } | null,
 ): MergeResult {
   if (!existing) {
     return { data: incomingData, source: "local", conflicts: [] };
   }
   const incomingTs = clampOrderingTimestamp(
     extractTimestamp(incomingData),
-    Date.now()
+    Date.now(),
   );
   const existingTs = clampOrderingTimestamp(
     extractTimestamp(existing.data) ?? existing.updatedAt.getTime(),
-    existing.updatedAt.getTime()
+    existing.updatedAt.getTime(),
   );
   return mergeProgress(incomingData, existing.data, incomingTs, existingTs);
 }
@@ -247,7 +271,12 @@ export function extractTimestamp(data: AppProgressData | null): number | null {
   if (!data) return null;
 
   // Check common timestamp field names
-  const timestampFields = ["updatedAt", "lastModified", "timestamp", "_timestamp"];
+  const timestampFields = [
+    "updatedAt",
+    "lastModified",
+    "timestamp",
+    "_timestamp",
+  ];
 
   for (const field of timestampFields) {
     const val = data[field];

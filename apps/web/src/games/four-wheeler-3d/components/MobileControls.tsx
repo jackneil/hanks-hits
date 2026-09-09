@@ -21,9 +21,15 @@ const BUTTON =
 
 export type MobileControlsProps = {
   controls: GameControls;
+  walking?: boolean;
+  forwardLabel?: string;
 };
 
-export function MobileControls({ controls }: MobileControlsProps) {
+export function MobileControls({
+  controls,
+  walking = false,
+  forwardLabel,
+}: MobileControlsProps) {
   const { touch, tilt, useTilt, setUseTilt } = controls;
   const { handlers, state } = touch;
 
@@ -46,7 +52,7 @@ export function MobileControls({ controls }: MobileControlsProps) {
         onClick={toggleTilt}
         style={boxStyle("tilt")}
         className={`${BUTTON} pointer-events-auto rounded-full text-sm ${
-          useTilt ? "bg-emerald-600" : "bg-slate-700"
+          useTilt ? "bg-[#4d7155]" : "bg-[#24382fee]"
         }`}
       >
         {useTilt ? "📱 TILT ON" : "📱 TILT"}
@@ -57,7 +63,7 @@ export function MobileControls({ controls }: MobileControlsProps) {
           type="button"
           onClick={() => tilt.calibrate()}
           style={boxStyle("calibrate")}
-          className={`${BUTTON} pointer-events-auto rounded-full bg-sky-700 text-sm`}
+          className={`${BUTTON} pointer-events-auto rounded-full bg-[#36575b] text-sm`}
         >
           🎯 HOLD STILL
         </button>
@@ -70,19 +76,19 @@ export function MobileControls({ controls }: MobileControlsProps) {
             type="button"
             aria-label="Steer left"
             style={boxStyle("steerLeft")}
-            className={`${BUTTON} pointer-events-auto bg-slate-700 text-3xl active:bg-slate-600`}
+            className={`${BUTTON} pointer-events-auto bg-[#24382fee] text-3xl active:bg-[#4b6652]`}
             {...handlers.left}
           >
-            👈
+            ←
           </button>
           <button
             type="button"
             aria-label="Steer right"
             style={boxStyle("steerRight")}
-            className={`${BUTTON} pointer-events-auto bg-slate-700 text-3xl active:bg-slate-600`}
+            className={`${BUTTON} pointer-events-auto bg-[#24382fee] text-3xl active:bg-[#4b6652]`}
             {...handlers.right}
           >
-            👉
+            →
           </button>
         </>
       )}
@@ -93,46 +99,48 @@ export function MobileControls({ controls }: MobileControlsProps) {
         aria-label="Jump"
         style={boxStyle("jump")}
         className={`${BUTTON} pointer-events-auto text-2xl ${
-          state.jump ? "bg-amber-400" : "bg-amber-500"
+          state.jump ? "bg-amber-400" : "bg-[#92733e]"
         }`}
         {...handlers.jump}
       >
         🤸
       </button>
-      <button
-        type="button"
-        aria-label="Honk the horn"
-        style={boxStyle("horn")}
-        className={`${BUTTON} pointer-events-auto text-2xl ${
-          state.horn ? "bg-sky-500" : "bg-sky-600"
-        }`}
-        {...handlers.horn}
-      >
-        📣
-      </button>
+      {!walking && (
+        <button
+          type="button"
+          aria-label="Honk the horn"
+          style={boxStyle("horn")}
+          className={`${BUTTON} pointer-events-auto text-2xl ${
+            state.horn ? "bg-[#36575b]" : "bg-[#36575b]"
+          }`}
+          {...handlers.horn}
+        >
+          📣
+        </button>
+      )}
 
       {/* The pedals. */}
       <button
         type="button"
-        aria-label="Brake"
+        aria-label={walking ? "Walk backward" : "Brake"}
         style={boxStyle("brake")}
         className={`${BUTTON} pointer-events-auto text-base ${
-          state.brake ? "bg-red-500" : "bg-red-600"
+          state.brake ? "bg-[#a36a52]" : "bg-[#854e40]"
         }`}
         {...handlers.brake}
       >
-        🛑 BRAKE
+        {walking ? "BACK" : "🛑 BRAKE"}
       </button>
       <button
         type="button"
-        aria-label="Gas"
+        aria-label={walking ? "Walk forward" : "Gas"}
         style={boxStyle("gas")}
         className={`${BUTTON} pointer-events-auto text-base ${
-          state.gas ? "bg-green-500" : "bg-green-600"
+          state.gas ? "bg-[#759463]" : "bg-[#527348]"
         }`}
         {...handlers.gas}
       >
-        🦶 GAS
+        {forwardLabel ?? (walking ? "WALK" : "🦶 GAS")}
       </button>
     </div>
   );

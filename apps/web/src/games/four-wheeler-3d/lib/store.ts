@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import {
+  createAdventureProgress,
+  type AdventureProgress,
+} from "./adventureTypes";
+import { useAdventureSession, type TravelMode } from "./adventureSession";
+import { migrateProgress, savedRider } from "./migration";
+import { resetActivitiesSession } from "./activitiesSession";
 import { FISH_TYPES, START_MONEY } from "./constants";
 import {
   advanceClock,
@@ -19,6 +26,7 @@ import {
  */
 export type FourWheeler3dProgress = {
   [key: string]: unknown;
+  adventure: AdventureProgress;
   money: number;
   totalEarned: number;
   ownedVehicles: string[]; // vehicle ids
@@ -40,7 +48,7 @@ export type FourWheeler3dProgress = {
 };
 
 /** What the player is controlling right now. */
-export type RideMode = "vehicle" | "foot";
+export type RideMode = TravelMode;
 
 export interface FourWheeler3dState {
   progress: FourWheeler3dProgress;
@@ -79,6 +87,10 @@ export interface FourWheeler3dActions {
   getProgress: () => FourWheeler3dProgress;
   setProgress: (data: FourWheeler3dProgress) => void;
 
+  // Atomic gameplay edits preserve a single save and lastModified timestamp.
+  updateProgress: (
+    update: (progress: FourWheeler3dProgress) => FourWheeler3dProgress,
+  ) => void;
   // Economy
   addMoney: (delta: number) => void;
 
@@ -118,9 +130,7 @@ export interface FourWheeler3dActions {
   clearNos: () => void;
 
   // Settings
-  updateSettings: (
-    partial: Partial<FourWheeler3dProgress["settings"]>
-  ) => void;
+  updateSettings: (partial: Partial<FourWheeler3dProgress["settings"]>) => void;
 }
 
 // ============================================================================
@@ -128,6 +138,7 @@ export interface FourWheeler3dActions {
 // ============================================================================
 
 export const defaultProgress: FourWheeler3dProgress = {
+  adventure: createAdventureProgress(),
   money: START_MONEY,
   totalEarned: 0,
   ownedVehicles: ["atv"],
@@ -172,6 +183,7 @@ const CLOCK_FLUSH_SECONDS = 60;
 function createDefaultProgress(): FourWheeler3dProgress {
   return {
     ...defaultProgress,
+    adventure: createAdventureProgress(),
     ownedVehicles: [...defaultProgress.ownedVehicles],
     fishCaught: { ...defaultProgress.fishCaught },
     land: {},
@@ -193,7 +205,23 @@ export const useFourWheeler3dStore = create<
 
       getProgress: () => get().progress,
 
-      setProgress: (data) => set({ progress: data }),
+      setProgress: (data) => {
+        resetActivitiesSession();
+        useAdventureSession.getState().reset();
+        const progress = migrateProgress(data),
+          rider = savedRider(progress.adventure);
+        set({
+          progress,
+          mode: rider.mode,
+          clock: progress.timeOfDay,
+          clockSinceFlush: 0,
+        });
+        useAdventureSession.getState().relocate(rider.position, rider.heading);
+      },
+      updateProgress: (update) =>
+        set((state) => ({
+          progress: { ...update(state.progress), lastModified: Date.now() },
+        })),
 
       addMoney: (delta) =>
         set((state) => ({
@@ -216,7 +244,11 @@ export const useFourWheeler3dStore = create<
           const weather = newDay
             ? rollWeather(Math.random)
             : (state.progress.weather as Weather);
-          const snowLevel = updateSnowLevel(state.snowLevel, weather, dtSeconds);
+          const snowLevel = updateSnowLevel(
+            state.snowLevel,
+            weather,
+            dtSeconds,
+          );
 
           // A new day is real news: the day counts up, the weather changes,
           // and the kid gets a hint about it. That is worth a save.
@@ -298,7 +330,14 @@ export const useFourWheeler3dStore = create<
       setHint: (hint) => set({ hint }),
 
       // Clears the run only. Money, vehicles, land and trophies stay saved.
-      resetSession: () => set({ ...defaultSession }),
+      resetSession: () => {
+        const progress = get().progress;
+        set({
+          ...defaultSession,
+          mode: savedRider(progress.adventure).mode,
+          clock: progress.timeOfDay,
+        });
+      },
 
       updateSettings: (partial) =>
         set((state) => ({
@@ -312,6 +351,24 @@ export const useFourWheeler3dStore = create<
     {
       name: "four-wheeler-3d-game-state",
       partialize: (state) => ({ progress: state.progress }),
-    }
-  )
+      merge: (saved, current) => {
+        const progress = (
+          saved as { progress?: FourWheeler3dProgress } | undefined
+        )?.progress;
+        if (!progress) return current;
+        const migrated = migrateProgress({
+          ...current.progress,
+          ...progress,
+          adventure: progress.adventure,
+        });
+        return {
+          ...current,
+          progress: migrated,
+          mode: savedRider(migrated.adventure).mode,
+          clock: migrated.timeOfDay,
+          clockSinceFlush: 0,
+        };
+      },
+    },
+  ),
 );

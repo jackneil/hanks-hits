@@ -1,4 +1,5 @@
 "use client";
+import { Headlights } from "./Headlights";
 
 /**
  * The ride: a Rapier raycast vehicle with four wheels.
@@ -12,7 +13,7 @@
  * made once at the top of this file.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import {
@@ -28,20 +29,24 @@ import { heightAt, surfaceAt } from "../lib/terrain";
 import { attachDevHandle } from "../lib/devParams";
 import { tuningFor, type VehicleId } from "../lib/vehicles";
 import type { ControlValues, OneShot } from "../lib/controls";
+import { NEUTRAL } from "../lib/controls";
+import {
+  activityMovementLocked,
+  takeActivityImpulse,
+  activitySurfaceFactorAt,
+} from "../lib/activitiesSession";
+import { BIKES } from "../lib/catalog";
 import { sounds } from "../lib/sounds";
 import { VehicleModel } from "./models";
 import { WheelModel } from "./models/WheelModel";
-
-/**
- * The Rapier raycast vehicle controller.
- *
- * The type is read back off the world instead of imported, because
- * `@dimforge/rapier3d-compat` is a dependency of `@react-three/rapier` rather
- * than one of ours, and this game adds no packages.
- */
-type VehicleController = ReturnType<
-  ReturnType<typeof useRapier>["world"]["createVehicleController"]
->;
+import { useAdventureSession } from "../lib/adventureSession";
+import {
+  applyDriving,
+  chassisMassProperties,
+  configureVehicle,
+  recoverVehicle,
+  type VehicleController,
+} from "../lib/driving";
 
 /** How long between jumps, in seconds. */
 const JUMP_COOLDOWN = 0.6;
@@ -57,11 +62,6 @@ const GRASS_ENGINE_FACTOR = 0.85;
 
 /** Snow this deep makes the ground slippery. */
 const ICE_SNOW_LEVEL = 0.25;
-const ICE_FRICTION_FACTOR = 0.4;
-const ICE_SIDE_FRICTION = 0.4;
-
-/** How fast the front wheels turn toward the steering input. */
-const STEER_RATE = 4;
 
 /** The boost doubles the push and the top speed. */
 const NOS_MULTIPLIER = 2;
@@ -74,14 +74,12 @@ const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const LOCAL_FORWARD = new THREE.Vector3(0, 0, 1);
 const impulse = { x: 0, y: 0, z: 0 };
 const zeroVector = { x: 0, y: 0, z: 0 };
-const uprightRotation = { x: 0, y: 0, z: 0, w: 1 };
-const wheelDirection = { x: 0, y: -1, z: 0 };
-const wheelAxle = { x: -1, y: 0, z: 0 };
-const wheelConnection = { x: 0, y: 0, z: 0 };
 
 export type VehicleProps = {
   id: VehicleId;
   spawn: readonly [number, number, number];
+  heading?: number;
+  speedUpgrade?: number;
   /** Read once per physics step. */
   getControls: () => ControlValues;
   /** Read one waiting one-shot press and take it away. */
@@ -96,17 +94,41 @@ export type VehicleProps = {
 export function Vehicle({
   id,
   spawn,
+  heading = 0,
+  speedUpgrade = 0,
   getControls,
   takeOneShot,
   bodyRef,
   onSpeed,
   onAir,
 }: VehicleProps) {
-  const tuning = tuningFor(id);
+  const tuning = useMemo(() => {
+    const base = tuningFor(id);
+    return speedUpgrade
+      ? {
+          ...base,
+          maxSpeed: Math.max(5 / 2.237, base.maxSpeed + speedUpgrade / 2.237),
+        }
+      : base;
+  }, [id, speedUpgrade]);
+  const twoWheels =
+    id === "moto" || id === "bike" || BIKES.some((b) => b[0] === id);
+  const massProperties = useMemo(() => chassisMassProperties(tuning), [tuning]);
   const { world } = useRapier();
   const { playerPos, playerQuat, playerSpeedRef } = useGameContext();
 
-  const paint = useFourWheeler3dStore((state) => state.progress.paint);
+  const paint = useFourWheeler3dStore(
+    (state) =>
+      state.progress.adventure.fleet[
+        state.progress.adventure.activeVehicleId ?? ""
+      ]?.paint ?? state.progress.paint,
+  );
+  const mud = useFourWheeler3dStore(
+    (state) =>
+      state.progress.adventure.fleet[
+        state.progress.adventure.activeVehicleId ?? ""
+      ]?.mud ?? 0,
+  );
 
   const localBody = useRef<RapierRigidBody | null>(null);
   const body = bodyRef ?? localBody;
@@ -114,12 +136,13 @@ export function Vehicle({
   const wheels = useRef<(THREE.Group | null)[]>([null, null, null, null]);
 
   // Everything the frame loop remembers between steps.
-  const steerAngle = useRef(0);
+  const driving = useRef({ steerAngle: 0, engine: 0 });
+  const drivingConditions = useRef({ boost: 1, surfaceFactor: 1, icy: false });
   const wheelSpin = useRef(0);
   const jumpCooldown = useRef(0);
   const upsideDownFor = useRef(0);
   const airborneFor = useRef(0);
-  const icy = useRef(false);
+  const relocated = useRef(0);
 
   // What the browser test handle reads back. Written by the physics step.
   const readout = useRef({ wheels: 0, engine: 0, upDot: 1, lastAirtime: 0 });
@@ -130,27 +153,7 @@ export function Vehicle({
     if (!chassis) return;
 
     const vehicle = world.createVehicleController(chassis);
-    for (const [x, y, z] of tuning.wheelPositions) {
-      wheelConnection.x = x;
-      wheelConnection.y = y;
-      wheelConnection.z = z;
-      vehicle.addWheel(
-        wheelConnection,
-        wheelDirection,
-        wheelAxle,
-        tuning.suspension.restLength,
-        tuning.wheelRadius
-      );
-    }
-
-    for (let i = 0; i < 4; i += 1) {
-      vehicle.setWheelSuspensionStiffness(i, tuning.suspension.stiffness);
-      vehicle.setWheelSuspensionCompression(i, tuning.suspension.compression);
-      vehicle.setWheelSuspensionRelaxation(i, tuning.suspension.relaxation);
-      vehicle.setWheelMaxSuspensionTravel(i, tuning.suspension.maxTravel);
-      vehicle.setWheelFrictionSlip(i, tuning.frictionSlip);
-      vehicle.setWheelSideFrictionStiffness(i, tuning.sideFrictionStiffness);
-    }
+    configureVehicle(vehicle, tuning);
 
     controller.current = vehicle;
 
@@ -166,26 +169,10 @@ export function Vehicle({
   const recover = useRef(() => {
     const chassis = body.current;
     if (!chassis) return;
-    const rotation = chassis.rotation();
-    scratchQuat.set(rotation.x, rotation.y, rotation.z, rotation.w);
-    // Keep the heading, drop the roll and the pitch.
-    const yaw = Math.atan2(
-      2 * (scratchQuat.w * scratchQuat.y + scratchQuat.x * scratchQuat.z),
-      1 - 2 * (scratchQuat.y * scratchQuat.y + scratchQuat.z * scratchQuat.z)
-    );
-    uprightRotation.x = 0;
-    uprightRotation.y = Math.sin(yaw / 2);
-    uprightRotation.z = 0;
-    uprightRotation.w = Math.cos(yaw / 2);
-    chassis.setRotation(uprightRotation, true);
-
     const position = chassis.translation();
-    impulse.x = position.x;
-    impulse.y = position.y + 1;
-    impulse.z = position.z;
-    chassis.setTranslation(impulse, true);
-    chassis.setLinvel(zeroVector, true);
-    chassis.setAngvel(zeroVector, true);
+    recoverVehicle(chassis, heightAt(position.x, position.z));
+    driving.current.steerAngle = 0;
+    airborneFor.current = 0;
 
     upsideDownFor.current = 0;
     useFourWheeler3dStore.getState().setHint("🔄 Flipped back over!");
@@ -202,6 +189,16 @@ export function Vehicle({
       mph: () => (controller.current?.currentVehicleSpeed() ?? 0) * 2.237,
       airtime: () => readout.current.lastAirtime,
       upDot: () => readout.current.upDot,
+      heading: () => {
+        const q = body.current?.rotation();
+        return q
+          ? Math.atan2(
+              2 * (q.w * q.y + q.x * q.z),
+              1 - 2 * (q.x * q.x + q.y * q.y),
+            )
+          : 0;
+      },
+      steering: () => driving.current.steerAngle,
       wheels: () => readout.current.wheels,
       engine: () => readout.current.engine,
       helmetCam: () =>
@@ -236,69 +233,70 @@ export function Vehicle({
     // 1/60 keeps the engine force right whatever the Physics timeStep is set
     // to, including "vary".
     const dt = world.timestep;
-    const controls = getControls();
+    const relocation = useAdventureSession.getState().relocation;
+    if (relocation && relocation.id !== relocated.current) {
+      relocated.current = relocation.id;
+      chassis.setTranslation(relocation.position, true);
+      scratchQuat.setFromAxisAngle(WORLD_UP, relocation.heading);
+      chassis.setRotation(scratchQuat, true);
+      chassis.setLinvel(zeroVector, true);
+      chassis.setAngvel(zeroVector, true);
+      driving.current.steerAngle = 0;
+    }
+    const race = useAdventureSession.getState().race;
+    const controls =
+      race?.phase === "countdown" || activityMovementLocked()
+        ? NEUTRAL
+        : getControls();
     const store = useFourWheeler3dStore.getState();
 
     // The boost, from the 2D game: three seconds of double push.
     if (takeOneShot("nos")) store.startNos();
     const boosting = store.nosUntil > Date.now();
-    const boost = boosting ? NOS_MULTIPLIER : 1;
-
-    // Steering eases toward the input so a tap does not snap the wheels over.
-    const target = controls.steer * tuning.maxSteer;
-    steerAngle.current +=
-      (target - steerAngle.current) * Math.min(1, STEER_RATE * dt);
-    vehicle.setWheelSteering(0, steerAngle.current);
-    vehicle.setWheelSteering(1, steerAngle.current);
+    const terrainFactor = activitySurfaceFactorAt(
+      chassis.translation().x,
+      chassis.translation().z,
+      store.progress.adventure,
+      store.snowLevel,
+    );
+    const boost =
+      (boosting ? NOS_MULTIPLIER : 1) *
+      (race?.phase === "racing" ? race.speedFactor : 1) *
+      terrainFactor;
+    chassis.setLinearDamping(terrainFactor < 1 ? 1.5 : 0.1);
+    const activityImpulse = takeActivityImpulse();
+    if (activityImpulse) {
+      const mass = chassis.mass();
+      chassis.applyImpulse(
+        {
+          x: activityImpulse.x * mass,
+          y: activityImpulse.y * mass,
+          z: activityImpulse.z * mass,
+        },
+        true,
+      );
+    }
 
     const speed = vehicle.currentVehicleSpeed();
     const absSpeed = Math.abs(speed);
-
-    // What is under the wheels right now.
     const position = chassis.translation();
-    const surface = surfaceAt(position.x, position.z);
-    const surfaceFactor = surface === "grass" ? GRASS_ENGINE_FACTOR : 1;
-
-    // Deep snow turns the world into an ice rink, the same as the 2D game.
-    const shouldBeIcy = store.snowLevel > ICE_SNOW_LEVEL;
-    if (shouldBeIcy !== icy.current) {
-      icy.current = shouldBeIcy;
-      for (let i = 0; i < 4; i += 1) {
-        vehicle.setWheelFrictionSlip(
-          i,
-          shouldBeIcy
-            ? tuning.frictionSlip * ICE_FRICTION_FACTOR
-            : tuning.frictionSlip
-        );
-        vehicle.setWheelSideFrictionStiffness(
-          i,
-          shouldBeIcy ? ICE_SIDE_FRICTION : tuning.sideFrictionStiffness
-        );
-      }
+    // A stale save or unloaded ground must never leave a rider falling forever.
+    if (position.y < heightAt(position.x, position.z) - 4) {
+      recover.current();
+      return;
     }
-
-    // Engine and brakes.
-    const maxSpeed = tuning.maxSpeed * boost;
-    const reverseMax = tuning.maxSpeed * tuning.reverseFactor;
-    let engine = 0;
-    if (controls.throttle > 0 && speed < maxSpeed) {
-      engine = controls.throttle * tuning.engineForce * boost * surfaceFactor;
-    } else if (controls.throttle < 0 && speed > -reverseMax) {
-      engine =
-        controls.throttle *
-        tuning.engineForce *
-        tuning.reverseFactor *
-        surfaceFactor;
-    }
-
-    const braking = controls.brake > 0 ? tuning.brakeForce : 0;
-    const handbrake = controls.handbrake ? tuning.brakeForce * 1.4 : 0;
-
-    for (let i = 0; i < 4; i += 1) {
-      vehicle.setWheelEngineForce(i, engine);
-      // The handbrake locks the back wheels only, which is how you slide.
-      vehicle.setWheelBrake(i, braking + (i >= 2 ? handbrake : 0));
-    }
+    drivingConditions.current.boost = boost;
+    drivingConditions.current.surfaceFactor =
+      surfaceAt(position.x, position.z) === "grass" ? GRASS_ENGINE_FACTOR : 1;
+    drivingConditions.current.icy = store.snowLevel > ICE_SNOW_LEVEL;
+    applyDriving(
+      vehicle,
+      tuning,
+      controls,
+      driving.current,
+      dt,
+      drivingConditions.current,
+    );
 
     // How many wheels are on the ground, which the jump and the dust need.
     let grounded = 0;
@@ -306,7 +304,7 @@ export function Vehicle({
       if (vehicle.wheelIsInContact(i)) grounded += 1;
     }
     readout.current.wheels = grounded;
-    readout.current.engine = engine;
+    readout.current.engine = driving.current.engine;
 
     // The jump: a push straight up plus a little forward, on all four wheels.
     jumpCooldown.current = Math.max(0, jumpCooldown.current - dt);
@@ -330,12 +328,12 @@ export function Vehicle({
       airborneFor.current = 0;
     }
 
-    // Upside down for a second and a half rights itself. R does it now.
+    // A quad resting on its side or roof rights itself. R does it now.
     const rotation = chassis.rotation();
     scratchQuat.set(rotation.x, rotation.y, rotation.z, rotation.w);
     scratchUp.copy(WORLD_UP).applyQuaternion(scratchQuat);
     readout.current.upDot = scratchUp.dot(WORLD_UP);
-    if (readout.current.upDot < 0) {
+    if (readout.current.upDot < 0.3 && grounded < 2) {
       upsideDownFor.current += dt;
       if (upsideDownFor.current >= FLIP_SECONDS) recover.current();
     } else {
@@ -350,7 +348,10 @@ export function Vehicle({
     }
 
     // The engine note follows how hard the vehicle is working.
-    sounds.setEngine(Math.min(1, absSpeed / Math.max(1, tuning.maxSpeed)));
+    sounds.setEngine(
+      Math.min(1, absSpeed / Math.max(1, tuning.maxSpeed)),
+      controls.throttle,
+    );
 
     vehicle.updateVehicle(dt);
   });
@@ -378,8 +379,12 @@ export function Vehicle({
       const mount = tuning.wheelPositions[i];
       const suspension =
         vehicle.wheelSuspensionLength(i) ?? tuning.suspension.restLength;
-      group.position.set(mount[0], mount[1] - suspension, mount[2]);
-      group.rotation.y = i < 2 ? steerAngle.current : 0;
+      group.position.set(
+        twoWheels ? 0 : mount[0],
+        mount[1] - suspension,
+        mount[2],
+      );
+      group.rotation.y = i < 2 ? driving.current.steerAngle : 0;
       // The first child holds the tire and the hub, so both roll together.
       const spinner = group.children[0];
       if (spinner) spinner.rotation.x = wheelSpin.current;
@@ -394,32 +399,43 @@ export function Vehicle({
       type="dynamic"
       colliders={false}
       position={[spawn[0], spawn[1], spawn[2]]}
+      rotation={[0, heading, 0]}
       linearDamping={0.1}
       angularDamping={1}
       canSleep={false}
+      ccd
     >
       <CuboidCollider
         args={[width / 2, height / 2, length / 2]}
-        mass={tuning.mass}
+        massProperties={massProperties}
       />
 
-      <VehicleModel id={id} tuning={tuning} paint={paint} />
+      <VehicleModel
+        id={id}
+        tuning={tuning}
+        paint={paint}
+        mud={mud}
+        lightsEnabled={false}
+      />
+      <Headlights width={width} length={length} />
 
-      {[0, 1, 2, 3].map((i) => (
-        <group
-          key={i}
-          ref={(group) => {
-            wheels.current[i] = group;
-          }}
-          position={[
-            tuning.wheelPositions[i][0],
-            tuning.wheelPositions[i][1] - tuning.suspension.restLength,
-            tuning.wheelPositions[i][2],
-          ]}
-        >
-          <WheelModel radius={tuning.wheelRadius} />
-        </group>
-      ))}
+      {[0, 1, 2, 3].map((i) =>
+        twoWheels && i % 2 ? null : (
+          <group
+            key={i}
+            ref={(group) => {
+              wheels.current[i] = group;
+            }}
+            position={[
+              twoWheels ? 0 : tuning.wheelPositions[i][0],
+              tuning.wheelPositions[i][1] - tuning.suspension.restLength,
+              tuning.wheelPositions[i][2],
+            ]}
+          >
+            <WheelModel radius={tuning.wheelRadius} />
+          </group>
+        ),
+      )}
     </RigidBody>
   );
 }

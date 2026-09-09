@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import { adventureSchema } from "@/games/four-wheeler-3d/lib/adventureSchema";
 import type { ValidAppId } from "@hank-neil/db/schema";
 
 // Common limits
@@ -735,6 +736,7 @@ const achievementsSchema = z.object({
 // million seconds (about 11 days), which no real lap can reach and still
 // bounds a hostile payload.
 const fourWheeler3dSchema = z.object({
+  adventure: adventureSchema.optional(),
   money: z.number().min(0).max(MAX_CURRENCY),
   totalEarned: z.number().min(0).max(MAX_CURRENCY),
   ownedVehicles: z.array(boundedString).max(100),

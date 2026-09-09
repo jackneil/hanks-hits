@@ -57,6 +57,8 @@ export function readDevParams(search?: string): DevParams {
  *   __fw3d.mph()        the same speed in miles per hour
  *   __fw3d.airtime()    how long the last jump lasted, in seconds
  *   __fw3d.upDot()      1 upright, -1 upside down
+ *   __fw3d.heading()    yaw radians from +Z; right turns decrease it
+ *   __fw3d.steering()   front wheel angle in radians
  *   __fw3d.wheels()     how many of the four wheels touch the ground
  *   __fw3d.engine()     the engine force being sent to each wheel
  *   __fw3d.helmetCam()  true when the camera is in the helmet
@@ -72,6 +74,8 @@ export type DevHandle = {
   mph: () => number;
   airtime: () => number;
   upDot: () => number;
+  heading: () => number;
+  steering: () => number;
   wheels: () => number;
   engine: () => number;
   helmetCam: () => boolean;

@@ -31,11 +31,10 @@ export const HINT_SECONDS = 2.5;
  * of a touch screen. The number comes from the shared layout, so moving a
  * button moves the toast with it.
  */
-const TOUCH_BOTTOM =
-  TOUCH_LAYOUT.jump.bottom + TOUCH_LAYOUT.jump.height + GAP;
+const TOUCH_BOTTOM = TOUCH_LAYOUT.jump.bottom + TOUCH_LAYOUT.jump.height + GAP;
 
 /** How high it sits with a mouse, where the bottom of the screen is free. */
-const MOUSE_BOTTOM = 24;
+const MOUSE_BOTTOM = 88;
 
 export type HintToastProps = {
   /** True on a touch screen, where the toast has to clear the controls. */
@@ -49,10 +48,7 @@ export function HintToast({ raised = false }: HintToastProps) {
   // Each new hint starts the clock again, so two in a row are both readable.
   useEffect(() => {
     if (!hint) return;
-    const timer = window.setTimeout(
-      () => setHint(null),
-      HINT_SECONDS * 1000
-    );
+    const timer = window.setTimeout(() => setHint(null), HINT_SECONDS * 1000);
     return () => window.clearTimeout(timer);
   }, [hint, setHint]);
 
@@ -60,11 +56,13 @@ export function HintToast({ raised = false }: HintToastProps) {
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4"
-      style={{ bottom: `${raised ? TOUCH_BOTTOM + EDGE : MOUSE_BOTTOM}px` }}
+      className="fw-hint-toast pointer-events-none fixed inset-x-0 z-[60] flex justify-center px-4"
+      style={{
+        bottom: `${raised ? TOUCH_BOTTOM + EDGE + 100 : MOUSE_BOTTOM}px`,
+      }}
     >
       {hint && (
-        <p className="max-w-md rounded-full bg-slate-900/85 px-5 py-2 text-center text-lg font-bold text-white shadow-md">
+        <p className="max-w-md rounded-full bg-slate-900/85 px-5 py-2 text-center text-sm font-medium text-white shadow-md">
           {hint}
         </p>
       )}

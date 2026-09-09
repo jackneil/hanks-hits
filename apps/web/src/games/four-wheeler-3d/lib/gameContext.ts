@@ -49,7 +49,7 @@ export function useCreateGameContext(): GameContextValue {
       getLoadedChunks,
       setLoadedChunks,
     }),
-    [getLoadedChunks, setLoadedChunks]
+    [getLoadedChunks, setLoadedChunks],
   );
 }
 

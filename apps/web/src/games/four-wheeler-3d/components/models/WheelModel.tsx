@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { bar, combine, rounded } from "./modelGeometry";
 
-/** Axle is local X. Vehicle owns the parent group's steering, spin and suspension. */
-export function WheelModel({ radius }: { radius: number }) {
-  const parts = useMemo(() => {
+const wheelCache = new Map<
+  number,
+  { tire: THREE.BufferGeometry; rim: THREE.BufferGeometry }
+>();
+/** Geometry belongs to this bounded catalog-radius cache, never to an individual wheel. */
+export function wheelGeometry(radius: number) {
+  const cached = wheelCache.get(radius);
+  if (cached) return cached;
+  const parts = (() => {
     const tire = new THREE.TorusGeometry(radius * 0.73, radius * 0.27, 12, 32);
     tire.rotateY(Math.PI / 2).scale(1.4, 1, 1);
     const treads: THREE.BufferGeometry[] = [tire];
@@ -43,11 +48,13 @@ export function WheelModel({ radius }: { radius: number }) {
     }
     rim.push(bar([-radius * 0.34, 0, 0], [radius * 0.34, 0, 0], radius * 0.15));
     return { tire: combine(treads), rim: combine(rim) };
-  }, [radius]);
-  useEffect(
-    () => () => Object.values(parts).forEach((g) => g.dispose()),
-    [parts],
-  );
+  })();
+  wheelCache.set(radius, parts);
+  return parts;
+}
+/** Axle is local X. Parent owns steering, spin and suspension. */
+export function WheelModel({ radius }: { radius: number }) {
+  const parts = wheelGeometry(radius);
   return (
     <group name="treaded-wheel">
       <mesh geometry={parts.tire} castShadow receiveShadow>

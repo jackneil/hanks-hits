@@ -20,20 +20,35 @@ const HALF_TURN = { x: 0, y: 1, z: 0, w: 0 };
 
 describe("chase target", () => {
   it("sits behind and above a vehicle facing forward", () => {
-    const out = chaseTarget({ x: 0, y: 0, z: 0 }, NO_TURN, CHASE_DEFAULTS, vec());
+    const out = chaseTarget(
+      { x: 0, y: 0, z: 0 },
+      NO_TURN,
+      CHASE_DEFAULTS,
+      vec(),
+    );
     expect(out.x).toBeCloseTo(0, 6);
     expect(out.y).toBeCloseTo(2.2, 6);
     expect(out.z).toBeCloseTo(-5, 6);
   });
 
   it("swings around with the vehicle", () => {
-    const out = chaseTarget({ x: 0, y: 0, z: 0 }, HALF_TURN, CHASE_DEFAULTS, vec());
+    const out = chaseTarget(
+      { x: 0, y: 0, z: 0 },
+      HALF_TURN,
+      CHASE_DEFAULTS,
+      vec(),
+    );
     expect(out.z).toBeCloseTo(5, 6);
     expect(out.y).toBeCloseTo(2.2, 6);
   });
 
   it("follows the vehicle wherever it is", () => {
-    const out = chaseTarget({ x: 12, y: 3, z: -7 }, NO_TURN, CHASE_DEFAULTS, vec());
+    const out = chaseTarget(
+      { x: 12, y: 3, z: -7 },
+      NO_TURN,
+      CHASE_DEFAULTS,
+      vec(),
+    );
     expect(out.x).toBeCloseTo(12, 6);
     expect(out.y).toBeCloseTo(5.2, 6);
     expect(out.z).toBeCloseTo(-12, 6);

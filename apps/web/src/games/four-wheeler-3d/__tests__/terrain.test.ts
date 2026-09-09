@@ -65,7 +65,7 @@ describe("four-wheeler-3d terrain height", () => {
       z: RING.z + 3 * Math.sin(RING_ANGLE),
     };
     const difference = Math.abs(
-      heightAt(RING.x, RING.z) - heightAt(outward.x, outward.z)
+      heightAt(RING.x, RING.z) - heightAt(outward.x, outward.z),
     );
     expect(difference).toBeLessThan(0.3);
     expect(roadInfluence(RING.x, RING.z).t).toBeGreaterThan(0.9);
@@ -108,7 +108,11 @@ describe("four-wheeler-3d terrain chunks", () => {
 
   it("builds a mesh that samples the same grid as the collider", () => {
     const segments = 8;
-    const { positions, colors, indices } = buildChunkGeometryData(6, -2, segments);
+    const { positions, colors, indices } = buildChunkGeometryData(
+      6,
+      -2,
+      segments,
+    );
     const side = segments + 1;
     expect(positions).toHaveLength(side * side * 3);
     expect(colors).toHaveLength(side * side * 3);
@@ -144,7 +148,7 @@ describe("four-wheeler-3d props", () => {
       for (const prop of [...trees, ...rocks, ...grass]) {
         expect(roadInfluence(prop.x, prop.z).t).toBe(0);
         expect(Math.hypot(prop.x - LAKE.x, prop.z - LAKE.z)).toBeGreaterThan(
-          SHORE_RADIUS
+          SHORE_RADIUS,
         );
         expect(insideHub(prop.x, prop.z)).toBe(false);
         expect(prop.y).toBe(heightAt(prop.x, prop.z));
@@ -163,7 +167,8 @@ describe("four-wheeler-3d props", () => {
     const fence = hubFenceSegments();
     expect(fence.length).toBeGreaterThan(4);
     const dockSide = fence.filter(
-      (segment) => segment.x1 === hubBounds.maxX && segment.x2 === hubBounds.maxX
+      (segment) =>
+        segment.x1 === hubBounds.maxX && segment.x2 === hubBounds.maxX,
     );
     expect(dockSide).toHaveLength(2);
     const gap = Math.abs(dockSide[0].z2 - dockSide[1].z1);

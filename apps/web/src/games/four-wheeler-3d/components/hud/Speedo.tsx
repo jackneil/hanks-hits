@@ -39,9 +39,15 @@ export type SpeedoProps = {
    * in the shared layout. On a mouse screen it tucks into the corner.
    */
   raised?: boolean;
+  racing?: boolean;
 };
 
-export function Speedo({ speed, vehicleId, raised = false }: SpeedoProps) {
+export function Speedo({
+  speed,
+  vehicleId,
+  raised = false,
+  racing = false,
+}: SpeedoProps) {
   const topMph = topSpeedMph(vehicleId);
   const mph = Math.abs(mphFromMs(speed));
   const fraction = Math.max(0, Math.min(1, mph / topMph));
@@ -51,18 +57,30 @@ export function Speedo({ speed, vehicleId, raised = false }: SpeedoProps) {
   const needle = pointOnDial(fraction, RADIUS - 8);
 
   return (
-    <div
-      className="pointer-events-none fixed inset-0 z-40"
-      aria-hidden="true"
-    >
+    <div className="pointer-events-none fixed inset-0 z-40" aria-hidden="true">
       <div
-        className="relative"
+        className={
+          raised
+            ? `relative fw-speedo-touch${racing ? " fw-speedo-racing" : ""}`
+            : "relative"
+        }
         style={
           raised
             ? boxStyle("speedo")
-            : { position: "absolute", right: "16px", bottom: "16px", width: "128px", height: "128px" }
+            : {
+                position: "absolute",
+                right: "16px",
+                bottom: "16px",
+                width: "128px",
+                height: "128px",
+              }
         }
       >
+        {raised && (
+          <div className="fw-speedo-compact">
+            {Math.round(mph)} <small>MPH</small>
+          </div>
+        )}
         <svg viewBox="0 0 100 100" className="h-full w-full">
           <circle cx={CENTER} cy={CENTER} r={48} fill="rgba(12,16,22,0.78)" />
           {/* The empty dial. */}
@@ -101,7 +119,7 @@ export function Speedo({ speed, vehicleId, raised = false }: SpeedoProps) {
           <circle cx={CENTER} cy={CENTER} r={4} fill="#f6f7f9" />
         </svg>
 
-        <div className="absolute inset-0 flex flex-col items-center justify-end pb-3">
+        <div className="fw-speedo-digits absolute inset-0 flex flex-col items-center justify-end pb-3">
           <span
             className={`text-2xl font-black tabular-nums leading-none ${
               fast ? "text-red-400" : "text-white"

@@ -1,18 +1,11 @@
 "use client";
 
-/**
- * The two things a road needs that vertex colours cannot paint: the race
- * start line and a sign on every plot of land for sale.
- *
- * The dirt of every ribbon is already painted into the terrain mesh, so there
- * is no road geometry here at all. The signs are placeholders. The real ones
- * arrive with the My Land milestone.
- */
+/** Physical runway markings and the race start line. Plot signs live in Properties. */
 
 import { useMemo } from "react";
 import * as THREE from "three";
 
-import { LAND_PLOTS, RACE_LOOP, RACE_START } from "../lib/landmarks";
+import { RACE_LOOP, RACE_START, RUNWAY } from "../lib/landmarks";
 import { heightAt } from "../lib/terrain";
 
 /** How many black and white squares make up the start line. */
@@ -22,7 +15,8 @@ export function Roads() {
   const startLine = useMemo(() => {
     const y = heightAt(RACE_START.x, RACE_START.z) + 0.03;
     const cell = RACE_LOOP.width / CHECKS;
-    const squares: Array<{ key: string; x: number; z: number; dark: boolean }> = [];
+    const squares: Array<{ key: string; x: number; z: number; dark: boolean }> =
+      [];
     for (let column = 0; column < CHECKS; column++) {
       for (let row = 0; row < 2; row++) {
         squares.push({
@@ -36,19 +30,9 @@ export function Roads() {
     return { y, cell, squares };
   }, []);
 
-  const signs = useMemo(
-    () =>
-      LAND_PLOTS.map((plot) => ({
-        id: plot.id,
-        x: plot.x,
-        z: plot.z,
-        y: heightAt(plot.x, plot.z),
-      })),
-    []
-  );
-
   return (
     <group>
+      <AirstripSurface />
       <group position={[0, startLine.y, 0]}>
         {startLine.squares.map((square) => (
           <mesh
@@ -65,25 +49,58 @@ export function Roads() {
           </mesh>
         ))}
       </group>
-
-      {signs.map((sign) => (
-        <group key={sign.id} position={[sign.x, sign.y, sign.z]}>
-          <mesh castShadow position={[0, 1.1, 0]}>
-            <boxGeometry args={[0.18, 2.2, 0.18]} />
-            <meshStandardMaterial color="#7a5a3a" roughness={1} />
-          </mesh>
-          <mesh castShadow position={[0, 2.6, 0]}>
-            <boxGeometry args={[2.6, 1.5, 0.14]} />
-            <meshStandardMaterial color="#2e8b57" roughness={0.8} />
-          </mesh>
-          <mesh position={[0, 2.6, 0.09]}>
-            <planeGeometry args={[2.2, 1.1]} />
-            <meshStandardMaterial color="#f7fbf6" roughness={0.7} />
-          </mesh>
-        </group>
-      ))}
     </group>
   );
 }
 
 export default Roads;
+
+function AirstripSurface() {
+  const geometry = useMemo(() => {
+    const g = new THREE.PlaneGeometry(
+      RUNWAY.length,
+      RUNWAY.width,
+      30,
+      4,
+    ).rotateX(-Math.PI / 2);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++)
+      p.setY(i, heightAt(p.getX(i) + RUNWAY.x, p.getZ(i) + RUNWAY.z) + 0.04);
+    g.computeVertexNormals();
+    return g;
+  }, []);
+  const map = useMemo(() => {
+    const t = new THREE.TextureLoader().load(
+      "/games/four-wheeler-3d/assets/aerial_asphalt_01/aerial_asphalt_01_diff_1k.jpg",
+    );
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(10, 1.33);
+    t.anisotropy = 4;
+    return t;
+  }, []);
+  return (
+    <group>
+      <mesh
+        geometry={geometry}
+        position={[RUNWAY.x, 0, RUNWAY.z]}
+        receiveShadow
+      >
+        <meshStandardMaterial map={map} color="#888b85" roughness={0.95} />
+      </mesh>
+      {Array.from({ length: 10 }, (_, i) => {
+        const x = RUNWAY.x - 27 + i * 6;
+        return (
+          <mesh
+            key={i}
+            position={[x, heightAt(x, RUNWAY.z) + 0.085, RUNWAY.z]}
+            rotation={[-Math.PI / 2, 0, 0]}
+          >
+            <planeGeometry args={[3, 0.16]} />
+            <meshStandardMaterial color="#e5dfc7" roughness={0.9} />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}

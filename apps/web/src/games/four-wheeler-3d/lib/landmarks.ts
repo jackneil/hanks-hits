@@ -86,7 +86,7 @@ export const HORSE_PEN = { x: -480, z: -65, w: 20, h: 14 } as const;
 /** The airstrip. It points east, so the plane rolls along +x. */
 export const RUNWAY = {
   x: -407,
-  z: -61,
+  z: -125,
   length: 60,
   width: 8,
   headingRadians: 0,
@@ -164,7 +164,7 @@ export const TRAIN_SPUR_END: Vec2 = { x: -503, z: 0 };
 function roundedRectPoints(
   half: number,
   radius: number,
-  count: number
+  count: number,
 ): Vec2[] {
   const straight = half - radius;
   // Four half straights + four corners + four half straights, in order.
@@ -185,7 +185,10 @@ function roundedRectPoints(
     // The walk starts at the bottom middle, so the first leg is only half a side.
     const legs: Array<{ length: number; at: (t: number) => Vec2 }> = [
       { length: s, at: (t) => ({ x: t * s, z: h }) },
-      { length: arc, at: (t) => arcPoint(s, s, r, Math.PI / 2, -t * (Math.PI / 2)) },
+      {
+        length: arc,
+        at: (t) => arcPoint(s, s, r, Math.PI / 2, -t * (Math.PI / 2)),
+      },
       { length: side, at: (t) => ({ x: h, z: s - t * side }) },
       { length: arc, at: (t) => arcPoint(s, -s, r, 0, -t * (Math.PI / 2)) },
       { length: side, at: (t) => ({ x: s - t * side, z: -h }) },
@@ -216,7 +219,7 @@ function roundedRectPoints(
     cz: number,
     r: number,
     startAngle: number,
-    sweep: number
+    sweep: number,
   ): Vec2 {
     const angle = startAngle + sweep;
     return { x: cx + Math.cos(angle) * r, z: cz + Math.sin(angle) * r };

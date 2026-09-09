@@ -16,7 +16,6 @@ import { Physics } from "@react-three/rapier";
 import { useFourWheeler3dStore } from "../lib/store";
 import { sounds } from "../lib/sounds";
 import type { GameControls } from "../hooks/useControls";
-import { SPAWN } from "../lib/gameContext";
 import { readDevParams } from "../lib/devParams";
 import { heightAt } from "../lib/terrain";
 import { useTimeOfDay } from "../hooks/useTimeOfDay";
@@ -32,6 +31,26 @@ import { Buildings } from "./Buildings";
 import { OutdoorEnvironment } from "./OutdoorEnvironment";
 import { GameSky } from "./Sky";
 import { WeatherEffects } from "./Weather";
+import { useAdventureSession } from "../lib/adventureSession";
+import { isAirVehicle, isWaterVehicle } from "../lib/catalog";
+import { tuningFor, type VehicleId } from "../lib/vehicles";
+import { Player } from "./Player";
+import { Dog } from "./Dog";
+import { AdventureRuntime } from "./AdventureRuntime";
+import { Fleet } from "./Fleet";
+import { Hunting } from "./Hunting";
+import { Transport, TransportActions } from "./Transport";
+import { HomeLife } from "./HomeLife";
+import { InteractionMarker } from "./InteractionMarker";
+import { DeliveryVisuals } from "./DeliveryVisuals";
+import { Properties } from "./Properties";
+import { Farm } from "./Farm";
+import { Race } from "./Race";
+import { Fishing } from "./Fishing";
+import { Train } from "./Train";
+import { Space } from "./Space";
+import { Activities } from "./Activities";
+import { savedRider } from "../lib/migration";
 
 /** Anything longer in the air than this lands with a real thump. */
 const BIG_AIR_SECONDS = 1.2;
@@ -47,9 +66,17 @@ export function World({ controls, onSpeed }: WorldProps) {
   // The live session clock, not the saved one. See lib/store.ts.
   const timeOfDay = useFourWheeler3dStore((state) => state.clock);
   const weather = useFourWheeler3dStore(
-    (state) => state.progress.weather
+    (state) => state.progress.weather,
   ) as Weather;
   const snowLevel = useFourWheeler3dStore((state) => state.snowLevel);
+  const mode = useFourWheeler3dStore((s) => s.mode);
+  const inSpace = mode === "space" || mode === "planet";
+  const adventure = useFourWheeler3dStore((s) => s.progress.adventure);
+  const active = adventure.activeVehicleId
+    ? adventure.fleet[adventure.activeVehicleId]
+    : null;
+  const paused = useFourWheeler3dStore((s) => s.isPaused || !s.hasStarted);
+  const panel = useAdventureSession((s) => s.panel);
 
   useTimeOfDay();
 
@@ -66,35 +93,100 @@ export function World({ controls, onSpeed }: WorldProps) {
   // The development ?pos= parameter, so a screenshot can be taken anywhere.
   const [spawn] = useState<[number, number, number]>(() => {
     const { position } = readDevParams();
-    if (!position) return [SPAWN[0], SPAWN[1], SPAWN[2]];
+    if (!position) {
+      const p = savedRider(
+        useFourWheeler3dStore.getState().progress.adventure,
+      ).position;
+      return [p.x, Math.max(p.y, heightAt(p.x, p.z) + 1.1), p.z];
+    }
     return [position.x, heightAt(position.x, position.z) + 2, position.z];
   });
 
   return (
     <>
-      <GameSky timeOfDay={timeOfDay} weather={weather} />
-      <OutdoorEnvironment timeOfDay={timeOfDay} />
-      <WeatherEffects weather={weather} snowLevel={snowLevel} />
-      <Buildings timeOfDay={timeOfDay} />
-      <Roads />
-      <Water />
+      {!inSpace && (
+        <>
+          <GameSky timeOfDay={timeOfDay} weather={weather} />
+          <OutdoorEnvironment timeOfDay={timeOfDay} />
+          <WeatherEffects weather={weather} snowLevel={snowLevel} />
+          <Roads />
+          <DeliveryVisuals />
+          <Water />
+        </>
+      )}
 
-      <Physics gravity={[0, -9.81, 0]}>
-        <ChunkStreamer />
-        <Vehicle
-          id="atv"
-          spawn={spawn}
+      <Physics gravity={[0, -9.81, 0]} paused={paused || !!panel}>
+        {!inSpace && (
+          <>
+            <Buildings timeOfDay={timeOfDay} />
+            <ChunkStreamer />
+            <Fleet />
+            {mode === "vehicle" && active && (
+              <Vehicle
+                key={active.id}
+                id={tuningFor(active.type).id}
+                spawn={
+                  active.position.y
+                    ? [active.position.x, active.position.y, active.position.z]
+                    : spawn
+                }
+                heading={active.heading}
+                speedUpgrade={active.speedUpgrade}
+                getControls={controls.getControlValues}
+                takeOneShot={controls.takeOneShot}
+                onSpeed={onSpeed}
+                onAir={handleAir}
+              />
+            )}
+            {![
+              "vehicle",
+              "boat",
+              "aircraft",
+              "train",
+              "space",
+              "planet",
+            ].includes(mode) && <Player controls={controls} />}
+            {active && ["boat", "aircraft"].includes(mode) && (
+              <Transport
+                key={active.id}
+                vehicle={active}
+                controls={controls}
+                onSpeed={onSpeed}
+              />
+            )}
+            <TransportActions />
+            <Dog />
+            <Hunting />
+            <HomeLife />
+            <Farm />
+            <Properties />
+            <InteractionMarker />
+            <Race />
+            <Fishing />
+            <Activities />
+            <Effects />
+            <ChaseCamera
+              id={
+                (active &&
+                !isAirVehicle(active.type) &&
+                !isWaterVehicle(active.type)
+                  ? tuningFor(active.type).id
+                  : "foot") as VehicleId
+              }
+              takeOneShot={controls.takeOneShot}
+              landing={landing}
+            />
+          </>
+        )}
+        <Space
           getControls={controls.getControlValues}
           takeOneShot={controls.takeOneShot}
-          onSpeed={onSpeed}
-          onAir={handleAir}
         />
-        <Effects />
-        <ChaseCamera
-          id="atv"
+        <Train
+          getControls={controls.getControlValues}
           takeOneShot={controls.takeOneShot}
-          landing={landing}
         />
+        <AdventureRuntime controls={controls} />
       </Physics>
     </>
   );

@@ -110,7 +110,7 @@ const ONE_SHOT_CODE_SET = new Set(Object.values(ONE_SHOT_CODES));
 export function takeOneShot(
   latch: InputLatch,
   touch: TouchState,
-  action: OneShot
+  action: OneShot,
 ): boolean {
   const code = ONE_SHOT_CODES[action];
   let pressed = latch.pending.delete(code);
@@ -165,7 +165,7 @@ export const TILT_FULL_DEGREES = 20;
 export function steerFromGamma(gammaDegrees: number): number {
   const clamped = Math.max(
     -TILT_FULL_DEGREES,
-    Math.min(TILT_FULL_DEGREES, gammaDegrees)
+    Math.min(TILT_FULL_DEGREES, gammaDegrees),
   );
   return clamped / TILT_FULL_DEGREES;
 }
@@ -184,7 +184,7 @@ export function steerFromGamma(gammaDegrees: number): number {
  */
 export function reduceKeyboard(
   keys: Set<string>,
-  pending: Set<string> = keys
+  pending: Set<string> = keys,
 ): ControlValues {
   const forward = keys.has("KeyW") || keys.has("ArrowUp");
   const backward = keys.has("KeyS") || keys.has("ArrowDown");
@@ -245,7 +245,7 @@ function strongest(a: number, b: number): number {
  */
 export function combine(
   keyboard: ControlValues,
-  touch: ControlValues
+  touch: ControlValues,
 ): ControlValues {
   return {
     throttle: strongest(keyboard.throttle, touch.throttle),

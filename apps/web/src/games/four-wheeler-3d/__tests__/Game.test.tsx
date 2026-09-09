@@ -61,7 +61,7 @@ vi.mock("@react-three/rapier", () => ({
         dir: { x: number; y: number; z: number };
         constructor(
           origin: { x: number; y: number; z: number },
-          dir: { x: number; y: number; z: number }
+          dir: { x: number; y: number; z: number },
         ) {
           this.origin = origin;
           this.dir = dir;

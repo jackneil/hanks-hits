@@ -101,20 +101,41 @@ describe("combining both hands", () => {
   });
 
   it("takes the stronger throttle", () => {
-    expect(combine(reduceKeyboard(keys("KeyW")), reduceTouch(NEUTRAL_TOUCH)).throttle).toBe(1);
-    expect(combine(reduceKeyboard(keys()), reduceTouch(touch({ gas: true }))).throttle).toBe(1);
-    expect(combine(reduceKeyboard(keys("KeyS")), reduceTouch(NEUTRAL_TOUCH)).throttle).toBe(-1);
+    expect(
+      combine(reduceKeyboard(keys("KeyW")), reduceTouch(NEUTRAL_TOUCH))
+        .throttle,
+    ).toBe(1);
+    expect(
+      combine(reduceKeyboard(keys()), reduceTouch(touch({ gas: true })))
+        .throttle,
+    ).toBe(1);
+    expect(
+      combine(reduceKeyboard(keys("KeyS")), reduceTouch(NEUTRAL_TOUCH))
+        .throttle,
+    ).toBe(-1);
   });
 
   it("honks when either hand honks", () => {
-    expect(combine(reduceKeyboard(keys("KeyH")), reduceTouch(NEUTRAL_TOUCH)).horn).toBe(true);
-    expect(combine(reduceKeyboard(keys()), reduceTouch(touch({ hornPending: true }))).horn).toBe(true);
-    expect(combine(reduceKeyboard(keys()), reduceTouch(NEUTRAL_TOUCH)).horn).toBe(false);
+    expect(
+      combine(reduceKeyboard(keys("KeyH")), reduceTouch(NEUTRAL_TOUCH)).horn,
+    ).toBe(true);
+    expect(
+      combine(reduceKeyboard(keys()), reduceTouch(touch({ hornPending: true })))
+        .horn,
+    ).toBe(true);
+    expect(
+      combine(reduceKeyboard(keys()), reduceTouch(NEUTRAL_TOUCH)).horn,
+    ).toBe(false);
   });
 
   it("jumps when either hand jumps", () => {
-    expect(combine(reduceKeyboard(keys("Space")), reduceTouch(NEUTRAL_TOUCH)).jump).toBe(true);
-    expect(combine(reduceKeyboard(keys()), reduceTouch(touch({ jumpPending: true }))).jump).toBe(true);
+    expect(
+      combine(reduceKeyboard(keys("Space")), reduceTouch(NEUTRAL_TOUCH)).jump,
+    ).toBe(true);
+    expect(
+      combine(reduceKeyboard(keys()), reduceTouch(touch({ jumpPending: true })))
+        .jump,
+    ).toBe(true);
   });
 });
 

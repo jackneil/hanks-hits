@@ -12,8 +12,18 @@ import {
 
 /** Every ground vehicle the 2D game can drive. */
 const TWO_D_IDS = [
-  "atv", "utv", "truck", "moto", "lambo", "semi",
-  "firetruck", "monster", "racecar", "muscle", "tractor", "rv",
+  "atv",
+  "utv",
+  "truck",
+  "moto",
+  "lambo",
+  "semi",
+  "firetruck",
+  "monster",
+  "racecar",
+  "muscle",
+  "tractor",
+  "rv",
 ];
 
 describe("vehicle tuning", () => {
@@ -23,7 +33,21 @@ describe("vehicle tuning", () => {
     }
     expect(VEHICLE_TUNING.foot).toBeDefined();
     expect(VEHICLE_TUNING.bike).toBeDefined();
-    expect(VEHICLE_IDS.length).toBe(TWO_D_IDS.length + 2);
+    expect(VEHICLE_IDS.length).toBe(TWO_D_IDS.length + 2 + 8);
+    for (const id of [
+      "kids",
+      "bmx",
+      "cruiser",
+      "mtb",
+      "road",
+      "ebike",
+      "emtb",
+      "supere",
+    ])
+      expect(tuningFor(id).id).toBe(id);
+    expect(tuningFor("kids").maxSpeed).toBeLessThan(
+      tuningFor("supere").maxSpeed,
+    );
   });
 
   it("puts the ATV at the speed the design doc derived", () => {
@@ -35,12 +59,22 @@ describe("vehicle tuning", () => {
 
   it("keeps the 2D speed order across the whole roster", () => {
     const order = [
-      "racecar", "lambo", "muscle", "moto", "utv", "atv",
-      "monster", "truck", "rv", "firetruck", "semi", "tractor",
+      "racecar",
+      "lambo",
+      "muscle",
+      "moto",
+      "utv",
+      "atv",
+      "monster",
+      "truck",
+      "rv",
+      "firetruck",
+      "semi",
+      "tractor",
     ] as const;
     for (let i = 1; i < order.length; i += 1) {
       expect(VEHICLE_TUNING[order[i - 1]].maxSpeed).toBeGreaterThan(
-        VEHICLE_TUNING[order[i]].maxSpeed
+        VEHICLE_TUNING[order[i]].maxSpeed,
       );
     }
   });
@@ -51,7 +85,7 @@ describe("vehicle tuning", () => {
     expect(VEHICLE_TUNING.semi.maxSteer).toBeLessThan(0.35);
     // A quad turns tighter than an 18-wheeler.
     expect(VEHICLE_TUNING.atv.maxSteer).toBeGreaterThan(
-      VEHICLE_TUNING.semi.maxSteer
+      VEHICLE_TUNING.semi.maxSteer,
     );
   });
 
@@ -81,10 +115,10 @@ describe("vehicle tuning", () => {
       expect(tuning.chassis.height).toBeGreaterThan(0);
       // Front wheels ahead of the back wheels, one on each side.
       expect(tuning.wheelPositions[0][2]).toBeGreaterThan(
-        tuning.wheelPositions[2][2]
+        tuning.wheelPositions[2][2],
       );
       expect(tuning.wheelPositions[0][0]).toBeGreaterThan(
-        tuning.wheelPositions[1][0]
+        tuning.wheelPositions[1][0],
       );
     }
   });

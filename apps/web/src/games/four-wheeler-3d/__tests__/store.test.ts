@@ -76,7 +76,7 @@ describe("Four-Wheeler 3D store", () => {
     useFourWheeler3dStore.getState().addMoney(-10);
 
     expect(useFourWheeler3dStore.getState().progress.lastModified).toBe(
-      1_700_000_000_000
+      1_700_000_000_000,
     );
     vi.restoreAllMocks();
   });
@@ -181,7 +181,9 @@ describe("Four-Wheeler 3D progress schema", () => {
   it("rejects a plot with three build slots", () => {
     const result = validateProgress("four-wheeler-3d", {
       ...freshProgress(),
-      land: { "plot-1": { size: 1, slots: ["garage", "trophy", "house-huge"] } },
+      land: {
+        "plot-1": { size: 1, slots: ["garage", "trophy", "house-huge"] },
+      },
     });
     expect(result.success).toBe(false);
   });
@@ -245,7 +247,9 @@ describe("four-wheeler-3d world clock", () => {
     expect(after.progress).not.toBe(before);
     expect(after.progress.day).toBe(4);
     expect(after.clock).toBeLessThan(1);
-    expect(["sunny", "rainy", "foggy", "snowy"]).toContain(after.progress.weather);
+    expect(["sunny", "rainy", "foggy", "snowy"]).toContain(
+      after.progress.weather,
+    );
     expect(after.hint).toContain("A new day");
     expect(after.progress.lastModified).toBeGreaterThan(0);
 

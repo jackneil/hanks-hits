@@ -29,7 +29,7 @@ export function chaseTarget(
   position: Vec3,
   quaternion: { x: number; y: number; z: number; w: number },
   options: ChaseOptions,
-  out: Vec3
+  out: Vec3,
 ): Vec3 {
   // The local offset: back along -Z, up along +Y.
   const lx = 0;
@@ -85,7 +85,7 @@ export function springStep(
   state: SpringState,
   target: number,
   dt: number,
-  tuning: SpringTuning
+  tuning: SpringTuning,
 ): number {
   const stiffness = tuning.stiffness;
   const damping = tuning.damping ?? criticalDamping(stiffness);
@@ -133,11 +133,7 @@ export function shakeEnvelope(time: number, magnitude: number): number {
  * Two different speeds on the two axes keep it from looking like a bounce.
  * The result is written into `out`, so a frame loop allocates nothing.
  */
-export function shakeOffset(
-  time: number,
-  magnitude: number,
-  out: Vec3
-): Vec3 {
+export function shakeOffset(time: number, magnitude: number, out: Vec3): Vec3 {
   const envelope = shakeEnvelope(time, magnitude);
   out.x = envelope * Math.sin(time * 62);
   out.y = envelope * Math.sin(time * 47 + 1.3);
