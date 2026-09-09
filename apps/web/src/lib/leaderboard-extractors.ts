@@ -265,6 +265,20 @@ export const LEADERBOARD_EXTRACTORS: Partial<
     };
   },
 
+  "four-wheeler-3d": (d) => {
+    // Lower is better here: the leaderboard ranks the best lap on the track.
+    const score = d.bestRaceTimeMs as number;
+    if (!score || score <= 0) return null;
+    return {
+      score,
+      scoreType: "fastest_time",
+      stats: {
+        money: (d.money as number) || 0,
+        trophies: (d.trophies as number) || 0,
+      },
+    };
+  },
+
   platformer: (d) => {
     const score = d.totalStars as number;
     if (!score || score <= 0) return null;
@@ -411,7 +425,7 @@ export function hasLeaderboardSupport(appId: string): appId is ValidAppId {
  */
 export function getGameScoreType(appId: string): ScoreType {
   // Games that use fastest_time (lower is better)
-  const FASTEST_TIME_GAMES: string[] = ["memory-match"];
+  const FASTEST_TIME_GAMES: string[] = ["memory-match", "four-wheeler-3d"];
 
   // Games that use wins
   const WINS_GAMES: string[] = ["chess", "checkers", "quoridor", "wordle"];

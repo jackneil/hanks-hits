@@ -1,0 +1,12 @@
+{
+  "title": "Locally hosted engine recording",
+  "author": "domasx2",
+  "source": "https://opengameart.org/content/racing-car-engine-sound-loops",
+  "license": "CC0-1.0",
+  "original": "https://opengameart.org/sites/default/files/loop_0.wav",
+  "original_sha256": "69d74b106509037ce547429e4c3f9ae906b0fffe88d0bb8b3b5a8b0cfc239048",
+  "changes": "High-pass32Hz, low-pass1600Hz, mono22050Hz,55ms equal-power loop seam. Layered with original synthesized ATV exhaust pulses in game.",
+  "file": "engine-rumble.wav",
+  "bytes": 35726,
+  "sha256": "b9d80c7e688faf43432c2607f2388cfd6e57998bcf8855788869191aa65b2df4"
+}

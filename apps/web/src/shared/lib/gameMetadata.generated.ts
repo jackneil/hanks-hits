@@ -112,6 +112,14 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     category: "arcade",
     madeByKid: false,
   },
+  "four-wheeler-3d": {
+    name: "Four-Wheeler Adventure 3D",
+    icon: "🏍️",
+    color: "green",
+    description: "Ride, hunt, fish, fly and build inside a big 3D world",
+    category: "racing",
+    madeByKid: true,
+  },
   "four-wheeler-adventure": {
     name: "Four-Wheeler Adventure",
     icon: "🐕",

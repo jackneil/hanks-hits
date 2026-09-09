@@ -1,0 +1,625 @@
+{
+  "title": "Hank\u2019s Four-Wheeler world asset credits",
+  "downloadedAt": "2026-09-08",
+  "runtimePolicy": "Local files only. No external decoders or asset requests at runtime.",
+  "totalBytes": 33808226,
+  "assets": [
+    {
+      "id": "rock_moss_set_01",
+      "source": "https://polyhaven.com/a/rock_moss_set_01",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "authors": {
+        "Kless Gyzen": "All"
+      },
+      "changes": "Original 1K glTF and all referenced files, unmodified. Runtime selects individual meshes for placement.",
+      "triangles": 63127,
+      "nodes": [
+        "rock_moss_set_01_rock01",
+        "rock_moss_set_01_rock02",
+        "rock_moss_set_01_rock03",
+        "rock_moss_set_01_rock04",
+        "rock_moss_set_01_rock05",
+        "rock_moss_set_01_rock06"
+      ],
+      "extensionsUsed": [],
+      "files": [
+        {
+          "path": "rock_moss_set_01/rock_moss_set_01_1k.gltf",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_moss_set_01/rock_moss_set_01_1k.gltf",
+          "bytes": 9987,
+          "sha256": "c36675aca9c6b2be7785c2534cf413b03ec82a5a2a5407a2b1c0cdb0346c9727"
+        },
+        {
+          "path": "rock_moss_set_01/textures/rock_moss_set_01_nor_gl_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_moss_set_01/rock_moss_set_01_nor_gl_1k.jpg",
+          "bytes": 209975,
+          "sha256": "eb4aad3f207f1dc5b624d74ae240372171626a66912bd71adf7bd3e518181d6e"
+        },
+        {
+          "path": "rock_moss_set_01/rock_moss_set_01.bin",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/rock_moss_set_01/rock_moss_set_01.bin",
+          "bytes": 1466380,
+          "sha256": "de8360e6175879aaf02c171911069cf5f1852547f9ca7f10e440085dbcc3315e"
+        },
+        {
+          "path": "rock_moss_set_01/textures/rock_moss_set_01_rough_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_moss_set_01/rock_moss_set_01_rough_1k.jpg",
+          "bytes": 82624,
+          "sha256": "4d6ec46623abd8e2cdb855f59c7ce31873ad61b36b60e4de579e9e776a497c6b"
+        },
+        {
+          "path": "rock_moss_set_01/textures/rock_moss_set_01_diff_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_moss_set_01/rock_moss_set_01_diff_1k.jpg",
+          "bytes": 168099,
+          "sha256": "40cea65d8aa4ee73a93b04af19963834d061eee9779c3fc2c1cba76eef812ccc"
+        }
+      ]
+    },
+    {
+      "id": "grass_medium_01",
+      "source": "https://polyhaven.com/a/grass_medium_01",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "authors": {
+        "Rob Tuytel": "Photography",
+        "Rico Cilliers": "Modeling"
+      },
+      "changes": "Original 1K glTF and all referenced files, unmodified. Runtime selects individual meshes for placement.",
+      "triangles": 24730,
+      "nodes": [
+        "grass_medium_01_small_a_LOD0",
+        "grass_medium_01_large_b_LOD0",
+        "grass_medium_01_mid_b_LOD0",
+        "grass_medium_01_tall_b_LOD0",
+        "grass_medium_01_tall_a_LOD0",
+        "grass_medium_01_tall_c_LOD0",
+        "grass_medium_01_small_b_LOD0",
+        "grass_medium_01_mid_c_LOD0",
+        "grass_medium_01_mid_a_LOD0",
+        "grass_medium_01_large_a_LOD0",
+        "grass_medium_01_large_c_LOD0",
+        "grass_medium_01_tiny_c_LOD0",
+        "grass_medium_01_tiny_a_LOD0",
+        "grass_medium_01_tiny_b_LOD0",
+        "grass_medium_01_tiny_d_LOD0",
+        "grass_medium_01_tiny_e_LOD0",
+        "grass_medium_01_tiny_f_LOD0"
+      ],
+      "extensionsUsed": [],
+      "files": [
+        {
+          "path": "grass_medium_01/grass_medium_01_1k.gltf",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/grass_medium_01/grass_medium_01_1k.gltf",
+          "bytes": 27110,
+          "sha256": "3e5e2a314c94e16de54fd7c28e41709731fbd2b1613ab539f1544f622ddb6a85"
+        },
+        {
+          "path": "grass_medium_01/textures/grass_medium_01_nor_gl_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_medium_01/grass_medium_01_nor_gl_1k.jpg",
+          "bytes": 956166,
+          "sha256": "cae298d3d1d7ff7c7e210ad8ac772b96706e356f9315a6b04fde373ce01ccf1e"
+        },
+        {
+          "path": "grass_medium_01/textures/grass_medium_01_diff_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_medium_01/grass_medium_01_diff_1k.jpg",
+          "bytes": 395673,
+          "sha256": "71495bd6a11fddcab0aaff38246fea1a7b802a705483f1c7cbca53955daa8050"
+        },
+        {
+          "path": "grass_medium_01/textures/grass_medium_01_arm_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/grass_medium_01/grass_medium_01_arm_1k.jpg",
+          "bytes": 679518,
+          "sha256": "9a3a30f72bc02f4398967c5b08f2d20cce30bd423a2613b42a727034296fa3ae"
+        },
+        {
+          "path": "grass_medium_01/grass_medium_01.bin",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/grass_medium_01/grass_medium_01.bin",
+          "bytes": 1006632,
+          "sha256": "f4587cabdb96a2e96d8be644923dc954a248edfaaa717a0ff224cacb898bee1f"
+        }
+      ]
+    },
+    {
+      "id": "modular_wooden_pier",
+      "source": "https://polyhaven.com/a/modular_wooden_pier",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "authors": {
+        "Rico Cilliers": "All"
+      },
+      "changes": "Original 1K glTF and all referenced files, unmodified. Runtime selects individual meshes for placement.",
+      "triangles": 84780,
+      "nodes": [
+        "modular_wooden_pier_poles",
+        "modular_wooden_pier_planks",
+        "modular_wooden_pier_section_01",
+        "modular_wooden_pier_section_02",
+        "modular_wooden_pier_section_03",
+        "modular_wooden_pier_section_05",
+        "modular_wooden_pier_section_04"
+      ],
+      "extensionsUsed": [],
+      "files": [
+        {
+          "path": "modular_wooden_pier/modular_wooden_pier_1k.gltf",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/modular_wooden_pier/modular_wooden_pier_1k.gltf",
+          "bytes": 21127,
+          "sha256": "eeea9853deb63e43510f8d9d6af21963c88adab77e17ccac9f9b8d3a7d34a923"
+        },
+        {
+          "path": "modular_wooden_pier/textures/modular_wooden_pier_poles_arm_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/modular_wooden_pier/modular_wooden_pier_poles_arm_1k.jpg",
+          "bytes": 813524,
+          "sha256": "dacaff86f936bef10220aa60843efadae53039f064ad1a6fad735b912f1ba285"
+        },
+        {
+          "path": "modular_wooden_pier/modular_wooden_pier.bin",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/modular_wooden_pier/modular_wooden_pier.bin",
+          "bytes": 2651092,
+          "sha256": "6ec10b84aaaa02800b095850fc92cf850632e5becd76698dc6609f40f05e1b60"
+        },
+        {
+          "path": "modular_wooden_pier/textures/modular_wooden_pier_planks_arm_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/modular_wooden_pier/modular_wooden_pier_planks_arm_1k.jpg",
+          "bytes": 722511,
+          "sha256": "4c03bcee7d0fb9708be5e5ebc4dd5fd73789f4eb24b6391dff6167f11c3ce95d"
+        },
+        {
+          "path": "modular_wooden_pier/textures/modular_wooden_pier_planks_diff_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/modular_wooden_pier/modular_wooden_pier_planks_diff_1k.jpg",
+          "bytes": 764066,
+          "sha256": "2670a7eae2a3104e8537e61d90a8d8b169c7eb0f69b51622bec10e9472dc4573"
+        },
+        {
+          "path": "modular_wooden_pier/textures/modular_wooden_pier_poles_diff_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/modular_wooden_pier/modular_wooden_pier_poles_diff_1k.jpg",
+          "bytes": 836152,
+          "sha256": "da9e017b41e052d5e47558bb98e61b577f66e9d44eb2d26dc9b085e317bede9e"
+        },
+        {
+          "path": "modular_wooden_pier/textures/modular_wooden_pier_poles_nor_gl_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/modular_wooden_pier/modular_wooden_pier_poles_nor_gl_1k.jpg",
+          "bytes": 978238,
+          "sha256": "9b2d7ca04642e249428969fa32189f36fcea8577a282dbccca1ac15d59dce18e"
+        },
+        {
+          "path": "modular_wooden_pier/textures/modular_wooden_pier_planks_nor_gl_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/modular_wooden_pier/modular_wooden_pier_planks_nor_gl_1k.jpg",
+          "bytes": 1055218,
+          "sha256": "b23d7b0c23c9a41d50b7e1691e183902765aa4c21ac6ca6da678e874c4ddfb04"
+        }
+      ]
+    },
+    {
+      "id": "car_concept",
+      "source": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept",
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "authors": [
+        {
+          "license": "CC-BY-4.0",
+          "licenseUrl": "https://creativecommons.org/licenses/by/4.0/legalcode",
+          "artist": "Eric Chadwick",
+          "year": "2024",
+          "owner": "Darmstadt Graphics Group GmbH",
+          "what": "Model and textures",
+          "text": "Creative Commons Attribution 4.0 International",
+          "spdx": "CC-BY-4.0",
+          "icon": "https://licensebuttons.net/l/by/4.0/88x31.png"
+        },
+        {
+          "license": "LicenseRef-LegalMark-Khronos",
+          "licenseUrl": "../../LICENSES/LicenseRef-LegalMark-Khronos.txt",
+          "artist": "Non-copyrightable logo",
+          "year": "2015",
+          "owner": "Khronos Group",
+          "what": "Khronos logo",
+          "text": "Khronos Trademark or Logo",
+          "icon": ""
+        },
+        {
+          "license": "LicenseRef-LegalMark-Khronos",
+          "licenseUrl": "../../LICENSES/LicenseRef-LegalMark-Khronos.txt",
+          "artist": "Non-copyrightable logo",
+          "year": "2017",
+          "owner": "Khronos Group",
+          "what": "3D Commerce logo",
+          "text": "Khronos Trademark or Logo",
+          "icon": ""
+        }
+      ],
+      "changes": "Extracted embedded PNGs losslessly and compacted geometry buffer into local glTF dependencies to avoid blob fetches under the existing CSP. Runtime omits logo nodes and normalizes scale.",
+      "triangles": 213347,
+      "nodes": [
+        "BodyUnderside",
+        "BodyWindshield",
+        "BodyWindshieldGasket",
+        "BodyWindshieldWipers",
+        "BodyWindshieldWipersBase",
+        "Engine",
+        "InteriorCage",
+        "InteriorDashMid",
+        "InteriorDashSides",
+        "InteriorFloor",
+        "InteriorFloormats",
+        "InteriorMid",
+        "InteriorPedalAccel",
+        "InteriorPedalAccelArm",
+        "InteriorPedalBrake",
+        "InteriorPedalBrakeArm",
+        "InteriorPillar",
+        "InteriorSeatsColor1",
+        "InteriorSeatsColor2",
+        "InteriorSeatsFrame1",
+        "InteriorSeatsFrame2",
+        "InteriorSteeringBase",
+        "InteriorSteeringCylinder",
+        "InteriorSteeringEmblem",
+        "InteriorSteeringWheel04",
+        "InteriorSteeringWheel01",
+        "InteriorSteeringWheel02",
+        "InteriorSteeringWheel03",
+        "InteriorSteeringDash",
+        "InteriorSteeringDashColumn",
+        "InteriorSteeringHandleL",
+        "InteriorSteeringHandleR",
+        "License Plate",
+        "BodyRoofPanel",
+        "BodyRearPanelsColor1",
+        "InteriorRearHatch",
+        "InteriorRearPanels",
+        "BodyWindowsRearSides",
+        "BodyTurnsignalsRear",
+        "BodyTaillightsPanels",
+        "BodyTaillights",
+        "BodyRearwindow",
+        "BodyPillars",
+        "BodyPanelsColor2",
+        "BodyHood",
+        "BodyHoodInterior01",
+        "BodyHoodInterior02",
+        "BodyHoodTopgrill",
+        "BodyHoodUnder",
+        "BodyHeadlights",
+        "BodyDoorRColor1",
+        "BodyDoorRColor2",
+        "BodyDoorRHandle01",
+        "BodyDoorRHandle02",
+        "BodyDoorRMirror",
+        "BodyDoorRMirrorColor1",
+        "BodyDoorRMirrorColor2",
+        "BodyDoorRWindow",
+        "BodyDoorRWindowGasket",
+        "InteriorDoorR01",
+        "InteriorDoorR02",
+        "InteriorDoorR03",
+        "InteriorDoorR04",
+        "InteriorDoorR05",
+        "InteriorDoorR06",
+        "BodyDoorLColor1",
+        "InteriorDoorL04",
+        "InteriorDoorL01",
+        "InteriorDoorL02",
+        "InteriorDoorL03",
+        "InteriorDoorL05",
+        "InteriorDoorL06",
+        "BodyDoorLColor2",
+        "BodyDoorLHandle01",
+        "BodyDoorLHandle02",
+        "BodyDoorLMirror",
+        "BodyDoorLMirrorColor1",
+        "BodyDoorLWindowGasket",
+        "BodyDoorLWindow",
+        "BodyDoorLMirrorColor2",
+        "WheelFrontL",
+        "WheelFrontLRim",
+        "WheelFrontLBrakePad",
+        "WheelFrontLBrakeDisc",
+        null,
+        "WheelFrontR",
+        "WheelFrontRRim",
+        "WheelFrontRBrakePad",
+        "WheelFrontRBrakeDisc",
+        null,
+        "WheelRearL",
+        "WheelRearLBrakeDisc",
+        "WheelRearLBrakePad",
+        "WheelRearLRim",
+        null,
+        "WheelRearR",
+        "WheelRearRBrakeDisc",
+        "WheelRearRBrakePad",
+        "WheelRearRRim",
+        null,
+        "Axles"
+      ],
+      "extensionsUsed": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_emissive_strength",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_texture_transform"
+      ],
+      "files": [
+        {
+          "path": "car_concept/image-00.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 358161,
+          "sha256": "400d7424a415923bedec4f8ea60e32e55bd88a38dc16d6f9898d8b3bbf400a18"
+        },
+        {
+          "path": "car_concept/image-01.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 106027,
+          "sha256": "66b3c0bb85c8cab4b15859774147104139e7af81ad311cd89ce71a99d1006919"
+        },
+        {
+          "path": "car_concept/image-02.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 1567628,
+          "sha256": "c7fcfaaba53597834f1fe93b6cec2479ba39d4592ddb299ab4f0d23a6a3e2220"
+        },
+        {
+          "path": "car_concept/image-03.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 8177,
+          "sha256": "1453559c58526ec236ea7f90a72b0e49823061e6c26b571928b9ea3b91593e4d"
+        },
+        {
+          "path": "car_concept/image-04.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 3528,
+          "sha256": "c3b849657bb6b35957436ad08a3697961ea347d1a577f4660c900d12c9132442"
+        },
+        {
+          "path": "car_concept/image-05.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 198,
+          "sha256": "48d4d9e0fee0b489c3de6869aeadb7c031014bba1c101c313358c2dc89a33f23"
+        },
+        {
+          "path": "car_concept/image-06.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 31201,
+          "sha256": "4368d7d6a295db27de60dd5efedb21e77803264a0911fbbbad177047b494385b"
+        },
+        {
+          "path": "car_concept/image-07.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 46314,
+          "sha256": "3c4b65d9a8372147a41594eee96eae35127105de26142cc9e9b752c3f9754b8e"
+        },
+        {
+          "path": "car_concept/image-08.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 343,
+          "sha256": "6ccea6705b1d31b0010e887c69a5a71394ae1edd23c8845d74e919f0f7c897a1"
+        },
+        {
+          "path": "car_concept/image-09.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 8500,
+          "sha256": "b4318c4125420cc54d3bc712a4546337ab285bec787d9222ab1fbee81d6dc36f"
+        },
+        {
+          "path": "car_concept/image-10.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 23370,
+          "sha256": "8cca97aa2b8f10e63751cda6c3d62efa58fb21fed9dcc2a2649f56a7253bc28d"
+        },
+        {
+          "path": "car_concept/image-11.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 475684,
+          "sha256": "54297a9940353fdab05356ebd1649d967d0cf316968b15f496903ec00731b2c1"
+        },
+        {
+          "path": "car_concept/image-12.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 53752,
+          "sha256": "10a31cec483d1c8dd9f68798f282e5b348200754e94ce940a6c3caf5f82a539b"
+        },
+        {
+          "path": "car_concept/image-13.png",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 240363,
+          "sha256": "6c1ad93ac6bcb36becffda8c449d9aa2b024597bd2e2f3ac3a8a4a4c9a4cd787"
+        },
+        {
+          "path": "car_concept/CarConcept.bin",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 8670516,
+          "sha256": "5cd6ceb6a502dc3c79863c2f11c06f6aa7474e53367bb212b3e3c3f1e7611d20"
+        },
+        {
+          "path": "car_concept/CarConcept.gltf",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 184306,
+          "sha256": "f025a71c6f18abc6158a9e10582059741b243da153738144b0db3e6531d486dc"
+        }
+      ],
+      "sourceArchive": [
+        {
+          "path": "car_concept/CarConcept.glb",
+          "source": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/glTF-Binary/CarConcept.glb",
+          "bytes": 11778688,
+          "sha256": "c272098089d78c5cd9fd9f24ff50ee8acf8d932c55f2d55fc10adb6c8998966b"
+        }
+      ]
+    },
+    {
+      "id": "forest_ground_04",
+      "source": "https://polyhaven.com/a/forest_ground_04",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "authors": {
+        "Rob Tuytel": "Photography, Processing",
+        "Rico Cilliers": "Minor adjustment"
+      },
+      "changes": "Original 1K diffuse and OpenGL normal maps. Shader blends at real-world scale.",
+      "files": [
+        {
+          "path": "forest_ground_04/forest_ground_04_diff_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_diff_1k.jpg",
+          "bytes": 1113899,
+          "sha256": "50a4dda30875020c64385261aa7e00e2155b592302fa6794165f58fae73cbd2c"
+        },
+        {
+          "path": "forest_ground_04/forest_ground_04_nor_gl_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_nor_gl_1k.jpg",
+          "bytes": 1326812,
+          "sha256": "9c3a0200e02ce40edffbbf9f5f623ef08ea9b1b7812b556182ec978f88887151"
+        }
+      ]
+    },
+    {
+      "id": "aerial_asphalt_01",
+      "source": "https://polyhaven.com/a/aerial_asphalt_01",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "changes": "Original 1K diffuse and OpenGL normal maps. Shader blends at real-world scale.",
+      "files": [
+        {
+          "path": "aerial_asphalt_01/aerial_asphalt_01_diff_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_asphalt_01/aerial_asphalt_01_diff_1k.jpg",
+          "bytes": 635143,
+          "sha256": "28bfd71288b364f825e0feb750e487410422d80bf3c31d32da01cae3bf085b58"
+        },
+        {
+          "path": "aerial_asphalt_01/aerial_asphalt_01_nor_gl_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_asphalt_01/aerial_asphalt_01_nor_gl_1k.jpg",
+          "bytes": 560227,
+          "sha256": "7a58cb4460f75b66359b8e19bc92585554a79c2b0009e2b9e21eccac0a58d3f6"
+        }
+      ]
+    },
+    {
+      "id": "brown_mud_03",
+      "source": "https://polyhaven.com/a/brown_mud_03",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "changes": "Original 1K diffuse and OpenGL normal maps. Shader blends at real-world scale.",
+      "files": [
+        {
+          "path": "brown_mud_03/brown_mud_03_diff_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_03/brown_mud_03_diff_1k.jpg",
+          "bytes": 526262,
+          "sha256": "6da4fbd6fc5d21044dcbdbd96e098fb464ed544b42c982e72ce8ccd1d53686c5"
+        },
+        {
+          "path": "brown_mud_03/brown_mud_03_nor_gl_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/brown_mud_03/brown_mud_03_nor_gl_1k.jpg",
+          "bytes": 1229474,
+          "sha256": "b53758dbc93f1ab3ad2884ca07a217dd90450e6a70d055f34573573668812a2a"
+        }
+      ]
+    },
+    {
+      "id": "bark_brown_02",
+      "source": "https://polyhaven.com/a/bark_brown_02",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "authors": {
+        "Rob Tuytel": "All"
+      },
+      "changes": "Original 1K diffuse and OpenGL normal maps. Shader blends at real-world scale.",
+      "files": [
+        {
+          "path": "bark_brown_02/bark_brown_02_diff_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/bark_brown_02_diff_1k.jpg",
+          "bytes": 659592,
+          "sha256": "920fa0bed0c9d78c1d530e99795113afd532d7db746de440f4a85d7c83ed0f1a"
+        },
+        {
+          "path": "bark_brown_02/bark_brown_02_nor_gl_1k.jpg",
+          "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/bark_brown_02/bark_brown_02_nor_gl_1k.jpg",
+          "bytes": 1015623,
+          "sha256": "0d5e691e8ad8bcd093a3587887fda2a6b4a948b5708a4f256f7919584c6eb857"
+        }
+      ]
+    },
+    {
+      "id": "kloofendal_48d_partly_cloudy_puresky",
+      "source": "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "authors": {
+        "Greg Zaal": "Original",
+        "Jarod Guest": "Sky edits"
+      },
+      "changes": "Original 1K HDR; converted to a filtered reflection probe at runtime.",
+      "files": [
+        {
+          "path": "kloofendal_48d_partly_cloudy_puresky/kloofendal_48d_partly_cloudy_puresky_1k.hdr",
+          "source": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloofendal_48d_partly_cloudy_puresky_1k.hdr",
+          "bytes": 1435119,
+          "sha256": "fd94c84997b8a3c353b62c2125a9b44e19509956986a126e472684432a02d798"
+        }
+      ]
+    },
+    {
+      "id": "forest_leaves",
+      "source": "https://github.com/dgreenheck/ez-tree/tree/main/src/app/public/textures",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/dgreenheck/ez-tree/blob/main/LICENSE",
+      "authors": {
+        "Daniel Greenheck": "Leaf textures, \u00a9 2024"
+      },
+      "changes": "Original alpha leaf textures. Used on authored branching tree meshes.",
+      "files": [
+        {
+          "path": "forest_leaves/oak.png",
+          "source": "https://media.githubusercontent.com/media/dgreenheck/ez-tree/main/src/app/public/textures/leaves/oak.png",
+          "bytes": 238115,
+          "sha256": "24451223cf396d22910a4932b8bb996a7274e63d81e24128c96a430ab67822b1"
+        },
+        {
+          "path": "forest_leaves/aspen.png",
+          "source": "https://media.githubusercontent.com/media/dgreenheck/ez-tree/main/src/app/public/textures/leaves/aspen.png",
+          "bytes": 142116,
+          "sha256": "6c8cbfa3eda0f070df6ebb3c8ec6899400f3c966d1658fcfd9ae518347c2dcb9"
+        },
+        {
+          "path": "forest_leaves/pine.png",
+          "source": "https://media.githubusercontent.com/media/dgreenheck/ez-tree/main/src/app/public/textures/leaves/pine.png",
+          "bytes": 303684,
+          "sha256": "88be36a2387554ac4b7c7d1549eae454a37ad896e8e33a7d6ae5956bd169ab08"
+        }
+      ]
+    }
+  ],
+  "renderBudget": {
+    "sharedEnvironmentTransferBytes": 9186066,
+    "nearSceneryTransferBytes": 5002164,
+    "carAndPierLoad": "Load lazily at relevant landmarks; not required for terrain or forest.",
+    "forest": "Three species, two LODs, two instanced draws per species/chunk. Near within 110m of chunk edge; shadows/details within 72m. Hysteresis 18m/12m.",
+    "nearTreeTriangles": {
+      "pine": 1458,
+      "oak": 1152,
+      "aspen": 1152
+    },
+    "farTreeTriangles": {
+      "pine": 362,
+      "oak": 264,
+      "aspen": 264
+    },
+    "nearSceneryPerChunk": {
+      "detailedRocks": 8,
+      "detailedRockTrianglesEach": 5000,
+      "tinyGrassTuftsMax": 240,
+      "tinyGrassTrianglesEach": 79,
+      "tallGrassTuftsMax": 50,
+      "tallGrassTrianglesEach": 290
+    },
+    "water": "64x64 grid (8192 triangles), one material. Two scrolling normal samples and environment reflections. No planar reflection render pass or transmission capture. Reduced motion stops normal drift and swell.",
+    "measurement": "Transfer sizes and geometry counts measured locally; mobile GPU frame times require device QA."
+  }
+}

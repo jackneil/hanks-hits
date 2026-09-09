@@ -21,3 +21,8 @@
 - [1x] `next dev` served a stale `GameStartOverlay` for cookie-clicker while every other route had the new one (identical measurements before and after an edit are the tell). Restart the dev server before believing a browser measurement that contradicts the code; same lesson as the earlier stale-module entry, now seen on a shared component.
 
 - [1x] A window keydown guard must be keyed on the state it reads: two fixer-added `if (gameState === "menu") return` guards sat in effects whose dependency arrays did not include `gameState`, so after Play the listener still thought the game was on the start card and every key was dead. The `react-hooks/exhaustive-deps` WARNING was the only signal; treat a new warning in a touched file as an error.
+
+- [1x] A graphics pass is not a finished game. When continuing a rewrite, inventory the original game's reachable features and retain every one in the acceptance ledger. Do not present a driving scaffold as complete while hunting, GPS, shops, progression, and other promised systems are absent.
+- [1x] Driving QA must assert direction and stability, not merely displacement: right input must turn right in the chase camera, left must turn left, and ordinary full-speed cornering must not roll the ATV. Reproduce the user's exact controls and measure heading/roll before claiming the vehicle works.
+
+- [1x] Vehicle audio must sound like an engine under load. Avoid a naked sawtooth tied only to speed; use filtered exhaust pulses, recorded texture, smooth throttle response and restrained loudness, and verify mute/pause/resume.

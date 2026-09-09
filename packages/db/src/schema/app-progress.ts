@@ -59,6 +59,7 @@ export const appTransactions = pgTable(
 export const VALID_APP_IDS = [
   "hill-climb",
   "monster-truck",
+  "four-wheeler-3d",
   "checkers",
   "chess",
   "oregon-trail",

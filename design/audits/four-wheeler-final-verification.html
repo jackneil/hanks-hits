@@ -1,0 +1,238 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hank County: final verification</title><style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-muted: #555;
+    --bg: #fafaf7;
+    --bg-card: #fff;
+    --accent: #2266aa;
+    --accent-bg: #e7f0fa;
+    --warn: #b3681c;
+    --warn-bg: #fcf3e7;
+    --danger: #b32424;
+    --danger-bg: #fbe9e7;
+    --ok: #1f7a3f;
+    --ok-bg: #e8f4ec;
+    --border: #d8d4cc;
+    --code-bg: #f3efe8;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1;
+      --fg-muted: #a8a5a0;
+      --bg: #161616;
+      --bg-card: #1f1f1f;
+      --accent: #6aa8e8;
+      --accent-bg: #1a2935;
+      --warn: #e0a85b;
+      --warn-bg: #3a2d18;
+      --danger: #ea7670;
+      --danger-bg: #3a1f1c;
+      --ok: #6acd8e;
+      --ok-bg: #1c3327;
+      --border: #2e2e2e;
+      --code-bg: #232323;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 .25rem;
+    line-height: 1.2;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin: 2.5rem 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 .5rem;
+    color: var(--fg-muted);
+  }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  /* Metadata strip under title */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin: .5rem 0 2rem;
+    padding: .75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: .9rem;
+  }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+
+  /* Status badges — drop into a <span class="badge X"> */
+  .badge {
+    display: inline-block;
+    padding: .15rem .6rem;
+    border-radius: 99px;
+    font-size: .8rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .badge.ok       { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn     { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger   { background: var(--danger-bg); color: var(--danger); }
+  .badge.info     { background: var(--accent-bg); color: var(--accent); }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+  }
+  nav.toc h2 {
+    margin: 0 0 .5rem;
+    font-size: .9rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--fg-muted);
+    border: none;
+    padding: 0;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+  nav.toc li { margin: .15rem 0; }
+
+  /* Callouts — drop into <aside class="callout warn"> ... </aside> */
+  aside.callout {
+    margin: 1rem 0;
+    padding: .9rem 1.1rem;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  aside.callout.warn   { border-color: var(--warn);   background: var(--warn-bg); }
+  aside.callout.danger { border-color: var(--danger); background: var(--danger-bg); }
+  aside.callout.ok     { border-color: var(--ok);     background: var(--ok-bg); }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child  { margin-bottom: 0; }
+
+  /* Code */
+  code {
+    font-family: var(--mono);
+    font-size: .92em;
+    background: var(--code-bg);
+    padding: .12em .35em;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: .88rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left;
+    padding: .55rem .8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: .9rem;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Task checklist — use <ul class="tasks"> + <li><input type="checkbox" disabled> ...</li> */
+  ul.tasks { list-style: none; padding-left: 0; }
+  ul.tasks li {
+    padding: .25rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+  }
+  ul.tasks input[type="checkbox"] { margin-top: .4rem; }
+
+  /* Mermaid diagram wrappers */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  /* If mermaid fails (no network), fall back to showing the source in a code block */
+  .diagram pre.mermaid-source {
+    text-align: left;
+    display: none;
+  }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+
+  blockquote {
+    border-left: 3px solid var(--border);
+    padding: .2rem 1rem;
+    margin: 1rem 0;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  /* Print: paginate cleanly, drop the dark-mode flip, expand TOC */
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    nav.toc { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+
+body{margin:0;background:#111b17;color:#ece9de;font:16px/1.6 system-ui,sans-serif}main{max-width:1120px;margin:auto;padding:40px 24px}h1,h2{color:#f0d49c}a{color:#b9ded5}table{width:100%;border-collapse:collapse;margin:24px 0}td,th{text-align:left;vertical-align:top;border-bottom:1px solid #405047;padding:12px;overflow-wrap:anywhere}td:first-child{max-width:180px}audio{width:min(100%,650px)}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}figure{margin:0}img{width:100%;border-radius:10px}figcaption{font-size:13px;color:#c6cbc4}@media(max-width:650px){table{display:block;overflow-x:auto}main{padding:24px 14px}}code{background:#253d32;color:#f4eedf;padding:2px 5px;border-radius:4px}</style></head><body><aside style="padding:18px;background:#183c30;color:#f4eedf"><strong>Publishing explicitly authorized.</strong> The user approved sending the verified source, assets and reports to <code>jackneil/hanks-hits</code>, branch <code>feat/four-wheeler-3d</code>, updating draft PR21. The earlier automatic approval block is resolved. <a href="https://github.com/jackneil/hanks-hits/pull/21">Current PR state</a> is authoritative.</aside><main><p>HANK COUNTY / LOCAL ACCEPTANCE</p><h1>Four-Wheeler: complete adventure upgrade</h1><p>Captured 2026-09-09T01:39:29.743267+00:00. Branch <code>feat/four-wheeler-3d</code>, draft <a href="https://github.com/jackneil/hanks-hits/pull/21">PR21</a>. The original 2D game is unchanged.</p><p>The code-derived inventory contains 269 rows: 192 implemented, 71 deliberate adaptations, 2 prior browser-evidenced items, 4 final acceptance items now accepted with the limits below. Every feature family is implemented; evidence distinguishes code, automated tests and actual browser journeys.</p><h2>The engine</h2><p>Low irregular firing pulses layered with a locally hosted CC0 engine recording. Throttle/load changes pitch and exhaust tone smoothly; mute, pause, delayed loading and cleanup are tested. Recorded idle, acceleration and coast: peak -16.2584dBFS, RMS -29.9631dBFS, no clipping. This is a browser recording, not a claim of subjective human listening.</p><audio controls preload="metadata" src="four-wheeler-evidence/fw3d-engine-recorded.wav"></audio><p><a href="../../apps/web/public/games/four-wheeler-3d/audio/credits.json">Recording provenance</a></p><h2>What is included</h2><p>Stable ATV driving, detailed vehicles, foot exploration, dog, GPS and world map, nine stores and delivery, twelve phone apps, hunting, fishing, racing, boats and yacht, aircraft, railway and space exploration. Home life, outfits, farms, properties, interiors, garages, trailers, mowing, snow, fire-water equipment and playground activities are connected to the world and save system.</p><h2>Verification</h2><ul><li>1,146 tests passed across 150 files. ESLint, TypeScript and production build passed; exact logs and outcomes are listed in <a href="../../.bhag/qa-results.json">QA data</a>.</li><li>Eight independent reviewers covered logic, data, UX, testing, performance, simplicity, guardrails, maintainability, security, accessibility, error handling, frontend and pre-mortem. All confirmed introduced defects were fixed; final focused source and visual reviews passed. <a href="../../.bhag/review-results.json">Review record</a>.</li><li>46 local asset hashes verified, 33,808,226bytes, plus 35,726byte engine sample. No new runtime third-party media dependency.</li><li>Real Rapier tests cover steering, banked ground, braking, jump/roll and recovery. Browser turning measurements and native two-pointer touch confirm direction. A malformed below-ground saved pose recovers automatically.</li></ul><h2>Performance and limits</h2><table><thead><tr><th>Production scenario</th><th>FPS</th><th>95th-percentile frame</th></tr></thead><tbody><tr><td>ATV,844×390</td><td>120.125</td><td>9.7ms</td></tr><tr><td>Same scene,4× CPU throttle</td><td>79.455</td><td>26.6ms</td></tr><tr><td>500-vehicle save</td><td>119.901</td><td>9.7ms</td></tr></tbody></table><p>Three-to-four-second requestAnimationFrame samples on this 120 Hz host. Chrome touch/viewport and CPU emulation are representative checks, not physical-phone certification. The visual result is a coherent stylized 3D adventure with photographic materials. AAA fidelity, an objective 10/10 score, exhaustive manual testing of all 269 rows, multiplayer and production deployment are not claimed. Pretend-video likes/subscriptions are session state, matching the original hint-only interaction; world purchases and progress have separate persistence.</p><h2>Actual journeys</h2><p>Location and ownership fixtures were seeded only in disposable QA storage while the game was unmounted. Actions, movement, purchases and downloads were then performed through the actual UI. Prior development and final production evidence are labeled below.</p><table><thead><tr><th>Journey</th><th>Result</th><th>Evidence</th></tr></thead><tbody><tr><td>steering-stability</td><td>passed</td><td>Actual right input yaw -1.0277, min upDot .997579, max49.3236mph; left +.91637/up.999982; recovery up.999915/four wheels.</td></tr><tr><td>engine-rumble</td><td>passed</td><td>Browser recording idle/accelerate/coast /tmp/fw3d-engine-recorded.wav, peak -16.2584 dBFS, RMS -29.9631; synth+localCC0recording; async lifecycle unit tests.</td></tr><tr><td>physical-dealer</td><td>passed</td><td>Actual F250 purchase subtracts20000, adds truck with terrain-grounded pose; model preview opened.</td></tr><tr><td>phone-media</td><td>passed</td><td>Disney10titles and LionKingplayer; YouTube10channels/MrBeast10videos. Actual Like and Subscribe toggle. Reload resets pretend-media library by design; original inventory requires hints, not saved subscriptions. Game-world persistence remains separate.</td></tr><tr><td>phone-calculator</td><td>passed</td><td>Actual2+3=5.</td></tr><tr><td>phone-gps</td><td>passed</td><td>Map searches112destinations; plot1 pin selected route. Property door autoarrival radius fix awaiting final retest.</td></tr><tr><td>delivery</td><td>passed</td><td>ActualAmazonrod order debits100,38second delivery completes,inventoryrod1. Indoor home order also succeeds with exactxyz savedposition.</td></tr><tr><td>property</td><td>passed</td><td>Buyplot1 6000,garage3000,house4000,expand8000; ownedstructures/levelpersistafterreload. Entergarage y2000, correctexitprompt, Gooutside returns x858.708,z245. Parking/retrieval pending.</td></tr><tr><td>fishing</td><td>passed</td><td>Actualboatboard, Findfish route, Cast line, keyboardSpace short pulses catches1bigfish; Sellfish credits15000 and clearsbag.</td></tr><tr><td>dog-feed</td><td>passed</td><td>ActualGearFeed dog subtracts10, sendsdogtobowl.</td></tr><tr><td>home-meal</td><td>passed</td><td>Eat100 resets hunger, entershome; indoorAmazon order succeeds. Eexit ultimately correctposition; immediatepause race underfix.</td></tr><tr><td>starvation</td><td>passed</td><td>24gamehour timeout resetscash20000/fleet while preservingplot1 buildings/expansion.</td></tr><tr><td>phone-photo</td><td>passed</td><td>Takephoto and Savephoto actualPNGdownload /tmp/fw3d-qa-phone-camera.png succeeds. Exposedgaragecanopyobstruction colliderfix needsretake. Final production retake/download passed.</td></tr><tr><td>mobile-layout</td><td>passed</td><td>844x390desktopviewport nohorizontaloverflow apparent /tmp/fw3d-qa-mobile-landscape.png. RealhasTouchcontext pending. Final native touch multi-pointer, portrait continuation and tablet phone checks passed.</td></tr><tr><td>console</td><td>passed</td><td>TemporaryQAcontext monitored windowerror+console.error, zero observed throughabovejourneys. DevelopmentHMR reloads occurduringedits.</td></tr><tr><td>production-touch-driving</td><td>passed</td><td>Native two simultaneous touch pointers on Gas and Steer right: 23 MPH; heading from .001252 to -1.900712. No errors.</td></tr><tr><td>production-atv-parachute</td><td>passed</td><td>Actual Open ATV parachute button: parked quad, parachute-open hint, glide controls.</td></tr><tr><td>production-space</td><td>passed</td><td>Launch pad Use, Blast off, real keyboard steering and thrust, Mars landing, movement to gem, +$5,000, Board rocket, Return to Earth. Saved Mars visited and mars-gem-3, balance $5,005,000.</td></tr><tr><td>production-train</td><td>passed</td><td>Use boards train. Stations chooses West, NOS reaches77m/s, sky railway63m/s, Hop off triggers automatic return. Zero errors.</td></tr><tr><td>production-horse</td><td>passed</td><td>Seeded owned saddled horse, actual Gear Ride a horse, forward movement, E dismount.</td></tr><tr><td>production-milking</td><td>passed</td><td>Actual Gear Milk a cow and ten-second wait: Red bucket20% full,1/5 milkings.</td></tr><tr><td>production-hunting-controls</td><td>passed</td><td>Actual Gear Raise scope, keyboard arrow moves aim, Enter fires, Lower scope exit. This observation does not assert a successful animal hit; ray hits/retrieval/rewards covered in focused tests.</td></tr><tr><td>production-race</td><td>passed</td><td>Actual Start race, countdown, throttle20MPH, elapsed/checkpoint HUD. Exposed remote options and narrow layout gaps, now fixed with rendered regression; final retest recorded separately.</td></tr><tr><td>production-camera</td><td>passed</td><td>Actual Photos Take photo and Save photo downloaded hank-county.png with real world image; no canvas/CSP errors.</td></tr><tr><td>production-layout</td><td>passed</td><td>390x844 portrait prompt, Continue anyway, Phone;1024x768 tablet Phone; no horizontal overflow or console errors.</td></tr><tr><td>production-performance</td><td>passed</td><td>844x390, native120Hz host: normal ATV120.125FPS/p95 9.7ms;4xCPU throttle79.455FPS/p95 26.6ms. 500-vehicle save119.901FPS/p95 9.7ms/max16.5ms. 3-4s stationary samples, Chrome emulation not physical phones.</td></tr><tr><td>final-race-options</td><td>passed</td><td>Production: start/countdown, actual throttle47MPH, Race options opens away from start, End race clears run. Card rect y64..108, toolbar y120..164; compact speedo hidden, both ←/→ labels correct. Zero errors.</td></tr><tr><td>final-space-layout</td><td>passed</td><td>Production space heading y77 below app header, return button works. Screenshot retained.</td></tr><tr><td>below-ground-recovery</td><td>passed</td><td>Deliberately seeded invalid ground height y2.1 at raceway ground8.614. Without pressing R, resumed aboveground, started race and drove47MPH. Later persisted rider x27.897,y8.0308,z1981.142. Recovery clears fall airtime.</td></tr></tbody></table><h2>Visual evidence</h2><div class="gallery"><figure><a href="four-wheeler-evidence/fw3d-final-race-controls.png"><img loading="lazy" src="four-wheeler-evidence/fw3d-final-race-controls.png" alt="Final race controls, with speed and remote options"></a><figcaption>Final race controls, with speed and remote options</figcaption></figure><figure><a href="four-wheeler-evidence/fw3d-final-space-controls.png"><img loading="lazy" src="four-wheeler-evidence/fw3d-final-space-controls.png" alt="Space controls below the application header"></a><figcaption>Space controls below the application header</figcaption></figure><figure><a href="four-wheeler-evidence/fw3d-production-final-atv.png"><img loading="lazy" src="four-wheeler-evidence/fw3d-production-final-atv.png" alt="ATV, photographic ground, foliage and tire marks; steering icons subsequently replaced with arrows"></a><figcaption>ATV, photographic ground, foliage and tire marks; steering icons subsequently replaced with arrows</figcaption></figure><figure><a href="four-wheeler-evidence/fw3d-production-phone-camera.png"><img loading="lazy" src="four-wheeler-evidence/fw3d-production-phone-camera.png" alt="Local camera preview and downloadable photo"></a><figcaption>Local camera preview and downloadable photo</figcaption></figure><figure><a href="four-wheeler-evidence/fw3d-qa-garage-fixed.png"><img loading="lazy" src="four-wheeler-evidence/fw3d-qa-garage-fixed.png" alt="Garage interior with six vehicle bays"></a><figcaption>Garage interior with six vehicle bays</figcaption></figure><figure><a href="four-wheeler-evidence/fw3d-production-tablet-phone.png"><img loading="lazy" src="four-wheeler-evidence/fw3d-production-tablet-phone.png" alt="Tablet phone layout"></a><figcaption>Tablet phone layout</figcaption></figure><figure><a href="four-wheeler-evidence/fw3d-production-500-fleet.png"><img loading="lazy" src="four-wheeler-evidence/fw3d-production-500-fleet.png" alt="Five-hundred-vehicle stress fixture"></a><figcaption>Five-hundred-vehicle stress fixture</figcaption></figure></div><h2>Provenance and handoff</h2><p><a href="../../.bhag/reviewed-files.json">SHA256 of final reviewed source</a> identifies the code behind this report. Earlier plan and feature-audit line references remain historical snapshots and may have moved during formatting. This report supersedes their pending verification labels.</p><p><a href="../games/four-wheeler-complete-plan.html">Full plan</a> · <a href="four-wheeler-feature-gaps.html">Original feature reconciliation</a> · <a href="../../.bhag/worklist.json">Completed worklist</a></p><p>Repository pre-commit secret scan and pre-push frozen-install/lint/typecheck/test/build hooks remain enabled. Changes are for draft review; no production merge or deployment is included.</p></main></body></html>

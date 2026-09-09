@@ -15,7 +15,7 @@ import { useReadAloud } from "../hooks/useReadAloud";
  */
 interface ReadAloudButtonProps {
   /** The words to read out loud. */
-  text: string;
+  text: string | (() => string);
   className?: string;
   /** Button label while the voice is quiet. Full variant only. */
   label?: string;
@@ -41,7 +41,9 @@ export function ReadAloudButton({
       data-testid="read-aloud-button"
       aria-pressed={isSpeaking}
       aria-label="Read it to me"
-      onClick={() => (isSpeaking ? stop() : speak(text))}
+      onClick={() =>
+        isSpeaking ? stop() : speak(typeof text === "function" ? text() : text)
+      }
       className={
         isIcon
           ? `btn btn-circle btn-sm min-h-[44px] min-w-[44px] h-11 w-11 text-xl ${className}`
