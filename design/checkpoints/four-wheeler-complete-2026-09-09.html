@@ -1,0 +1,237 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hank County handoff</title><style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-muted: #555;
+    --bg: #fafaf7;
+    --bg-card: #fff;
+    --accent: #2266aa;
+    --accent-bg: #e7f0fa;
+    --warn: #b3681c;
+    --warn-bg: #fcf3e7;
+    --danger: #b32424;
+    --danger-bg: #fbe9e7;
+    --ok: #1f7a3f;
+    --ok-bg: #e8f4ec;
+    --border: #d8d4cc;
+    --code-bg: #f3efe8;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1;
+      --fg-muted: #a8a5a0;
+      --bg: #161616;
+      --bg-card: #1f1f1f;
+      --accent: #6aa8e8;
+      --accent-bg: #1a2935;
+      --warn: #e0a85b;
+      --warn-bg: #3a2d18;
+      --danger: #ea7670;
+      --danger-bg: #3a1f1c;
+      --ok: #6acd8e;
+      --ok-bg: #1c3327;
+      --border: #2e2e2e;
+      --code-bg: #232323;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 .25rem;
+    line-height: 1.2;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin: 2.5rem 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 .5rem;
+    color: var(--fg-muted);
+  }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  /* Metadata strip under title */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin: .5rem 0 2rem;
+    padding: .75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: .9rem;
+  }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+
+  /* Status badges — drop into a <span class="badge X"> */
+  .badge {
+    display: inline-block;
+    padding: .15rem .6rem;
+    border-radius: 99px;
+    font-size: .8rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .badge.ok       { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn     { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger   { background: var(--danger-bg); color: var(--danger); }
+  .badge.info     { background: var(--accent-bg); color: var(--accent); }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+  }
+  nav.toc h2 {
+    margin: 0 0 .5rem;
+    font-size: .9rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--fg-muted);
+    border: none;
+    padding: 0;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+  nav.toc li { margin: .15rem 0; }
+
+  /* Callouts — drop into <aside class="callout warn"> ... </aside> */
+  aside.callout {
+    margin: 1rem 0;
+    padding: .9rem 1.1rem;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  aside.callout.warn   { border-color: var(--warn);   background: var(--warn-bg); }
+  aside.callout.danger { border-color: var(--danger); background: var(--danger-bg); }
+  aside.callout.ok     { border-color: var(--ok);     background: var(--ok-bg); }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child  { margin-bottom: 0; }
+
+  /* Code */
+  code {
+    font-family: var(--mono);
+    font-size: .92em;
+    background: var(--code-bg);
+    padding: .12em .35em;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: .88rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left;
+    padding: .55rem .8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: .9rem;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Task checklist — use <ul class="tasks"> + <li><input type="checkbox" disabled> ...</li> */
+  ul.tasks { list-style: none; padding-left: 0; }
+  ul.tasks li {
+    padding: .25rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+  }
+  ul.tasks input[type="checkbox"] { margin-top: .4rem; }
+
+  /* Mermaid diagram wrappers */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  /* If mermaid fails (no network), fall back to showing the source in a code block */
+  .diagram pre.mermaid-source {
+    text-align: left;
+    display: none;
+  }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+
+  blockquote {
+    border-left: 3px solid var(--border);
+    padding: .2rem 1rem;
+    margin: 1rem 0;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  /* Print: paginate cleanly, drop the dark-mode flip, expand TOC */
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    nav.toc { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+body{background:#111b17;color:#ebe8dd;font:16px/1.6 system-ui;margin:0}main{max-width:960px;margin:auto;padding:40px 24px}a{color:#bce4d4}h1,h2{color:#ead39f}code{overflow-wrap:anywhere}</style></head><body><main><h1>Hank County: complete upgrade handoff</h1><p>Captured 2026-09-09T09:45:49.468926+00:00. Repository <code>/Users/jack.neil/Github/hanks-hits</code>. Branch <code>feat/four-wheeler-3d</code>; default branch <code>master</code>; remote <code>https://github.com/jackneil/hanks-hits.git</code>.</p><h2>Preserved work and current state</h2><p>Implementation commit <code>1fcbcbdd2e2f83d48ae2d0d799a03c0e1a52402f</code>, based on prior graphics commit <code>9f50a774a95eb76375fcf03ddc7cd82bf6f2bfd3</code>. The worktree was clean immediately after the implementation commit. This checkpoint is the only following documentation change at capture. No reset, clean, destructive migration, merge or deploy was performed. Original 2D game remains unchanged.</p><p><a href="https://github.com/jackneil/hanks-hits/pull/21">Draft PR21</a> is the review target. Push and PR metadata may advance after this capture; verify the remote head before resuming. Do not blindly recreate the feature implementation.</p><h2>Delivered scope</h2><p>269 original and acceptance rows reconciled: driving, graphics, on-foot exploration and dog, shops and delivery, GPS and phone, hunting, fishing, racing, watercraft and yacht, aircraft, trains and space, home and farm, property interiors and garages, trailers and recreation, save migration and bounded state. Physically reasonable speeds and smooth ground/train boost deliberately replace exaggerated original values. Pretend media is local and kid-safe; likes/subscriptions are session-only as documented.</p><p>The ATV sound now combines filtered local engine audio with irregular low exhaust pulses. Load and throttle shape the sound with smoothing. No third-party media is fetched while playing. Licensed local assets have attribution and verified hashes.</p><h2>Evidence to read first</h2><ul><li><a href="../audits/four-wheeler-final-verification.html">Final verification report</a>, with audio playback, screenshots, actual journeys, performance and limitations.</li><li><a href="../../.bhag/worklist.json">Completed 269-row worklist</a>, with per-row code/test trace and explicit adaptations.</li><li><a href="../../.bhag/qa-results.json">Root browser and command results</a>.</li><li><a href="../../.bhag/review-results.json">Independent review findings and closure</a>.</li><li><a href="../../.bhag/reviewed-files.json">Final source SHA256 manifest</a>; the final test fixture uses an explicitly typed record array.</li></ul><h2>Verified gates</h2><p>1,146 tests across 150 files pass. Full ESLint, TypeScript and production build pass. The final type-only fixture correction has an additional focused passing run. Pre-commit gitleaks passed. The pre-push hook remains enabled and will run frozen install, lint, typecheck, full tests and production build again.</p><p>Exact local logs: <code>/tmp/fw3d-all-tests-accepted.log</code>, <code>/tmp/fw3d-lint-accepted.log</code>, <code>/tmp/fw3d-typecheck-accepted.log</code>, <code>/tmp/fw3d-production-build-accepted.log</code>, <code>/tmp/fw3d-fixture-tests-accepted.log</code>. These are local capture-time artifacts; durable outcomes and screenshots are committed.</p><h2>Local runtime isolation</h2><p>QA uses a disposable PostgreSQL cluster at <code>/tmp/hanks-fw3d-qa-pg</code>, port 55439, database <code>hanks_fw3d_qa</code>, role <code>hank_qa</code>. It uses local trust authentication. The game server on port 3000 was stopped before the final push/build to avoid concurrent writes to Next output. The root-owned disposable browser context uses query <code>qa=hank-production-20260908</code>; do not alter the user's unrelated tabs or saves. Game fixtures were edited only on the homepage while the game was unmounted. No sign-in, Google OAuth or external database actions were tested.</p><p>Before restarting, inspect the current port owner and database process. To start the already-built app against this isolated database, set <code>DATABASE_URL=postgresql://hank_qa@127.0.0.1:55439/hanks_fw3d_qa</code>, <code>AUTH_URL=http://localhost:3000</code>, and a fresh local-only <code>AUTH_SECRET</code>, then run <code>pnpm --filter web start</code>. Do not print or commit real credentials. Browser URL: <code>http://localhost:3000/games/four-wheeler-3d</code>.</p><h2>Next steps</h2><ol><li>Verify <code>git status --short</code>, branch and <code>git log -3 --oneline</code>. Preserve any work added since this checkpoint.</li><li>Read PR21's current head and checks. A later documentation commit and successful push are expected; remote state is authoritative.</li><li>Use the final report to review the experience and listen to the engine recording. Do not claim AAA photorealism or physical low-end-device certification.</li><li>Keep the PR in draft until review is complete. Production merging/deployment is outside this handoff; do not infer deployment approval from a successful local build.</li></ol><h2>Known verification limits</h2><p>The result is a coherent stylized browser adventure. Independent review accepted the supplied visual evidence; there is no unsupported 10/10 or AAA claim. Chrome touch and CPU emulation are not physical-phone certification. Actual browser journeys are representative rather than an exhaustive replay of every feature permutation. Photo and engine artifacts are real browser captures; no human listening result is asserted. Long-run fleet resource bounds have code/test/review evidence plus a 500-vehicle production sample.</p></main></body></html>
