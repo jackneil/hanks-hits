@@ -192,7 +192,7 @@
         "1146tests/150files",
         "productionbuild"
       ],
-      "publication": "Not performed; automaticapprovalreview rejection"
+      "publication": "User explicitly authorized publication; Git push repeats full gate before remote update."
     }
   }
 }
