@@ -5184,13 +5184,6 @@ export const ATARI_2600_CATALOG: CatalogGame[] = [
     favorite: false,
   },
   {
-    id: "atari2600-x-man",
-    displayName: "X-Man",
-    filename: "x_man.bin",
-    genre: "action",
-    favorite: false,
-  },
-  {
     id: "atari2600-xenophobe",
     displayName: "Xenophobe",
     filename: "xenophobe.bin",

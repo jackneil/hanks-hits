@@ -144,6 +144,13 @@ export function GameBrowser({
   const [selectedGenre, setSelectedGenre] = useState<string>("all");
   const [loadingGameId, setLoadingGameId] = useState<string | null>(null);
   const favoriteIdSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
+  // Count only the favorites this catalog can show. The saved favorites list
+  // is shared by all consoles, and it can keep the id of a game that a
+  // catalog no longer lists. The tab count must match the games in the tab.
+  const favoriteCount = useMemo(
+    () => catalog.filter((g) => favoriteIdSet.has(g.id)).length,
+    [catalog, favoriteIdSet]
+  );
 
   // Get all unique genres from catalog
   const genres = useMemo(() => {
@@ -239,7 +246,7 @@ export function GameBrowser({
               }
             `}
           >
-            Favorites ({favoriteIds.length})
+            Favorites ({favoriteCount})
           </button>
           {genres.map((genre) => {
             const count = catalog.filter((g) => g.genre === genre).length;

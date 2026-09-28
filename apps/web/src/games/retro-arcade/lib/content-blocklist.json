@@ -425,6 +425,19 @@
       ]
     },
     {
+      "id": "x-man-universal-gamex",
+      "pattern": "\\bx\\s*man(?!\\w)",
+      "category": "sexual",
+      "reason": "A pornographic 1983 Universal Gamex cartridge. The Stella ROM database identifies the catalog ROM x_man.bin by MD5 as \"X-Man (1983) (Universal)\".",
+      "source": "https://en.wikipedia.org/wiki/X-Man_(video_game)",
+      "examples": [
+        "X-Man",
+        "x_man",
+        "atari2600-x-man",
+        "X-Man (1983) (Universal)"
+      ]
+    },
+    {
       "id": "panesian-adult-nes",
       "pattern": "bubble\\s*bath\\s*babes|peek\\s*a\\s*boo\\s*poker|^hot\\s*slots$",
       "category": "sexual",
@@ -457,6 +470,11 @@
     "Nightmare",
     "Tom Boy",
     "Space Treat",
-    "Freeway"
+    "Freeway",
+    "X-Men - Mutant Apocalypse",
+    "Spider-Man and the X-Men in Arcade's Revenge",
+    "Mega Man X",
+    "Pac-Man",
+    "Ms. Pac-Man"
   ]
 }

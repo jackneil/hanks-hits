@@ -36,21 +36,56 @@ function isCatalogEntry(value: unknown): value is CatalogEntry {
   );
 }
 
-/** Every exported array of catalog entries in every lib/*catalog* module. */
-async function loadCatalogs(): Promise<Map<string, CatalogEntry[]>> {
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+interface CatalogScan {
+  catalogs: Map<string, CatalogEntry[]>;
+  problems: string[];
+}
+
+/**
+ * Reads the exports of one catalog module. An exported array that holds
+ * objects must be a catalog, and every entry must have a string id,
+ * displayName and filename. A module must export at least one catalog.
+ * The scan reports each gap as a problem. It does not skip an export, so a
+ * catalog with a different entry shape cannot pass with nothing checked.
+ */
+function scanCatalogModule(file: string, mod: Record<string, unknown>): CatalogScan {
   const catalogs = new Map<string, CatalogEntry[]>();
+  const problems: string[] = [];
+  for (const [exportName, value] of Object.entries(mod)) {
+    if (!Array.isArray(value) || !value.some(isObject)) continue;
+    const bad = value.filter((entry) => !isCatalogEntry(entry)).length;
+    if (bad > 0) {
+      problems.push(
+        `${file} ${exportName}: ${bad} of ${value.length} entries have no string id, displayName and filename`
+      );
+      continue;
+    }
+    catalogs.set(`${file} ${exportName}`, value as CatalogEntry[]);
+  }
+  if (catalogs.size === 0 && problems.length === 0) {
+    problems.push(`${file}: exports no array of catalog entries`);
+  }
+  return { catalogs, problems };
+}
+
+/** Every exported array of catalog entries in every lib/*catalog* module. */
+async function scanCatalogs(): Promise<CatalogScan> {
+  const catalogs = new Map<string, CatalogEntry[]>();
+  const problems: string[] = [];
   const files = readdirSync(LIB_DIR).filter(
     (file) => /catalog/i.test(file) && /\.(ts|tsx|js)$/.test(file) && !file.endsWith(".d.ts")
   );
   for (const file of files) {
     const mod: Record<string, unknown> = await import(join(LIB_DIR, file));
-    for (const [exportName, value] of Object.entries(mod)) {
-      if (Array.isArray(value) && value.length > 0 && value.every(isCatalogEntry)) {
-        catalogs.set(`${file} ${exportName}`, value);
-      }
-    }
+    const scan = scanCatalogModule(file, mod);
+    scan.catalogs.forEach((entries, key) => catalogs.set(key, entries));
+    problems.push(...scan.problems);
   }
-  return catalogs;
+  return { catalogs, problems };
 }
 
 // The exact entries that issue #25 removed (2026-09-28). The Atari names are
@@ -103,21 +138,43 @@ const REMOVED_ENTRIES: CatalogEntry[] = [
     displayName: "Texas Chainsaw Massacre, The",
     filename: "texas_chainsaw_massacre_the.bin",
   },
+  { id: "atari2600-x-man", displayName: "X-Man", filename: "x_man.bin" },
 ];
 
 describe("Retro Arcade catalog content", () => {
   it("finds the catalog of every console that has one", async () => {
-    const catalogs = await loadCatalogs();
+    const { catalogs, problems } = await scanCatalogs();
     // Guards the discovery: an empty scan would make the next test pass
     // with nothing checked.
     expect([...catalogs.keys()]).toEqual(
       expect.arrayContaining(["atari-2600-catalog.ts ATARI_2600_CATALOG", "snes-catalog.ts SNES_CATALOG"])
     );
+    // A catalog file whose entries have a different shape is a failure,
+    // not a file with nothing to check.
+    expect(problems).toEqual([]);
+  });
+
+  it("reports a catalog module that it cannot check", () => {
+    const good = { id: "snes-mario", displayName: "Mario", filename: "mario.smc" };
+    expect(scanCatalogModule("ok-catalog.ts", { GAMES: [good], GENRES: ["rpg"], URL: "/api/roms" })).toEqual({
+      catalogs: new Map([["ok-catalog.ts GAMES", [good]]]),
+      problems: [],
+    });
+    expect(
+      scanCatalogModule("renamed-catalog.ts", { GAMES: [{ id: "n64-doom", name: "Doom", rom: "doom.z64" }] })
+        .problems
+    ).toEqual(["renamed-catalog.ts GAMES: 1 of 1 entries have no string id, displayName and filename"]);
+    expect(
+      scanCatalogModule("mixed-catalog.ts", { GAMES: [good, { id: "snes-doom", displayName: "Doom" }] }).problems
+    ).toEqual(["mixed-catalog.ts GAMES: 1 of 2 entries have no string id, displayName and filename"]);
+    expect(scanCatalogModule("empty-catalog.ts", { GENRES: ["rpg"], GAMES: [] }).problems).toEqual([
+      "empty-catalog.ts: exports no array of catalog entries",
+    ]);
   });
 
   it("lists no blocked title in any catalog", async () => {
     const offenders: string[] = [];
-    for (const [catalog, entries] of await loadCatalogs()) {
+    for (const [catalog, entries] of (await scanCatalogs()).catalogs) {
       for (const entry of entries) {
         const rule = findBlockedRule(entry);
         if (rule) offenders.push(`${catalog}: "${entry.displayName}" (${rule.id}: ${rule.reason})`);

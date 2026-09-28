@@ -537,10 +537,17 @@ Minimal overlay - let the game shine:
 Do not put a game with blood, gore, or sexual content in a catalog (Guardrail 1, issue #25).
 
 - The rules are in `apps/web/src/games/retro-arcade/lib/content-blocklist.json`. Each rule has a pattern, a reason, and a source (an ESRB rating or a description of the game).
-- The test `__tests__/catalog-content.test.ts` finds each `lib/*catalog*` file. The test fails when a catalog entry matches a rule. A catalog for a new console gets this check with no test change.
-- The catalog generators (`scripts/upload_snes_roms.py`, `scripts/upload_atari_roms.py`) read the same rules through `scripts/retro_blocklist.py`. They do not upload or list a blocked ROM.
+- The test `__tests__/catalog-content.test.ts` finds each `lib/*catalog*` file. The test fails when a catalog entry matches a rule. A catalog for a new console gets this check with no test change. The test also fails when a catalog file has no catalog array, or when an entry has no string `id`, `displayName` and `filename`. Thus a catalog with a different entry shape cannot pass with no check.
+- The ROM proxy (`src/app/api/roms/[...path]/route.ts`) reads the same rules. It returns 404 for a blocked ROM file name before it fetches from the bucket. Thus a title that is removed from a catalog cannot be played from its old URL.
+- The catalog generators (`scripts/upload_snes_roms.py`, `scripts/upload_atari_roms.py`) read the same rules through `scripts/retro_blocklist.py`. They do not upload or list a blocked ROM. They do not delete a ROM that is already in the bucket.
+- When you remove a title, also delete its ROM object from the bucket. This is a production write, so get approval first. Cloudflare keeps `.bin` ROMs in its cache (`cf-cache-status: HIT`) for up to one year, so also purge each old `/api/roms/...` URL from the Cloudflare cache.
 - A rule reads the display name, the ROM file name, and the id. Old ROM dumps often have short names (for example `custerev.bin`), so the display name alone is not sufficient.
-- To identify an unclear Atari 2600 ROM, compare its MD5 with the Stella ROM database (`src/emucore/DefProps.hxx` in the Stella source).
+- To identify an unclear Atari 2600 ROM, compare its MD5 with the Stella ROM database (`src/emucore/DefProps.hxx` in the Stella source). Examine each ROM in the catalog, not only the ROMs with unclear names. Block every ROM from these adult publishers:
+  - Mystique (American Multiple Industries)
+  - PlayAround (J.H.M.)
+  - Multivision (Harem)
+  - Universal Gamex (X-Man)
+- Also block the re-releases and hacks of these adult games. Examples are the Dynacom "Beat 'Em & Eat 'Em" and the "Custer's Viagra" hacks.
 - To add a rule, add the pattern, the reason, the source, and examples to the JSON file. Then run `python3 scripts/retro_blocklist.py` and the catalog test.
 
 ---

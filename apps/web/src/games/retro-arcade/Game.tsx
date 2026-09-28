@@ -22,6 +22,14 @@ import {
   ATARI_2600_CATALOG,
   getRomUrl as getAtariRomUrl,
 } from "./lib/atari-2600-catalog";
+import { recentGamesToShow, type CatalogNamesBySystem } from "./lib/recentGames";
+
+// Recently Played shows only games that a catalog still lists (or that the
+// player uploaded), so a removed title's name does not stay on screen.
+const CATALOG_NAMES: CatalogNamesBySystem = {
+  snes: new Set(SNES_CATALOG.map((game) => game.displayName)),
+  atari2600: new Set(ATARI_2600_CATALOG.map((game) => game.displayName)),
+};
 
 // Console selection card
 function ConsoleCard({
@@ -513,6 +521,7 @@ export function RetroArcadeGame() {
   }
 
   // Show console selection
+  const recentGames = recentGamesToShow(store.recentlyPlayed, CATALOG_NAMES, store.customRoms);
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 p-6 flex flex-col">
       {/* iOS install prompt */}
@@ -540,11 +549,11 @@ export function RetroArcadeGame() {
       </div>
 
       {/* Recently played */}
-      {store.recentlyPlayed.length > 0 && (
+      {recentGames.length > 0 && (
         <div className="mt-8 max-w-4xl mx-auto w-full">
           <h2 className="text-xl font-bold text-white mb-4">Recently Played</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {store.recentlyPlayed.slice(0, 6).map((game) => (
+            {recentGames.slice(0, 6).map((game) => (
               <div
                 key={game.gameId}
                 className="p-3 bg-white/10 rounded-lg text-white flex items-center justify-between"

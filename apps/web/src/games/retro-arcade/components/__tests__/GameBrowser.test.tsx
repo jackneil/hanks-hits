@@ -75,4 +75,16 @@ describe("GameBrowser favorites", () => {
     expect(screen.getByText("Bravo Quest")).toBeInTheDocument();
     expect(screen.queryByText("Alpha Mission")).not.toBeInTheDocument();
   });
+
+  it("counts only the favorites that this catalog lists", () => {
+    // A removed title ("snes-mortal-kombat-2", issue #25) and a favorite from
+    // the other console stay in the saved list. The tab must count only the
+    // games it can show.
+    renderBrowser(["snes-bravo", "snes-mortal-kombat-2", "atari2600-pitfall"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Favorites (1)" }));
+
+    expect(screen.getByText("Bravo Quest")).toBeInTheDocument();
+    expect(screen.getByText("1 of 2 games")).toBeInTheDocument();
+  });
 });

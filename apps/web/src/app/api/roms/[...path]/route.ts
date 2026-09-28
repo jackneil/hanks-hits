@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { findBlockedRomFile } from "@/games/retro-arcade/lib/content-blocklist";
 import { safeRedirectTarget } from "@/lib/rom-redirect";
 import { checkRomProxyRateLimit, getClientIP } from "@/lib/rate-limit";
 
@@ -39,6 +40,19 @@ export async function GET(
     return new NextResponse("Invalid ROM path", { status: 400 });
   }
   const romPath = path.join("/");
+
+  // KID SAFETY (Guardrail 1, issue #25): a title removed from the catalogs
+  // must not stay playable from its old URL. ROM objects stay in the bucket
+  // until someone deletes them, so refuse every blocked ROM file here, before
+  // any upstream fetch. The log names the rule, so a 404 here is not confused
+  // with a missing object.
+  const blockedRule = path.map(findBlockedRomFile).find((rule) => rule !== null);
+  if (blockedRule) {
+    console.warn(
+      `ROM proxy: refused /${romPath} (content rule: ${blockedRule.id})`
+    );
+    return new NextResponse("ROM not found", { status: 404 });
+  }
   const bucketUrl = `${ROM_CDN_URL}/${romPath}`;
 
   // SECURITY: bound the upstream fetch — no blind redirect-following (so the
