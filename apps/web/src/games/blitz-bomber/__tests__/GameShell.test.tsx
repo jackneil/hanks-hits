@@ -67,18 +67,18 @@ describe("BlitzBomberGameShell pause wiring", () => {
     expect(
       screen.getByRole("button", { name: "Pause game" })
     ).toBeInTheDocument();
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
 
     // ESC freezes the game (new "paused" state) AND opens the shell menu. Before
     // this, the plane kept flying/crashing behind the menu because there was no
     // paused state at all.
     fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
     expect(useBlitzBomberStore.getState().gameState).toBe("paused");
-    expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
 
     // ESC again resumes both in lockstep (onResume wired).
     fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
     expect(useBlitzBomberStore.getState().gameState).toBe("playing");
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });

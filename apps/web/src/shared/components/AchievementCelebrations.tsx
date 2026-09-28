@@ -88,10 +88,14 @@ export function AchievementCelebrations() {
           </span>
         ))}
 
-        {/* Toast card. ring-white/70 keeps the card's edge visible over
-            same-hue (yellow) game backgrounds; yellow-950 text holds AA
-            contrast across the whole yellow->orange gradient. */}
-        <div className="achievement-pop rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 ring-2 ring-white/70 shadow-2xl px-4 py-3 flex items-center gap-3">
+        {/* Toast card: one solid trophy-gold surface (the old yellow to
+            orange gradient was an AI-design tell). ring-white/70 keeps the
+            card's edge visible over same-hue (yellow) game backgrounds;
+            yellow-950 text on amber-300 measures about 11:1. */}
+        <div
+          data-testid="achievement-card"
+          className="achievement-pop rounded-2xl bg-amber-300 ring-2 ring-white/70 shadow-lg px-4 py-3 flex items-center gap-3"
+        >
           <span className="text-4xl" aria-hidden="true">
             {summary ? "🏆" : current.emoji}
           </span>

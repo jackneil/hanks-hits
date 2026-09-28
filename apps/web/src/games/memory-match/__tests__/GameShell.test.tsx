@@ -81,20 +81,20 @@ describe("MemoryMatchGameShell pause wiring", () => {
     expect(
       screen.getByRole("button", { name: "Pause game" })
     ).toBeInTheDocument();
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
     expect(useMemoryMatchStore.getState().pausedAt).toBeNull();
 
     // ESC opens the shell's pause menu AND pauses the timer (onPause wired).
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useMemoryMatchStore.getState().pausedAt).not.toBeNull();
-    expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
 
     // ESC again resumes both in lockstep (onResume wired): the timer un-pauses
     // and the game keeps playing.
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useMemoryMatchStore.getState().pausedAt).toBeNull();
     expect(useMemoryMatchStore.getState().isPlaying).toBe(true);
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 
   it("excludes the paused span from the recorded time (timeStarted shifts on resume)", () => {

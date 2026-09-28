@@ -128,17 +128,17 @@ describe("OregonTrailGameShell pause wiring (hunting minigame)", () => {
     expect(
       screen.getByRole("button", { name: "Pause game" })
     ).toBeInTheDocument();
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
     expect(useHuntPauseStore.getState().paused).toBe(false);
 
     // ESC opens the shell's pause menu AND freezes the hunt (onPause wired).
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useHuntPauseStore.getState().paused).toBe(true);
-    expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
 
     // ESC again resumes both in lockstep (onResume wired).
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useHuntPauseStore.getState().paused).toBe(false);
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });

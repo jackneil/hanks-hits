@@ -66,16 +66,16 @@ describe("AsteroidsGameShell pause wiring", () => {
     expect(
       screen.getByRole("button", { name: "Pause game" })
     ).toBeInTheDocument();
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
 
     // ESC opens the shell's pause menu AND pauses the game (onPause wired).
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useAsteroidsStore.getState().status).toBe("paused");
-    expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
 
     // ESC again resumes both in lockstep (onResume wired).
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useAsteroidsStore.getState().status).toBe("playing");
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });

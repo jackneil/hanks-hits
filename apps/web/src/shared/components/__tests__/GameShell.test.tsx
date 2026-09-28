@@ -110,7 +110,7 @@ describe("GameShell", () => {
     await screen.findByRole("dialog", { name: /restart game/i });
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pause-menu")).not.toBeInTheDocument();
     expect(onRestart).not.toHaveBeenCalled();
   });
 
