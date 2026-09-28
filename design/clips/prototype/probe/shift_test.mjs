@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+import { spawn } from 'node:child_process';
+const srv = spawn(process.execPath, ['server.mjs'], { cwd: new URL('.', import.meta.url).pathname, env: { ...process.env, PORT: '47813' }, stdio: 'ignore' });
+await new Promise(r => setTimeout(r, 700));
+const b = await chromium.launch({ channel: 'chrome' });
+const p = await b.newPage();
+await p.goto('http://localhost:47813/?label=chrome-shift&quick=1&aacShift=1');
+await p.waitForFunction(() => window.__probe, null, { timeout: 120000 });
+console.log(JSON.stringify(await p.evaluate(() => window.__probe.muxMp4)));
+await b.close(); srv.kill();

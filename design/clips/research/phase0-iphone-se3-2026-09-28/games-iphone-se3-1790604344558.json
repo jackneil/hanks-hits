@@ -1,0 +1,97 @@
+[
+ {
+  "id": "breakout",
+  "params": "",
+  "drops": 0,
+  "fpsLossPct": 0.02,
+  "canvas": "480x640",
+  "capFps": 59.99,
+  "baseFps": 60,
+  "path": "D",
+  "fps": 30,
+  "capErr": null,
+  "ctx": "2d",
+  "longFramesBasePct": 0,
+  "enc": {
+   "errors": [],
+   "keys": 11,
+   "bytes": 257242,
+   "submitted": 301,
+   "outputs": 301,
+   "firstEncodeAt": 7541,
+   "ttfcMs": 36,
+   "outOfOrder": 0,
+   "workerMsP95": 8,
+   "deltaTypes": {
+    "key": 11,
+    "delta": 290
+   },
+   "workerMsP50": 7,
+   "dropsQueue": 0,
+   "firstOutputAt": 7577,
+   "sizes": [
+    "480x640"
+   ],
+   "lastOutTs": 10000000
+  },
+  "longFramesCapPct": 0,
+  "lat": "quality",
+  "baseP95": 17,
+  "page": "/games/breakout",
+  "capP95": 17,
+  "captured": 301,
+  "dispatches": 1051,
+  "capCostP50": 2,
+  "capCostP95": 3
+ },
+ {
+  "id": "monster-truck",
+  "params": "",
+  "error": "click intercepted: "
+ },
+ {
+  "id": "flappy-bird",
+  "params": "",
+  "drops": 0,
+  "fpsLossPct": 0.02,
+  "canvas": "320x480",
+  "capFps": 59.99,
+  "baseFps": 60,
+  "path": "D",
+  "fps": 30,
+  "capErr": null,
+  "ctx": "2d",
+  "longFramesBasePct": 0.28,
+  "enc": {
+   "errors": [],
+   "keys": 11,
+   "bytes": 808406,
+   "submitted": 301,
+   "outputs": 301,
+   "firstEncodeAt": 7548,
+   "ttfcMs": 39,
+   "outOfOrder": 0,
+   "workerMsP95": 9,
+   "deltaTypes": {
+    "key": 11,
+    "delta": 290
+   },
+   "workerMsP50": 7,
+   "dropsQueue": 0,
+   "firstOutputAt": 7587,
+   "sizes": [
+    "320x480"
+   ],
+   "lastOutTs": 10000000
+  },
+  "longFramesCapPct": 0,
+  "lat": "quality",
+  "baseP95": 17,
+  "page": "/games/flappy-bird",
+  "capP95": 17,
+  "captured": 301,
+  "dispatches": 1051,
+  "capCostP50": 1,
+  "capCostP95": 2
+ }
+]

@@ -1,0 +1,49 @@
+[
+ {
+  "id": "monster-truck",
+  "params": "fps=10&post=8000",
+  "drops": 0,
+  "fpsLossPct": 27.47,
+  "canvas": "1334x622",
+  "capFps": 27.78,
+  "postLongPct": 94.79,
+  "baseFps": 38.3,
+  "path": "D",
+  "fps": 10,
+  "capErr": null,
+  "ctx": "webgl2",
+  "longFramesBasePct": 61.3,
+  "enc": {
+   "errors": [],
+   "keys": 11,
+   "bytes": 853397,
+   "submitted": 101,
+   "outputs": 101,
+   "firstEncodeAt": 7606,
+   "ttfcMs": 21,
+   "outOfOrder": 0,
+   "workerMsP95": 7,
+   "deltaTypes": {
+    "key": 11,
+    "delta": 90
+   },
+   "workerMsP50": 6,
+   "dropsQueue": 0,
+   "firstOutputAt": 7627,
+   "sizes": [
+    "1334x622"
+   ],
+   "lastOutTs": 10000000
+  },
+  "longFramesCapPct": 97.12,
+  "lat": "quality",
+  "postFps": 36,
+  "page": "/games/monster-truck",
+  "baseP95": 30,
+  "capP95": 49,
+  "captured": 101,
+  "dispatches": 892,
+  "capCostP50": 27,
+  "capCostP95": 35
+ }
+]

@@ -1,0 +1,102 @@
+[
+ {
+  "id": "hill-climb",
+  "params": "",
+  "error": "canvas 300x150 (webgl2) in page; canvases=1\nencoder ready\n"
+ },
+ {
+  "id": "four-wheeler-adventure",
+  "params": "",
+  "error": "no canvas\n"
+ },
+ {
+  "id": "monster-truck",
+  "params": "fps=15",
+  "drops": 0,
+  "fpsLossPct": 32.71,
+  "canvas": "1334x622",
+  "capFps": 26.46,
+  "baseFps": 39.32,
+  "path": "D",
+  "fps": 15,
+  "capErr": null,
+  "ctx": "webgl2",
+  "longFramesBasePct": 46.19,
+  "enc": {
+   "errors": [],
+   "keys": 11,
+   "bytes": 1158802,
+   "submitted": 151,
+   "outputs": 151,
+   "firstEncodeAt": 7596,
+   "ttfcMs": 26,
+   "outOfOrder": 0,
+   "workerMsP95": 7,
+   "deltaTypes": {
+    "key": 11,
+    "delta": 140
+   },
+   "workerMsP50": 6,
+   "dropsQueue": 0,
+   "firstOutputAt": 7622,
+   "sizes": [
+    "1334x622"
+   ],
+   "lastOutTs": 10000000
+  },
+  "longFramesCapPct": 89.43,
+  "lat": "quality",
+  "baseP95": 28,
+  "page": "/games/monster-truck",
+  "capP95": 52,
+  "captured": 151,
+  "dispatches": 559,
+  "capCostP50": 29,
+  "capCostP95": 39
+ },
+ {
+  "id": "monster-truck",
+  "params": "fps=10",
+  "drops": 0,
+  "fpsLossPct": 27.48,
+  "canvas": "1334x622",
+  "capFps": 27.79,
+  "baseFps": 38.32,
+  "path": "D",
+  "fps": 10,
+  "capErr": null,
+  "ctx": "webgl2",
+  "longFramesBasePct": 56.52,
+  "enc": {
+   "errors": [],
+   "keys": 11,
+   "bytes": 856025,
+   "submitted": 101,
+   "outputs": 101,
+   "firstEncodeAt": 7570,
+   "ttfcMs": 19,
+   "outOfOrder": 0,
+   "workerMsP95": 8,
+   "deltaTypes": {
+    "key": 11,
+    "delta": 90
+   },
+   "workerMsP50": 6,
+   "dropsQueue": 0,
+   "firstOutputAt": 7589,
+   "sizes": [
+    "1334x622"
+   ],
+   "lastOutTs": 10000000
+  },
+  "longFramesCapPct": 99.28,
+  "lat": "quality",
+  "baseP95": 30,
+  "page": "/games/monster-truck",
+  "capP95": 46,
+  "captured": 101,
+  "dispatches": 563,
+  "capCostP50": 27,
+  "capCostP95": 32
+ }
+]

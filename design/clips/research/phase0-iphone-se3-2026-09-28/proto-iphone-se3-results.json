@@ -1,0 +1,111 @@
+{
+ "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1",
+ "when": "2026-09-28T14:01:36.647Z",
+ "logs": [],
+ "caps": {
+  "VideoEncoder": "function",
+  "AudioEncoder": "function",
+  "AudioDecoder": "function",
+  "VideoFrame": "function",
+  "OffscreenCanvas": "function",
+  "SharedArrayBuffer": "undefined",
+  "crossOriginIsolated": false,
+  "MediaRecorder": "function",
+  "mr": {
+   "video/mp4": true,
+   "video/mp4;codecs=avc1,mp4a.40.2": true,
+   "video/mp4;codecs=avc1.42E01E,mp4a.40.2": true,
+   "video/webm;codecs=vp8,opus": true,
+   "video/webm;codecs=vp9,opus": true,
+   "video/mp4;codecs=avc1": true,
+   "audio/mp4": true,
+   "audio/mp4;codecs=mp4a.40.2": true
+  },
+  "audioEnc": {
+   "mp4a.40.2/44100/1": true,
+   "mp4a.40.2/44100/2": true,
+   "mp4a.40.2/48000/1": true,
+   "mp4a.40.2/48000/2": true,
+   "opus/44100/1": true,
+   "opus/44100/2": true,
+   "opus/48000/1": true,
+   "opus/48000/2": true
+  }
+ },
+ "init": {
+  "type": "inited",
+  "cfg": {
+   "codec": "avc1.64001f",
+   "width": 1280,
+   "height": 720,
+   "bitrate": 3000000,
+   "bitrateMode": "variable",
+   "framerate": 30,
+   "latencyMode": "realtime",
+   "avc": {
+    "format": "avc"
+   }
+  },
+  "tried": [
+   {
+    "codec": "avc1.64001f",
+    "bitrateMode": "variable",
+    "ok": true,
+    "err": null
+   }
+  ],
+  "nativeAac": true,
+  "priming": {
+   "ok": true,
+   "primingSamples": 2114,
+   "firstDecodedTs": 0,
+   "chunkCount": 26,
+   "firstChunkTs": 0,
+   "descBad": true,
+   "rawDescHex": "038080802200000004808080144014001800000000000000000005808080021190068080800102"
+  }
+ },
+ "transferOk": true,
+ "pumpMs": 9533,
+ "avgVideoFrameCreateMs": 3.0185185185185186,
+ "clip": {
+  "type": "clip",
+  "name": "iphone-se3-clip30.mp4",
+  "stats": {
+   "framesIn": 1080,
+   "dropped": 0,
+   "chunks": 1080,
+   "keys": 36,
+   "bytes": 2032539,
+   "maxQueue": 0
+  },
+  "ms": 12,
+  "gopCount": 30,
+  "epochIds": [
+   0
+  ],
+  "firstGopStart": 6000000,
+  "startTarget": 6000000,
+  "videoPackets": 900,
+  "audioPackets": 1404,
+  "bytes": 1714992,
+  "primingSec": 0.044041666666666666
+ },
+ "clipPcm": {
+  "type": "clippcm",
+  "ms": 146,
+  "audioMs": 141,
+  "audioCfgSeen": "1190",
+  "bytes": 1715088
+ },
+ "title": {
+  "type": "titleinfo",
+  "identicalAvcC": true,
+  "titleAvcC": "0164001fffe100142764001fac13146014016e9a81010103c20109a001000428ee3cb0fdf8f800",
+  "liveAvcC": "0164001fffe100142764001fac13146014016e9a81010103c20109a001000428ee3cb0fdf8f800",
+  "titleCodec": "avc1.64001f",
+  "liveCodec": "avc1.64001f",
+  "titleAudioPackets": 71
+ },
+ "iphone-se3-title-clip.mp4_ms": 14
+}

@@ -1,0 +1,17 @@
+{
+ "standalone": false,
+ "canShareFilesMp4": true,
+ "persistedBefore": false,
+ "webglCaptureFlag": "function",
+ "quotaGB": 38.65,
+ "usageMB": 0,
+ "persistResult": false,
+ "opfsWorker": {
+  "writeMBps": 2500,
+  "flushMs": 6,
+  "size": 41943040,
+  "readMBps": 6667,
+  "cleaned": true,
+  "readOk": true
+ }
+}

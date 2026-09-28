@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+import { spawn } from 'node:child_process';
+const [,, channel, headedArg, label, query] = process.argv;
+const srv = spawn(process.execPath, ['server.mjs'], { cwd: new URL('.', import.meta.url).pathname, env: { ...process.env, PORT: '47814' }, stdio: 'ignore' });
+await new Promise(r => setTimeout(r, 700));
+const b = await chromium.launch({ channel: channel === 'bundled' ? undefined : channel, headless: headedArg !== 'headed' });
+const p = await b.newPage();
+await p.goto(`http://localhost:47814/?label=${label}&${query || ''}`);
+await p.waitForFunction(() => window.__probe, null, { timeout: 200000 });
+const r = await p.evaluate(() => ({ e720: window.__probe.encodeMain720, ep: window.__probe.encodeMainPortrait, w: window.__probe.worker.encode, mux: window.__probe.muxMp4 && { aac: window.__probe.muxMp4.aacPath, playback: window.__probe.muxMp4.playback } }));
+console.log(JSON.stringify(r));
+await b.close(); srv.kill();

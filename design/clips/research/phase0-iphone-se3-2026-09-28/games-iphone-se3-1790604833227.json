@@ -1,0 +1,102 @@
+[
+ {
+  "id": "monster-truck",
+  "params": "",
+  "drops": 0,
+  "fpsLossPct": 38.54,
+  "canvas": "1334x622",
+  "capFps": 23.71,
+  "baseFps": 38.58,
+  "path": "D",
+  "fps": 30,
+  "capErr": null,
+  "ctx": "webgl2",
+  "longFramesBasePct": 53.45,
+  "enc": {
+   "errors": [],
+   "keys": 10,
+   "bytes": 1610655,
+   "submitted": 235,
+   "outputs": 235,
+   "firstEncodeAt": 7616,
+   "ttfcMs": 24,
+   "outOfOrder": 0,
+   "workerMsP95": 7,
+   "deltaTypes": {
+    "key": 10,
+    "delta": 225
+   },
+   "workerMsP50": 5,
+   "dropsQueue": 0,
+   "firstOutputAt": 7640,
+   "sizes": [
+    "1334x622"
+   ],
+   "lastOutTs": 9966667
+  },
+  "longFramesCapPct": 99.16,
+  "lat": "quality",
+  "baseP95": 30,
+  "page": "/games/monster-truck",
+  "capP95": 54,
+  "captured": 235,
+  "dispatches": 527,
+  "capCostP50": 30,
+  "capCostP95": 39
+ },
+ {
+  "id": "four-wheeler-3d",
+  "params": "",
+  "drops": 0,
+  "fpsLossPct": 2.05,
+  "canvas": "1000x466",
+  "capFps": 33.03,
+  "baseFps": 33.72,
+  "path": "D",
+  "fps": 30,
+  "capErr": null,
+  "ctx": "webgl2",
+  "longFramesBasePct": 60.89,
+  "enc": {
+   "errors": [],
+   "keys": 10,
+   "bytes": 1392168,
+   "submitted": 292,
+   "outputs": 292,
+   "firstEncodeAt": 7649,
+   "ttfcMs": 31,
+   "outOfOrder": 0,
+   "workerMsP95": 10,
+   "deltaTypes": {
+    "key": 10,
+    "delta": 282
+   },
+   "workerMsP50": 7,
+   "dropsQueue": 0,
+   "firstOutputAt": 7680,
+   "sizes": [
+    "1000x466"
+   ],
+   "lastOutTs": 9933333
+  },
+  "longFramesCapPct": 71.52,
+  "lat": "quality",
+  "baseP95": 40,
+  "page": "/games/four-wheeler-3d",
+  "capP95": 41,
+  "captured": 292,
+  "dispatches": 586,
+  "capCostP50": 23,
+  "capCostP95": 32
+ },
+ {
+  "id": "hill-climb",
+  "params": "",
+  "error": "canvas 300x150 (webgl2) in page; canvases=1\nencoder ready\n"
+ },
+ {
+  "id": "four-wheeler-adventure",
+  "params": "",
+  "error": "no canvas\n"
+ }
+]
