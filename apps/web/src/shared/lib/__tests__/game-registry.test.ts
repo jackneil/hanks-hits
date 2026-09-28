@@ -32,6 +32,7 @@ describe("parseMetadata", () => {
       description: "Catch the donuts",
       hidden: false,
       madeByKid: true,
+      clips: false,
     });
   });
 
@@ -93,5 +94,47 @@ export const metadata = {
 `;
     const parsed = parseMetadata(content, "computed");
     expect(parsed?.madeByKid).toBe(false);
+  });
+
+  it("reads a plain clips literal and defaults it to false", () => {
+    const on = `
+export const metadata = {
+  id: "breakout",
+  name: "Breakout",
+  emoji: "🧱",
+  category: "arcade",
+  clips: true,
+};
+`;
+    expect(parseMetadata(on, "breakout")?.clips).toBe(true);
+    expect(parseMetadata(on.replace("clips: true", "clips: false"), "breakout")?.clips).toBe(false);
+    expect(parseMetadata(on.replace("  clips: true,\n", ""), "breakout")?.clips).toBe(false);
+  });
+
+  it("never reads a computed clips value or a longer field name as clips", () => {
+    const content = `
+export const metadata = {
+  id: "draw",
+  name: "Draw",
+  emoji: "🎨",
+  category: "apps",
+  clipsScrubbed: "abc",
+  noclips: true,
+  clips: enabled,
+};
+`;
+    expect(parseMetadata(content, "draw")?.clips).toBe(false);
+  });
+
+  it("reads id only at a word boundary, never from a field that ends in id", () => {
+    const content = `
+export const metadata = {
+  gameId: "wrong",
+  name: "Right",
+  emoji: "✅",
+  category: "arcade",
+};
+`;
+    expect(parseMetadata(content, "right-dir")?.id).toBe("right-dir");
   });
 });

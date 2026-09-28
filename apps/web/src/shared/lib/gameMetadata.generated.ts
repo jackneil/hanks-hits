@@ -13,6 +13,12 @@ export interface GameMetadata {
   description: string;
   category: CategoryId;
   madeByKid: boolean;
+  /**
+   * The module records gameplay clips (metadata literal clips: true). The
+   * generator always writes it; it is optional so a hand-made lookup entry
+   * (a test) can leave it out, which means false.
+   */
+  clips?: boolean;
 }
 
 export const GAME_METADATA: Record<string, GameMetadata> = {
@@ -23,6 +29,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Slide and merge numbers",
     category: "arcade",
     madeByKid: false,
+    clips: false,
   },
   "arkanoid": {
     name: "Arkanoid",
@@ -31,6 +38,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Watch balls multiply in this mesmerizing chain reaction game!",
     category: "arcade",
     madeByKid: false,
+    clips: false,
   },
   "asteroids": {
     name: "Asteroids",
@@ -39,6 +47,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Vector space shooter",
     category: "arcade",
     madeByKid: false,
+    clips: false,
   },
   "blitz-bomber": {
     name: "Blitz Bomber",
@@ -47,6 +56,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "WWII bombing run",
     category: "action",
     madeByKid: false,
+    clips: false,
   },
   "bomberman": {
     name: "Bomberman",
@@ -55,6 +65,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Grid-based bomb action",
     category: "action",
     madeByKid: false,
+    clips: false,
   },
   "breakout": {
     name: "Breakout",
@@ -63,6 +74,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Brick breaker with power-ups",
     category: "arcade",
     madeByKid: false,
+    clips: false,
   },
   "checkers": {
     name: "Checkers",
@@ -71,6 +83,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Classic checkers game",
     category: "board",
     madeByKid: false,
+    clips: false,
   },
   "chess": {
     name: "Chess",
@@ -79,6 +92,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Classic chess game",
     category: "board",
     madeByKid: false,
+    clips: false,
   },
   "cookie-clicker": {
     name: "Cookie Clicker",
@@ -87,6 +101,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Click cookies, buy upgrades",
     category: "puzzle",
     madeByKid: false,
+    clips: false,
   },
   "dino-runner": {
     name: "Dino Runner",
@@ -95,6 +110,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Chrome-style endless runner",
     category: "racing",
     madeByKid: false,
+    clips: false,
   },
   "endless-runner": {
     name: "Endless Runner",
@@ -103,6 +119,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Run forever, dodge obstacles",
     category: "action",
     madeByKid: false,
+    clips: false,
   },
   "flappy-bird": {
     name: "Flappy Bird",
@@ -111,6 +128,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Tap to fly through pipes",
     category: "arcade",
     madeByKid: false,
+    clips: false,
   },
   "four-wheeler-3d": {
     name: "Four-Wheeler Adventure 3D",
@@ -119,6 +137,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Ride, hunt, fish, fly and build inside a big 3D world",
     category: "racing",
     madeByKid: true,
+    clips: false,
   },
   "four-wheeler-adventure": {
     name: "Four-Wheeler Adventure",
@@ -127,6 +146,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Ride, hunt, fish & race in a huge open world",
     category: "racing",
     madeByKid: true,
+    clips: false,
   },
   "hextris": {
     name: "Hextris",
@@ -135,6 +155,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Hexagon color matching",
     category: "puzzle",
     madeByKid: false,
+    clips: false,
   },
   "hill-climb": {
     name: "Hill Climb",
@@ -143,6 +164,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Physics-based hill climbing",
     category: "racing",
     madeByKid: false,
+    clips: false,
   },
   "math-attack": {
     name: "Math Attack",
@@ -151,6 +173,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Solve math problems before they hit the ground",
     category: "arcade",
     madeByKid: false,
+    clips: false,
   },
   "memory-match": {
     name: "Memory Match",
@@ -159,6 +182,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Match the cards",
     category: "puzzle",
     madeByKid: false,
+    clips: false,
   },
   "monster-truck": {
     name: "Monster Truck",
@@ -167,6 +191,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "3D monster truck open world",
     category: "racing",
     madeByKid: false,
+    clips: false,
   },
   "oregon-trail": {
     name: "Oregon Trail",
@@ -175,6 +200,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Classic pioneer adventure",
     category: "retro",
     madeByKid: false,
+    clips: false,
   },
   "platformer": {
     name: "Platformer",
@@ -183,6 +209,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Jump and run adventure",
     category: "action",
     madeByKid: false,
+    clips: false,
   },
   "quoridor": {
     name: "Quoridor",
@@ -191,6 +218,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Strategic wall-placing game",
     category: "board",
     madeByKid: false,
+    clips: false,
   },
   "retro-arcade": {
     name: "Retro Arcade",
@@ -199,6 +227,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Classic console emulator",
     category: "retro",
     madeByKid: false,
+    clips: false,
   },
   "snake": {
     name: "Snake",
@@ -207,6 +236,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Classic snake game",
     category: "arcade",
     madeByKid: false,
+    clips: false,
   },
   "space-invaders": {
     name: "Space Invaders",
@@ -215,6 +245,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Classic alien shooter",
     category: "arcade",
     madeByKid: false,
+    clips: false,
   },
   "wordle": {
     name: "Wordle",
@@ -223,6 +254,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Guess the word with age-appropriate difficulty",
     category: "puzzle",
     madeByKid: false,
+    clips: false,
   },
   "drawing-app": {
     name: "Drawing",
@@ -231,6 +263,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Draw and create art",
     category: "apps",
     madeByKid: false,
+    clips: false,
   },
   "drum-machine": {
     name: "Drum Machine",
@@ -239,6 +272,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Make beats and loops",
     category: "apps",
     madeByKid: false,
+    clips: false,
   },
   "joke-generator": {
     name: "Jokes",
@@ -247,6 +281,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Funny jokes for kids",
     category: "apps",
     madeByKid: false,
+    clips: false,
   },
   "toy-finder": {
     name: "Toy Finder",
@@ -255,6 +290,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Find cool toys",
     category: "apps",
     madeByKid: false,
+    clips: false,
   },
   "trivia": {
     name: "Trivia Quiz",
@@ -263,6 +299,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Test your knowledge with age-appropriate trivia questions",
     category: "apps",
     madeByKid: false,
+    clips: false,
   },
   "virtual-pet": {
     name: "Virtual Pet",
@@ -271,6 +308,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Raise your digital pet",
     category: "apps",
     madeByKid: false,
+    clips: false,
   },
   "weather": {
     name: "Weather",
@@ -279,6 +317,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Check the weather",
     category: "apps",
     madeByKid: false,
+    clips: false,
   },
 };
 
@@ -298,6 +337,7 @@ export function getGameMetadata(appId: string): GameMetadata {
       description: "A game",
       category: "arcade" as CategoryId,
       madeByKid: false,
+      clips: false,
     }
   );
 }

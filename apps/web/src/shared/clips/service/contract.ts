@@ -136,7 +136,8 @@ export type PressOutcome =
   | { kind: "clip"; result: Promise<ClipActionResult> }
   | { kind: "extend"; result: Promise<ClipActionResult> }
   | { kind: "menu" } // a hold of 500 ms or more without movement: open the Capture menu, commit nothing
-  | { kind: "ignored"; reason: ClipReasonCode | "busy" };
+  /** "cancelled": the browser cancelled the press (pointercancel), so it commits nothing. */
+  | { kind: "ignored"; reason: ClipReasonCode | "busy" | "cancelled" };
 
 /** Plan 11.1 tap semantics. */
 export const HOLD_FOR_MENU_MS = 500;
