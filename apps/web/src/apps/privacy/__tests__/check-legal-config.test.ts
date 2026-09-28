@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -83,6 +83,23 @@ describe("check-legal-config.mjs", () => {
     const result = runCheck(path.join(workDir, "missing.json"));
     expect(result.status).toBe(1);
     expect(result.output).toMatch(/cannot be read/);
+  });
+
+  it("fails closed when it runs through a symbolic link", () => {
+    // /tmp on macOS is a link to /private/tmp. A path check once made the
+    // script skip itself there and exit 0 with an empty legal.json.
+    const linkedScripts = path.join(workDir, "linked-scripts");
+    symlinkSync(path.dirname(SCRIPT), linkedScripts, "dir");
+    const empty = writeConfig({ operatorName: "", mailingAddress: "", phone: "", email: "" });
+
+    const result = spawnSync(
+      process.execPath,
+      [path.join(linkedScripts, path.basename(SCRIPT)), empty],
+      { encoding: "utf8" }
+    );
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain("operatorName is empty");
   });
 
   it("never prints the contact values", () => {

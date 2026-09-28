@@ -7,7 +7,9 @@ import type { LegalContact } from "@/config/legal";
 
 import { PrivacyNotice } from "../components/PrivacyNotice";
 import {
+  INACTIVE_ACCOUNT_MONTHS,
   KID_SUMMARY,
+  KID_TEXT_LABELS,
   NOTICE_SECTIONS,
   PRIVACY_NOTICE_UPDATED,
   formatNoticeDate,
@@ -117,7 +119,7 @@ describe("PrivacyNotice", () => {
       ).toBeInTheDocument();
     });
 
-    it("renders the real route with the values from legal.json", () => {
+    it("renders the real route with today's legal.json (filled values: PrivacyRoute.test.tsx)", () => {
       render(<PrivacyRoute />);
       expect(screen.getByRole("heading", { level: 1, name: "Privacy notice" })).toBeInTheDocument();
       expect(screen.getByTestId("operator-contact")).toBeInTheDocument();
@@ -194,6 +196,66 @@ describe("PrivacyNotice", () => {
       expect(identifiers.textContent).toMatch(
         /do not use them to contact a person, to show ads, or to build a profile/
       );
+      // 312.4(d)(3) also requires the means that keep the promise.
+      expect(identifiers.textContent).toMatch(/This is how we make sure of it\./);
+      expect(identifiers.textContent).toMatch(/no ad code, and no code that follows a person to other websites/);
+      expect(identifiers.textContent).toMatch(/no way to send messages to players/);
+      expect(identifiers.textContent).toMatch(
+        /Only the operator and the companies in "Companies that help us run the site" get these identifiers/
+      );
+    });
+
+    it("gives a deletion timeframe for account data (312.10), from the same number the delete job uses", () => {
+      render(<PrivacyNotice contact={FILLED} />);
+      const deletion = document.getElementById("deletion")!;
+      expect(deletion.textContent).toContain(
+        `We delete an account when nobody uses it for ${INACTIVE_ACCOUNT_MONTHS} months.`
+      );
+      // The same kinds of use that lib/account-retention.ts checks.
+      expect(deletion.textContent).toMatch(
+        /saves progress[\s\S]*score to a leaderboard[\s\S]*the account, its name or its leaderboard setting changes/
+      );
+      expect(deletion.textContent).toMatch(/count from the date that the account was made/);
+      expect(deletion.textContent).toMatch(/every day/);
+
+      // No kind of account data says "until deleted" without the timeframe.
+      for (const id of ["account", "progress", "leaderboards"]) {
+        const keep = document.getElementById(id)!.textContent!;
+        expect(keep).toContain(`nobody uses it for ${INACTIVE_ACCOUNT_MONTHS} months`);
+      }
+    });
+
+    it("lists every game that saves player text, and says guest progress can move into the account", () => {
+      render(<PrivacyNotice contact={FILLED} />);
+      const progress = document.getElementById("progress")!;
+      const items = Array.from(progress.querySelectorAll("li")).map((li) => li.textContent ?? "");
+      for (const label of Object.values(KID_TEXT_LABELS)) {
+        expect(items.some((item) => item.startsWith(`${label}:`)), label).toBe(true);
+      }
+      expect(progress.textContent).toMatch(/What is your name, wagon leader\?/);
+      expect(progress.textContent).toMatch(/names that the player gives to the animal feeders/);
+      expect(progress.textContent).toMatch(
+        /When the player later signs in on that device, the games can copy that progress into the account/
+      );
+      expect(progress.textContent).not.toMatch(/It does not come to our server/);
+    });
+
+    it("says where the hand-made backup copies are, and how long deleted data stays in them", () => {
+      render(<PrivacyNotice contact={FILLED} />);
+      const backups = document.getElementById("backups")!.textContent!;
+      expect(backups).toMatch(/Railway stores the automatic backups/);
+      expect(backups).toMatch(/on Railway, or on the operator's own computer/);
+      expect(backups).toMatch(/Information that we delete can stay in these copies until then/);
+    });
+
+    it("does not say that error logs hold emails, names or passwords", () => {
+      render(<PrivacyNotice contact={FILLED} />);
+      const network = document.getElementById("network")!.textContent!;
+      expect(network).not.toMatch(/can also include the data that the site tried to save/);
+      expect(network).toMatch(/They do not include email addresses, names, passwords/);
+      expect(network).toMatch(/Railway can store them for longer under its own rules/);
+      const statistics = document.getElementById("statistics")!.textContent!;
+      expect(statistics).toMatch(/We can see the sample for 6 months/);
     });
 
     it("shows the last-updated date", () => {

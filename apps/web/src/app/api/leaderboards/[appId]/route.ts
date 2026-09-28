@@ -7,8 +7,9 @@ import {
   VALID_APP_IDS,
   type ValidAppId,
 } from "@hank-neil/db/schema";
-import { leaderboardQuerySchema, TIME_PERIODS, type ScoreType } from "@/lib/leaderboard-schemas";
+import { leaderboardQuerySchema, TIME_PERIODS } from "@/lib/leaderboard-schemas";
 import { hasLeaderboardSupport, getGameScoreType } from "@/lib/leaderboard-extractors";
+import { logServerError } from "@/lib/server-log";
 
 type RouteContext = {
   params: Promise<{ appId: string }>;
@@ -209,7 +210,7 @@ export async function GET(request: Request, context: RouteContext) {
       scoreType, // Added for client-side score formatting
     });
   } catch (error) {
-    console.error("GET /api/leaderboards error:", error);
+    logServerError("GET /api/leaderboards error", error);
     return NextResponse.json(
       { error: "Failed to fetch leaderboard" },
       { status: 500 }

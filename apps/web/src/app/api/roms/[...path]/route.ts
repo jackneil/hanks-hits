@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { safeRedirectTarget } from "@/lib/rom-redirect";
 import { checkRomProxyRateLimit, getClientIP } from "@/lib/rate-limit";
+import { logServerError } from "@/lib/server-log";
 
 // Railway CDN URL for ROMs
 const ROM_CDN_URL = "https://cdn-hankshits.up.railway.app/roms";
@@ -125,7 +126,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error(`Failed to fetch ROM /${romPath}:`, error);
+    logServerError(`Failed to fetch ROM /${romPath}`, error);
     return new NextResponse("Failed to fetch ROM", { status: 500 });
   } finally {
     clearTimeout(timeout);

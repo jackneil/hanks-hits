@@ -8,6 +8,10 @@
 type RateLimitEntry = {
   count: number;
   windowStart: number;
+  // Each entry keeps its own window. The limiters share one store but use
+  // different windows (1 minute to 1 hour), so the cleanup must not use the
+  // window of the call that happens to trigger it.
+  windowMs: number;
 };
 
 // In-memory storage for rate limiting
@@ -17,18 +21,27 @@ const rateLimitStore = new Map<string, RateLimitEntry>();
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
 let lastCleanup = Date.now();
 
-function cleanupOldEntries(windowMs: number) {
+/**
+ * Remove the entries whose own window has ended. An ended entry has no
+ * effect on the limit (the next call starts a new window), so removing it
+ * changes no result. The privacy notice says that the server clears old
+ * counters while it runs.
+ */
+function cleanupOldEntries() {
   const now = Date.now();
   if (now - lastCleanup < CLEANUP_INTERVAL) return;
 
   lastCleanup = now;
-  const cutoff = now - windowMs * 2; // Keep entries for 2x the window
-
   for (const [key, entry] of rateLimitStore.entries()) {
-    if (entry.windowStart < cutoff) {
+    if (now - entry.windowStart >= entry.windowMs) {
       rateLimitStore.delete(key);
     }
   }
+}
+
+/** The number of counters in memory. For tests. */
+export function rateLimitEntryCount(): number {
+  return rateLimitStore.size;
 }
 
 type RateLimitResult = {
@@ -53,13 +66,13 @@ export function checkRateLimit(
   const now = Date.now();
 
   // Periodic cleanup
-  cleanupOldEntries(windowMs);
+  cleanupOldEntries();
 
   const entry = rateLimitStore.get(key);
 
   // No existing entry - create one
   if (!entry) {
-    rateLimitStore.set(key, { count: 1, windowStart: now });
+    rateLimitStore.set(key, { count: 1, windowStart: now, windowMs });
     return {
       success: true,
       remaining: limit - 1,
@@ -69,7 +82,7 @@ export function checkRateLimit(
 
   // Window expired - reset
   if (now - entry.windowStart >= windowMs) {
-    rateLimitStore.set(key, { count: 1, windowStart: now });
+    rateLimitStore.set(key, { count: 1, windowStart: now, windowMs });
     return {
       success: true,
       remaining: limit - 1,
@@ -130,6 +143,13 @@ export function checkProgressRateLimit(userId: string): RateLimitResult {
  */
 export function checkProgressDeleteRateLimit(userId: string): RateLimitResult {
   return checkRateLimit(`progress-delete:${userId}`, 10, 60 * 1000);
+}
+
+/**
+ * Rate limit for profile name changes: 5 changes per hour per user.
+ */
+export function checkNameChangeRateLimit(userId: string): RateLimitResult {
+  return checkRateLimit(`name-change:${userId}`, 5, 60 * 60 * 1000);
 }
 
 /**

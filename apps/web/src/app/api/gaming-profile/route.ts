@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db, eq } from "@hank-neil/db";
 import { gamingProfiles } from "@hank-neil/db/schema";
+import { logServerError } from "@/lib/server-log";
 
 /**
  * GET /api/gaming-profile
@@ -41,7 +42,7 @@ export async function GET() {
       createdAt: profile.createdAt.toISOString(),
     });
   } catch (error) {
-    console.error("GET /api/gaming-profile error:", error);
+    logServerError("GET /api/gaming-profile error", error);
     return NextResponse.json(
       { error: "Failed to fetch gaming profile" },
       { status: 500 }
@@ -107,7 +108,7 @@ export async function PATCH(request: Request) {
       showOnLeaderboards,
     });
   } catch (error) {
-    console.error("PATCH /api/gaming-profile error:", error);
+    logServerError("PATCH /api/gaming-profile error", error);
     return NextResponse.json(
       { error: "Failed to update gaming profile" },
       { status: 500 }

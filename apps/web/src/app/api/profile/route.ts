@@ -3,28 +3,10 @@ import { auth } from "@/lib/auth";
 import { db, eq } from "@hank-neil/db";
 import { users } from "@hank-neil/db/schema";
 import { validateDisplayName } from "@/lib/validators";
-
-// Rate limiting for name changes (basic in-memory, resets on redeploy)
-const nameChangeAttempts = new Map<string, { count: number; resetAt: number }>();
-const MAX_NAME_CHANGES = 5;
-const RATE_LIMIT_WINDOW = 60 * 60 * 1000; // 1 hour
-
-function checkNameChangeRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const record = nameChangeAttempts.get(userId);
-
-  if (!record || now > record.resetAt) {
-    nameChangeAttempts.set(userId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    return true;
-  }
-
-  if (record.count >= MAX_NAME_CHANGES) {
-    return false;
-  }
-
-  record.count++;
-  return true;
-}
+import { logServerError } from "@/lib/server-log";
+// Name changes use the shared in-memory limiter, so their counters are
+// cleared on the same schedule as every other counter.
+import { checkNameChangeRateLimit } from "@/lib/rate-limit";
 
 /**
  * GET /api/profile
@@ -63,7 +45,7 @@ export async function GET() {
       // Don't expose: password, updatedAt
     });
   } catch (error) {
-    console.error("GET /api/profile error:", error);
+    logServerError("GET /api/profile error", error);
     return NextResponse.json(
       { error: "Failed to fetch profile" },
       { status: 500 }
@@ -88,8 +70,8 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // Rate limit name changes
-    if (!checkNameChangeRateLimit(session.user.id)) {
+    // Rate limit name changes (5 per hour per user)
+    if (!checkNameChangeRateLimit(session.user.id).success) {
       return NextResponse.json(
         { error: "Too many name changes. Try again later." },
         { status: 429 }
@@ -120,7 +102,7 @@ export async function PATCH(request: Request) {
       name: trimmedName,
     });
   } catch (error) {
-    console.error("PATCH /api/profile error:", error);
+    logServerError("PATCH /api/profile error", error);
     return NextResponse.json(
       { error: "Failed to update profile" },
       { status: 500 }

@@ -108,12 +108,16 @@ export default function SignUpPage() {
             email or get permission before creating an account.
           </p>
           {/* COPPA 312.4(d): link to the notice next to the request for
-              the child's information. */}
+              the child's information. It opens in a new tab, so the form
+              keeps what the player typed. */}
           <Link
             href="/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex min-h-[44px] items-center font-bold text-blue-700 underline underline-offset-2"
           >
             Read our privacy notice
+            <span className="sr-only"> (opens in a new tab)</span>
           </Link>
         </div>
 
@@ -189,9 +193,12 @@ export default function SignUpPage() {
               <p>The email is your sign-in name. We never send email.</p>
               <Link
                 href="/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex min-h-[44px] items-center font-bold text-blue-700 underline underline-offset-2"
               >
                 Privacy notice
+                <span className="sr-only"> (opens in a new tab)</span>
               </Link>
             </div>
           </div>

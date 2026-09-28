@@ -5,10 +5,14 @@ import { SITE } from "@/config/site";
 import type { LegalContact } from "@/config/legal";
 import {
   ANALYTICS_FULL_DAYS,
+  ANALYTICS_VIEW_MONTHS,
+  INACTIVE_ACCOUNT_MONTHS,
   KID_SUMMARY,
+  KID_TEXT_LABELS,
   MANUAL_BACKUP_DAYS,
   PRIVACY_NOTICE_UPDATED,
   SERVER_LOG_DAYS,
+  SERVER_LOG_MAX_PLAN_DAYS,
   SIGN_IN_COOKIE_DAYS,
   formatNoticeDate,
   kidSummarySpeech,
@@ -16,6 +20,9 @@ import {
   sectionTitle,
   type NoticeSectionId,
 } from "../lib/notice";
+
+/** The sentence that points each account-bound data kind at the deletion rule. */
+const DELETED_WITH_ACCOUNT = `until the account is deleted. We delete an account when nobody uses it for ${INACTIVE_ACCOUNT_MONTHS} months (see "When we delete an account").`;
 
 /**
  * The privacy notice for /privacy.
@@ -49,8 +56,9 @@ const DATA_KINDS: readonly DataKind[] = [
       "We keep the password only as a scrambled code (a bcrypt hash). Nobody can turn this code back into the password.",
       "When a player uses \"Sign up with Google\" or \"Continue with Google\", Google gives us the name on the Google account, the email address and a link to the profile picture. The name can be a full name.",
       "For a Google sign-in, we also keep the Google account number and the sign-in keys that Google sends.",
-      "We record the date that the account was made.",
-      "The sign-up page asks a grown-up to make the account, or to give permission first.",
+      "We record the date that the account was made, and the date of the last change to the account.",
+      "The \"Continue with Google\" button on the sign-in page also makes an account, the first time that a Google account signs in.",
+      "The sign-up page and the sign-in page both ask a grown-up to make the account, or to give permission first.",
     ],
     use: [
       "We use these details to sign the player in.",
@@ -59,7 +67,8 @@ const DATA_KINDS: readonly DataKind[] = [
     ],
     who: ["Only the signed-in player and the operator. Other players never see these details."],
     keep: [
-      "We keep account details until the account is deleted. A parent can tell us to delete the account at any time (see \"Your rights as a parent\").",
+      `We keep account details ${DELETED_WITH_ACCOUNT}`,
+      "A parent can tell us to delete the account at any time (see \"Your rights as a parent\").",
     ],
   },
   {
@@ -70,23 +79,23 @@ const DATA_KINDS: readonly DataKind[] = [
       "Some games also save words or pictures that the player makes:",
       {
         items: [
-          "Oregon Trail: the names that the player gives the travelers.",
-          "Four-Wheeler Adventure 3D: the word on the player's outfit.",
-          "Virtual Pet: the name of the pet.",
-          "Drawing: the drawings and their names.",
-          "Drum Machine: the names of saved beats.",
-          "Weather: the places that the player picks, with the town, region, country and map position.",
-          "Retro Arcade: saved game spots, and the names of games that the player adds.",
+          `${KID_TEXT_LABELS.oregonTrail}: the name that the player types for the wagon leader (the game asks "What is your name, wagon leader?"), and the names that the player gives the other travelers.`,
+          `${KID_TEXT_LABELS.fourWheeler}: the word on the player's outfit, and the names that the player gives to the animal feeders in the game.`,
+          `${KID_TEXT_LABELS.virtualPet}: the name of the pet.`,
+          `${KID_TEXT_LABELS.drawing}: the drawings and their names.`,
+          `${KID_TEXT_LABELS.drumMachine}: the names of saved beats.`,
+          `${KID_TEXT_LABELS.weather}: the places that the player picks, with the town, region, country and map position.`,
+          `${KID_TEXT_LABELS.retroArcade}: saved game spots, and the names of games that the player adds.`,
         ],
       },
-      "When a player is not signed in, progress stays only in the browser on the device. It does not come to our server.",
+      "When a player is not signed in, progress stays in the browser on the device. When the player later signs in on that device, the games can copy that progress into the account.",
     ],
     use: [
       "We use progress so that the player can continue on any device.",
       "We also use it to show the player's stats on the player's profile page.",
     ],
     who: ["Only the signed-in player and the operator."],
-    keep: ["We keep game progress until the account is deleted."],
+    keep: [`We keep game progress ${DELETED_WITH_ACCOUNT}`],
   },
   {
     id: "leaderboards",
@@ -100,7 +109,8 @@ const DATA_KINDS: readonly DataKind[] = [
       "Everyone who visits the site. A leaderboard never shows the player's real name, email address or picture.",
     ],
     keep: [
-      "We keep leaderboard scores until the account is deleted. A parent can also tell us to hide the player from all leaderboards.",
+      `We keep leaderboard scores ${DELETED_WITH_ACCOUNT}`,
+      "A parent can also tell us to hide the player from all leaderboards.",
     ],
   },
   {
@@ -148,14 +158,14 @@ const DATA_KINDS: readonly DataKind[] = [
         items: [
           "We count requests for a short time, to limit how fast requests can come. We count sign-ups and Retro Arcade downloads by internet address, sign-in tries by email address, and game progress requests and name changes by account.",
           "Our hosting company records each request in a server log: the time, the page, the browser type and an internet address.",
-          "Our error messages can include an account number. If a sign-up or a save fails with a database error, the error message can also include the data that the site tried to save. This can be an email address, a name, a scrambled password or game progress.",
+          "Our error messages can include an account number and the name of a game. They do not include email addresses, names, passwords, or the words and pictures that players save.",
         ],
       },
     ],
     who: ["Only the operator and our hosting company, Railway."],
     keep: [
-      "The counters stay only in the server's memory. We never save them to a disk or a database. The server clears old counters while it runs, and clears all counters when it restarts.",
-      `Railway keeps our server logs for ${SERVER_LOG_DAYS} days. We do not copy the logs to any other place.`,
+      "The counters stay only in the server's memory. We never save them to a disk or a database. Each counter lasts for its time limit, from 1 minute to 1 hour. The server clears old counters while it runs, and clears all counters when it restarts.",
+      `We can see our server logs for ${SERVER_LOG_DAYS} days. Railway can store them for longer under its own rules (its largest plan shows logs for up to ${SERVER_LOG_MAX_PLAN_DAYS} days). We do not copy the logs to any other place.`,
     ],
   },
   {
@@ -170,7 +180,7 @@ const DATA_KINDS: readonly DataKind[] = [
       "Only the operator, as totals on the Cloudflare dashboard. Cloudflare says that it does not use this data to track visitors across websites.",
     ],
     keep: [
-      `Cloudflare keeps the full reports for ${ANALYTICS_FULL_DAYS} days. After that, it keeps only a smaller, combined sample.`,
+      `Cloudflare keeps the full reports for ${ANALYTICS_FULL_DAYS} days. After that, it keeps a smaller sample (about 1 in 10 reports). We can see the sample for ${ANALYTICS_VIEW_MONTHS} months. Cloudflare's own rules control how long it stores the sample.`,
     ],
   },
   {
@@ -180,10 +190,12 @@ const DATA_KINDS: readonly DataKind[] = [
       "Copies of our database. The database holds the account details, the game progress and the leaderboard scores that this notice describes.",
     ],
     use: ["We use backups only to bring the site back after a mistake or a failure."],
-    who: ["Only the operator. Railway stores the copies."],
+    who: [
+      "Only the operator. Railway stores the automatic backups. The operator keeps the copies made by hand on Railway, or on the operator's own computer.",
+    ],
     keep: [
-      "Railway backs up the database all the time and keeps about 4 weeks of rolling backups. Information that we delete stays in the older backups until they expire, at most about 5 weeks later.",
-      `Before a big change to the site, we also make a copy by hand. We delete each copy that we make by hand within ${MANUAL_BACKUP_DAYS} days.`,
+      "Railway backs up the database all the time and keeps about 4 weeks of rolling backups. Information that we delete stays in these backups until they expire, at most about 5 weeks later.",
+      `Before a big change to the site, we also make a copy by hand. We delete each copy that we make by hand within ${MANUAL_BACKUP_DAYS} days. Information that we delete can stay in these copies until then.`,
     ],
   },
 ];
@@ -418,6 +430,18 @@ export function PrivacyNotice({ contact }: PrivacyNoticeProps) {
             </div>
           </Section>
 
+          <Section id="deletion">
+            <p>
+              {`We delete an account when nobody uses it for ${INACTIVE_ACCOUNT_MONTHS} months. This deletes the account details, the game progress and the leaderboard scores together.`}
+            </p>
+            <p>
+              {"An account is in use when a game saves progress to it, when a game sends a score to a leaderboard, or when the account, its name or its leaderboard setting changes. We count the months from the newest of these dates. If none of these happened, we count from the date that the account was made."}
+            </p>
+            <p>
+              {"Our server looks for these accounts every day. After we delete an account, copies stay in our backups until they expire (see \"Backup copies\")."}
+            </p>
+          </Section>
+
           <Section id="public">
             <p>
               {"Other visitors can see only the leaderboards. A leaderboard shows the random player name, the score, a few game numbers and the date."}
@@ -486,6 +510,9 @@ export function PrivacyNotice({ contact }: PrivacyNoticeProps) {
             <p>
               {"We do not use them to contact a person, to show ads, or to build a profile of a person. The site statistics use no cookies and no account number."}
             </p>
+            <p>
+              {"This is how we make sure of it. The site has no ad code, and no code that follows a person to other websites. The site has no way to send messages to players. Only the operator and the companies in \"Companies that help us run the site\" get these identifiers, and those companies get them only for the uses listed there."}
+            </p>
           </Section>
 
           <Section id="rights">
@@ -506,7 +533,7 @@ export function PrivacyNotice({ contact }: PrivacyNoticeProps) {
             <ul className="list-disc space-y-1 pl-5">
               <li>{"To show you the information, we send you a copy of the account details, the game progress and the leaderboard scores."}</li>
               <li>{"To delete the information, we delete the account. This deletes the account details, the game progress and the leaderboard scores together. The copies in our backups expire as \"Backup copies\" describes."}</li>
-              <li>{"To stop collection, we delete the account. Your child can still play every game without an account. Without an account, progress stays only on the device, and the games do not save it on our server."}</li>
+              <li>{"To stop collection, we delete the account. Your child can still play every game without an account. Without an account, progress stays in the browser on the device. The games do not save it on our server unless someone signs in on that device again."}</li>
             </ul>
             <h4 className="pt-2 text-lg font-extrabold text-slate-900">What you can do yourself</h4>
             <ul className="list-disc space-y-1 pl-5">
@@ -519,6 +546,7 @@ export function PrivacyNotice({ contact }: PrivacyNoticeProps) {
             <ul className="list-disc space-y-1 pl-5">
               <li>{"Every page of the site uses an encrypted connection (HTTPS)."}</li>
               <li>{"We keep passwords only as scrambled codes (bcrypt hashes)."}</li>
+              <li>{"Our server logs leave out email addresses, names, passwords, and the words and pictures that players save."}</li>
             </ul>
           </Section>
 

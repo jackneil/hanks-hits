@@ -4,6 +4,7 @@ import { users } from "@hank-neil/db/schema";
 import bcrypt from "bcryptjs";
 import { checkSignupRateLimit, getClientIP } from "@/lib/rate-limit";
 import { validateDisplayName, displayNameFromEmail } from "@/lib/validators";
+import { logServerError } from "@/lib/server-log";
 
 export async function POST(request: Request) {
   try {
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
-    console.error("Signup error:", error);
+    logServerError("Signup error", error);
     return NextResponse.json(
       { error: "Something went wrong. Please try again." },
       { status: 500 }

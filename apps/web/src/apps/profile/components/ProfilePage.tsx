@@ -47,7 +47,7 @@ interface MyRanksData {
  * Shows user info, game progress, and account actions.
  */
 export function ProfilePage() {
-  const { data: session, status, update } = useSession();
+  const { status, update } = useSession();
   const router = useRouter();
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -276,6 +276,19 @@ export function ProfilePage() {
                     {nameSaving ? "Saving..." : "Save"}
                   </button>
                 </div>
+                {/* COPPA 312.4(d): this field collects a name, so the notice
+                    link sits next to it. A new tab keeps the typed name. */}
+                <p className="mt-2 text-center">
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-[44px] items-center px-2 text-sm font-semibold text-white underline underline-offset-4"
+                  >
+                    Privacy notice
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </Link>
+                </p>
               </div>
             ) : (
               <button

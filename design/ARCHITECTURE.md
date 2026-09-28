@@ -45,6 +45,27 @@ A web platform where 9-year-old Hank Neil (and other kids who clone it) design t
 └─────────────────────────────────────────┘
 ```
 
+### Player data on the server
+
+The privacy notice at `/privacy` tells parents what the server keeps and
+for how long. The code must do what the notice says. Obey these rules:
+
+- **Do not give an error object to `console.error` or `console.warn` in
+  server code.** A drizzle query error holds the query values (for example
+  the email and password hash of a new account). Use `logServerError` or
+  `logServerWarning` from `src/lib/server-log.ts`. They write the error
+  name, the code and the stack frames only.
+- **Accounts that nobody uses are deleted.** `src/instrumentation.ts`
+  starts a daily job in the production server. The job
+  (`src/lib/account-retention.ts`) deletes each account with no use for
+  `INACTIVE_ACCOUNT_MONTHS` (`src/lib/retention-policy.ts`, 24 months).
+  The database removes the progress, profile and scores of the account
+  with it. The notice reads the same number.
+- **Keep the notice true.** The tests in
+  `src/apps/privacy/__tests__/notice-facts.test.ts` compare notice claims
+  with the code. A new text field in a progress schema fails that test
+  until you put it in a list, and in the notice if a player can type it.
+
 ---
 
 ## 3D Game Architecture
@@ -189,7 +210,8 @@ hanks-hits/
 │       │   │       └── __tests__/           # Vitest tests
 │       │   ├── apps/                        # SELF-CONTAINED app modules (one folder per app)
 │       │   ├── shared/                      # ONLY truly-reused UI / hooks / lib
-│       │   └── lib/                         # progress-schemas.ts, rate-limit.ts, auth-client.ts, progress-merge.ts, …
+│       │   ├── lib/                         # progress-schemas.ts, rate-limit.ts, auth-client.ts, progress-merge.ts, server-log.ts, account-retention.ts, …
+│       │   └── instrumentation.ts           # production server start: the daily delete of unused accounts
 │       ├── public/                          # static assets
 │       └── next.config.ts                   # transpilePackages: ["three"]
 ├── packages/

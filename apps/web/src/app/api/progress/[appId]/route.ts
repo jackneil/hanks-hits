@@ -18,6 +18,7 @@ import {
   hasLeaderboardSupport,
 } from "@/lib/leaderboard-extractors";
 import { leaderboardEntrySchema } from "@/lib/leaderboard-schemas";
+import { logServerError } from "@/lib/server-log";
 
 type RouteContext = {
   params: Promise<{ appId: string }>;
@@ -79,7 +80,7 @@ export async function GET(request: Request, context: RouteContext) {
       updatedAt: progress.updatedAt.toISOString(),
     });
   } catch (error) {
-    console.error("GET /api/progress error:", error);
+    logServerError("GET /api/progress error", error);
     return NextResponse.json(
       { error: "Failed to fetch progress" },
       { status: 500 }
@@ -377,7 +378,7 @@ export async function POST(request: Request, context: RouteContext) {
       conflicts,
     });
   } catch (error) {
-    console.error("POST /api/progress error:", error);
+    logServerError("POST /api/progress error", error);
     return NextResponse.json(
       { error: "Failed to save progress" },
       { status: 500 }
@@ -463,7 +464,7 @@ export async function DELETE(request: Request, context: RouteContext) {
       deleted: true,
     });
   } catch (error) {
-    console.error("DELETE /api/progress error:", error);
+    logServerError("DELETE /api/progress error", error);
     return NextResponse.json(
       { error: "Failed to delete progress" },
       { status: 500 }

@@ -28,13 +28,13 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 /** Keep in step with LEGAL_CONTACT_FIELDS in src/config/legal.ts. */
-export const REQUIRED_FIELDS = ["operatorName", "mailingAddress", "phone", "email"];
+const REQUIRED_FIELDS = ["operatorName", "mailingAddress", "phone", "email"];
 
 /**
  * Return a list of problems with the contact config. An empty list means
  * the config is complete.
  */
-export function findLegalConfigProblems(config) {
+function findLegalConfigProblems(config) {
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
     return ["the file must hold a JSON object"];
   }
@@ -84,10 +84,8 @@ function main() {
   return 0;
 }
 
-const isDirectRun =
-  process.argv[1] !== undefined &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-if (isDirectRun) {
-  process.exit(main());
-}
+// Always run. This file is a command, not a library. A "run only when
+// called directly" guard compared paths, and a path through a symbolic link
+// (for example /tmp on macOS) did not match, so the check exited 0 without
+// a check. A release check must fail closed.
+process.exit(main());
