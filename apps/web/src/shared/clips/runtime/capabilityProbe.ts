@@ -2,8 +2,19 @@
  * Encoder and storage probes that run in a worker (plan 5, 5.1).
  *
  * Feature detection only. The probes ENCODE (isConfigSupported alone is not
- * proof): 2 frames per video candidate, and 2048 samples of silence for AAC.
+ * proof): 2 frames per video candidate, and 8192 samples of silence for AAC
+ * (4 AAC frames past the measured 2114-sample encoder delay, so a WebKit
+ * flush that keeps the priming back still gives output).
  * The encode worker uses the same scope, so a worker probe is the truth.
+ *
+ * A prefer-hardware attempt that times out is tried once more with a longer
+ * limit (retryTimeoutMs, default 8 s) before the probe falls back to
+ * software: a hardware encoder's first output can take more than 2.5 s on
+ * Chromium desktop and Android (plan 5.1, cold start).
+ *
+ * When only software encodes, the probe also encodes the software preset
+ * (960x544 and 544x960 at 30 fps; both sides are multiples of 16, which some
+ * MediaCodec encoders need), so the session never uses an unprobed size.
  *
  * All browser APIs come in through a ProbeEnv, so tests call runProbe()
  * directly with fakes, and capabilities.ts can run the same code in window
@@ -37,6 +48,8 @@ export interface ProbeEnv {
   getDirectory?: () => Promise<ProbeDirectory>;
   /** Time limit for one encode probe. Default 4000 ms. */
   timeoutMs?: number;
+  /** Time limit for the one retry of a timed-out prefer-hardware attempt. Default 8000 ms. */
+  retryTimeoutMs?: number;
   now?: () => number;
 }
 
@@ -52,6 +65,19 @@ export const DEFAULT_TARGETS: readonly VideoTarget[] = [
   { width: 1280, height: 720, fps: 60 },
   { width: 1920, height: 1080, fps: 30 },
 ];
+
+/**
+ * The software preset: one size step down from 1280x720, at 30 fps. 960x540
+ * rounded to multiples of 16 (544 = 34 * 16), so no encoder pads it.
+ */
+export const SOFTWARE_TARGET: VideoTarget = { width: 960, height: 544, fps: 30 };
+
+/** Samples of silence the AAC probe encodes, in 2048-sample chunks. */
+export const AAC_PROBE_SAMPLES = 8192;
+
+/** Default limits of one encode probe and of the hardware retry. */
+export const PROBE_TIMEOUT_MS = 4000;
+export const PROBE_RETRY_TIMEOUT_MS = 8000;
 
 export type Acceleration = "prefer-hardware" | "no-preference";
 
@@ -96,6 +122,7 @@ export interface ProbeRequest {
   t: "probe";
   targets?: VideoTarget[];
   timeoutMs?: number;
+  retryTimeoutMs?: number;
 }
 
 export type ProbeResponse = { t: "probe-result"; report: WorkerProbeReport } | { t: "probe-error"; error: string };
@@ -170,7 +197,7 @@ export async function probeVideoConfig(
     avc: { format: "avc" },
   };
   try {
-    const support = await withTimeout(Encoder.isConfigSupported(config), env.timeoutMs ?? 4000);
+    const support = await withTimeout(Encoder.isConfigSupported(config), env.timeoutMs ?? PROBE_TIMEOUT_MS);
     if (!support.supported) return done("unsupported");
   } catch (error) {
     return done(error instanceof TimeoutError ? "timeout" : "threw");
@@ -203,7 +230,7 @@ export async function probeVideoConfig(
       encoder.encode(frame, { keyFrame: i === 0 });
       frame.close();
     }
-    await withTimeout(encoder.flush(), env.timeoutMs ?? 4000);
+    await withTimeout(encoder.flush(), env.timeoutMs ?? PROBE_TIMEOUT_MS);
   } catch (error) {
     failed = failed ?? error;
     if (error instanceof TimeoutError) return done("timeout");
@@ -221,6 +248,31 @@ export async function probeVideoConfig(
   return done(null);
 }
 
+/**
+ * One configuration. A prefer-hardware attempt that timed out is tried once
+ * more with the longer retry limit (a cold hardware encoder). Both attempts
+ * are recorded.
+ */
+async function attemptWithRetry(
+  env: ProbeEnv,
+  codec: string,
+  target: VideoTarget,
+  accel: Acceleration,
+  attempts: VideoAttempt[],
+): Promise<VideoAttempt> {
+  const first = await probeVideoConfig(env, codec, target, accel);
+  attempts.push(first);
+  if (first.ok || first.reason !== "timeout" || accel !== "prefer-hardware") return first;
+  const retry = await probeVideoConfig(
+    { ...env, timeoutMs: Math.max(env.retryTimeoutMs ?? PROBE_RETRY_TIMEOUT_MS, env.timeoutMs ?? PROBE_TIMEOUT_MS) },
+    codec,
+    target,
+    accel,
+  );
+  attempts.push(retry);
+  return retry;
+}
+
 async function firstWorkingProfile(
   env: ProbeEnv,
   target: VideoTarget,
@@ -231,8 +283,7 @@ async function firstWorkingProfile(
   const level = avcLevelHex(target.width, target.height, target.fps, { bitrate: bitrateFor(target) });
   if (!level) return null;
   for (const profile of profiles) {
-    const attempt = await probeVideoConfig(env, avcCodecString(profile, level), target, accel);
-    attempts.push(attempt);
+    const attempt = await attemptWithRetry(env, avcCodecString(profile, level), target, accel, attempts);
     if (attempt.ok) return attempt.codec;
   }
   return null;
@@ -262,17 +313,24 @@ export async function probeVideo(env: ProbeEnv, targets: readonly VideoTarget[] 
   const baseLevel = baseCodec.slice(-2);
   result.levels.push(baseLevel);
   result.codecByLevel[baseLevel] = baseCodec;
-  for (const target of rest) {
-    const codec = await firstWorkingProfile(env, target, accel, result.attempts);
-    if (!codec) continue;
+  const record = (codec: string | null) => {
+    if (!codec) return;
     const level = codec.slice(-2);
     if (!result.levels.includes(level)) result.levels.push(level);
     result.codecByLevel[level] ??= codec;
-  }
-  // Portrait coded frames (some Android encoders reject them, plan 5.1).
-  const portrait: VideoTarget = { width: base.height, height: base.width, fps: base.fps };
-  const portraitAttempt = await probeVideoConfig(env, baseCodec, portrait, accel);
-  result.attempts.push(portraitAttempt);
+  };
+  // Software only: the session uses the software preset, so it is probed
+  // instead of the bigger targets.
+  const sizes = result.hardware ? rest : [SOFTWARE_TARGET];
+  for (const target of sizes) record(await firstWorkingProfile(env, target, accel, result.attempts));
+  // Portrait coded frames (some Android encoders reject them, plan 5.1), at
+  // the size the session will use.
+  const software = result.hardware
+    ? undefined
+    : result.attempts.find((a) => a.ok && a.width === SOFTWARE_TARGET.width && a.height === SOFTWARE_TARGET.height);
+  const landscape = software ? SOFTWARE_TARGET : base;
+  const portrait: VideoTarget = { width: landscape.height, height: landscape.width, fps: landscape.fps };
+  const portraitAttempt = await attemptWithRetry(env, software?.codec ?? baseCodec, portrait, accel, result.attempts);
   result.portrait = portraitAttempt.ok;
   return result;
 }
@@ -300,7 +358,7 @@ export async function probeAudio(env: ProbeEnv): Promise<WorkerProbeReport["audi
   };
   try {
     // iOS can throw here instead of answering "unsupported".
-    const support = await withTimeout(Encoder.isConfigSupported(config), env.timeoutMs ?? 4000);
+    const support = await withTimeout(Encoder.isConfigSupported(config), env.timeoutMs ?? PROBE_TIMEOUT_MS);
     if (!support.supported) return { aac: false, reason: "unsupported", description: "none" };
   } catch {
     return { aac: false, reason: "threw", description: "none" };
@@ -322,18 +380,21 @@ export async function probeAudio(env: ProbeEnv): Promise<WorkerProbeReport["audi
       },
     });
     encoder.configure(config);
-    const frames = 2048;
-    const data = new Data({
-      format: "f32-planar",
-      sampleRate: AUDIO_SAMPLE_RATE,
-      numberOfChannels: AUDIO_CHANNELS,
-      numberOfFrames: frames,
-      timestamp: 0,
-      data: new Float32Array(frames * AUDIO_CHANNELS),
-    });
-    encoder.encode(data);
-    data.close();
-    await withTimeout(encoder.flush(), env.timeoutMs ?? 4000);
+    const chunk = 2048;
+    const silence = new Float32Array(chunk * AUDIO_CHANNELS);
+    for (let at = 0; at < AAC_PROBE_SAMPLES; at += chunk) {
+      const data = new Data({
+        format: "f32-planar",
+        sampleRate: AUDIO_SAMPLE_RATE,
+        numberOfChannels: AUDIO_CHANNELS,
+        numberOfFrames: chunk,
+        timestamp: Math.round((at * 1e6) / AUDIO_SAMPLE_RATE),
+        data: silence,
+      });
+      encoder.encode(data);
+      data.close();
+    }
+    await withTimeout(encoder.flush(), env.timeoutMs ?? PROBE_TIMEOUT_MS);
   } catch (error) {
     failed = failed ?? error;
   } finally {
@@ -382,8 +443,39 @@ export async function probeOpfs(env: ProbeEnv): Promise<boolean> {
   }
 }
 
+/**
+ * Failure reasons that can change from one probe to the next: an encoder
+ * that was busy, cold, reclaimed or in a hidden tab. Every other reason
+ * (unsupported, threw, missing, not-key, no-description, no-audiodata) is a
+ * property of the device.
+ */
+export const TRANSIENT_REASONS: ReadonlySet<string> = new Set(["timeout", "error", "no-output"]);
+
+function attemptKey(a: VideoAttempt): string {
+  return `${a.codec}|${a.width}x${a.height}@${a.fps}|${a.hardwareAcceleration}`;
+}
+
+/**
+ * True when every answer in the report is a property of the device: no
+ * attempt failed for a transient reason (unless a retry of the same
+ * configuration then worked), and the AAC answer is not transient. Only such
+ * a report may be cached for days; any other report is probed again at the
+ * next arm.
+ */
+export function isDefinitiveReport(report: WorkerProbeReport): boolean {
+  if (report.audio.reason !== null && TRANSIENT_REASONS.has(report.audio.reason)) return false;
+  const worked = new Set(report.video.attempts.filter((a) => a.ok).map(attemptKey));
+  return report.video.attempts.every(
+    (a) => a.ok || a.reason === null || !TRANSIENT_REASONS.has(a.reason) || worked.has(attemptKey(a)),
+  );
+}
+
 export async function runProbe(env: ProbeEnv, request: ProbeRequest = { t: "probe" }): Promise<WorkerProbeReport> {
-  const scoped: ProbeEnv = { ...env, timeoutMs: request.timeoutMs ?? env.timeoutMs };
+  const scoped: ProbeEnv = {
+    ...env,
+    timeoutMs: request.timeoutMs ?? env.timeoutMs,
+    retryTimeoutMs: request.retryTimeoutMs ?? env.retryTimeoutMs,
+  };
   // Sequential on purpose: phones have few hardware encoder sessions.
   const video = await probeVideo(scoped, request.targets ?? DEFAULT_TARGETS);
   const audio = await probeAudio(scoped);

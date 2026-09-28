@@ -1,10 +1,23 @@
 /**
  * Display rate and capture rungs (plan 6.2).
  *
- * The display refresh is measured as the median of the shortest rAF intervals
- * and snapped to a standard rate. The capture stride is k = ceil(Hz / target),
- * so the capture rate never exceeds the target. The rung table lists
- * fps = Hz / k for successive k, down to a floor of 15 fps.
+ * The display refresh is estimated from rAF intervals and snapped to a
+ * standard rate. The capture stride is k = ceil(Hz / target), so the capture
+ * rate never exceeds the target. The rung table lists fps = Hz / k for
+ * successive k, down to a floor of 15 fps.
+ *
+ * Measuring under load. A game that misses vsyncs makes rAF intervals of 2,
+ * 3 or more vsyncs. A 33 fps game on a 60 Hz screen has only about 18% of its
+ * intervals at one vsync; the median of the shorter half then reads 30 Hz.
+ * So the estimator takes the SHORTEST CLUSTER of intervals (at least 3
+ * intervals within 15% of each other) as one vsync. Rules for callers:
+ * - Measure while the game loop is idle when you can (the start card).
+ * - Keep the highest reliable rate per session and screen
+ *   (rememberDisplayHz): a reading under load never lowers it. A rate that is
+ *   too high only makes the slot grid finer, which is harmless; a rate that
+ *   is too low makes the grid and the governor thresholds wrong.
+ * - Infer iOS Low Power Mode only from an IDLE sample (inferLowPowerMode):
+ *   under load, a slow game on a 60 Hz screen has the same 33 ms intervals.
  */
 
 /**
@@ -17,6 +30,16 @@ export const STANDARD_RATES = [30, 50, 60, 75, 90, 100, 120, 144, 165, 240] as c
 
 /** Lowest capture rate of any rung. */
 export const RUNG_FLOOR_FPS = 15;
+
+/** Intervals up to this ratio above the shortest one of a cluster are the same vsync. */
+export const VSYNC_CLUSTER_SPAN = 1.15;
+/** A cluster needs at least this many intervals to count as the vsync. */
+export const MIN_VSYNC_CLUSTER = 3;
+
+/** An idle sample needs at least this many intervals to infer Low Power Mode. */
+export const LOW_POWER_MIN_INTERVALS = 30;
+/** Any interval shorter than this means rAF runs faster than 30 Hz. */
+export const LOW_POWER_SHORTEST_MS = 25;
 
 /** Snap a measured rate (Hz) to the nearest standard rate, by ratio. */
 export function snapHz(measuredHz: number): number {
@@ -33,24 +56,54 @@ export function snapHz(measuredHz: number): number {
   return best;
 }
 
-/**
- * Estimate the display rate from rAF intervals (ms): the median of the
- * shortest half. Long intervals (missed vsyncs, stalls) never lower the result.
- * Returns the snapped rate. With fewer than 3 usable intervals it returns 60.
- */
-export function estimateDisplayHz(intervalsMs: readonly number[]): number {
-  const usable = intervalsMs.filter((d) => Number.isFinite(d) && d > 1).sort((a, b) => a - b);
-  if (usable.length < 3) return 60;
-  const shortest = usable.slice(0, Math.max(3, Math.ceil(usable.length / 2)));
-  const mid = Math.floor(shortest.length / 2);
-  const median =
-    shortest.length % 2 === 1 ? shortest[mid] : (shortest[mid - 1] + shortest[mid]) / 2;
-  return snapHz(1000 / median);
+function usableIntervals(intervalsMs: readonly number[]): number[] {
+  return intervalsMs.filter((d) => Number.isFinite(d) && d > 1).sort((a, b) => a - b);
 }
 
-/** True when the snapped rate means rAF runs at 30 Hz (Low Power Mode on iOS). */
-export function isLowPowerRate(displayHz: number): boolean {
-  return displayHz <= 30;
+function median(sorted: readonly number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * The vsync period (ms) from rAF intervals: the median of the shortest
+ * cluster of at least MIN_VSYNC_CLUSTER intervals within VSYNC_CLUSTER_SPAN.
+ * Long intervals (missed vsyncs, stalls) never lower the rate, and a lone
+ * short outlier never raises it. Null when no cluster exists.
+ */
+export function estimateVsyncMs(intervalsMs: readonly number[]): number | null {
+  const usable = usableIntervals(intervalsMs);
+  for (let i = 0; i + MIN_VSYNC_CLUSTER <= usable.length; i++) {
+    const limit = usable[i] * VSYNC_CLUSTER_SPAN;
+    let j = i;
+    while (j < usable.length && usable[j] <= limit) j++;
+    if (j - i >= MIN_VSYNC_CLUSTER) return median(usable.slice(i, j));
+  }
+  return null;
+}
+
+/**
+ * Estimate the display rate from rAF intervals (ms) and snap it.
+ * Returns 60 when the intervals have no vsync cluster (too few samples).
+ */
+export function estimateDisplayHz(intervalsMs: readonly number[]): number {
+  const vsync = estimateVsyncMs(intervalsMs);
+  return vsync === null ? 60 : snapHz(1000 / vsync);
+}
+
+/**
+ * True when an IDLE rAF sample shows iOS Low Power Mode (plan 7: rAF at
+ * 30 Hz on a faster screen). It needs LOW_POWER_MIN_INTERVALS intervals,
+ * none shorter than LOW_POWER_SHORTEST_MS, and at least 80% of them within
+ * 15% of 33.3 ms. Never call it with a sample taken while a game runs.
+ */
+export function inferLowPowerMode(idleIntervalsMs: readonly number[]): boolean {
+  const usable = usableIntervals(idleIntervalsMs);
+  if (usable.length < LOW_POWER_MIN_INTERVALS) return false;
+  if (usable[0] < LOW_POWER_SHORTEST_MS) return false;
+  const period = 1000 / 30;
+  const near = usable.filter((d) => Math.abs(d - period) <= period * 0.15).length;
+  return near >= usable.length * 0.8;
 }
 
 /** Capture stride for a target: k = ceil(Hz / target), at least 1. */
@@ -77,15 +130,11 @@ export function rungTable(displayHz: number, targetFps: number): Rung[] {
   return rungs;
 }
 
-/**
- * Measure the display rate with the realm's own rAF. It runs `frames` frames
- * (default 40, about 0.7 s at 60 Hz) and snaps the result.
- * The caller must not run it while the page is hidden (rAF does not run then).
- */
-export function measureDisplayHz(
+/** Collect `frames` rAF intervals with the realm's own rAF. */
+export function measureRafIntervals(
   realm: { requestAnimationFrame(cb: FrameRequestCallback): number },
   frames = 40,
-): Promise<number> {
+): Promise<number[]> {
   return new Promise((resolve) => {
     const intervals: number[] = [];
     let last: number | null = null;
@@ -93,11 +142,76 @@ export function measureDisplayHz(
       if (last !== null) intervals.push(t - last);
       last = t;
       if (intervals.length >= frames) {
-        resolve(estimateDisplayHz(intervals));
+        resolve(intervals);
         return;
       }
       realm.requestAnimationFrame(step);
     };
     realm.requestAnimationFrame(step);
   });
+}
+
+/**
+ * Measure the display rate with the realm's own rAF. It collects `frames`
+ * intervals (default 40, about 0.7 s at 60 Hz) and snaps the result.
+ * The caller must not run it while the page is hidden (rAF does not run then).
+ */
+export async function measureDisplayHz(
+  realm: { requestAnimationFrame(cb: FrameRequestCallback): number },
+  frames = 40,
+): Promise<number> {
+  return estimateDisplayHz(await measureRafIntervals(realm, frames));
+}
+
+/** A measured display rate. */
+export interface DisplayRate {
+  hz: number;
+  /** Low Power Mode, inferred only when the caller said the sample was idle. */
+  lowPowerMode: boolean;
+}
+
+/**
+ * Measure the display rate and, for an idle sample, Low Power Mode. Pass
+ * idle: true only while no game loop runs (for example on the start card).
+ */
+export async function measureDisplayRate(
+  realm: { requestAnimationFrame(cb: FrameRequestCallback): number },
+  options: { idle: boolean; frames?: number },
+): Promise<DisplayRate> {
+  const frames = Math.max(options.frames ?? 40, options.idle ? LOW_POWER_MIN_INTERVALS : 0);
+  const intervals = await measureRafIntervals(realm, frames);
+  return { hz: estimateDisplayHz(intervals), lowPowerMode: options.idle && inferLowPowerMode(intervals) };
+}
+
+// ---------------------------------------------------------------------------
+// Session memo of the display rate, per screen
+// ---------------------------------------------------------------------------
+
+const sessionRates = new Map<string, number>();
+
+/** A key for the current screen: its size and pixel ratio. */
+export function screenKey(g: { screen?: { width?: number; height?: number }; devicePixelRatio?: number }): string {
+  const s = g.screen;
+  if (!s || typeof s.width !== "number" || typeof s.height !== "number") return "screen";
+  return `${s.width}x${s.height}@${g.devicePixelRatio ?? 1}`;
+}
+
+/**
+ * Keep the highest rate measured this session on a screen and return it.
+ * A lower reading (a game under load) never lowers the kept rate.
+ */
+export function rememberDisplayHz(key: string, measuredHz: number): number {
+  const best = Math.max(sessionRates.get(key) ?? 0, measuredHz);
+  sessionRates.set(key, best);
+  return best;
+}
+
+/** The kept rate for a screen, or undefined before the first measurement. */
+export function rememberedDisplayHz(key: string): number | undefined {
+  return sessionRates.get(key);
+}
+
+/** Forget every kept rate (tests). */
+export function forgetDisplayRates(): void {
+  sessionRates.clear();
 }

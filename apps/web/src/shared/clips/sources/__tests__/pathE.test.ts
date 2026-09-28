@@ -119,6 +119,53 @@ describe("PathEReader", () => {
     expect(mock.live().syncs).toBe(0);
   });
 
+  it("reports the readback latency in polls, one per frame", () => {
+    const mock = new WebGL2Mock({ signalAfterFrames: 3 });
+    const reader = new PathEReader<number>(mock.gl);
+    mock.drawFrame(1);
+    reader.kick(1);
+    mock.nextFrame();
+    expect(reader.poll().ready).toEqual([]);
+    mock.nextFrame();
+    expect(reader.poll().ready).toEqual([]);
+    mock.nextFrame();
+    const ready = reader.poll().ready;
+    expect(ready.map((r) => [r.tag, r.latencyFrames])).toEqual([[1, 3]]);
+  });
+
+  it("reads black when the game drew nothing since the last composite", () => {
+    const mock = new WebGL2Mock();
+    const reader = new PathEReader<string>(mock.gl);
+    mock.drawFrame(4);
+    mock.nextFrame();
+    reader.kick("late");
+    mock.nextFrame();
+    expect(readbackRecord(reader.poll().ready[0].data).frameId).toBe(0);
+  });
+
+  it("canKick says whether a kick can queue a readback now", () => {
+    const mock = new WebGL2Mock({ signalAfterFrames: 10 });
+    const reader = new PathEReader<number>(mock.gl, { slots: 2 });
+    expect(reader.canKick()).toBe(true);
+    expect(reader.busy).toBe(false);
+    reader.kick(1);
+    reader.kick(2);
+    expect(reader.busy).toBe(true);
+    expect(reader.canKick()).toBe(false);
+    for (let i = 0; i < 10; i++) mock.nextFrame();
+    reader.poll();
+    expect(reader.canKick()).toBe(true);
+    mock.resize(1, 1);
+    expect(reader.canKick()).toBe(false);
+    mock.resize(640, 360);
+    mock.loseContext();
+    expect(reader.canKick()).toBe(false);
+    expect(new PathEReader<number>({ isContextLost: () => false } as unknown as WebGL2RenderingContext).canKick()).toBe(false);
+    const failed = new PathEReader<number>(new WebGL2Mock().gl);
+    failed.dispose();
+    expect(failed.canKick()).toBe(false);
+  });
+
   it("drops a frame when all 4 slots are busy", () => {
     const mock = new WebGL2Mock({ signalAfterFrames: 10 });
     const reader = new PathEReader<number>(mock.gl);
@@ -224,6 +271,15 @@ describe("PathEReader", () => {
     const polled = reader.poll();
     expect(polled.dropped).toEqual([1]);
     expect(reader.state).toBe("failed");
+  });
+
+  it("stops as failed when the context cannot make a pixel buffer", () => {
+    const mock = new WebGL2Mock();
+    (mock as unknown as { createBuffer: () => null }).createBuffer = () => null;
+    const reader = new PathEReader<number>(mock.gl);
+    expect(reader.kick(1)).toBe("failed");
+    expect(reader.state).toBe("failed");
+    expect(reader.canKick()).toBe(false);
   });
 
   it("treats a context with no drawing buffer size as empty", () => {

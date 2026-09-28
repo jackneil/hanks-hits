@@ -62,45 +62,61 @@ function expectContiguous(frames: Extract<FrameIn, { t: "frame" }>[]): void {
 }
 
 describe("FramePump timing", () => {
-  it("a 41 fps irregular trace over 30 s gives video as long as the wall time", () => {
-    const sink = new Sink();
-    const pump = new FramePump({ sink, displayHz: 60, targetFps: 30 });
-    const rnd = lcg(41);
-    const v = 1000 / 60;
-    const made: FakeFrame[] = [];
-    let n = 0;
-    const times: number[] = [];
-    const t0 = 5000;
-    while (n * v < 30000) {
-      const jitter = (rnd() - 0.5) * 1.6;
-      const t = t0 + n * v + jitter;
-      times.push(t);
+  for (const target of [30, 60] as const) {
+    it(`a 41 fps irregular trace over 30 s at a ${target} fps target: video as long as the wall time, stamps from time`, () => {
+      const sink = new Sink();
+      const pump = new FramePump({ sink, displayHz: 60, targetFps: target });
+      const rnd = lcg(41);
+      const v = 1000 / 60;
+      const made: FakeFrame[] = [];
+      let n = 0;
+      const times: number[] = [];
+      const t0 = 5000;
+      while (n * v < 30000) {
+        const jitter = (rnd() - 0.5) * 1.6;
+        const t = t0 + n * v + jitter;
+        times.push(t);
+        sink.consumeAll(pump);
+        captureAt(pump, t, made);
+        n += rnd() < 0.537 ? 1 : 2;
+      }
+      const gameFps = (times.length - 1) / ((times[times.length - 1] - times[0]) / 1000);
+      expect(gameFps).toBeGreaterThan(39);
+      expect(gameFps).toBeLessThan(43);
       sink.consumeAll(pump);
-      captureAt(pump, t, made);
-      n += rnd() < 0.537 ? 1 : 2;
-    }
-    const gameFps = (times.length - 1) / ((times[times.length - 1] - times[0]) / 1000);
-    expect(gameFps).toBeGreaterThan(39);
-    expect(gameFps).toBeLessThan(43);
-    sink.consumeAll(pump);
-    pump.flush();
-    const frames = sink.frames();
-    expectContiguous(frames);
-    const first = frames[0];
-    const last = frames[frames.length - 1];
-    const videoMs = (last.tsUs + last.durUs - first.tsUs) / 1000;
-    const wallMs = times[times.length - 1] - times[0];
-    expect(Math.abs(videoMs - wallMs)).toBeLessThanOrEqual(pump.slotUs / 1000);
-    // Every duration is a whole number of slots.
-    for (const f of frames) {
-      const slots = f.durUs / pump.slotUs;
-      expect(Math.abs(slots - Math.round(slots))).toBeLessThan(0.001);
-      expect(Math.round(slots)).toBeGreaterThanOrEqual(1);
-    }
-    // The capture rate never exceeds the 30 fps target.
-    expect(frames.length).toBeLessThanOrEqual(Math.ceil(wallMs / (1000 / 30)) + 1);
-    expect(pump.stats().dropsBackpressure).toBe(0);
-  });
+      pump.flush();
+      const frames = sink.frames();
+      expectContiguous(frames);
+      const first = frames[0];
+      const last = frames[frames.length - 1];
+      const videoMs = (last.tsUs + last.durUs - first.tsUs) / 1000;
+      const wallMs = times[times.length - 1] - times[0];
+      expect(Math.abs(videoMs - wallMs)).toBeLessThanOrEqual(pump.slotUs / 1000);
+      // Each frame is stamped at the start of the slot that holds its content
+      // time: at most k - 1 vsyncs early, plus the jitter of this frame and of
+      // the first one (0.8 ms each). A pump that
+      // counted frames instead would drift by seconds at a 60 fps target,
+      // where a third of the slots are empty.
+      const base = (first.frame as unknown as FakeFrame).contentMs;
+      const jitterUs = 1700;
+      const bound = (pump.stride - 1) * v * 1000 + jitterUs;
+      for (const f of frames) {
+        const contentUs = ((f.frame as unknown as FakeFrame).contentMs - base) * 1000;
+        expect(contentUs - f.tsUs).toBeGreaterThanOrEqual(-jitterUs);
+        expect(contentUs - f.tsUs).toBeLessThanOrEqual(bound);
+      }
+      // Every duration is a whole number of slots.
+      for (const f of frames) {
+        const slots = f.durUs / pump.slotUs;
+        expect(Math.abs(slots - Math.round(slots))).toBeLessThan(0.001);
+        expect(Math.round(slots)).toBeGreaterThanOrEqual(1);
+      }
+      // The capture rate never exceeds the target.
+      expect(frames.length).toBeLessThanOrEqual(Math.ceil(wallMs / (1000 / target)) + 1);
+      if (target === 60) expect(frames.some((f) => f.durUs > pump.slotUs + 1)).toBe(true);
+      expect(pump.stats().dropsBackpressure).toBe(0);
+    });
+  }
 
   for (const hz of [50, 60, 75, 90, 120, 144, 165]) {
     for (const target of [30, 60] as const) {
@@ -310,6 +326,61 @@ describe("FramePump timing", () => {
     const fake = new FakeFrame(1);
     pump.submit({ seq: 999, tsUs: 0 }, { t: "frame", frame: fake as unknown as VideoFrame }, HUD);
     expect(fake.closed).toBe(true);
+  });
+
+  it("abandoning a newer ticket keeps the older open tickets valid (path E busy slot)", () => {
+    const sink = new Sink();
+    const pump = new FramePump({ sink, displayHz: 60, targetFps: 60 });
+    const v = 1000 / 60;
+    const t1 = pump.offer(0)!;
+    const t2 = pump.offer(v)!;
+    const t3 = pump.offer(2 * v)!;
+    // The newest readback cannot be queued; the two older ones are in flight.
+    pump.abandon(t3);
+    const a = new FakeFrame(0);
+    const b = new FakeFrame(v);
+    pump.submit(t1, { t: "frame", frame: a as unknown as VideoFrame }, HUD);
+    pump.submit(t2, { t: "frame", frame: b as unknown as VideoFrame }, HUD);
+    expect(a.closed).toBe(false);
+    expect(b.closed).toBe(false);
+    expect(pump.stats()).toMatchObject({ captured: 2, abandoned: 1, outOfOrder: 0 });
+    // Abandoning twice counts once; an unknown ticket is ignored.
+    pump.abandon(t3);
+    pump.abandon({ seq: 999, tsUs: 0 });
+    expect(pump.stats().abandoned).toBe(1);
+  });
+
+  it("submitting a newer ticket makes the older open ones stale", () => {
+    const sink = new Sink();
+    const pump = new FramePump({ sink, displayHz: 60, targetFps: 60 });
+    const t1 = pump.offer(0)!;
+    const t2 = pump.offer(20)!;
+    pump.submit(t2, { t: "frame", frame: new FakeFrame(20) as unknown as VideoFrame }, HUD);
+    const late = new FakeFrame(0);
+    pump.submit(t1, { t: "frame", frame: late as unknown as VideoFrame }, HUD);
+    expect(late.closed).toBe(true);
+    expect(pump.stats().outOfOrder).toBe(1);
+    // A stale ticket cannot be abandoned into the count either.
+    pump.abandon(t1);
+    expect(pump.stats().abandoned).toBe(0);
+  });
+
+  it("configure with no real change keeps the stride and the slot grid", () => {
+    const sink = new Sink();
+    const pump = new FramePump({ sink, displayHz: 60, targetFps: 30 });
+    pump.configure({ stride: 4 });
+    const made: FakeFrame[] = [];
+    captureAt(pump, 0, made);
+    pump.configure({ targetFps: 30 });
+    pump.configure({ displayHz: 60, targetFps: 30 });
+    pump.configure({});
+    expect(pump.stride).toBe(4);
+    // Still the same grid: a frame one vsync later is in the same slot.
+    expect(pump.offer(1000 / 60)).toBeNull();
+    // A new target resets to its top rung.
+    pump.configure({ targetFps: 60 });
+    expect(pump.stride).toBe(1);
+    expect(pump.started).toBe(true);
   });
 
   it("stop closes a held frame that cannot be sent and refuses later frames", () => {

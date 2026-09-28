@@ -24,6 +24,14 @@
  * A canvas resize recreates the targets at the next kick. Readbacks that are
  * in flight finish at their old size. Context loss stops the reader: it
  * returns the pending tags, so the caller can abandon their tickets.
+ *
+ * Call canKick() before you take a capture ticket: it is false when all slots
+ * are in flight, when the drawing buffer is empty, or when the reader
+ * stopped. Then no ticket is taken for a frame that cannot be read.
+ *
+ * Each readback reports latencyFrames: the number of poll() calls from its
+ * kick until its fence signaled. Poll once per frame, and it is the GPU
+ * delay in frames (the governor watches it).
  */
 
 export type KickResult =
@@ -44,6 +52,8 @@ export interface PathEReadback<T> {
   data: ArrayBuffer;
   width: number;
   height: number;
+  /** poll() calls from the kick until the fence signaled (1 = the next frame). */
+  latencyFrames: number;
 }
 
 export interface PathEPoll<T> {
@@ -68,6 +78,8 @@ interface Slot<T> {
   seq: number;
   readWidth: number;
   readHeight: number;
+  /** The poll count at the kick. */
+  kickPoll: number;
 }
 
 interface Targets {
@@ -114,6 +126,7 @@ export class PathEReader<T> {
   private slots: Slot<T>[] = [];
   private targets: Targets | null = null;
   private seq = 0;
+  private polls = 0;
   private validated = false;
   private stopped: "lost" | "failed" | "disposed" | null = null;
 
@@ -131,6 +144,27 @@ export class PathEReader<T> {
   /** Readbacks in flight. */
   get pending(): number {
     return this.slots.filter((s) => s.sync !== null).length;
+  }
+
+  /** True when all slots are in flight (a kick now would return "busy"). */
+  get busy(): boolean {
+    return this.slots.length > 0 && this.slots.every((s) => s.sync !== null);
+  }
+
+  /**
+   * True when a kick now can queue a readback: the reader runs, a slot is
+   * free and the drawing buffer has pixels. Never throws.
+   */
+  canKick(): boolean {
+    if (this.stopped) return false;
+    try {
+      const gl = this.gl;
+      if (gl.isContextLost()) return false;
+      if (!(gl.drawingBufferWidth >= 2 && gl.drawingBufferHeight >= 2)) return false;
+    } catch {
+      return false;
+    }
+    return !this.busy;
   }
 
   /** Current readback size, or null before the first kick. */
@@ -172,7 +206,14 @@ export class PathEReader<T> {
     const sw = gl.drawingBufferWidth;
     const sh = gl.drawingBufferHeight;
     if (!(sw >= 2 && sh >= 2)) return "empty";
-    if (this.slots.length === 0) this.createSlots();
+    if (this.slots.length === 0) {
+      this.createSlots();
+      // A context that cannot make a pixel buffer cannot read back at all.
+      if (this.slots.length === 0) {
+        this.stopped = "failed";
+        return "failed";
+      }
+    }
     const slot = this.slots.find((s) => s.sync === null);
     if (!slot) return "busy";
     if (!this.validated) gl.getError(); // Clear an old error, so the check below is ours.
@@ -214,6 +255,7 @@ export class PathEReader<T> {
     slot.seq = ++this.seq;
     slot.readWidth = t.width;
     slot.readHeight = t.height;
+    slot.kickPoll = this.polls;
     if (!this.validated) {
       this.validated = true;
       const error = gl.getError();
@@ -232,6 +274,7 @@ export class PathEReader<T> {
   /** Collect the readbacks whose fence signaled, oldest first. Never waits. */
   poll(): PathEPoll<T> {
     const result: PathEPoll<T> = { ready: [], dropped: [] };
+    this.polls++;
     if (this.stopped === "lost" || this.gl.isContextLost()) {
       result.dropped = this.takeAllTags();
       this.stopped = "lost";
@@ -259,7 +302,13 @@ export class PathEReader<T> {
         touched = true;
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
         gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, bytes);
-        result.ready.push({ tag, data: bytes.buffer, width: slot.readWidth, height: slot.readHeight });
+        result.ready.push({
+          tag,
+          data: bytes.buffer,
+          width: slot.readWidth,
+          height: slot.readHeight,
+          latencyFrames: this.polls - slot.kickPoll,
+        });
       }
       if (touched) gl.bindBuffer(gl.PIXEL_PACK_BUFFER, previousPack);
     } catch {
@@ -311,7 +360,7 @@ export class PathEReader<T> {
     for (let i = 0; i < this.slotCount; i++) {
       const buffer = gl.createBuffer();
       if (!buffer) continue;
-      this.slots.push({ buffer, width: 0, height: 0, sync: null, tag: undefined, seq: 0, readWidth: 0, readHeight: 0 });
+      this.slots.push({ buffer, width: 0, height: 0, sync: null, tag: undefined, seq: 0, readWidth: 0, readHeight: 0, kickPoll: 0 });
     }
   }
 

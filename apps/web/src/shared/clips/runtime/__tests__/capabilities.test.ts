@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CAPS_CACHE_ITEM,
   CACHE_MAX_AGE_MS,
@@ -9,13 +9,16 @@ import {
   probeCapabilityReport,
   probeWebGL2Readback,
   quickProbes,
+  resetProbeSession,
   selectTier,
+  SOFTWARE_PRESETS,
   type CapabilityReport,
   type ProbeGlobals,
   type ProbeOptions,
   type WorkerLike,
 } from "../capabilities";
 import { runProbe, type ProbeEnv, type ProbeRequest, type ProbeResponse } from "../capabilityProbe";
+import { forgetDisplayRates } from "../rungs";
 import { allCodecs, FakeAudioData, FakeOpfs, FakeVideoFrame, makeAudioEncoder, makeVideoEncoder } from "./probeFakes";
 
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1";
@@ -31,6 +34,7 @@ function workerEnv(overrides: Partial<ProbeEnv> = {}): ProbeEnv {
     AudioDecoder: function AudioDecoder() {},
     getDirectory: () => fs.getDirectory(),
     timeoutMs: 50,
+    retryTimeoutMs: 60,
     ...overrides,
   };
 }
@@ -118,6 +122,10 @@ function options(extra: Partial<ProbeOptions> = {}, env = workerEnv()): ProbeOpt
   };
 }
 
+beforeEach(() => {
+  resetProbeSession();
+  forgetDisplayRates();
+});
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -292,7 +300,7 @@ describe("probeCapabilityReport", () => {
     expect(r.fromCache).toBe(false);
   });
 
-  it("runs the probe in window scope when the worker fails, and does not cache that", async () => {
+  it("gives tier M (never W) when the probe worker fails, and does not store that result", async () => {
     const storage = makeStorage();
     const failures: string[] = [];
     const fallback = vi.fn((req: ProbeRequest) => runProbe({ ...workerEnv(), scope: "window" }, req));
@@ -305,11 +313,52 @@ describe("probeCapabilityReport", () => {
       }),
     );
     expect(r.probeScope).toBe("window");
+    expect(r.workerFailure).toBe("worker error");
+    // The encode worker starts the same way, so no worker tier.
+    expect(r.caps.tier).toBe("M");
     expect(r.caps.videoEncoderH264).toBe(true);
     // OPFS sync handles only exist in a worker.
     expect(r.caps.opfsSyncAccess).toBe(false);
     expect(failures).toEqual(["worker error"]);
     expect(storage.map.has(CAPS_CACHE_ITEM)).toBe(false);
+  });
+
+  it("gives tier V or none after a worker failure when MediaRecorder has no MP4", async () => {
+    const webm = await probeCapabilities(
+      options({
+        globals: iphoneGlobals({ MediaRecorder: { isTypeSupported: (t: string) => t.startsWith("video/webm") } }),
+        createWorker: () => null,
+        fallbackProbe: (req) => runProbe({ ...workerEnv(), scope: "window" }, req),
+      }),
+    );
+    expect(webm.tier).toBe("V");
+    resetProbeSession();
+    const nothing = await probeCapabilities(
+      options({
+        globals: iphoneGlobals({ MediaRecorder: undefined }),
+        createWorker: () => null,
+        fallbackProbe: (req) => runProbe({ ...workerEnv(), scope: "window" }, req),
+      }),
+    );
+    expect(nothing.tier).toBe("none");
+  });
+
+  it("runs the main-thread fallback once per session after a worker failure", async () => {
+    const created = vi.fn(() => new FakeWorker(workerEnv(), "error"));
+    const fallback = vi.fn((req: ProbeRequest) => runProbe({ ...workerEnv(), scope: "window" }, req));
+    const failures: string[] = [];
+    const opts = options({ createWorker: created, fallbackProbe: fallback, onWorkerFailure: (why) => failures.push(why) });
+    const first = await probeCapabilityReport(opts);
+    const second = await probeCapabilityReport(opts);
+    expect(created).toHaveBeenCalledTimes(1);
+    expect(fallback).toHaveBeenCalledTimes(1);
+    expect(second.fromCache).toBe(true);
+    expect(second.caps).toEqual(first.caps);
+    expect(failures).toEqual(["worker error", "worker error"]);
+    // force tries the worker again.
+    const forced = await probeCapabilityReport({ ...opts, force: true, createWorker: () => new FakeWorker(workerEnv()) });
+    expect(forced.probeScope).toBe("worker");
+    expect(forced.caps.tier).toBe("W");
   });
 
   it("falls back when the worker cannot start or never answers", async () => {
@@ -320,10 +369,14 @@ describe("probeCapabilityReport", () => {
     await vi.advanceTimersByTimeAsync(1500);
     const r = await pending;
     expect(r.probeScope).toBe("window");
+    expect(r.workerFailure).toBe("worker probe timed out");
     expect(hung.terminated).toBe(true);
     vi.useRealTimers();
+    resetProbeSession();
     const none = await probeCapabilityReport(options({ createWorker: () => null, fallbackProbe: fallback }));
     expect(none.probeScope).toBe("window");
+    expect(none.workerFailure).toBe("workers are not available");
+    resetProbeSession();
     const throws = await probeCapabilityReport(
       options({
         createWorker: () => {
@@ -333,13 +386,81 @@ describe("probeCapabilityReport", () => {
       }),
     );
     expect(throws.probeScope).toBe("window");
+    expect(throws.caps.tier).toBe("M");
+    expect(throws.workerFailure).toMatch(/worker did not start/);
   });
 
-  it("uses 60 Hz when the display rate cannot be measured (hidden tab)", async () => {
+  it("caches only definitive reports, so a busy or cold encoder is probed again next time", async () => {
+    const storage = makeStorage();
+    FakeWorker.started = 0;
+    // Both hardware attempts of the first session time out (the encoder is busy).
+    const busy = workerEnv({
+      VideoEncoder: makeVideoEncoder({ codecs: allCodecs(["1f"], ["64"]), hardware: true, software: true, portrait: true, coldHardwareSessions: 2 }),
+    });
+    const first = await probeCapabilityReport(options({ storage }, busy));
+    expect(first.caps.hardwareEncoder).toBe(false);
+    expect(first.cached).toBe(false);
+    expect(storage.map.has(CAPS_CACHE_ITEM)).toBe(false);
+    // The next arm probes again, and the encoder is free now.
+    const second = await probeCapabilityReport(options({ storage }, busy));
+    expect(second.fromCache).toBe(false);
+    expect(second.caps.hardwareEncoder).toBe(true);
+    expect(second.cached).toBe(true);
+    expect(FakeWorker.started).toBe(2);
+    // An AAC encoder error is transient too.
+    const s2 = makeStorage();
+    const err = await probeCapabilityReport(options({ storage: s2 }, workerEnv({ AudioEncoder: makeAudioEncoder("error") })));
+    expect(err.caps.audioEncoderAac).toBe(false);
+    expect(err.cached).toBe(false);
+  });
+
+  it("caches a definitive software-only device (isConfigSupported says no to hardware)", async () => {
+    const storage = makeStorage();
+    const soft = workerEnv({ VideoEncoder: makeVideoEncoder({ codecs: allCodecs(), hardware: false, software: true, portrait: true }) });
+    const r = await probeCapabilityReport(options({ storage }, soft));
+    expect(r.caps.hardwareEncoder).toBe(false);
+    expect(r.cached).toBe(true);
+    expect((await probeCapabilityReport(options({ storage }, soft))).fromCache).toBe(true);
+  });
+
+  it("measures the display rate before any encode probe starts", async () => {
+    FakeWorker.started = 0;
+    let finish: (hz: number) => void = () => undefined;
+    const measured = new Promise<number>((resolve) => {
+      finish = resolve;
+    });
+    const pending = probeCapabilityReport(options({ measureHz: () => measured }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(FakeWorker.started).toBe(0);
+    finish(60);
+    const r = await pending;
+    expect(FakeWorker.started).toBe(1);
+    expect(r.caps.displayHz).toBe(60);
+  });
+
+  it("keeps the highest display rate of the session, so a reading under load does not lower it", async () => {
+    const storage = makeStorage();
+    expect((await probeCapabilities(options({ storage, measureHz: async () => 120 }))).displayHz).toBe(120);
+    // A 55 fps game on the 120 Hz screen reads as 60 Hz.
+    expect((await probeCapabilities(options({ storage, measureHz: async () => 60 }))).displayHz).toBe(120);
+    // A caller's idle measurement is used as given, through the same memo.
+    const measure = vi.fn(async () => 30);
+    expect((await probeCapabilities(options({ storage, displayHz: 144, measureHz: measure }))).displayHz).toBe(144);
+    expect(measure).not.toHaveBeenCalled();
+  });
+
+  it("uses 60 Hz when the display rate cannot be measured (hidden tab), or the kept rate", async () => {
     vi.useFakeTimers();
     const pending = probeCapabilityReport(options({ measureHz: () => new Promise(() => undefined) }));
     await vi.advanceTimersByTimeAsync(2500);
     expect((await pending).caps.displayHz).toBe(60);
+    vi.useRealTimers();
+    await probeCapabilities(options({ measureHz: async () => 90 }));
+    vi.useFakeTimers();
+    const hidden = probeCapabilityReport(options({ measureHz: () => new Promise(() => undefined) }));
+    await vi.advanceTimersByTimeAsync(2500);
+    expect((await hidden).caps.displayHz).toBe(90);
   });
 
   it("reports the measured display rate", async () => {
@@ -398,14 +519,44 @@ describe("chooseVideoEncoder (plan 5.1)", () => {
     expect(plan?.video.framerate).toBe(30);
   });
 
-  it("software only: one size step down and at most 30 fps", async () => {
+  it("software only: the probed software preset (one size step down, 16-aligned), at most 30 fps", async () => {
     const env = workerEnv({
       VideoEncoder: makeVideoEncoder({ codecs: allCodecs(), hardware: false, software: true, portrait: true }),
     });
-    const plan = chooseVideoEncoder(await reportFor(env), { width: 720, height: 1280, targetFps: 60, orientation: "tall" }, "2d");
+    const report = await reportFor(env);
+    const plan = chooseVideoEncoder(report, { width: 720, height: 1280, targetFps: 60, orientation: "tall" }, "2d");
     expect(plan).toMatchObject({ software: true, rotation: 0 });
-    expect(plan?.video).toMatchObject({ width: 540, height: 960, framerate: 30, hardwareAcceleration: "no-preference" });
+    expect(plan?.video).toMatchObject({ width: 544, height: 960, framerate: 30, hardwareAcceleration: "no-preference" });
     expect(plan?.video.bitrate).toBeGreaterThanOrEqual(1_000_000);
+    expect(SOFTWARE_PRESETS.tall).toEqual({ width: 544, height: 960 });
+    // The size and the codec string were probe-encoded.
+    const probed = report.video.attempts.find(
+      (a) => a.ok && a.width === plan!.video.width && a.height === plan!.video.height && a.hardwareAcceleration === "no-preference",
+    );
+    expect(probed?.codec).toBe(plan!.video.codec);
+  });
+
+  it("never uses an unprobed size: when the software preset fails, the probed base target", async () => {
+    const env = workerEnv({
+      VideoEncoder: makeVideoEncoder({
+        codecs: allCodecs(),
+        hardware: false,
+        software: true,
+        portrait: true,
+        refusedSizes: new Set(["960x544", "544x960"]),
+      }),
+    });
+    const report = await reportFor(env);
+    const wide = chooseVideoEncoder(report, { width: 1280, height: 720, targetFps: 30, orientation: "wide" }, "2d");
+    expect(wide?.video).toMatchObject({ width: 1280, height: 720, codec: "avc1.64001f", hardwareAcceleration: "no-preference" });
+    const tall = chooseVideoEncoder(report, { width: 720, height: 1280, targetFps: 30, orientation: "tall" }, "2d");
+    expect(tall?.video).toMatchObject({ width: 720, height: 1280 });
+    expect(tall?.rotation).toBe(0);
+  });
+
+  it("a tall 60 fps session uses the landscape 60 fps probe when portrait frames work", async () => {
+    const plan = chooseVideoEncoder(await reportFor(), { width: 720, height: 1280, targetFps: 60, orientation: "tall" }, "2d");
+    expect(plan?.video).toMatchObject({ width: 720, height: 1280, framerate: 60, codec: "avc1.640020" });
   });
 
   it("rotates into a landscape coded frame when portrait is rejected", async () => {

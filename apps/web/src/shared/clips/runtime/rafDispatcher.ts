@@ -32,6 +32,12 @@
  * - A game that keeps a reference to the native function from before the
  *   install bypasses the dispatcher. The game-contract test catches this
  *   (zero captured frames).
+ * - A realm can die while the dispatcher is installed: its iframe is removed,
+ *   or the iframe loads a new document. The iframe's WindowProxy then points
+ *   at the NEW document's window, so a teardown through it would change the
+ *   wrong realm. The dispatcher keeps the document it found at install. When
+ *   that document no longer has this realm as its window (or the realm is
+ *   closed), uninstall() only drops the hooks and touches nothing else.
  */
 
 /** The part of a Window that the dispatcher uses. A Window satisfies it. */
@@ -39,6 +45,10 @@ export interface RafRealm {
   requestAnimationFrame(callback: FrameRequestCallback): number;
   cancelAnimationFrame(handle: number): void;
   reportError?: (error: unknown) => void;
+  /** The realm's document. Used only to see that the realm died. */
+  document?: unknown;
+  /** True after the realm's browsing context is gone. */
+  closed?: boolean;
 }
 
 /** A pre or post hook. It receives the rAF timestamp of the frame. */
@@ -84,9 +94,15 @@ interface Core {
   /** The exact functions found at install, restored at uninstall. */
   originalRaf: RafRealm["requestAnimationFrame"];
   originalCaf: RafRealm["cancelAnimationFrame"];
-  /** False when the functions came from the prototype (a real Window). */
+  /**
+   * True when the functions were own properties of the realm. On a real
+   * Window they are ([Global] interface). False when they came from a
+   * prototype (some test doubles).
+   */
   ownRaf: boolean;
   ownCaf: boolean;
+  /** The realm's document at install, or undefined for a realm with none. */
+  doc: unknown;
   wrappedRaf: (cb: FrameRequestCallback) => number;
   wrappedCaf: (id: number) => void;
   pending: Map<number, FrameRequestCallback>;
@@ -173,6 +189,7 @@ function createCore(realm: RafRealm, options: InstallOptions): Core {
     originalCaf,
     ownRaf: own("requestAnimationFrame"),
     ownCaf: own("cancelAnimationFrame"),
+    doc: realm.document,
     wrappedRaf: () => 0,
     wrappedCaf: () => undefined,
     pending: new Map(),
@@ -211,8 +228,36 @@ function createCore(realm: RafRealm, options: InstallOptions): Core {
   return core;
 }
 
+/**
+ * True when the realm died after the install: its browsing context is closed,
+ * or its document from the install is no longer its active document.
+ */
+export function isRealmDead(realm: RafRealm, installDoc: unknown): boolean {
+  try {
+    if (realm.closed === true) return true;
+    if (installDoc === undefined || installDoc === null) return false;
+    return (installDoc as { defaultView?: unknown }).defaultView !== realm;
+  } catch {
+    // A dead cross-context object can throw on access.
+    return true;
+  }
+}
+
 function teardown(core: Core): void {
   const realm = core.realm as RealmWithKey;
+  core.pre.clear();
+  core.post.clear();
+  core.torn = true;
+  if (isRealmDead(realm, core.doc)) {
+    // The realm is gone. Its WindowProxy can now point at a new document's
+    // window: do not cancel, restore or delete anything through it. The
+    // pending callbacks die with the old document.
+    core.passThrough = true;
+    core.scheduledNativeId = null;
+    core.pending = new Map();
+    core.orphans = new Map();
+    return;
+  }
   if (core.scheduledNativeId !== null) {
     core.nativeCaf(core.scheduledNativeId);
     core.scheduledNativeId = null;
@@ -221,8 +266,8 @@ function teardown(core: Core): void {
     realm.requestAnimationFrame === core.wrappedRaf &&
     realm.cancelAnimationFrame === core.wrappedCaf;
   if (stillOurs) {
-    // Put back the exact originals. On a real Window they live on the
-    // prototype, so deleting the own property shows them again.
+    // Put back the exact originals: assign them when they were own
+    // properties (a real Window), or delete ours so the prototype's show again.
     if (core.ownRaf) realm.requestAnimationFrame = core.originalRaf;
     else delete (realm as Partial<RafRealm>).requestAnimationFrame;
     if (core.ownCaf) realm.cancelAnimationFrame = core.originalCaf;
@@ -236,10 +281,7 @@ function teardown(core: Core): void {
   // the callbacks next frame, under the ids the game already holds.
   core.orphans = core.pending;
   core.pending = new Map();
-  core.torn = true;
-  core.pre.clear();
-  core.post.clear();
-  delete realm[REALM_KEY];
+  if (realm[REALM_KEY] === core) delete realm[REALM_KEY];
 }
 
 /**
@@ -250,6 +292,9 @@ function teardown(core: Core): void {
 export function installRafDispatcher(realm: RafRealm, options: InstallOptions = {}): RafDispatcher {
   const keyed = realm as RealmWithKey;
   let core = keyed[REALM_KEY];
+  // A core from a document that is gone cannot be joined (the realm object
+  // is a WindowProxy that now shows a new document).
+  if (core && isRealmDead(realm, core.doc)) core = undefined;
   if (!core) {
     core = createCore(realm, options);
     Object.defineProperty(keyed, REALM_KEY, {

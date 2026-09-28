@@ -27,6 +27,15 @@
  * When the sink is full, the pump does not take a new frame (counted as a
  * drop) and the held frame extends. Frames are never queued.
  *
+ * Tickets: a source takes a ticket (offer), then submits or abandons it.
+ * Path E has several tickets in flight. Submitting a ticket makes every
+ * OLDER ticket that is still open stale (its frame would arrive out of time
+ * order; it is closed and counted as outOfOrder). Abandoning a ticket
+ * changes only that ticket, so one failed readback never costs the others.
+ *
+ * configure() with no real change (a source registers again with the same
+ * target) keeps the stride and the slot grid, so a governor rung stays.
+ *
  * Timeline: the pump posts { t: "timeline" } commands on the same sink, so
  * the encode worker removes the same paused spans from audio:
  *   live   atPerfMs = epochMs        before the first frame (media time 0)
@@ -126,7 +135,8 @@ export class FramePump {
   private resumePending = false;
 
   private nextSeq = 1;
-  private lastSettledSeq = 0;
+  /** Tickets given out and not yet submitted, abandoned or made stale. */
+  private readonly open = new Set<number>();
   private held: Held | null = null;
   private lastEndUs = 0;
 
@@ -163,6 +173,10 @@ export class FramePump {
   get paused(): boolean {
     return this.pausedAtMs !== null;
   }
+  /** True after the first ticket (the media timeline has started). */
+  get started(): boolean {
+    return this.epochMs !== null;
+  }
   get vsyncMs(): number {
     return 1000 / this.hz;
   }
@@ -173,13 +187,20 @@ export class FramePump {
 
   /**
    * Change the display rate, the target or the stride (a governor rung).
-   * A change starts a new slot segment at the next frame.
+   * A change starts a new slot segment at the next frame. A new display rate
+   * or target with no stride resets the stride to the top rung for them;
+   * apply the governor's rung after that. A call that changes nothing keeps
+   * the current stride (a rung the governor chose) and the slot grid.
    */
   configure(change: { displayHz?: number; targetFps?: number; stride?: number }): void {
-    if (change.displayHz !== undefined) this.hz = change.displayHz;
-    if (change.targetFps !== undefined) this.target = change.targetFps;
-    const k = change.stride ?? strideFor(this.hz, this.target);
+    const hz = change.displayHz ?? this.hz;
+    const target = change.targetFps ?? this.target;
+    const same = hz === this.hz && target === this.target;
+    const k = change.stride ?? (same ? this.k : strideFor(hz, target));
     this.assertStride(k);
+    if (same && k === this.k) return;
+    this.hz = hz;
+    this.target = target;
     this.k = k;
     this.rebase = true;
   }
@@ -217,12 +238,14 @@ export class FramePump {
     this.lastSlot = slot;
     this.counters.offered++;
     const startM = this.segmentStartM + slot * this.k;
-    return { seq: this.nextSeq++, tsUs: Math.round((startM * 1e6) / this.hz) };
+    const seq = this.nextSeq++;
+    this.open.add(seq);
+    return { seq, tsUs: Math.round((startM * 1e6) / this.hz) };
   }
 
   /** Hand over the frame for a ticket. The pump owns the payload from now on. */
   submit(ticket: CaptureTicket, payload: CapturedPayload, hud: HudState): void {
-    if (this.stopped || !this.settle(ticket)) {
+    if (this.stopped || !this.settleSubmit(ticket)) {
       if (!this.stopped) this.counters.outOfOrder++;
       closePayload(payload);
       return;
@@ -253,9 +276,9 @@ export class FramePump {
     if (this.pausedAtMs !== null) this.sealHeld(this.held.tsUs + this.minDurUs());
   }
 
-  /** A source could not fill a ticket. The held frame extends. */
+  /** A source could not fill a ticket. The held frame extends. Older open tickets stay valid. */
   abandon(ticket: CaptureTicket): void {
-    if (this.settle(ticket)) this.counters.abandoned++;
+    if (this.open.delete(ticket.seq)) this.counters.abandoned++;
   }
 
   /** The encode worker replied "consumed" for one frame. */
@@ -347,10 +370,14 @@ export class FramePump {
     return ts;
   }
 
-  /** Tickets settle in order. Returns false for a stale or repeated ticket. */
-  private settle(ticket: CaptureTicket): boolean {
-    if (ticket.seq <= this.lastSettledSeq || ticket.seq >= this.nextSeq) return false;
-    this.lastSettledSeq = ticket.seq;
+  /**
+   * Accept a submitted ticket. Returns false for a stale, repeated or unknown
+   * ticket. Older open tickets become stale: their frames would be out of
+   * time order.
+   */
+  private settleSubmit(ticket: CaptureTicket): boolean {
+    if (!this.open.delete(ticket.seq)) return false;
+    for (const seq of this.open) if (seq < ticket.seq) this.open.delete(seq);
     return true;
   }
 

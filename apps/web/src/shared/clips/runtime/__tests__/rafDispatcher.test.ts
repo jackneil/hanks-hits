@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { hasRafDispatcher, installRafDispatcher } from "../rafDispatcher";
-import { FakeRealm } from "./fakeRealm";
+import { hasRafDispatcher, installRafDispatcher, isRealmDead } from "../rafDispatcher";
+import { FakeRealm } from "@/__tests__/canvas-mock";
 
 describe("installRafDispatcher", () => {
   it("runs pre hooks, then game callbacks in order, then post hooks, in one frame", () => {
@@ -277,4 +277,56 @@ describe("installRafDispatcher", () => {
       vi.useRealTimers();
     }
   });
+  it("an uninstall after the iframe loaded a new document touches nothing through the realm", () => {
+    const realm = new FakeRealm();
+    const old = installRafDispatcher(realm);
+    const ran: string[] = [];
+    realm.requestAnimationFrame(() => ran.push("old document"));
+    const { oldDocument } = realm.simulateNavigation();
+    expect(isRealmDead(realm, oldDocument)).toBe(true);
+    // The new document installs its own dispatcher through the same object.
+    const fresh = installRafDispatcher(realm);
+    const wrappedRaf = realm.requestAnimationFrame;
+    const nativeRaf = realm.nativeRaf;
+    expect(wrappedRaf).not.toBe(nativeRaf);
+    old.uninstall();
+    // The new document's wrapper and its dispatcher stay.
+    expect(realm.requestAnimationFrame).toBe(wrappedRaf);
+    expect(hasRafDispatcher(realm)).toBe(true);
+    const order: string[] = [];
+    fresh.addPostHook(() => order.push("post"));
+    realm.requestAnimationFrame(() => order.push("new document"));
+    realm.frame(1);
+    expect(order).toEqual(["new document", "post"]);
+    // The old document's callback died with it.
+    expect(ran).toEqual([]);
+    fresh.uninstall();
+    expect(realm.requestAnimationFrame).toBe(nativeRaf);
+  });
+
+  it("never joins the core of a document that is gone", () => {
+    const realm = new FakeRealm();
+    const old = installRafDispatcher(realm);
+    // A new document whose window still shows the old key (a WindowProxy
+    // that kept an own property): the old core must not be joined.
+    const key = Symbol.for("hankshits.clips.rafDispatcher");
+    const oldCore = (realm as unknown as Record<symbol, unknown>)[key];
+    realm.simulateNavigation();
+    (realm as unknown as Record<symbol, unknown>)[key] = oldCore;
+    const fresh = installRafDispatcher(realm);
+    const order: string[] = [];
+    old.addPreHook(() => order.push("old hook"));
+    fresh.addPreHook(() => order.push("new hook"));
+    realm.requestAnimationFrame(() => order.push("game"));
+    realm.frame(1);
+    expect(order).toEqual(["new hook", "game"]);
+    old.uninstall();
+    fresh.uninstall();
+  });
+
+  it("sees a closed realm as dead, and a realm with no document as alive", () => {
+    expect(isRealmDead({ requestAnimationFrame: () => 0, cancelAnimationFrame: () => undefined, closed: true }, undefined)).toBe(true);
+    expect(isRealmDead({ requestAnimationFrame: () => 0, cancelAnimationFrame: () => undefined }, undefined)).toBe(false);
+  });
 });
+

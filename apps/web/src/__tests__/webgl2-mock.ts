@@ -18,12 +18,22 @@
  * - getBufferSubData before the fence signals is a pipeline stall on a real
  *   GPU. The mock records a violation.
  * - After loseContext(), calls do nothing and clientWaitSync returns
- *   WAIT_FAILED, like a lost context.
+ *   WAIT_FAILED, like a lost context. restoreContext() gives a fresh context
+ *   state (default bindings), like webglcontextrestored.
+ * - Compositing clears the drawing buffer (WebGL 1.0 spec, section 2.2):
+ *   nextFrame() ends the frame, and without preserveDrawingBuffer the default
+ *   framebuffer then holds picture 0 (black) until the game draws again. A
+ *   read in a frame where the game did not draw is therefore black, as
+ *   measured in Chrome 153 ([0,0,0,0]).
  *
- * Content model: the default framebuffer shows picture `frameId` (the test
- * sets it with drawFrame(id)). A blit copies the id; a readback writes the id
- * as a little-endian Uint32 at byte 0 of the buffer data, then the width and
- * the height, then 1 when the rows were flipped.
+ * Content model: the default framebuffer shows picture `frameId`. The game
+ * draws picture n with drawFrame(n): it binds the default framebuffer, calls
+ * clear and drawArrays THROUGH THE OBJECT (so wrappers on the prototype see
+ * the draws, as they see three.js), then restores the game's binding. Any
+ * clear or draw call while the default framebuffer is bound for drawing
+ * writes `nextPicture`. A blit copies the id; a readback writes the id as a
+ * little-endian Uint32 at byte 0 of the buffer data, then the width and the
+ * height, then 1 when the rows were flipped.
  */
 
 export const GL = {
@@ -106,8 +116,12 @@ interface MockSync {
 export interface WebGL2MockOptions {
   width?: number;
   height?: number;
+  /** The canvas object that gl.canvas returns. Its size is the drawing buffer size. */
+  canvas?: { width: number; height: number };
   alpha?: boolean;
   antialias?: boolean;
+  /** Keep the drawing buffer after compositing. Default false, as in three.js. */
+  preserveDrawingBuffer?: boolean;
   /** Samples of the default framebuffer. Default: 4 when antialias, else 0. */
   samples?: number;
   /** Frames until a fence signals. Default 1. */
@@ -129,19 +143,20 @@ export interface BindingSnapshot {
 
 export class WebGL2Mock {
   readonly canvas: { width: number; height: number };
-  drawingBufferWidth: number;
-  drawingBufferHeight: number;
   /** Every call, in order: [name, ...args]. */
   readonly calls: unknown[][] = [];
   /** Things a real GPU would get wrong or stall on. Tests assert it stays empty. */
   readonly violations: string[] = [];
-  /** Picture id currently in the default framebuffer. */
+  /** Picture id currently in the default framebuffer. 0 is the cleared (black) buffer. */
   frameId = 0;
+  /** The picture that the next clear or draw on the default framebuffer writes. */
+  nextPicture = 0;
+  /** Frames ended with nextFrame(). */
   private frame = 0;
   private lost = false;
   private error: number = GL.NO_ERROR;
   private nextId = 1;
-  private readonly attrs: { alpha: boolean; antialias: boolean };
+  private readonly attrs: { alpha: boolean; antialias: boolean; preserveDrawingBuffer: boolean };
   private readonly samples: number;
   signalAfterFrames: number;
 
@@ -162,15 +177,27 @@ export class WebGL2Mock {
   readonly deletedCount = { framebuffers: 0, renderbuffers: 0, buffers: 0, syncs: 0 };
 
   constructor(options: WebGL2MockOptions = {}) {
-    const width = options.width ?? 1334;
-    const height = options.height ?? 622;
-    this.canvas = { width, height };
-    this.drawingBufferWidth = width;
-    this.drawingBufferHeight = height;
-    this.attrs = { alpha: options.alpha ?? true, antialias: options.antialias ?? true };
+    const width = options.width ?? options.canvas?.width ?? 1334;
+    const height = options.height ?? options.canvas?.height ?? 622;
+    this.canvas = options.canvas ?? { width, height };
+    this.canvas.width = width;
+    this.canvas.height = height;
+    this.attrs = {
+      alpha: options.alpha ?? true,
+      antialias: options.antialias ?? true,
+      preserveDrawingBuffer: options.preserveDrawingBuffer ?? false,
+    };
     this.samples = options.samples ?? (this.attrs.antialias ? 4 : 0);
     this.signalAfterFrames = options.signalAfterFrames ?? 1;
     Object.assign(this, GL);
+  }
+
+  /** The drawing buffer follows the canvas size, as in a browser. */
+  get drawingBufferWidth(): number {
+    return this.canvas.width;
+  }
+  get drawingBufferHeight(): number {
+    return this.canvas.height;
   }
 
   /** The mock as the real type, for code under test. */
@@ -180,20 +207,31 @@ export class WebGL2Mock {
 
   // ---- test controls -------------------------------------------------------
 
-  /** The game rendered picture `id` into the default framebuffer. */
+  /**
+   * The game renders picture `id` into the default framebuffer, with real
+   * calls: bind the default framebuffer, clear, draw, then put the game's
+   * draw binding back.
+   */
   drawFrame(id: number): void {
-    this.frameId = id;
+    const saved = this.drawFb;
+    this.nextPicture = id;
+    this.bindFramebuffer(GL.DRAW_FRAMEBUFFER, null);
+    this.clear(GL.COLOR_BUFFER_BIT);
+    this.drawArrays(4, 0, 3);
+    this.bindFramebuffer(GL.DRAW_FRAMEBUFFER, saved as unknown as WebGLFramebuffer | null);
   }
-  /** Return to the event loop: one frame passes for fences. */
+  /**
+   * End the frame: return to the event loop and composite. One frame passes
+   * for fences. Without preserveDrawingBuffer the drawing buffer is cleared.
+   */
   nextFrame(): void {
     this.frame++;
+    if (!this.attrs.preserveDrawingBuffer) this.frameId = 0;
   }
   /** Resize the canvas and the drawing buffer (the game changed canvas.width). */
   resize(width: number, height: number): void {
     this.canvas.width = width;
     this.canvas.height = height;
-    this.drawingBufferWidth = width;
-    this.drawingBufferHeight = height;
   }
   /** The game caused a GL error that nobody read yet. */
   raiseError(code: number = GL.INVALID_OPERATION): void {
@@ -202,6 +240,23 @@ export class WebGL2Mock {
   loseContext(): void {
     this.lost = true;
     this.error = GL.CONTEXT_LOST_WEBGL;
+  }
+  /** The context came back (webglcontextrestored): default state, a black buffer. */
+  restoreContext(): void {
+    this.lost = false;
+    this.error = GL.NO_ERROR;
+    this.frameId = 0;
+    this.readFb = null;
+    this.drawFb = null;
+    this.renderbuffer = null;
+    this.packBuffer = null;
+    this.copyReadBuffer = null;
+    this.scissor = false;
+    this.discard = false;
+    this.packAlignment = 4;
+    this.packRowLength = 0;
+    this.packSkipRows = 0;
+    this.packSkipPixels = 0;
   }
   snapshot(): BindingSnapshot {
     return {
@@ -262,6 +317,43 @@ export class WebGL2Mock {
     this.error = GL.NO_ERROR;
     return e;
   }
+
+  // Draw calls. Only the default framebuffer changes the picture; a draw
+  // into a framebuffer object is off screen.
+  private drawCall(name: string, args: unknown[]): void {
+    if (!this.log(name, ...args)) return;
+    if (this.drawFb === null) this.frameId = this.nextPicture;
+  }
+  clear(mask: number): void {
+    this.drawCall("clear", [mask]);
+  }
+  drawArrays(mode: number, first: number, count: number): void {
+    this.drawCall("drawArrays", [mode, first, count]);
+  }
+  drawElements(mode: number, count: number, type: number, offset: number): void {
+    this.drawCall("drawElements", [mode, count, type, offset]);
+  }
+  drawArraysInstanced(mode: number, first: number, count: number, instances: number): void {
+    this.drawCall("drawArraysInstanced", [mode, first, count, instances]);
+  }
+  drawElementsInstanced(mode: number, count: number, type: number, offset: number, instances: number): void {
+    this.drawCall("drawElementsInstanced", [mode, count, type, offset, instances]);
+  }
+  drawRangeElements(mode: number, start: number, end: number, count: number, type: number, offset: number): void {
+    this.drawCall("drawRangeElements", [mode, start, end, count, type, offset]);
+  }
+  getExtension(name: string): unknown {
+    this.log("getExtension", name);
+    if (name === "WEBGL_multi_draw") {
+      const draw = () => {
+        if (!this.lost && this.drawFb === null) this.frameId = this.nextPicture;
+      };
+      this.multiDraw ??= { multiDrawArraysWEBGL: draw, multiDrawElementsWEBGL: draw };
+      return this.multiDraw;
+    }
+    return null;
+  }
+  private multiDraw: { multiDrawArraysWEBGL: () => void; multiDrawElementsWEBGL: () => void } | undefined;
 
   getParameter(pname: number): unknown {
     if (!this.log("getParameter", pname)) return null;

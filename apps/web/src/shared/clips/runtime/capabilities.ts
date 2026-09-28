@@ -7,19 +7,52 @@
  * Two kinds of probe:
  * - Quick probes run on every call (presence checks, MediaRecorder types,
  *   canShare, memory class). They also make the cache key.
- * - Encode probes run in a worker (capabilities.worker.ts) and are cached
- *   under the hash of the quick results plus the user agent, for 7 days
- *   (GPU drivers change without a user-agent change). The WebGL2 readback
- *   check is cached with them.
- * The display rate is measured on every call (a window can move to another
- * screen).
+ * - Encode probes run in a worker (capabilities.worker.ts). The probes re-run
+ *   at every arm (plan 5), except that a DEFINITIVE report (no transient
+ *   failure: see isDefinitiveReport) is cached under the hash of the quick
+ *   results plus the user agent, for 7 days (GPU drivers change without a
+ *   user-agent change). A report with a timeout or an encoder error is never
+ *   cached, so one busy or cold encoder does not pin the device for a week.
+ *   The WebGL2 readback check is cached with the encode probes.
+ *
+ * Worker failure: the probe worker starts the same way as the encode and io
+ * workers (new Worker(new URL(...)), which needs Next 16.3 or later,
+ * vercel/next.js #94015). When it cannot start, the encode worker cannot
+ * either: the tier is then M or V (MediaRecorder on the main thread), never W
+ * or W+. The window-scope fallback probe runs once per session; the failure
+ * and that report are kept in memory for the session, so later arms do not
+ * run encoders on the main thread again.
+ *
+ * Display rate: measured BEFORE the encode probes start (never during them),
+ * and kept per session and screen at the highest reliable value (see
+ * rungs.ts), so a measurement taken while a slow game runs never lowers it.
+ * Callers that measured on the start card pass displayHz.
+ *
+ * Call the probe while no encode session is live (before arm): phones have
+ * few hardware encoder sessions, and a busy one fails the probe.
  *
  * No window or navigator access happens at import time (SSR-safe).
  */
-import { PRESETS, type Capabilities, type MemoryClass, type OutputPreset, type Tier, type VideoEncoderChoice } from "../protocol";
-import { avcCodecString, avcLevelHex, profileOfCodec } from "./avcLevel";
-import { globalProbeEnv, runProbe, type ProbeRequest, type ProbeResponse, type WorkerProbeReport } from "./capabilityProbe";
-import { measureDisplayHz } from "./rungs";
+import {
+  PRESETS,
+  type Capabilities,
+  type MemoryClass,
+  type Orientation,
+  type OutputPreset,
+  type Tier,
+  type VideoEncoderChoice,
+} from "../protocol";
+import {
+  globalProbeEnv,
+  isDefinitiveReport,
+  runProbe,
+  SOFTWARE_TARGET,
+  type ProbeRequest,
+  type ProbeResponse,
+  type VideoAttempt,
+  type WorkerProbeReport,
+} from "./capabilityProbe";
+import { measureDisplayHz, rememberDisplayHz, rememberedDisplayHz, screenKey } from "./rungs";
 
 // ---------------------------------------------------------------------------
 // Memory class and tier (pure)
@@ -112,43 +145,80 @@ export function bitrateFor(content: ContentKind, fps: number): number {
 }
 
 /**
+ * The software preset: one size step down from PRESETS, with both sides
+ * multiples of 16 (the probe encodes these sizes; see SOFTWARE_TARGET).
+ */
+export const SOFTWARE_PRESETS: Record<Orientation, { width: number; height: number }> = {
+  tall: { width: SOFTWARE_TARGET.height, height: SOFTWARE_TARGET.width },
+  wide: { width: SOFTWARE_TARGET.width, height: SOFTWARE_TARGET.height },
+};
+
+/**
  * The encoder configuration for a session, or null when the tier has no
  * WebCodecs video encoder.
+ *
+ * It only returns a size, a frame rate and a codec string that the probe
+ * really encoded with the same hardwareAcceleration:
+ * - the preset size (the software preset when only software encodes), at 60
+ *   fps when asked for and probed, else at 30 fps;
+ * - a tall frame uses the landscape attempt of the same size when portrait
+ *   coded frames were probed and work (the level is the same), and a
+ *   landscape coded frame with rotation 90 when they do not;
+ * - when no attempt matches, the probed base target (the first size that
+ *   encoded).
  */
 export function chooseVideoEncoder(report: CapabilityReport, preset: OutputPreset, content: ContentKind): EncoderPlan | null {
   const caps = report.caps;
   if (!caps.videoEncoderH264 || !report.video.ok) return null;
   const software = !caps.hardwareEncoder;
-  let { width, height } = PRESETS[preset.orientation];
-  if (software) {
-    // One size step down: 720x1280 becomes 540x960.
-    width = Math.round((width * 0.75) / 2) * 2;
-    height = Math.round((height * 0.75) / 2) * 2;
+  const accel = software ? "no-preference" : "prefer-hardware";
+  const worked = report.video.attempts.filter((a) => a.ok && a.hardwareAcceleration === accel);
+  if (worked.length === 0) return null;
+  const find = (w: number, h: number, fps: number): VideoAttempt | undefined =>
+    worked.find((a) => a.width === w && a.height === h && a.fps === fps);
+
+  const size = (software ? SOFTWARE_PRESETS : PRESETS)[preset.orientation];
+  const tall = size.height > size.width;
+  const rotate = tall && !report.video.portrait;
+  const codedW = rotate ? size.height : size.width;
+  const codedH = rotate ? size.width : size.height;
+  const fpsOrder = !software && preset.targetFps === 60 ? [60, 30] : [30];
+
+  let chosen: { attempt: VideoAttempt; width: number; height: number; fps: number; rotation: 0 | 90 } | null = null;
+  for (const fps of fpsOrder) {
+    // A portrait size also matches its landscape attempt: same macroblocks, same level.
+    const attempt = find(codedW, codedH, fps) ?? (codedH > codedW ? find(codedH, codedW, fps) : undefined);
+    if (attempt) {
+      chosen = { attempt, width: codedW, height: codedH, fps, rotation: rotate ? 90 : 0 };
+      break;
+    }
   }
-  const level60 = avcLevelHex(Math.max(width, height), Math.min(width, height), 60);
-  const fps: number = !software && preset.targetFps === 60 && level60 !== null && caps.h264Levels.includes(level60) ? 60 : 30;
-  let rotation: 0 | 90 = 0;
-  if (height > width && !report.video.portrait) {
-    [width, height] = [height, width];
-    rotation = 90;
+  if (!chosen) {
+    // The probed base target, in the shape the content needs.
+    const base = worked[0];
+    const baseTall = tall && report.video.portrait;
+    chosen = {
+      attempt: base,
+      width: baseTall ? Math.min(base.width, base.height) : Math.max(base.width, base.height),
+      height: baseTall ? Math.max(base.width, base.height) : Math.min(base.width, base.height),
+      fps: base.fps,
+      rotation: tall && !report.video.portrait ? 90 : 0,
+    };
   }
+  const { width, height, fps } = chosen;
   const areaScale = (width * height) / (PRESETS.tall.width * PRESETS.tall.height);
   const bitrate = Math.max(1_000_000, Math.round(bitrateFor(content, fps) * Math.min(1, areaScale)));
-  const level = avcLevelHex(width, height, fps, { bitrate }) ?? "28";
-  const probedCodec = report.video.codecByLevel[level];
-  const baseCodec = Object.values(report.video.codecByLevel)[0];
-  const profile = profileOfCodec(probedCodec ?? baseCodec ?? "") ?? "high";
   return {
     video: {
-      codec: probedCodec ?? avcCodecString(profile, level),
+      codec: chosen.attempt.codec,
       width,
       height,
       bitrate,
       framerate: fps,
       latencyMode: "quality",
-      hardwareAcceleration: software ? "no-preference" : "prefer-hardware",
+      hardwareAcceleration: accel,
     },
-    rotation,
+    rotation: chosen.rotation,
     software,
   };
 }
@@ -164,11 +234,16 @@ export interface CapabilityReport {
   audio: WorkerProbeReport["audio"];
   /** Where the encode probes ran. "window" means the worker could not start. */
   probeScope: "worker" | "window";
+  /** Why the probe worker could not start, or null. */
+  workerFailure: string | null;
   /** Hash of the quick probes plus the user agent. */
   fingerprint: string;
   /** When the encode probes ran (ms since the epoch). */
   probedAt: number;
+  /** True when the encode probes came from the storage cache or the session memo. */
   fromCache: boolean;
+  /** True when the report was written to the storage cache (a definitive report). */
+  cached: boolean;
 }
 
 /** A Worker, or a test double. */
@@ -199,23 +274,32 @@ export interface ProbeGlobals {
   File?: typeof File;
   matchMedia?: (query: string) => { matches: boolean };
   document?: { createElement(tag: "canvas"): HTMLCanvasElement };
+  /** For the display-rate memo key. */
+  screen?: { width?: number; height?: number };
+  devicePixelRatio?: number;
 }
 
 export interface ProbeOptions {
-  /** Ignore the cache. */
+  /** Ignore the storage cache and the session memo; try the worker again. */
   force?: boolean;
   globals?: ProbeGlobals;
   /** Start the probe worker. Return null when workers are not available. */
   createWorker?: () => WorkerLike | null;
   /** Run the encode probes in this scope when the worker fails (default: window scope). */
   fallbackProbe?: (request: ProbeRequest) => Promise<WorkerProbeReport>;
+  /** Measure the display rate (default: 40 rAF intervals of the window). */
   measureHz?: () => Promise<number>;
+  /** A display rate the caller measured while the game was idle. Skips the measurement. */
+  displayHz?: number;
   /** Cache storage. Default: localStorage when it works. Null turns the cache off. */
   storage?: Pick<Storage, "getItem" | "setItem"> | null;
   now?: () => number;
   /** Time limit for the whole worker probe. Default 90 s. */
   workerTimeoutMs?: number;
-  /** Called when the worker fails and the window-scope probe runs instead. */
+  /**
+   * Called when the probe worker cannot start (a hard error: the tier falls
+   * to M or V). Called again on later probes of the same session.
+   */
   onWorkerFailure?: (reason: string) => void;
 }
 
@@ -349,12 +433,15 @@ function readCache(storage: ProbeOptions["storage"], fingerprint: string, now: n
   }
 }
 
-function writeCache(storage: ProbeOptions["storage"], entry: CachedProbe): void {
-  if (!storage) return;
+/** Returns true when the entry was stored. */
+function writeCache(storage: ProbeOptions["storage"], entry: CachedProbe): boolean {
+  if (!storage) return false;
   try {
     storage.setItem(CAPS_CACHE_ITEM, JSON.stringify(entry));
+    return true;
   } catch {
     // Quota or a private window: the probe simply runs again next time.
+    return false;
   }
 }
 
@@ -410,25 +497,49 @@ function runWorkerProbe(
   });
 }
 
-async function measureHzSafely(options: ProbeOptions): Promise<number> {
+/** Time the display-rate measurement may take before it counts as hidden. */
+export const HZ_MEASURE_TIMEOUT_MS = 2000;
+
+/**
+ * The display rate: a caller's idle value, or a measurement. Either one goes
+ * through the session memo, which keeps the highest rate per screen. When rAF
+ * does not run (a hidden tab), the memo or 60 Hz.
+ */
+async function displayRate(options: ProbeOptions, g: ProbeGlobals): Promise<number> {
+  const key = screenKey(g);
+  if (typeof options.displayHz === "number" && options.displayHz > 0) return rememberDisplayHz(key, options.displayHz);
   const measure =
     options.measureHz ??
     (() =>
       typeof window === "undefined" || typeof window.requestAnimationFrame !== "function"
-        ? Promise.resolve(60)
+        ? Promise.resolve(null)
         : measureDisplayHz(window));
-  // rAF does not run in a hidden tab: fall back to 60 Hz after 2 s.
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const fallback = new Promise<number>((resolve) => {
-    timer = setTimeout(() => resolve(60), 2000);
+  const hidden = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), HZ_MEASURE_TIMEOUT_MS);
   });
+  let measured: number | null = null;
   try {
-    return await Promise.race([measure(), fallback]);
+    measured = await Promise.race([measure(), hidden]);
   } catch {
-    return 60;
+    measured = null;
   } finally {
     clearTimeout(timer);
   }
+  if (measured === null || !Number.isFinite(measured) || measured <= 0) return rememberedDisplayHz(key) ?? 60;
+  return rememberDisplayHz(key, measured);
+}
+
+/** Session memory of the probe worker (module state; one page is one session). */
+const session: {
+  workerFailure: string | null;
+  windowReport: CachedProbe | null;
+} = { workerFailure: null, windowReport: null };
+
+/** Forget the session memory of the probe worker (tests). */
+export function resetProbeSession(): void {
+  session.workerFailure = null;
+  session.windowReport = null;
 }
 
 /** Run the probes (or read the cache) and return the full report. */
@@ -438,33 +549,53 @@ export async function probeCapabilityReport(options: ProbeOptions = {}): Promise
   const storage = options.storage === undefined ? defaultStorage() : options.storage;
   const quick = quickProbes(g);
   const fingerprint = fnv1a(JSON.stringify(quick) + "|" + (g.navigator?.userAgent ?? ""));
-  const hzPromise = measureHzSafely(options);
+  // Measure first: an encode probe running at the same time would slow rAF.
+  const displayHz = await displayRate(options, g);
 
-  let cached = options.force ? null : readCache(storage, fingerprint, now());
-  const fromCache = cached !== null;
-  let probeScope: "worker" | "window" = cached?.report.scope ?? "worker";
-  if (!cached) {
+  let entry = options.force ? null : readCache(storage, fingerprint, now());
+  let probeScope: "worker" | "window" = entry?.report.scope ?? "worker";
+  let fromCache = entry !== null;
+  let cachedNow = false;
+  if (!entry && !options.force && session.workerFailure !== null && session.windowReport?.fingerprint === fingerprint) {
+    // The worker failed earlier in this session: reuse the window-scope result.
+    entry = session.windowReport;
+    probeScope = "window";
+    fromCache = true;
+    options.onWorkerFailure?.(session.workerFailure);
+  }
+  if (!entry) {
     const request: ProbeRequest = { t: "probe" };
-    let report: WorkerProbeReport;
-    try {
-      report = await runWorkerProbe(options.createWorker ?? defaultCreateWorker, request, options.workerTimeoutMs ?? 90_000);
-      probeScope = "worker";
-    } catch (error) {
-      options.onWorkerFailure?.(error instanceof Error ? error.message : String(error));
+    let report: WorkerProbeReport | null = null;
+    if (options.force || session.workerFailure === null) {
+      try {
+        report = await runWorkerProbe(options.createWorker ?? defaultCreateWorker, request, options.workerTimeoutMs ?? 90_000);
+        probeScope = "worker";
+        session.workerFailure = null;
+      } catch (error) {
+        session.workerFailure = error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (!report) {
+      options.onWorkerFailure?.(session.workerFailure ?? "worker failed");
       const fallback = options.fallbackProbe ?? ((r: ProbeRequest) => runProbe(globalProbeEnv("window"), r));
       report = await fallback(request);
       probeScope = "window";
     }
-    cached = { fingerprint, probedAt: now(), report, webgl2AsyncReadback: probeWebGL2Readback(g) };
-    // A window-scope result is a fallback; do not cache it, so the worker is tried again.
-    if (probeScope === "worker") writeCache(storage, cached);
+    entry = { fingerprint, probedAt: now(), report, webgl2AsyncReadback: probeWebGL2Readback(g) };
+    if (probeScope === "window") {
+      // Never stored: the worker is tried again in the next session.
+      session.windowReport = entry;
+    } else if (isDefinitiveReport(report)) {
+      cachedNow = writeCache(storage, entry);
+    }
   }
 
-  const report = cached.report;
-  const displayHz = await hzPromise;
+  const report = entry.report;
+  const workerRuns = probeScope === "worker";
   const caps: Capabilities = {
     tier: selectTier({
-      worker: quick.worker,
+      // The encode worker starts like the probe worker: no worker probe, no W tier.
+      worker: quick.worker && workerRuns,
       videoEncoderH264: report.video.ok,
       audioEncoderAac: report.audio.aac,
       webAssembly: quick.webAssembly,
@@ -479,7 +610,7 @@ export async function probeCapabilityReport(options: ProbeOptions = {}): Promise
     audioDecoder: quick.audioDecoder,
     mediaRecorderMp4: quick.mediaRecorderMp4,
     mediaRecorderWebm: quick.mediaRecorderWebm,
-    webgl2AsyncReadback: cached.webgl2AsyncReadback,
+    webgl2AsyncReadback: entry.webgl2AsyncReadback,
     opfsSyncAccess: report.opfsSyncAccess,
     shareFiles: quick.shareFiles,
     memoryClass: quick.memoryClass,
@@ -490,13 +621,18 @@ export async function probeCapabilityReport(options: ProbeOptions = {}): Promise
     video: report.video,
     audio: report.audio,
     probeScope,
+    workerFailure: workerRuns ? null : session.workerFailure,
     fingerprint,
-    probedAt: cached.probedAt,
+    probedAt: entry.probedAt,
     fromCache,
+    cached: cachedNow,
   };
 }
 
-/** The contract's Capabilities for this device. */
+/**
+ * The contract's Capabilities for this device. Call it while no encode
+ * session is live (before arm).
+ */
 export async function probeCapabilities(options: ProbeOptions = {}): Promise<Capabilities> {
   return (await probeCapabilityReport(options)).caps;
 }

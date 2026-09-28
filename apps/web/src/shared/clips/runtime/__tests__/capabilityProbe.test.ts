@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { avcCodecString, avcLevelHex, profileOfCodec } from "../avcLevel";
-import { probeAudio, probeOpfs, probeVideo, probeVideoConfig, runProbe, type ProbeEnv } from "../capabilityProbe";
+import {
+  AAC_PROBE_SAMPLES,
+  isDefinitiveReport,
+  probeAudio,
+  probeOpfs,
+  probeVideo,
+  probeVideoConfig,
+  runProbe,
+  SOFTWARE_TARGET,
+  type ProbeEnv,
+  type WorkerProbeReport,
+} from "../capabilityProbe";
 import {
   allCodecs,
   FakeAudioData,
@@ -8,6 +19,7 @@ import {
   FakeVideoFrame,
   makeAudioEncoder,
   makeVideoEncoder,
+  WEBKIT_AAC_DELAY,
   type VideoDevice,
 } from "./probeFakes";
 
@@ -23,6 +35,7 @@ function env(device: Partial<VideoDevice> = {}, extra: Partial<ProbeEnv> = {}): 
     }),
     VideoFrame: FakeVideoFrame as unknown as typeof VideoFrame,
     timeoutMs: 50,
+    retryTimeoutMs: 60,
     ...extra,
   };
 }
@@ -81,6 +94,30 @@ describe("probeVideo", () => {
       ["avc1.42001f", "prefer-hardware", "unsupported"],
     ]);
     expect(v.attempts[3]).toMatchObject({ codec: "avc1.64001f", hardwareAcceleration: "no-preference", ok: true });
+    // Software sessions use the software preset, so it is probed (both
+    // orientations); the bigger hardware targets are not.
+    expect(v.attempts.slice(4).map((a) => [a.width, a.height, a.fps, a.hardwareAcceleration, a.ok])).toEqual([
+      [SOFTWARE_TARGET.width, SOFTWARE_TARGET.height, 30, "no-preference", true],
+      [SOFTWARE_TARGET.height, SOFTWARE_TARGET.width, 30, "no-preference", true],
+    ]);
+    expect(SOFTWARE_TARGET.width % 16).toBe(0);
+    expect(SOFTWARE_TARGET.height % 16).toBe(0);
+    expect(v.portrait).toBe(true);
+  });
+
+  it("retries a timed-out hardware attempt once with the longer limit before software", async () => {
+    // A cold hardware encoder: its first session never flushes.
+    const v = await probeVideo(env({ coldHardwareSessions: 1 }));
+    expect(v.hardware).toBe(true);
+    expect(v.attempts.slice(0, 2).map((a) => [a.codec, a.hardwareAcceleration, a.reason])).toEqual([
+      ["avc1.64001f", "prefer-hardware", "timeout"],
+      ["avc1.64001f", "prefer-hardware", null],
+    ]);
+    // Only one retry: a second timeout moves on.
+    const twice = await probeVideo(env({ coldHardwareSessions: 2, codecs: allCodecs(["1f"], ["64"]) }));
+    expect(twice.attempts.slice(0, 2).map((a) => a.reason)).toEqual(["timeout", "timeout"]);
+    expect(twice.hardware).toBe(false);
+    expect(twice.ok).toBe(true);
   });
 
   it("tries High, then Main, then Baseline", async () => {
@@ -144,6 +181,14 @@ describe("probeAudio", () => {
   it("WebKit: AAC encodes, and the broken esds description is recognized (302253)", async () => {
     expect(await probeAudio(withAudio("webkit"))).toEqual({ aac: true, reason: null, description: "esds" });
   });
+  it("feeds enough samples past WebKit's encoder delay to get output", async () => {
+    // 2048 samples would give nothing from an encoder that keeps back 2114.
+    expect(AAC_PROBE_SAMPLES).toBeGreaterThanOrEqual(WEBKIT_AAC_DELAY + 4 * 1024);
+    expect(await probeAudio(withAudio("webkit-delay"))).toEqual({ aac: true, reason: null, description: "esds" });
+  });
+  it("an encoder error is reported as error (a transient reason)", async () => {
+    expect(await probeAudio(withAudio("error"))).toMatchObject({ aac: false, reason: "error" });
+  });
   it("iOS that throws from isConfigSupported has no native AAC", async () => {
     expect(await probeAudio(withAudio("ios-throws"))).toMatchObject({ aac: false, reason: "threw" });
   });
@@ -175,6 +220,32 @@ describe("probeOpfs", () => {
         getDirectory: () => Promise.reject(new DOMException("private", "SecurityError")),
       }),
     ).toBe(false);
+  });
+});
+
+describe("isDefinitiveReport", () => {
+  const base = async (device: Partial<VideoDevice> = {}, audio: Parameters<typeof makeAudioEncoder>[0] = "chromium") =>
+    runProbe({
+      ...env(device),
+      AudioEncoder: makeAudioEncoder(audio),
+      AudioData: FakeAudioData as unknown as typeof AudioData,
+    });
+  it("is true for clean results and for device properties (no hardware, no AAC)", async () => {
+    expect(isDefinitiveReport(await base())).toBe(true);
+    expect(isDefinitiveReport(await base({ hardware: false }))).toBe(true);
+    expect(isDefinitiveReport(await base({}, "unsupported"))).toBe(true);
+    expect(isDefinitiveReport(await base({}, "ios-throws"))).toBe(true);
+  });
+  it("is true when a retry of a timed-out configuration worked", async () => {
+    expect(isDefinitiveReport(await base({ coldHardwareSessions: 1 }))).toBe(true);
+  });
+  it("is false for a timeout, an encoder error or no output", async () => {
+    expect(isDefinitiveReport(await base({ coldHardwareSessions: 2 }))).toBe(false);
+    expect(isDefinitiveReport(await base({}, "error"))).toBe(false);
+    expect(isDefinitiveReport(await base({}, "silent"))).toBe(false);
+    const report: WorkerProbeReport = await base();
+    report.video.attempts.push({ ...report.video.attempts[0], codec: "avc1.4d0028", ok: false, reason: "error" });
+    expect(isDefinitiveReport(report)).toBe(false);
   });
 });
 
