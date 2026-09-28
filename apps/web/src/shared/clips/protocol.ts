@@ -327,9 +327,29 @@ export type IoCmd =
   | { t: "delete"; id: string }
   | { t: "list"; ownerKey: string };
 
+/**
+ * Events from the io worker. The worker runs commands one at a time, so events come
+ * back in command order.
+ */
 export type IoEvent =
   | { t: "saved"; record: ClipRecord; muxMs: number }
   | { t: "file"; id: string; file: File }
   | { t: "list"; records: ClipRecord[] }
   | { t: "deleted"; id: string }
-  | { t: "error"; code: "quota" | "opfs-unavailable" | "verify-failed" | "mux-failed"; detail: string };
+  /**
+   * The library was over its budget, so watched, unkept "auto" clips were removed
+   * (oldest first) to make space. The UI tells the kid what stays (plan 8.1).
+   */
+  | { t: "evicted"; kept: string[]; removed: string[] }
+  /**
+   * Startup check of files against rows (plan 8.1, 8.2). "missing" counts rows whose
+   * bytes the browser removed; the library tells the kid about this one time.
+   */
+  | { t: "reconciled"; reindexed: number; missing: number; unreadable: number }
+  | {
+      t: "error";
+      code: "quota" | "opfs-unavailable" | "verify-failed" | "mux-failed" | "not-found";
+      detail: string;
+      /** The clip id of the command that failed, when the command had one. */
+      id?: string;
+    };
