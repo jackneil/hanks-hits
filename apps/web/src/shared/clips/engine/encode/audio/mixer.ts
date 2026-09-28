@@ -9,7 +9,11 @@
  *
  * For each stream:
  * - StreamClock maps its context time to page time (production time, with
- *   timeOriginOffsetMs for iframe realms).
+ *   timeOriginOffsetMs for iframe realms). A frame maps to the page time at
+ *   which a game that starts a sound gets that frame from currentTime, so a
+ *   sound lines up with the video frame drawn in the same task. A suspend
+ *   (a non-running anchor) unlocks the clock, and a new clock line forces the
+ *   resampler to resync at once.
  * - A phase-locked resampler reads the stream at the position the clock gives.
  *   Its step is the nominal ratio divided by the learned clock rate. A PI loop
  *   removes what is left, so drift never becomes a timestamp jump.
@@ -22,6 +26,9 @@
  *   stream that is suspended, interrupted, closed or unloaded. A stream whose
  *   data is older than the stall limit stops holding the mix and its missing
  *   span is zero-filled.
+ * - Streams are freed: at once on a "closed" anchor, and after PRUNE_MS with
+ *   no data and no anchor (a realm that unloaded with no message). Each
+ *   stream holds about 1 MB of buffer, and every iframe reload makes a new id.
  *
  * Pauses are removed in the PCM domain: the timeline skips the paused span,
  * and the output fades out before each pause point and in after it
@@ -43,19 +50,24 @@ export const MIN_LATENCY_MS = 30;
 export const STALL_MS = 250;
 /** A running stream whose data is older than this is treated as gone (no underrun count). */
 export const LOST_MS = 1000;
+/** A stream with no data and no anchor for this long (page time) is freed. */
+export const PRUNE_MS = 5000;
 
 const SR = AUDIO_SAMPLE_RATE;
 const BUFFER_FRAMES = 1 << 17; // 2.7 s at 48 kHz
 const MASK = BUFFER_FRAMES - 1;
 /** Frames the resampler read position may lead its target by. */
 const GUARD_FRAMES = 32;
-/** A target further than this from the read position is a jump, not drift. */
-const HARD_RESYNC_SEC = 0.02;
+/**
+ * A target further than this from the read position is a jump, not drift. A
+ * new clock line resyncs at once anyway; this is the backstop. It is above the
+ * half-burst moves of a clock line that averages 40 ms bursts, so those are
+ * slewed by the PI loop, never jumped (a jump is a click).
+ */
+const HARD_RESYNC_SEC = 0.05;
 const KP = 0.1;
 const KI = 0.0025;
 const MAX_CORRECTION = 0.005;
-/** Web Audio render quantum in frames. */
-const RENDER_QUANTUM = 128;
 
 export interface MixBlock {
   /** Output frame index of the first frame (a multiple of 1024). */
@@ -76,6 +88,10 @@ export interface MixerStats {
   lateSeams: number;
   /** Resampler resyncs (starts, resumes, jumps). */
   resyncs: number;
+  /** Clock lines started (the first anchor of each stream counts as one). */
+  clockResets: number;
+  /** Single anchors beyond the clock threshold that were not taken as a jump. */
+  clockOutliers: number;
 }
 
 /** 4-point, 3rd-order Hermite interpolation between x0 and x1 at t in [0, 1). */
@@ -199,6 +215,12 @@ class MixStream {
   rsLocked = false;
   resyncs = 0;
   fade = 0;
+  /** The clock line the resampler is locked to. A new line forces a resync. */
+  private lineSeen = 0;
+  /** An anchor or a batch came since the last render. */
+  touched = true;
+  /** Page time since which the stream has had no anchor and no data, or null. */
+  idleSince: number | null = null;
 
   /** Input (unfiltered) frame end. writeEnd trails it by the filter delay. */
   private inEnd = 0;
@@ -285,8 +307,10 @@ class MixStream {
     const ratio = this.sampleRate / SR / this.clock.rate;
     const target = this.clock.ctxAtPerf(perfAtStart) * this.sampleRate;
     const err = target - this.pos;
+    const newLine = this.clock.resyncs !== this.lineSeen;
     let step: number;
-    if (!this.rsLocked || forceResync || Math.abs(err) > this.sampleRate * HARD_RESYNC_SEC) {
+    if (!this.rsLocked || forceResync || newLine || Math.abs(err) > this.sampleRate * HARD_RESYNC_SEC) {
+      this.lineSeen = this.clock.resyncs;
       this.pos = target;
       this.rsLocked = true;
       this.resyncs++;
@@ -327,19 +351,6 @@ class MixStream {
   }
 }
 
-/**
- * currentTime read on the main thread moves in whole render quanta of 128
- * frames, so a read is on average half a quantum early (1.3 ms at 48 kHz).
- * When the reading sits on a quantum boundary, add half a quantum. Before the
- * first batch the rate is unknown, so the reading is used as it is.
- */
-export function unbiasedCtxSec(ctxSec: number, sampleRate: number): number {
-  if (!(sampleRate > 0)) return ctxSec;
-  const frames = ctxSec * sampleRate;
-  const off = frames - Math.round(frames / RENDER_QUANTUM) * RENDER_QUANTUM;
-  return Math.abs(off) < 0.5 ? ctxSec + RENDER_QUANTUM / 2 / sampleRate : ctxSec;
-}
-
 function clamp(v: number, limit: number): number {
   return v < -limit ? -limit : v > limit ? limit : v;
 }
@@ -351,6 +362,7 @@ export interface MixerOptions {
   minLatencyMs?: number;
   stallMs?: number;
   lostMs?: number;
+  pruneMs?: number;
 }
 
 export class Mixer {
@@ -358,6 +370,7 @@ export class Mixer {
   private readonly minLatencyMs: number;
   private readonly stallMs: number;
   private readonly lostMs: number;
+  private readonly pruneMs: number;
   private readonly antiAlias: boolean;
   private readonly streams = new Map<string, MixStream>();
   private next = 0;
@@ -370,6 +383,7 @@ export class Mixer {
     this.minLatencyMs = options.minLatencyMs ?? MIN_LATENCY_MS;
     this.stallMs = options.stallMs ?? STALL_MS;
     this.lostMs = options.lostMs ?? LOST_MS;
+    this.pruneMs = options.pruneMs ?? PRUNE_MS;
     this.antiAlias = options.antiAlias ?? true;
   }
 
@@ -381,9 +395,13 @@ export class Mixer {
   get stats(): MixerStats {
     let gaps = 0;
     let resyncs = 0;
+    let clockResets = 0;
+    let clockOutliers = 0;
     for (const s of this.streams.values()) {
       gaps += s.gapFrames;
       resyncs += s.resyncs;
+      clockResets += s.clock.resyncs;
+      clockOutliers += s.clock.outliers;
     }
     return {
       streams: this.streams.size,
@@ -392,6 +410,8 @@ export class Mixer {
       gapFrames: gaps,
       lateSeams: this.lateSeamCount,
       resyncs,
+      clockResets,
+      clockOutliers,
     };
   }
 
@@ -406,16 +426,26 @@ export class Mixer {
   }
 
   anchor(a: ClockAnchor): void {
+    if (a.state === "closed") {
+      // The context is gone for good: free the stream now. A late batch makes a new, idle entry that the prune frees.
+      this.streams.delete(a.streamId);
+      return;
+    }
     const s = this.stream(a.streamId);
     s.state = a.state;
-    if (a.state === "running") s.clock.anchor(a.perfMs + a.timeOriginOffsetMs, unbiasedCtxSec(a.ctxTimeSec, s.sampleRate));
-    else s.rsLocked = false;
-    if (a.state === "closed") s.resetBuffer();
+    s.touched = true;
+    if (a.state === "running") s.clock.anchor(a.perfMs + a.timeOriginOffsetMs, a.ctxTimeSec);
+    else {
+      // Suspended or interrupted: the context stops while page time runs on. The next running anchor starts a new line.
+      s.clock.unlock();
+      s.rsLocked = false;
+    }
   }
 
   pushPcm(batch: PcmBatch): void {
     if (!(batch.sampleRate > 0) || !(batch.data instanceof ArrayBuffer) || batch.data.byteLength % 4 !== 0) return;
     const s = this.stream(batch.streamId);
+    s.touched = true;
     if (s.sampleRate !== batch.sampleRate) s.setRate(batch.sampleRate);
     s.write(batch.firstFrame, new Int16Array(batch.data));
   }
@@ -430,6 +460,7 @@ export class Mixer {
     let end = usToFrame(limitUs);
     const stallPerf = nowPerfMs - this.stallMs;
     let contributing = 0;
+    this.prune(nowPerfMs);
     for (const s of this.streams.values()) {
       if (!s.usable) continue;
       const w = s.watermarkPerf();
@@ -445,6 +476,17 @@ export class Mixer {
       this.next += MIX_BLOCK_FRAMES;
     }
     return blocks;
+  }
+
+  /** Frees streams with no anchor and no data for PRUNE_MS. */
+  private prune(nowPerfMs: number): void {
+    for (const [id, s] of this.streams) {
+      if (s.touched) {
+        s.touched = false;
+        s.idleSince = null;
+      } else if (s.idleSince === null) s.idleSince = nowPerfMs;
+      else if (nowPerfMs - s.idleSince > this.pruneMs) this.streams.delete(id);
+    }
   }
 
   private stream(id: string): MixStream {

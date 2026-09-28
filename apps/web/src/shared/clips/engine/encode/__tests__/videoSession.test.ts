@@ -34,11 +34,15 @@ function vf(tsUs: number): VideoFrame {
   return new FakeVideoFrame(rgbaPixels(4, 4), { format: "RGBA", codedWidth: 4, codedHeight: 4, timestamp: tsUs, duration: FRAME_US }) as unknown as VideoFrame;
 }
 
-function harness(choice = CHOICE, now = () => 0) {
+function harness(choice = CHOICE, now = () => 0, options: { flushTimeoutMs?: number } = {}) {
   const packets: VideoPacket[] = [];
   const epochs: EpochInfo[] = [];
   const errors: Array<{ code: EngineErrorCode; detail: string }> = [];
-  const session = new VideoSession(choice, { onPacket: (p) => packets.push(p), onEpoch: (e) => epochs.push(e), onError: (code, detail) => errors.push({ code, detail }) }, { now });
+  const session = new VideoSession(
+    choice,
+    { onPacket: (p) => packets.push(p), onEpoch: (e) => epochs.push(e), onError: (code, detail) => errors.push({ code, detail }) },
+    { now, flushTimeoutMs: options.flushTimeoutMs },
+  );
   /** Encodes frames at 30 fps from startUs for count frames, letting the fake codec work after each. */
   async function run(startUs: number, count: number): Promise<void> {
     for (let i = 0; i < count; i++) {
@@ -118,12 +122,118 @@ describe("VideoSession", () => {
     expect(enc.resetCalls).toBe(1);
     expect(enc.configureCalls).toHaveLength(2);
     expect(h.errors.map((e) => e.code)).toEqual(["keyframe-starved"]);
-    // The first unanswered request was frame 30; the reset happens at the first frame 3 s after it.
-    const resetAt = Math.ceil((30 * FRAME_US + KEYFRAME_STARVATION_US) / FRAME_US) * FRAME_US;
+    // Frame 30 asked for a keyframe and came out as a delta when frame 31 went in (latency 1): the
+    // encoder skipped the request. The reset happens at the first frame 3 s after that.
+    const resetAt = Math.ceil((31 * FRAME_US + KEYFRAME_STARVATION_US) / FRAME_US) * FRAME_US;
     expect(keysOf(h.packets)).toEqual([0, resetAt]);
     expect(h.epochs.map((e) => e.epoch)).toEqual([0, 1]);
     expect(h.packets.filter((p) => p.tsUs >= resetAt).every((p) => p.epoch === 1)).toBe(true);
     expect(h.session.stats.starvations).toBe(1);
+  });
+
+  it("recovers a hung encoder whose queue never drains: the health check runs before the backpressure drop", async () => {
+    // Android MediaCodec that stops returning input buffers: encodeQueueSize stays at 2, no output, no error.
+    const h = harness();
+    await h.run(0, 30); // output flows first: the session is past its cold start
+    const enc = mock.videoEncoders[0];
+    enc.stall(true);
+    await h.run(30 * FRAME_US, 150); // 5 s of frames into the hung encoder
+    expect(enc.resetCalls).toBe(1);
+    expect(h.errors.map((e) => e.code)).toEqual(["keyframe-starved"]);
+    expect(h.errors[0].detail).toMatch(/no output/);
+    expect(h.session.stats.starvations).toBe(1);
+    // The reset emptied the queue. Once the codec works again, the new epoch starts at a keyframe.
+    enc.stall(false);
+    await h.run(180 * FRAME_US, 30);
+    await h.session.closeEncoder();
+    const epoch1 = h.packets.filter((p) => p.epoch === 1);
+    expect(epoch1.length).toBeGreaterThan(20);
+    expect(epoch1[0].type).toBe("key");
+    expect(h.epochs.map((e) => e.epoch)).toEqual([0, 1]);
+    // Still hung after the reset: the new session is warming, so no reset loop.
+    expect(enc.resetCalls).toBe(1);
+  });
+
+  it("never resets a warming encoder, even with a first output after 4 s (cold start)", async () => {
+    mock.video.outputLatencyFrames = 120; // about 4 s at 30 fps before the first output
+    const h = harness();
+    await h.run(0, 600); // 20 s
+    const enc = mock.videoEncoders[0];
+    expect(h.errors).toEqual([]);
+    expect(enc.resetCalls).toBe(0);
+    expect(mock.videoEncoders).toHaveLength(1);
+    expect(h.packets[0]).toMatchObject({ type: "key", tsUs: 0, epoch: 0 });
+    expect(h.packets.length).toBeGreaterThan(400);
+    await h.session.closeEncoder();
+  });
+
+  it("stays warming (no reset) while an encoder gives no output at all; the main thread decides", async () => {
+    const h = harness();
+    h.session.start();
+    mock.videoEncoders[0].stall(true);
+    await h.run(0, 300); // 10 s
+    expect(mock.videoEncoders[0].resetCalls).toBe(0);
+    expect(h.session.warming).toBe(true);
+    expect(h.errors).toEqual([]);
+    h.session.close();
+  });
+
+  it("closes a hung encoder when its flush does not finish in time, so the caller never waits forever", async () => {
+    const h = harness(CHOICE, () => 0, { flushTimeoutMs: 30 });
+    await h.run(0, 10);
+    const enc = mock.videoEncoders[0];
+    enc.stall(true);
+    h.session.encode(vf(10 * FRAME_US));
+    const started = Date.now();
+    await h.session.closeEncoder();
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(enc.state).toBe("closed");
+    expect(h.errors.map((e) => e.code)).toEqual(["encoder-error"]);
+    expect(h.errors[0].detail).toMatch(/flush did not finish/);
+    expect(h.session.stats.flushTimeouts).toBe(1);
+    // The next frame opens a new encoder on a new epoch.
+    await h.run(11 * FRAME_US, 5);
+    await h.session.closeEncoder();
+    expect(mock.videoEncoders).toHaveLength(2);
+    expect(h.packets.filter((p) => p.epoch === 1)[0]).toMatchObject({ type: "key", tsUs: 11 * FRAME_US });
+  });
+
+  it("admits a frame before painting only when encode() will take it, and counts a refusal as a drop", async () => {
+    const h = harness();
+    expect(h.session.admit(0)).toBe(true);
+    const enc = mock.videoEncoders[0];
+    enc.stall(true);
+    h.session.encode(vf(0));
+    h.session.encode(vf(FRAME_US));
+    expect(h.session.admit(2 * FRAME_US)).toBe(false);
+    expect(h.session.stats.framesDropped).toBe(1);
+    expect(h.session.stats.framesIn).toBe(3);
+    enc.stall(false);
+    await flushMicrotasks();
+    expect(h.session.admit(3 * FRAME_US)).toBe(true);
+    h.session.close();
+  });
+
+  it("releases the Record tail: the frames before the stop mark, with the held delta, and gives up in a pause", async () => {
+    const h = harness();
+    await h.run(0, 10);
+    const mark = h.session.tailMark();
+    expect(mark.lastTs).toBe(9 * FRAME_US);
+    // The encoder keeps the newest frame until the next input (latency 1), and the guard holds one more.
+    expect(h.packets.map((p) => p.tsUs)).not.toContain(9 * FRAME_US);
+    expect(h.session.releaseTail(mark)).toBe(false);
+    // No frame follows (a pause): give up, and commit what is out.
+    expect(h.session.releaseTail(mark, true)).toBe(true);
+    expect(h.packets[h.packets.length - 1].tsUs).toBe(8 * FRAME_US);
+    // With play going on, the tail comes out on its own.
+    h.session.encode(vf(10 * FRAME_US));
+    await flushMicrotasks(3);
+    expect(h.session.releaseTail(mark)).toBe(true);
+    expect(h.packets[h.packets.length - 1].tsUs).toBe(9 * FRAME_US);
+    // A mark from an encoder session that ended is always released.
+    await h.session.closeEncoder();
+    expect(h.session.releaseTail(mark)).toBe(true);
+    expect(h.session.submittedEndUs).toBe(10 * FRAME_US + FRAME_US);
   });
 
   it("would not recover with an identical configure() alone (the Chromium no-op the reset avoids)", async () => {
@@ -238,6 +348,23 @@ describe("VideoSession", () => {
     h.session.retainEpochs(new Set([1]));
     expect(h.session.epochInfo(0)).toBeUndefined();
     expect(h.session.epochInfo(1)).toBeDefined();
+  });
+
+  it("keeps the encoder's color space per epoch, and never splices two epochs that differ only in it", async () => {
+    const h = harness();
+    await h.run(0, 5);
+    expect(h.session.epochInfo(0)!.colorSpace).toEqual({ primaries: "bt709", transfer: "bt709", matrix: "bt709", fullRange: false });
+    mock.video.colorSpace = { primaries: "smpte170m", transfer: "smpte170m", matrix: "smpte170m", fullRange: false };
+    mock.videoEncoders[0].fail();
+    await h.run(5 * FRAME_US, 5);
+    await h.session.closeEncoder();
+    const a = h.session.epochInfo(0)!;
+    const b = h.session.epochInfo(1)!;
+    expect(new Uint8Array(a.description)).toEqual(new Uint8Array(b.description));
+    expect(sameDecoderConfig(a, b)).toBe(false);
+    expect(h.epochs[1].colorSpace?.matrix).toBe("smpte170m");
+    // No color space on either side (an encoder that reports none) still compares equal.
+    expect(sameDecoderConfig({ ...a, colorSpace: undefined }, { ...a, colorSpace: undefined })).toBe(true);
   });
 
   it("starts a new epoch when the encoder changes its config inside a session", async () => {

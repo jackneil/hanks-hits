@@ -11,9 +11,21 @@
  * - Keep the epoch table. Start a new epoch on every recreate: an encoder
  *   error, a reclaim (QuotaExceededError), closeEncoder (export or hidden),
  *   and keyframe starvation.
- * - Keyframe starvation: no verified key within 3 s of a request. Then call
- *   reset() and configure(). An identical configure() alone does nothing in
- *   Chromium.
+ * - Health check, before the backpressure drop, once the encoder session has
+ *   given its first output. Starvation is either of:
+ *   - 3 s (of input frames) after the encoder put out a delta for a frame that
+ *     asked for a keyframe: it skips the requests (Chromium Android);
+ *   - 3 s (of input frames) with no output arriving at all: the encoder hangs,
+ *     and its queue may never drain.
+ *   Both count from outputs that arrived, so a long but steady latency is not
+ *   starvation. Then call reset() and configure(). reset() also empties a
+ *   full queue. An identical configure() alone does nothing in Chromium.
+ * - Before its first output, a session is warming (plan 5.1 and 7). The
+ *   session never resets it: each reset would start the cold start again.
+ *   The main thread sees the missing "epoch" event and decides (Warming, or a
+ *   bridge encoder on Chromium).
+ * - closeEncoder waits at most FLUSH_TIMEOUT_MS for the flush, then closes the
+ *   encoder, so the worker queue never stops behind a hung codec.
  * - Epoch boundary guard: every epoch ends with a GOP of at least 2 frames.
  *   Two IDRs from two encoders can share idr_pic_id (H.264 7.4.3), so a lone
  *   IDR at the end of an epoch is dropped. The guard holds back one packet,
@@ -24,8 +36,9 @@
 import { KEYFRAME_INTERVAL_US, type EngineErrorCode, type EpochInfo, type VideoEncoderChoice } from "../../protocol";
 import { classifyChunk, parseAvcC } from "./avc";
 import { bytesEqual, copyToArrayBuffer } from "./bytes";
+import { FLUSH_TIMEOUT_MS, settleWithin } from "./deadline";
 
-/** A request that gets no verified keyframe in this time forces a new session. */
+/** A request that gets no verified keyframe in this time (or no output at all) forces a new session. */
 export const KEYFRAME_STARVATION_US = 3_000_000;
 /** Frames waiting in the encoder queue before a new frame is dropped. */
 export const MAX_ENCODE_QUEUE = 2;
@@ -69,6 +82,8 @@ export interface VideoSessionStats {
   unusableOutputs: number;
   epochsStarted: number;
   starvations: number;
+  /** Flushes that did not finish in time. The encoder was closed. */
+  flushTimeouts: number;
   ttfcMs: number | null;
 }
 
@@ -77,11 +92,34 @@ export interface VideoSessionOptions {
   now?: () => number;
   /** First epoch number. */
   firstEpoch?: number;
+  /** Longest wait for a flush in closeEncoder. Default FLUSH_TIMEOUT_MS. */
+  flushTimeoutMs?: number;
+}
+
+/** Where the Record tee stops: the newest frame the encoder took, and the encoder session that took it. */
+export interface TailMark {
+  lastTs: number;
+  generation: number;
+}
+
+function sameColorSpace(a: VideoColorSpaceInit | undefined, b: VideoColorSpaceInit | undefined): boolean {
+  return (
+    (a?.primaries ?? null) === (b?.primaries ?? null) &&
+    (a?.transfer ?? null) === (b?.transfer ?? null) &&
+    (a?.matrix ?? null) === (b?.matrix ?? null) &&
+    (a?.fullRange ?? null) === (b?.fullRange ?? null)
+  );
 }
 
 /** True when two epochs can be spliced by packet copy (plan 6.6). */
 export function sameDecoderConfig(a: EpochInfo, b: EpochInfo): boolean {
-  return a.codec === b.codec && a.codedWidth === b.codedWidth && a.codedHeight === b.codedHeight && bytesEqual(a.description, b.description);
+  return (
+    a.codec === b.codec &&
+    a.codedWidth === b.codedWidth &&
+    a.codedHeight === b.codedHeight &&
+    bytesEqual(a.description, b.description) &&
+    sameColorSpace(a.colorSpace, b.colorSpace)
+  );
 }
 
 /** Builds the VideoEncoderConfig for a choice. */
@@ -105,6 +143,7 @@ export class VideoSession {
   private readonly hooks: VideoSessionHooks;
   private readonly now: () => number;
   private readonly frameDurUs: number;
+  private readonly flushTimeoutMs: number;
   private encoder: VideoEncoder | null = null;
   private unusable = false;
   private closed = false;
@@ -117,9 +156,21 @@ export class VideoSession {
   private pendingKeyReqUs: number | null = null;
   private lastOutTs = -Infinity;
   private lastSubmittedTs = -Infinity;
+  private lastSubmittedEnd = -Infinity;
+  private lastSubmittedGen = -1;
   /** Outputs of frames before this timestamp belong to a purged owner and are dropped. */
   private purgeBeforeUs = -Infinity;
   private firstEncodeAt: number | null = null;
+  /** Changes whenever the encoder session that takes frames changes (open, reset, close, loss). */
+  private gen = 0;
+  /** Outputs of the current encoder session. 0 means the session is still warming. */
+  private sessionOutputs = 0;
+  /** Newest output timestamp of the current encoder session. */
+  private sessionLastOutTs = -Infinity;
+  /** The newest frame given to the encoder when its newest output arrived (input-side time). */
+  private lastArrivalTs = -Infinity;
+  /** The newest frame given to the encoder when a delta at or after the open key request came out. */
+  private skippedAtTs: number | null = null;
   // Epoch boundary guard.
   private held: VideoPacket | null = null;
   private heldEpoch = -1;
@@ -136,6 +187,7 @@ export class VideoSession {
     unusableOutputs: 0,
     epochsStarted: 0,
     starvations: 0,
+    flushTimeouts: 0,
     ttfcMs: null,
   };
 
@@ -146,6 +198,7 @@ export class VideoSession {
     this.now = options.now ?? (() => performance.now());
     this.nextEpoch = options.firstEpoch ?? 0;
     this.frameDurUs = Math.round(1e6 / Math.max(1, choice.framerate));
+    this.flushTimeoutMs = options.flushTimeoutMs ?? FLUSH_TIMEOUT_MS;
   }
 
   get stats(): Readonly<VideoSessionStats> {
@@ -167,6 +220,21 @@ export class VideoSession {
     return this.unusable;
   }
 
+  /** True while the current encoder session has given no output yet (cold start). */
+  get warming(): boolean {
+    return this.encoder !== null && this.sessionOutputs === 0;
+  }
+
+  /** Capture time just after the newest frame the encoder took. -Infinity before the first. */
+  get submittedEndUs(): number {
+    return this.lastSubmittedEnd;
+  }
+
+  /** The newest frame the encoder took and the session that took it (for Record Stop). */
+  tailMark(): TailMark {
+    return { lastTs: this.lastSubmittedTs, generation: this.lastSubmittedGen };
+  }
+
   epochInfo(epoch: number): EpochInfo | undefined {
     return this.infos.get(epoch);
   }
@@ -182,25 +250,33 @@ export class VideoSession {
   }
 
   /**
+   * Decides, before the caller paints a frame for ts, whether encode() will
+   * take it. The health check runs first, so a reset can empty a full queue.
+   * A refused frame is counted as dropped here; the caller must not call
+   * encode() for it. Painting a frame that the queue would drop wastes the
+   * compositor time that a struggling device needs.
+   */
+  admit(ts: number): boolean {
+    try {
+      if (this.ready(ts)) return true;
+    } catch (e) {
+      this.loseEncoder("encoder-error", `encoder check threw: ${describe(e)}`);
+    }
+    this.s.framesIn++;
+    this.drop();
+    return false;
+  }
+
+  /**
    * Submits one frame. The frame is always closed.
    * Returns true when the encoder took the frame, false when it was dropped.
    */
   encode(frame: VideoFrame): boolean {
     this.s.framesIn++;
     try {
-      if (this.closed || (!this.encoder && !this.openEncoder())) return this.drop();
-      let enc = this.encoder!;
-      const queued = enc.encodeQueueSize;
-      if (queued > this.s.encodeQueueMax) this.s.encodeQueueMax = queued;
-      if (queued >= MAX_ENCODE_QUEUE) return this.drop();
-
       const ts = frame.timestamp;
-      if (this.pendingKeyReqUs !== null && ts - this.pendingKeyReqUs >= KEYFRAME_STARVATION_US) {
-        this.s.starvations++;
-        this.hooks.onError("keyframe-starved", `no keyframe ${Math.round((ts - this.pendingKeyReqUs) / 1000)} ms after the request`);
-        if (!this.resetSession()) return this.drop();
-        enc = this.encoder!;
-      }
+      const enc = this.ready(ts);
+      if (!enc) return this.drop();
 
       const keyFrame = this.firstOfEpoch || ts - this.lastKeyUs >= KEYFRAME_INTERVAL_US - KEY_REQUEST_TOLERANCE_US;
       enc.encode(frame, { keyFrame });
@@ -210,6 +286,9 @@ export class VideoSession {
       }
       this.firstOfEpoch = false;
       this.lastSubmittedTs = ts;
+      const dur = frame.duration;
+      this.lastSubmittedEnd = ts + (dur !== null && dur !== undefined && dur > 0 ? dur : this.frameDurUs);
+      this.lastSubmittedGen = this.gen;
       this.firstEncodeAt ??= this.now();
       this.s.framesSubmitted++;
       return true;
@@ -223,22 +302,46 @@ export class VideoSession {
 
   /**
    * Flushes and closes the encoder (export or hidden, plan 7). The next frame
-   * opens a new encoder, which is a new epoch.
+   * opens a new encoder, which is a new epoch. A flush that does not finish in
+   * time closes the encoder anyway (it is hung) and reports an encoder error.
    */
   async closeEncoder(): Promise<void> {
     const enc = this.encoder;
     if (enc && enc.state === "configured") {
-      try {
-        await enc.flush();
-      } catch {
-        // A flush can fail when the encoder errors at the same time. The error callback reports it.
+      // A flush can fail when the encoder errors at the same time. The error callback reports it.
+      const settled = await settleWithin(enc.flush(), this.flushTimeoutMs);
+      if (!settled && this.encoder === enc) {
+        this.s.flushTimeouts++;
+        this.detach(enc);
+        this.finalizeEpoch();
+        this.hooks.onError("encoder-error", `flush did not finish in ${this.flushTimeoutMs} ms`);
+        return;
       }
     }
-    if (enc && this.encoder === enc) {
-      this.encoder = null;
-      safeClose(enc);
-    }
+    if (enc && this.encoder === enc) this.detach(enc);
     this.finalizeEpoch();
+  }
+
+  /**
+   * Record Stop (plan 8.3): true when the frame of `mark` and every frame
+   * before it are out of the encoder. A held delta at or before the mark is
+   * committed at once (the guard only ever drops a held keyframe, so this
+   * changes nothing else). A held keyframe stays held: it can be a lone IDR
+   * at an epoch end.
+   *
+   * With `giveUp`, it commits what is out and returns true. An encoder can
+   * keep its newest frame until the next input comes, and in a pause no input
+   * comes, so the caller gives up when no frame followed the stop.
+   */
+  releaseTail(mark: TailMark, giveUp = false): boolean {
+    if (mark.generation !== this.gen) return true; // That encoder session ended: its outputs are final.
+    if (this.sessionLastOutTs < mark.lastTs && !giveUp) return false;
+    const h = this.held;
+    if (h && h.type === "delta" && h.tsUs <= mark.lastTs) {
+      this.held = null;
+      this.commit(h);
+    }
+    return true;
   }
 
   /**
@@ -258,8 +361,7 @@ export class VideoSession {
   close(): void {
     this.closed = true;
     const enc = this.encoder;
-    this.encoder = null;
-    if (enc) safeClose(enc);
+    if (enc) this.detach(enc);
     this.held = null;
   }
 
@@ -268,6 +370,46 @@ export class VideoSession {
   private drop(): false {
     this.s.framesDropped++;
     return false;
+  }
+
+  /**
+   * Makes the encoder ready for a frame at ts, or returns null when the frame
+   * must be dropped. Opens the encoder when none is open. The health check
+   * runs before the backpressure check: reset() empties a full queue, so a
+   * hung encoder is recovered, not only dropped around.
+   */
+  private ready(ts: number): VideoEncoder | null {
+    if (this.closed) return null;
+    if (!this.encoder && !this.openEncoder()) return null;
+    const starved = this.starvation(ts);
+    if (starved) {
+      this.s.starvations++;
+      this.hooks.onError("keyframe-starved", starved);
+      if (!this.resetSession()) return null;
+    }
+    const enc = this.encoder;
+    if (!enc) return null;
+    const queued = enc.encodeQueueSize;
+    if (queued > this.s.encodeQueueMax) this.s.encodeQueueMax = queued;
+    return queued >= MAX_ENCODE_QUEUE ? null : enc;
+  }
+
+  /**
+   * Why the encoder session needs a reset at ts, or null when it is healthy or
+   * still warming. Both rules count from outputs that arrived, so a long but
+   * steady encoder latency is never taken for starvation.
+   */
+  private starvation(ts: number): string | null {
+    // Warming: no output yet. A reset would only start the cold start again (plan 5.1).
+    if (this.sessionOutputs === 0) return null;
+    // The encoder put out a delta for (or after) the requested frame: it skipped the request.
+    if (this.skippedAtTs !== null && ts - this.skippedAtTs >= KEYFRAME_STARVATION_US) {
+      return `no keyframe ${Math.round((ts - this.skippedAtTs) / 1000)} ms after the encoder skipped the request`;
+    }
+    if (ts - this.lastArrivalTs >= KEYFRAME_STARVATION_US) {
+      return `no output for ${Math.round((ts - this.lastArrivalTs) / 1000)} ms (the encoder stopped)`;
+    }
+    return null;
   }
 
   private openEncoder(): boolean {
@@ -309,12 +451,26 @@ export class VideoSession {
 
   private beginEpoch(): void {
     this.finalizeEpoch();
+    this.gen++;
     this.epoch = this.nextEpoch++;
     this.s.epochsStarted++;
     this.lengthSize = null;
     this.firstOfEpoch = true;
     this.lastKeyUs = -Infinity;
     this.pendingKeyReqUs = null;
+    this.sessionOutputs = 0;
+    this.sessionLastOutTs = -Infinity;
+    this.lastArrivalTs = -Infinity;
+    this.skippedAtTs = null;
+  }
+
+  /** Stops taking outputs from enc and closes it. */
+  private detach(enc: VideoEncoder): void {
+    if (this.encoder === enc) {
+      this.encoder = null;
+      this.gen++;
+    }
+    safeClose(enc);
   }
 
   private markUnusable(detail: string): void {
@@ -324,8 +480,7 @@ export class VideoSession {
 
   private loseEncoder(code: EngineErrorCode, detail: string): void {
     const enc = this.encoder;
-    this.encoder = null;
-    if (enc) safeClose(enc);
+    if (enc) this.detach(enc);
     this.finalizeEpoch();
     this.hooks.onError(code, detail);
   }
@@ -334,8 +489,7 @@ export class VideoSession {
     if (enc !== this.encoder) return;
     const name = (e as { name?: string } | null)?.name;
     if (name === "NotSupportedError") {
-      this.encoder = null;
-      safeClose(enc);
+      this.detach(enc);
       this.finalizeEpoch();
       this.markUnusable(describe(e));
       return;
@@ -345,6 +499,10 @@ export class VideoSession {
 
   private onOutput(enc: VideoEncoder, chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata): void {
     if (enc !== this.encoder || this.closed) return;
+    const ts = chunk.timestamp;
+    this.sessionOutputs++;
+    if (ts > this.sessionLastOutTs) this.sessionLastOutTs = ts;
+    this.lastArrivalTs = this.lastSubmittedTs;
     if (meta?.decoderConfig) this.acceptConfig(meta.decoderConfig);
     if (!this.infos.has(this.epoch)) {
       this.s.unusableOutputs++;
@@ -354,12 +512,16 @@ export class VideoSession {
     chunk.copyTo(data);
     const verdict = classifyChunk(data, chunk.type, this.lengthSize);
     if (verdict.mismatch) this.s.keyMismatches++;
-    const ts = chunk.timestamp;
     if (ts < this.lastOutTs) this.s.outOfOrder++;
     else this.lastOutTs = ts;
     if (verdict.key) {
-      if (this.pendingKeyReqUs !== null && ts >= this.pendingKeyReqUs) this.pendingKeyReqUs = null;
+      if (this.pendingKeyReqUs !== null && ts >= this.pendingKeyReqUs) {
+        this.pendingKeyReqUs = null;
+        this.skippedAtTs = null;
+      }
       this.lastKeyUs = Math.max(this.lastKeyUs, ts);
+    } else if (this.pendingKeyReqUs !== null && ts >= this.pendingKeyReqUs) {
+      this.skippedAtTs ??= this.lastSubmittedTs;
     }
     if (this.s.ttfcMs === null && this.firstEncodeAt !== null) this.s.ttfcMs = this.now() - this.firstEncodeAt;
     if (ts < this.purgeBeforeUs) return;
@@ -381,6 +543,7 @@ export class VideoSession {
       codedHeight: dc.codedHeight ?? this.config.height,
       description: dc.description ? copyToArrayBuffer(dc.description) : new ArrayBuffer(0),
     };
+    if (dc.colorSpace) info.colorSpace = copyColorSpace(dc.colorSpace);
     const current = this.infos.get(this.epoch);
     if (current) {
       if (sameDecoderConfig(current, info)) return;
@@ -392,7 +555,7 @@ export class VideoSession {
     }
     this.infos.set(this.epoch, info);
     this.lengthSize = parseAvcC(info.description)?.lengthSize ?? null;
-    this.hooks.onEpoch({ ...info, description: info.description.slice(0) });
+    this.hooks.onEpoch(copyEpochInfo(info));
   }
 
   // ---- epoch boundary guard ----
@@ -425,6 +588,23 @@ export class VideoSession {
     this.s.framesEncoded++;
     this.hooks.onPacket(p);
   }
+}
+
+/** A plain copy of a color space (a VideoColorSpace object or an init dictionary). */
+function copyColorSpace(cs: VideoColorSpaceInit): VideoColorSpaceInit {
+  return {
+    primaries: cs.primaries ?? null,
+    transfer: cs.transfer ?? null,
+    matrix: cs.matrix ?? null,
+    fullRange: cs.fullRange ?? null,
+  };
+}
+
+/** A private copy of an epoch: new description bytes and a new color space object. */
+export function copyEpochInfo(info: EpochInfo): EpochInfo {
+  const out: EpochInfo = { ...info, description: info.description.slice(0) };
+  if (info.colorSpace) out.colorSpace = { ...info.colorSpace };
+  return out;
 }
 
 function safeClose(enc: VideoEncoder): void {

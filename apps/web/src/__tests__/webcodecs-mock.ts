@@ -14,6 +14,11 @@
  *   MediaCodec to a long GOP). Set honorKeyFrameRequests to false.
  * - A chunk can say "key" without an IDR NAL unit (mediabunny #365).
  * - Codec reclamation closes the encoder with a QuotaExceededError.
+ * - A stalled encoder (stall(true)) takes no work: encodeQueueSize grows and
+ *   flush() does not settle. reset() and close() empty the queue and reject
+ *   the pending flush, as the spec says.
+ * - decoderConfig carries the encoder's color space (BT.709 limited range by
+ *   default, as Chromium reports it).
  * - WebKit AudioEncoder returns esds box bytes as the AAC description
  *   (WebKit 302253) and drops the first 1024 input samples.
  * - The AAC fakes are a delay line. The fake decoder returns the input
@@ -47,6 +52,11 @@ export interface FakeVideoEncoderBehavior {
   avcCVariant: number;
   /** Codec strings that isConfigSupported and configure accept. */
   supportedCodec: RegExp;
+  /**
+   * The color space the encoder reports in decoderConfig, or null for none.
+   * Each encoder family converts RGB input with its own matrix and range.
+   */
+  colorSpace: VideoColorSpaceInit | null;
 }
 
 export interface WebCodecsMockOptions {
@@ -122,6 +132,7 @@ function defaultVideoBehavior(): FakeVideoEncoderBehavior {
     reorder: false,
     avcCVariant: 0,
     supportedCodec: /^avc1\.[0-9a-fA-F]{6}$/,
+    colorSpace: { primaries: "bt709", transfer: "bt709", matrix: "bt709", fullRange: false },
   };
 }
 
@@ -653,6 +664,7 @@ export class FakeVideoEncoder extends EventTarget {
           codedWidth: cfg.width,
           codedHeight: cfg.height,
           description: fakeAvcC(cfg.width, cfg.height, this.behavior.avcCVariant, cfg.codec),
+          ...(this.behavior.colorSpace ? { colorSpace: { ...this.behavior.colorSpace } } : {}),
         },
       };
     }

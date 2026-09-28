@@ -10,8 +10,9 @@ import {
   type RecordTeeMsg,
   type VideoEncoderChoice,
 } from "../../../protocol";
-import type { AacKind } from "../audio/aac";
-import { createEncodeWorker, type EncodeWorker } from "../encode.worker";
+import { AAC_FRAME, PRE_PAD_FRAMES, PRIMING_CONSTANTS, type AacBackend, type AacKind } from "../audio/aac";
+import { createAacBackend } from "../audio/aacBackends";
+import { TEE_VIDEO_IDLE_MS, createEncodeWorker, type EncodeWorker, type EncodeWorkerDeps } from "../encode.worker";
 
 const CAPS: Capabilities = {
   tier: "W",
@@ -77,7 +78,7 @@ afterEach(() => {
   mock.uninstall();
 });
 
-function harness(kinds: AacKind[] = ["native"]): Harness {
+function harness(kinds: AacKind[] = ["native"], extra: Partial<EncodeWorkerDeps> = {}): Harness {
   let page = 0;
   const events: Harness["events"] = [];
   const timers = new Map<number, { fn: () => void; ms: number }>();
@@ -91,6 +92,7 @@ function harness(kinds: AacKind[] = ["native"]): Harness {
     },
     clearInterval: (h) => timers.delete(h as number),
     aacKinds: async () => kinds,
+    ...extra,
   });
   return { worker, events, pageNow: () => page, setPage: (ms) => (page = ms), timers, audioPort: new FakePort() };
 }
@@ -121,9 +123,15 @@ const ofType = <T extends EncodeEvent["t"]>(h: Harness, t: T) =>
  * audio stream (a 1 kHz tone) with anchors every 250 ms and 2048-frame batches
  * through the audio port, and the audio timer.
  */
-async function play(h: Harness, fromMs: number, toMs: number, opts: { audio?: boolean; frames?: boolean; pausedMs?: number } = {}) {
+async function play(
+  h: Harness,
+  fromMs: number,
+  toMs: number,
+  opts: { audio?: boolean; frames?: boolean; pausedMs?: number; signal?: (streamFrame: number) => number } = {},
+) {
   const audio = opts.audio ?? true;
   const frames = opts.frames ?? true;
+  const signal = opts.signal ?? ((f: number) => Math.sin((2 * Math.PI * 1000 * f) / 48000) * (8000 / 32767));
   for (let t = fromMs; t < toMs; t += 10) {
     h.setPage(t);
     // Capture time skips removed pauses (plan 6.2).
@@ -137,7 +145,7 @@ async function play(h: Harness, fromMs: number, toMs: number, opts: { audio?: bo
       const framesNow = Math.floor((t / 1000) * 48000);
       while ((sent + 1) * 2048 <= framesNow) {
         const pcm = new Int16Array(4096);
-        for (let f = 0; f < 2048; f++) pcm[f * 2] = pcm[f * 2 + 1] = Math.round(8000 * Math.sin((2 * Math.PI * 1000 * (sent * 2048 + f)) / 48000));
+        for (let f = 0; f < 2048; f++) pcm[f * 2] = pcm[f * 2 + 1] = Math.round(32767 * signal(sent * 2048 + f));
         const batch: PcmBatch = { t: "pcm", streamId: "page", firstFrame: sent * 2048, sampleRate: 48000, data: pcm.buffer };
         h.audioPort.deliver(batch);
         sent++;
@@ -171,16 +179,98 @@ async function clip(h: Harness, seconds: number): Promise<{ packets: ClipPackets
   return { packets: (ev.e as Extract<EncodeEvent, { t: "clipReady" }>).packets, transfer: ev.transfer };
 }
 
+/** Reads the left channel of a fake AAC packet (the delay-line fake: header, then Int16 interleaved). */
+function fakePacketLeft(data: ArrayBuffer): Float32Array {
+  const view = new DataView(data);
+  const frames = view.getUint32(4);
+  const out = new Float32Array(frames);
+  for (let f = 0; f < frames; f++) out[f] = view.getInt16(8 + f * 4, true) / 32768;
+  return out;
+}
+
+/** The capture time (us) of the loudest decoded sample of a clip's audio, placed by each packet's own timestamp. */
+function loudestAudioUs(clip: ClipPackets): number {
+  let best = 0;
+  let at = -1;
+  for (const p of clip.audio) {
+    const left = fakePacketLeft(p.data);
+    for (let k = 0; k < left.length; k++) {
+      if (Math.abs(left[k]) > best) {
+        best = Math.abs(left[k]);
+        at = p.tsUs + (k * 1e6) / 48000;
+      }
+    }
+  }
+  return at;
+}
+
 describe("encode worker", () => {
-  it("arms with the measured priming and starts its timers", async () => {
+  it("arms with the measured priming (not the constant), and every clip carries and uses it", async () => {
+    mock.uninstall();
+    // A delay that is not the 2114 constant, so a measured value and the fallback differ.
+    mock = installWebCodecsMock({ audioEncoderDelay: 1600 });
     const h = harness();
     await armed(h);
-    expect(ofType(h, "armed")).toEqual([{ t: "armed", video: VIDEO, primingSamples: 2114 }]);
+    expect(ofType(h, "armed")).toEqual([{ t: "armed", video: VIDEO, primingSamples: 1600 }]);
     expect([...h.timers.values()].map((t) => t.ms).sort((a, b) => a - b)).toEqual([40, 1000]);
     expect(h.worker.armed).toBe(true);
+    await play(h, ORIGIN, ORIGIN + 2000);
+    const { packets } = await clip(h, 5);
+    expect(packets.primingSamples).toBe(1600);
+    // The first stream starts at output frame 0: its packets sit on the grid of D = 1600 + 1024
+    // (offset 576 in each 1024-frame packet; the constant would give 66).
+    const d = 1600 + PRE_PAD_FRAMES;
+    expect(packets.audio.length).toBeGreaterThan(80);
+    for (const p of packets.audio) {
+      const frame = Math.round((p.tsUs * 48000) / 1e6);
+      expect((((frame + d) % AAC_FRAME) + AAC_FRAME) % AAC_FRAME).toBe(0);
+    }
     await h.worker.handle({ t: "disarm" });
     expect(h.timers.size).toBe(0);
     expect(h.audioPort.closed).toBe(true);
+  });
+
+  it("puts a game sound at the capture time of the frame drawn with it (A/V sync through the whole worker)", async () => {
+    mock.uninstall();
+    mock = installWebCodecsMock({ audioEncoderDelay: 1600 });
+    const h = harness();
+    await armed(h);
+    // The page's context time equals page time here, so stream frame 120000 is page 2500 ms: capture 1.5 s.
+    const beepAt = 2.5 * 48000;
+    const beep = (f: number) => (Math.abs(f - beepAt) > 40 ? 0 : 0.8 * Math.exp(-((f - beepAt) ** 2) / 72));
+    await play(h, ORIGIN, ORIGIN + 3000, { signal: beep });
+    const { packets } = await clip(h, 10);
+    expect(packets.audio.length).toBeGreaterThan(100);
+    // Within 0.5 ms (the plan's gate is 5 ms). A priming off by the constant would move it 10.7 ms.
+    expect(Math.abs(loudestAudioUs(packets) - 1_500_000)).toBeLessThan(500);
+    await h.worker.handle({ t: "disarm" });
+  });
+
+  it("does not calibrate the WASM encoder: its delay is fixed at 1024", async () => {
+    const made: AacKind[] = [];
+    const h = harness(["wasm"], {
+      createAacBackend: (kind, sink) => {
+        made.push(kind);
+        return createAacBackend("native", sink).then((b) => Object.assign(b, { kind }) as AacBackend);
+      },
+    });
+    await armed(h);
+    expect(ofType(h, "armed")[0].primingSamples).toBe(PRIMING_CONSTANTS.wasm);
+    // No calibration run: the only backend made is the live stream's.
+    await play(h, ORIGIN, ORIGIN + 300);
+    expect(mock.audioDecoders).toHaveLength(0);
+    expect(made).toEqual(["wasm"]);
+    await h.worker.handle({ t: "disarm" });
+  });
+
+  it("uses the constant when the calibration is not plausible (a decoder that drops a whole frame)", async () => {
+    mock.uninstall();
+    // Encoder 2114 as measured; a platform decoder that drops its first 1024 samples reads 1090.
+    mock = installWebCodecsMock({ audioEncoderDelay: 2114 - 1024 });
+    const h = harness();
+    await armed(h);
+    expect(ofType(h, "armed")[0].primingSamples).toBe(PRIMING_CONSTANTS.native);
+    await h.worker.handle({ t: "disarm" });
   });
 
   it("uses the arm override for the priming (tests and replays)", async () => {
@@ -266,26 +356,34 @@ describe("encode worker", () => {
     expect(ofType(h, "clipReady")[0].packets).toMatchObject({ requestId: "x", coveredSec: 0, video: [] });
   });
 
-  it("closes the encoders when hidden and resumes on a new epoch with gapless audio", async () => {
+  it("closes both encoders when hidden, opens none while hidden, and resumes on a new epoch with gapless audio", async () => {
     const h = harness();
     await armed(h);
-    await play(h, ORIGIN, ORIGIN + 2000);
-    h.setPage(ORIGIN + 2000);
-    await h.worker.handle({ t: "timeline", state: "paused", atPerfMs: ORIGIN + 2000 });
+    // Pause at a point that is not on a mix block boundary: the mixer keeps rendering the pre-pause tail.
+    await play(h, ORIGIN, ORIGIN + 2070);
+    h.setPage(ORIGIN + 2070);
+    await h.worker.handle({ t: "timeline", state: "paused", atPerfMs: ORIGIN + 2070 });
+    const live = mock.audioEncoders.filter((e) => e.state === "configured");
+    expect(live).toHaveLength(1); // the stream's encoder (the calibration encoder is long closed)
     await h.worker.handle({ t: "closeEncoder", reason: "hidden" });
     expect(mock.videoEncoders[0].state).toBe("closed");
-    expect(mock.audioEncoders.some((e) => e.state === "closed")).toBe(true);
+    expect(live[0].state).toBe("closed");
+    // Still hidden: audio ticks run (the stream delivers the tail), but no AAC encoder opens (plan 7.1).
+    await play(h, ORIGIN + 2080, ORIGIN + 3000, { frames: false });
+    expect(mock.audioEncoders.every((e) => e.state !== "configured")).toBe(true);
     h.setPage(ORIGIN + 3000);
     await h.worker.handle({ t: "timeline", state: "live", atPerfMs: ORIGIN + 3000 });
-    await play(h, ORIGIN + 3000, ORIGIN + 5000, { pausedMs: 1000 });
+    await play(h, ORIGIN + 3000, ORIGIN + 5000, { pausedMs: 930 });
+    expect(mock.audioEncoders.filter((e) => e.state === "configured")).toHaveLength(1);
     expect(ofType(h, "epoch").map((e) => e.info.epoch)).toEqual([0, 1]);
+    expect(ofType(h, "error")).toEqual([]);
     const { packets } = await clip(h, 10);
     // Two identical epochs splice: the clip covers both sides of the pause.
     expect(packets.cutToNewestEpoch).toBe(false);
     expect(packets.startUs).toBe(0);
     for (let i = 1; i < packets.audio.length; i++) expect(packets.audio[i].tsUs - packets.audio[i - 1].tsUs).toBeGreaterThanOrEqual(21_333);
     for (let i = 1; i < packets.audio.length; i++) expect(packets.audio[i].tsUs - packets.audio[i - 1].tsUs).toBeLessThanOrEqual(21_334);
-    // The paused second is gone from the capture timeline: about 4 s of content.
+    // The paused 0.93 s is gone from the capture timeline: about 4 s of content.
     expect(packets.coveredSec).toBeLessThan(4.1);
     await h.worker.handle({ t: "disarm" });
   });
@@ -324,25 +422,52 @@ describe("encode worker", () => {
     await h.worker.handle({ t: "disarm" });
   });
 
-  it("tees Record packets to the io worker port, one chunk per GOP, then end", async () => {
+  it("tees Record packets to the io worker port, one chunk per GOP, keeps the frames still inside the encoder at Stop, then end", async () => {
     const h = harness();
     await armed(h);
     await play(h, ORIGIN, ORIGIN + 1500);
     const port = new FakePort();
     await h.worker.handle({ t: "record", on: true, recordingId: "rec", port: port as unknown as MessagePort });
     await play(h, ORIGIN + 1500, ORIGIN + 4200);
+    const calls = mock.videoEncoders[0].encodeCalls;
+    const lastBeforeStop = calls[calls.length - 1].timestamp;
     await h.worker.handle({ t: "record", on: false });
-    await play(h, ORIGIN + 4200, ORIGIN + 4600, { frames: false });
+    // Stop during play: frames go on, and push the tail out of the encoder.
+    await play(h, ORIGIN + 4200, ORIGIN + 4600);
     const msgs = port.posted.map((p) => p.msg);
     expect(msgs[msgs.length - 1]).toMatchObject({ t: "end", recordingId: "rec" });
     const chunks = msgs.flatMap((m) => (m.t === "chunk" ? [m.packets] : []));
     expect(chunks.length).toBeGreaterThanOrEqual(3);
+    // Every chunk starts at a keyframe: none is audio-only.
+    expect(chunks.every((c) => c.video.length > 0 && c.video[0].type === "key")).toBe(true);
     const video = chunks.flatMap((c) => c.video);
     expect(video[0]).toMatchObject({ type: "key", tsUs: 1_000_000 - 10 });
     for (let i = 1; i < video.length; i++) expect(video[i].tsUs).toBeGreaterThan(video[i - 1].tsUs);
+    // The last frame given to the encoder before Stop (inside it at Stop, and then held by the guard) is in.
+    expect(video[video.length - 1].tsUs).toBe(lastBeforeStop);
     const audio = chunks.flatMap((c) => c.audio);
     for (let i = 1; i < audio.length; i++) expect(audio[i].tsUs - audio[i - 1].tsUs).toBeGreaterThanOrEqual(21_333);
-    expect(audio[audio.length - 1].tsUs).toBeGreaterThan(3.1e6);
+    expect(audio[audio.length - 1].tsUs + 21_333).toBeGreaterThanOrEqual(lastBeforeStop);
+    await h.worker.handle({ t: "disarm" });
+  });
+
+  it("finishes a Record stopped in the pause menu at once, with video in its last chunk", async () => {
+    const h = harness();
+    await armed(h);
+    const port = new FakePort();
+    await h.worker.handle({ t: "record", on: true, recordingId: "rec", port: port as unknown as MessagePort });
+    await play(h, ORIGIN, ORIGIN + 1530);
+    h.setPage(ORIGIN + 1530);
+    await h.worker.handle({ t: "timeline", state: "paused", atPerfMs: ORIGIN + 1530 });
+    await h.worker.handle({ t: "record", on: false });
+    // In the pause no frame comes. The tee gives up on the frame the encoder keeps after 200 ms,
+    // and the audio the encoder keeps (its lookahead) is not waited for.
+    await play(h, ORIGIN + 1540, ORIGIN + 1540 + TEE_VIDEO_IDLE_MS + 100, { frames: false });
+    const msgs = port.posted.map((p) => p.msg);
+    expect(msgs[msgs.length - 1]).toMatchObject({ t: "end", recordingId: "rec" });
+    const chunks = msgs.flatMap((m) => (m.t === "chunk" ? [m.packets] : []));
+    expect(chunks.every((c) => c.video.length > 0)).toBe(true);
+    expect(chunks[chunks.length - 1].audio.length).toBeGreaterThan(0);
     await h.worker.handle({ t: "disarm" });
   });
 
@@ -416,12 +541,18 @@ describe("encode worker", () => {
     await slow.handle({ t: "disarm" });
   });
 
-  it("does not paint frames after the device refused the video config", async () => {
+  it("stops the whole pipeline when the device refuses the video config after configure returned: no armed, no audio", async () => {
+    // The normal WebCodecs path: configure() does not throw, the error callback says NotSupportedError later.
     mock.video.supportedCodec = /^never$/;
     const h = harness();
     await armed(h);
     await flushMicrotasks();
+    for (let i = 0; i < 500; i++) await Promise.resolve(); // let the audio setup finish its awaits
     expect(ofType(h, "error").map((e) => e.code)).toEqual(["config-unsupported"]);
+    // A state machine that moves on "armed" must never see it after the refusal.
+    expect(ofType(h, "armed")).toEqual([]);
+    expect(h.timers.size).toBe(0);
+    expect(mock.audioEncoders.every((e) => e.state !== "configured")).toBe(true);
     const opsBefore = mock.canvases[0].context.ops.length;
     await h.worker.handle(frameCmd(0));
     await h.worker.handle(frameCmd(33_333));
@@ -429,6 +560,81 @@ describe("encode worker", () => {
     expect(ofType(h, "consumed")).toHaveLength(2);
     h.worker.postStats();
     expect(ofType(h, "stats").pop()!.stats.framesDropped).toBe(2);
+    await h.worker.handle({ t: "disarm" });
+  });
+
+  it("refuses an arm whose preset size is not the encoder's coded size", async () => {
+    const h = harness();
+    h.setPage(ORIGIN);
+    await h.worker.handle(armCmd(h, { preset: { ...PRESETS.wide, targetFps: 30, orientation: "wide" } }));
+    expect(ofType(h, "error")).toEqual([expect.objectContaining({ code: "config-unsupported", detail: expect.stringMatching(/1280x720.*720x1280/) })]);
+    expect(h.worker.armed).toBe(false);
+    expect(mock.videoEncoders).toHaveLength(0);
+    await h.worker.handle(frameCmd(0));
+    expect(ofType(h, "consumed")).toHaveLength(1);
+  });
+
+  it("does not paint a frame that the encoder queue would drop", async () => {
+    const h = harness();
+    await armed(h);
+    await play(h, ORIGIN, ORIGIN + 200, { audio: false });
+    mock.videoEncoders[0].stall(true);
+    await h.worker.handle(frameCmd(300_000));
+    await h.worker.handle(frameCmd(333_333));
+    const opsBefore = mock.canvases[0].context.ops.length;
+    await h.worker.handle(frameCmd(366_666));
+    await h.worker.handle(frameCmd(400_000));
+    expect(mock.canvases[0].context.ops.length).toBe(opsBefore);
+    expect(ofType(h, "consumed").length).toBeGreaterThanOrEqual(4);
+    h.worker.postStats();
+    expect(ofType(h, "stats").pop()!.stats.framesDropped).toBe(2);
+    mock.videoEncoders[0].stall(false);
+    await h.worker.handle({ t: "disarm" });
+  });
+
+  it("answers a clip after closeEncoder even when the encoder hangs in its flush", async () => {
+    const h = harness(["native"], { flushTimeoutMs: 30 });
+    await armed(h);
+    await play(h, ORIGIN, ORIGIN + 1000, { audio: false });
+    mock.videoEncoders[0].stall(true);
+    const closing = h.worker.handle({ t: "closeEncoder", reason: "export" });
+    const frame = h.worker.handle(frameCmd(1_000_000));
+    const clipped = h.worker.handle({ t: "clip", requestId: "after", seconds: 5 });
+    const started = Date.now();
+    await Promise.all([closing, frame, clipped]);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(ofType(h, "clipReady").map((c) => c.packets.requestId)).toEqual(["after"]);
+    expect(ofType(h, "clipReady")[0].packets.video.length).toBeGreaterThan(20);
+    expect(ofType(h, "consumed").length).toBeGreaterThanOrEqual(31);
+    expect(ofType(h, "error").map((e) => e.code)).toEqual(["encoder-error"]);
+    // The frame after the close opened a new encoder (a new epoch).
+    expect(mock.videoEncoders).toHaveLength(2);
+    await h.worker.handle({ t: "disarm" });
+  });
+
+  it("keeps the video of a clip while the AAC backend is still loading (no game sounds, said with a null config)", async () => {
+    let load: (b: AacBackend) => void = () => {};
+    let makeReal: () => Promise<AacBackend> = async () => null as unknown as AacBackend;
+    const h = harness(["native"], {
+      createAacBackend: (kind, sink) =>
+        new Promise<AacBackend>((resolve) => {
+          makeReal = () => createAacBackend(kind, sink);
+          load = resolve;
+        }),
+    });
+    await armed(h, { primingSamples: 2114 });
+    await play(h, ORIGIN, ORIGIN + 2000);
+    const { packets } = await clip(h, 5);
+    expect(packets.video.length).toBeGreaterThan(50);
+    expect(packets.coveredSec).toBeGreaterThan(1.8);
+    expect(packets.audio).toEqual([]);
+    expect(packets.audioConfig).toBeNull();
+    // The backend arrives: the AAC session catches up the backlog from the PCM ring.
+    load(await makeReal());
+    await play(h, ORIGIN + 2000, ORIGIN + 3000);
+    const later = (await clip(h, 10)).packets;
+    expect(later.audioConfig).not.toBeNull();
+    expect(later.audio[0].tsUs).toBeLessThan(0);
     await h.worker.handle({ t: "disarm" });
   });
 

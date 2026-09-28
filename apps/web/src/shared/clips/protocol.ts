@@ -218,6 +218,12 @@ export type EncodeCmd =
   /** Start teeing packets to the io worker. It gets RecordTeeMsg on the port. */
   | { t: "record"; on: true; recordingId: string; port: MessagePort }
   | { t: "record"; on: false; recordingId?: string }
+  /**
+   * Flush and close the encoders (plan 7, 7.1). "hidden" also closes the AAC
+   * encoder, and no AAC encoder opens again until the next "timeline" live
+   * or frame. Send the "timeline" pause first: the worker queue holds later
+   * messages during the flush (at most FLUSH_TIMEOUT_MS per codec).
+   */
   | { t: "closeEncoder"; reason: "export" | "hidden" }
   | { t: "purge" }
   | { t: "disarm" };
@@ -251,6 +257,13 @@ export interface EpochInfo {
   codedHeight: number;
   /** avcC bytes (video). */
   description: ArrayBuffer;
+  /**
+   * The color space the encoder reports in its decoderConfig (plan 5.1). Each
+   * encoder family converts the RGB canvas with its own matrix and range, so
+   * the muxer writes the colr box from this value. Absent when the encoder
+   * reports none. Two epochs with different values never splice.
+   */
+  colorSpace?: VideoColorSpaceInit;
 }
 
 /** The packets and configs for one clip, handed to the io worker for muxing. */
@@ -259,13 +272,20 @@ export interface ClipPackets {
   video: PacketDTO[];
   audio: PacketDTO[];
   videoEpochs: EpochInfo[];
-  /** AAC AudioSpecificConfig, always rebuilt (WebKit 302253). */
+  /**
+   * AAC AudioSpecificConfig, always rebuilt (WebKit 302253). null when the
+   * clip has no audio packets: the session has no AAC encoder, or its encoder
+   * had no packets for this span yet (loading or stalled). The clip then has
+   * no game sounds.
+   */
   audioConfig: { codec: "mp4a.40.2"; sampleRate: number; numberOfChannels: number; description: ArrayBuffer } | null;
   /**
    * Encoder delay P in samples (plan 6.4). The audio timestamps already carry
    * the -P shift, so the first packets start before startUs and the edit list
-   * follows from the timestamps. Use P for the sgpd/sbgp roll-group patch and
-   * diagnostics, not to shift the timestamps again.
+   * follows from the timestamps. P can change between the AAC streams of one
+   * clip (a switch from native to WASM), so only the per-packet timestamps are
+   * right. Use P for the sgpd/sbgp roll-group patch and diagnostics, never to
+   * shift the timestamps again.
    */
   primingSamples: number;
   startUs: number;

@@ -3,6 +3,7 @@ import type { ClockAnchor, PcmBatch } from "../../../protocol";
 import {
   MIX_BLOCK_FRAMES,
   Mixer,
+  PRUNE_MS,
   SEAM_FADE_FRAMES,
   STALL_MS,
   antiAliasTaps,
@@ -17,20 +18,31 @@ const SR = 48000;
 /**
  * A simulated tap stream. Its AudioContext clock runs at (1 + drift) against
  * the page clock. The worklet posts a 2048-frame batch when the context time
- * reaches the end of the batch. The main thread takes an anchor every 250 ms,
- * with currentTime quantized to 128-frame render quanta.
+ * reaches the end of the batch. The main thread takes an anchor about every
+ * 250 ms. currentTime moves in whole bursts: 128 frames on most desktops,
+ * 480-1920 frames on Windows WASAPI and Android. The anchor read falls at a
+ * random point inside a burst (main-thread timers are not phase-locked to the
+ * audio thread).
+ *
+ * The truth (what the mixer must find): a game that starts a sound at page
+ * time p gets the frame currentTime(p). So a sound that starts on stream frame
+ * n (a burst boundary) was started, on average, half a burst after the
+ * context clock reached n: at perfOfFrame(n + burst / 2).
  */
 class SimStream {
   readonly id: string;
   readonly sr: number;
   readonly drift: number;
+  readonly burst: number;
   /** Page time (ms) at which the context time was ctxStartSec. */
   readonly startPerf: number;
   readonly ctxStartSec: number;
   /** Realm clock offset: realm now() = page now() - offset. */
   readonly realmOffsetMs: number;
   private nextBatch = 0;
-  private nextAnchorPerf: number;
+  private nextAnchorBase: number;
+  private nextAnchorRead: number;
+  private seed: number;
   alive = true;
   signal: (frame: number) => number;
 
@@ -38,48 +50,64 @@ class SimStream {
     id: string;
     sr?: number;
     drift?: number;
+    burst?: number;
     startPerf: number;
     ctxStartSec?: number;
     realmOffsetMs?: number;
+    seed?: number;
     signal: (frame: number) => number;
   }) {
     this.id = o.id;
     this.sr = o.sr ?? SR;
     this.drift = o.drift ?? 0;
+    this.burst = o.burst ?? 128;
     this.startPerf = o.startPerf;
     this.ctxStartSec = o.ctxStartSec ?? 0;
     this.realmOffsetMs = o.realmOffsetMs ?? 0;
     this.signal = o.signal;
-    this.nextAnchorPerf = o.startPerf;
+    this.seed = o.seed ?? 12345;
+    this.nextAnchorBase = o.startPerf;
+    this.nextAnchorRead = o.startPerf;
     this.nextBatch = Math.ceil((this.ctxStartSec * this.sr) / 2048);
+  }
+
+  /** A deterministic uniform number in [0, 1). */
+  private random(): number {
+    this.seed = (this.seed * 16807) % 2147483647;
+    return this.seed / 2147483647;
   }
 
   ctxAt(perf: number): number {
     return this.ctxStartSec + ((perf - this.startPerf) / 1000) * (1 + this.drift);
   }
 
-  /** Page time at which the stream plays its frame n (the truth the mixer must find). */
+  /** Page time at which the context clock reaches its frame n. */
   perfOfFrame(n: number): number {
     return this.startPerf + ((n / this.sr - this.ctxStartSec) * 1000) / (1 + this.drift);
+  }
+
+  /** Where the mixer must put a sound that starts on stream frame n, in output frames from originPerf. */
+  truthFrame(n: number, originPerf: number): number {
+    return ((this.perfOfFrame(n + this.burst / 2) - originPerf) / 1000) * SR;
   }
 
   /** Delivers every batch and anchor due at page time `perf`. */
   pump(perf: number, mixer: Mixer, jitterMs = 0.4): void {
     if (!this.alive) return;
-    while (this.nextAnchorPerf <= perf) {
-      const p = this.nextAnchorPerf;
-      const quantum = Math.floor((this.ctxAt(p) * this.sr) / 128) * 128;
-      const jitter = (Math.sin(p * 12.9898) * 43758.5453) % 1;
+    while (this.nextAnchorRead <= perf) {
+      const p = this.nextAnchorRead;
+      const quantum = Math.floor((this.ctxAt(p) * this.sr) / this.burst) * this.burst;
       const anchor: ClockAnchor = {
         t: "anchor",
         streamId: this.id,
-        perfMs: p + jitter * jitterMs - this.realmOffsetMs,
+        perfMs: p + this.random() * jitterMs - this.realmOffsetMs,
         ctxTimeSec: quantum / this.sr,
         timeOriginOffsetMs: this.realmOffsetMs,
         state: "running",
       };
       mixer.anchor(anchor);
-      this.nextAnchorPerf += 250;
+      this.nextAnchorBase += 250;
+      this.nextAnchorRead = this.nextAnchorBase + this.random() * (this.burst / this.sr) * 1000;
     }
     const framesNow = Math.floor(this.ctxAt(perf) * this.sr);
     while ((this.nextBatch + 1) * 2048 <= framesNow) {
@@ -95,6 +123,18 @@ class SimStream {
       this.nextBatch++;
     }
   }
+}
+
+/**
+ * Timing error (output frames) of each pulse peak against the truth. The
+ * pulses sit on multiples of `every` stream frames.
+ */
+function timingErrors(peaks: Array<{ frame: number }>, s: SimStream, every: number, originPerf = 1000): number[] {
+  return peaks.map((p) => {
+    const perf = originPerf + (p.frame / SR) * 1000;
+    const n = Math.round((s.ctxAt(perf) * s.sr) / every) * every;
+    return p.frame - s.truthFrame(n, originPerf);
+  });
 }
 
 /** A Gaussian pulse centered on every multiple of `every` frames. */
@@ -234,7 +274,7 @@ describe("anti-alias low-pass (streams above 50 kHz)", () => {
     const s = new SimStream({ id: "hi", sr: 96000, startPerf: 1000, signal: pulses(96000, 0.8, 12) });
     const peaks = findPeaks(run(m, [s], 1000, 7000));
     expect(peaks.length).toBeGreaterThanOrEqual(5);
-    for (const p of peaks) expect(Math.abs(p.frame - Math.round(p.frame / SR) * SR)).toBeLessThan(24);
+    for (const e of timingErrors(peaks, s, 96000)) expect(Math.abs(e)).toBeLessThan(24);
   });
 });
 
@@ -256,11 +296,42 @@ describe("StreamClock", () => {
     const c = new StreamClock();
     c.anchor(1000, 0);
     c.anchor(1250, 0.25);
-    c.anchor(1500, 0.25); // suspended: context frozen
+    c.anchor(1250, 0.25); // a repeat of the same read changes nothing
+    expect(c.locked).toBe(true);
+    c.anchor(1500, 0.25); // suspended: context frozen while page time runs on
     expect(c.resyncs).toBe(1);
+    expect(c.locked).toBe(false);
     c.anchor(9000, 0.5); // resumed much later
     expect(c.resyncs).toBe(2);
     expect(c.perfAtCtx(0.5)).toBeCloseTo(9000, 6);
+  });
+
+  it("takes one late read as an outlier, and two moved reads in a row as a jump", () => {
+    const c = new StreamClock();
+    for (let i = 0; i < 40; i++) c.anchor(1000 + i * 250, i * 0.25);
+    // A 60 ms main-thread pause between the two reads of one anchor.
+    c.anchor(1000 + 40 * 250 + 60, 40 * 0.25);
+    expect(c.resyncs).toBe(1);
+    expect(c.outliers).toBe(1);
+    c.anchor(1000 + 41 * 250, 41 * 0.25);
+    expect(c.perfAtCtx(41 * 0.25)).toBeCloseTo(1000 + 41 * 250, 3);
+    // The context stalled for 80 ms with no state message: every later read is 80 ms later.
+    c.anchor(1000 + 42 * 250 + 80, 42 * 0.25);
+    expect(c.resyncs).toBe(1);
+    c.anchor(1000 + 43 * 250 + 80, 43 * 0.25);
+    expect(c.resyncs).toBe(2);
+    expect(c.perfAtCtx(44 * 0.25)).toBeCloseTo(1000 + 44 * 250 + 80, 3);
+  });
+
+  it("starts a new line at the mean of the first reads, not at one read", () => {
+    const c = new StreamClock();
+    // 40 ms bursts: each read is 0-40 ms after the burst start. The first read sits at the late edge.
+    const late = [39, 5, 21, 33, 2, 17, 28, 11, 36, 8, 24, 14, 30, 19, 3, 26];
+    late.forEach((d, i) => c.anchor(1000 + i * 250 + d, i * 0.25));
+    const mean = late.reduce((a, b) => a + b, 0) / late.length;
+    expect(Math.abs(c.perfAtCtx(15 * 0.25) - (1000 + 15 * 250 + mean))).toBeLessThan(3);
+    expect(c.resyncs).toBe(1);
+    expect(c.outliers).toBe(0);
   });
 
   it("treats a context clock that goes back as a new context", () => {
@@ -309,20 +380,53 @@ describe("Mixer", () => {
         }
         finder.push(out);
       });
-      // The truth: the pulse at stream frame n plays at page time perfOfFrame(n).
-      const errors = finder.peaks.map((p) => {
-        const n = Math.round(s.ctxAt(1000 + (p.frame / SR) * 1000)) * SR;
-        return p.frame - ((s.perfOfFrame(n) - 1000) / 1000) * SR;
-      });
+      const errors = timingErrors(finder.peaks, s, SR);
       // 10 minutes of output, minus the latency and watermark margin.
       expect(blocks).toBeGreaterThan(Math.floor((599.9 * SR) / MIX_BLOCK_FRAMES));
       expect(errors.length).toBeGreaterThan(590);
-      // Skip the lock-in second. Every later pulse lands within 0.5 ms of the truth (the plan allows 5 ms).
-      const settled = errors.slice(2);
-      expect(Math.max(...settled.map(Math.abs))).toBeLessThan(24);
-      // One resync: the first lock. Drift never forced a jump.
+      // Skip the lock-in seconds. Every later pulse lands within 1 ms of the truth (the plan allows 5 ms).
+      const settled = errors.slice(10);
+      expect(Math.max(...settled.map(Math.abs))).toBeLessThan(48);
+      // One resync: the first lock. Drift never forced a jump, and the clock line never reset.
+      expect(m.stats.resyncs).toBe(1);
+      expect(m.stats.clockResets).toBe(1);
+      expect(m.stats.underrunFrames).toBe(0);
+    },
+    60_000,
+  );
+
+  // Windows WASAPI (480 frames), Android (960-1920 frames): currentTime steps by whole bursts,
+  // so each anchor is up to 40 ms late. The line must average that, not jump on it.
+  it.each([
+    { burst: 480, minutes: 2, drift: 100e-6 },
+    { burst: 960, minutes: 2, drift: 100e-6 },
+    { burst: 1920, minutes: 10, drift: 50e-6 },
+  ])(
+    "keeps a clock with $burst-frame bursts on time for $minutes minutes: no resets, no jumps, contiguous",
+    ({ burst, minutes, drift }) => {
+      const m = new Mixer();
+      m.setTimeline("live", 1000);
+      const s = new SimStream({ id: "page", burst, drift, startPerf: 500, ctxStartSec: 3, seed: burst, signal: pulses(SR) });
+      let nextStart = 0;
+      const finder = new PeakFinder();
+      run(m, [s], 1000, 1000 + minutes * 60_000, 20, (out) => {
+        for (const b of out) {
+          expect(b.startFrame).toBe(nextStart);
+          nextStart += MIX_BLOCK_FRAMES;
+        }
+        finder.push(out);
+      });
+      expect(nextStart / SR).toBeGreaterThan(minutes * 60 - 0.2);
+      // The line never reset and the resampler never jumped (a jump is a click): one lock at the start.
+      expect(m.stats.clockResets).toBe(1);
       expect(m.stats.resyncs).toBe(1);
       expect(m.stats.underrunFrames).toBe(0);
+      const errors = timingErrors(finder.peaks, s, SR);
+      expect(errors.length).toBeGreaterThan(minutes * 60 - 2);
+      // After the first 20 s (the start average), every pulse is within the plan's 5 ms.
+      const settled = errors.slice(20).map(Math.abs);
+      expect(Math.max(...settled)).toBeLessThan(0.005 * SR);
+      expect(settled.reduce((a, b) => a + b, 0) / settled.length).toBeLessThan(0.0025 * SR);
     },
     60_000,
   );
@@ -335,10 +439,7 @@ describe("Mixer", () => {
     expectContiguous(blocks);
     const peaks = findPeaks(blocks);
     expect(peaks.length).toBeGreaterThanOrEqual(9);
-    for (const p of peaks) {
-      const nearestSecond = Math.round(p.frame / SR);
-      expect(Math.abs(p.frame - nearestSecond * SR)).toBeLessThan(24);
-    }
+    for (const e of timingErrors(peaks, s, 44100)) expect(Math.abs(e)).toBeLessThan(24);
   });
 
   it("places an iframe stream by its realm time origin", () => {
@@ -349,7 +450,7 @@ describe("Mixer", () => {
     const blocks = run(m, [iframe], 1000, 6000);
     const peaks = findPeaks(blocks);
     expect(peaks.length).toBeGreaterThanOrEqual(4);
-    for (const p of peaks) expect(Math.abs(p.frame - Math.round(p.frame / SR) * SR)).toBeLessThan(24);
+    for (const e of timingErrors(peaks, iframe, SR)) expect(Math.abs(e)).toBeLessThan(24);
   });
 
   it("gives a wrong answer if the realm offset is dropped (control for the test above)", () => {
@@ -481,5 +582,64 @@ describe("Mixer", () => {
     m.pushPcm({ t: "pcm", streamId: "x", firstFrame: 0, sampleRate: 0, data: new ArrayBuffer(8) });
     m.pushPcm({ t: "pcm", streamId: "x", firstFrame: 0, sampleRate: SR, data: new ArrayBuffer(6) });
     expect(m.stats.streams).toBe(0);
+  });
+
+  it("frees a stream at once on a closed anchor, and prunes streams that went silent with no message", () => {
+    const m = new Mixer();
+    m.setTimeline("live", 1000);
+    const keep = new SimStream({ id: "keep", startPerf: 1000, signal: () => 0.1 });
+    // 50 iframe realms come and go (an emulator reload per ROM change). Half say "closed", half just vanish.
+    for (let i = 0; i < 50; i++) {
+      const id = `realm-${i}`;
+      m.anchor({ t: "anchor", streamId: id, perfMs: 1000, ctxTimeSec: 0, timeOriginOffsetMs: 0, state: "running" });
+      m.pushPcm({ t: "pcm", streamId: id, firstFrame: 0, sampleRate: SR, data: new Int16Array(4096).buffer });
+    }
+    expect(m.stats.streams).toBe(50);
+    run(m, [keep], 1000, 1500);
+    for (let i = 0; i < 25; i++) {
+      m.anchor({ t: "anchor", streamId: `realm-${i}`, perfMs: 1500, ctxTimeSec: 0.5, timeOriginOffsetMs: 0, state: "closed" });
+    }
+    expect(m.stats.streams).toBe(26);
+    run(m, [keep], 1520, 1500 + PRUNE_MS + 500);
+    // Only the live stream is left. It kept its data and is still mixed.
+    expect(m.stats.streams).toBe(1);
+    expect(m.stats.contributing).toBe(1);
+  });
+
+  it("puts a stream back on time after a short suspend, with no state reply needed from the line", () => {
+    // The context stops for 30 ms (below the jump threshold) and says so with a "suspended" anchor.
+    // The next running anchor starts a new line, so the audio after the resume is on time at once.
+    const m = new Mixer();
+    m.setTimeline("live", 1000);
+    const stopAt = 3000;
+    const stopMs = 30;
+    const ctxAt = (perf: number) => (perf < stopAt ? perf - 1000 : perf < stopAt + stopMs ? stopAt - 1000 : perf - 1000 - stopMs) / 1000;
+    const pulseFrame = 2.5 * SR; // a sound on stream frame 120000, played after the resume
+    const shifted = (f: number) => {
+      const d = f - pulseFrame;
+      return Math.abs(d) > 40 ? 0 : 0.8 * Math.exp(-(d * d) / 72);
+    };
+    let batch = 0;
+    let nextAnchor = 1000;
+    const finder = new PeakFinder();
+    for (let t = 1000; t <= 6000; t += 10) {
+      while (nextAnchor <= t) {
+        m.anchor({ t: "anchor", streamId: "p", perfMs: nextAnchor, ctxTimeSec: ctxAt(nextAnchor), timeOriginOffsetMs: 0, state: "running" });
+        nextAnchor += 250;
+      }
+      if (t === stopAt) m.anchor({ t: "anchor", streamId: "p", perfMs: t, ctxTimeSec: ctxAt(t), timeOriginOffsetMs: 0, state: "suspended" });
+      if (t === stopAt + stopMs) m.anchor({ t: "anchor", streamId: "p", perfMs: t, ctxTimeSec: ctxAt(t), timeOriginOffsetMs: 0, state: "running" });
+      while ((batch + 1) * 2048 <= Math.floor(ctxAt(t) * SR)) {
+        const pcm = new Int16Array(4096);
+        for (let f = 0; f < 2048; f++) pcm[f * 2] = pcm[f * 2 + 1] = Math.round(shifted(batch * 2048 + f) * 32767);
+        m.pushPcm({ t: "pcm", streamId: "p", firstFrame: batch * 2048, sampleRate: SR, data: pcm.buffer });
+        batch++;
+      }
+      finder.push(m.render(t));
+    }
+    // The truth: stream frame 120000 plays at page 1000 + 2500 + 30 ms, capture 2.53 s.
+    expect(finder.peaks).toHaveLength(1);
+    expect(Math.abs(finder.peaks[0].frame - 2.53 * SR)).toBeLessThan(24);
+    expect(m.stats.clockResets).toBe(2);
   });
 });

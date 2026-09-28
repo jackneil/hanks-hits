@@ -14,19 +14,37 @@
  * - With D = P + 1024, packet i of a stream whose first real frame is k2
  *   holds the audio of frames [k2 - D + 1024 i, k2 - D + 1024 (i + 1)).
  *   That frame index is the packet timestamp. It already includes the -P
- *   shift of plan 6.4.
+ *   shift of plan 6.4. P can change from one stream to the next (a switch
+ *   from native to WASM), so this session is the only owner of the shift.
  *
  * The AudioSpecificConfig is always rebuilt (WebKit 302253 returns esds box
  * bytes as the description). The encoder's own description is never used.
+ *
+ * Flow control: the session feeds at most FEED_AHEAD_FRAMES past the packets
+ * that came out. A backlog (a backend that loads late, a restart pre-roll)
+ * waits in the PCM ring, and each pump sends the next part, so the encoder
+ * catches up at its own speed and is never flooded.
+ *
+ * Health, in worker time: a stream with work inside and no packet for
+ * AAC_STALL_MS is stalled. A backlog above BEHIND_FRAMES that does not shrink
+ * for BEHIND_MS means the encoder cannot keep up with real time. Each of these
+ * fails the stream. Three failures of one kind in FAILURE_WINDOW_MS move the
+ * session to the next kind. A backend that is not ready in BACKEND_START_MS
+ * moves the session to the next kind at once (the last kind waits).
  *
  * A restart (encoder error, reclaim, iOS hidden) is gapless. The new stream
  * starts earlier with real audio from the PCM ring (pre-roll), on a packet
  * grid that meets the old grid at the splice point. The ring keeps old
  * packets before the splice and new packets from it, so the packet line is
  * always contiguous and never overlaps.
+ *
+ * iOS hidden (plan 7.1): suspend() flushes and closes the stream at once, and
+ * no stream starts until resume(). The PCM ring keeps filling, and the next
+ * stream encodes that audio from the splice.
  */
 
 import { AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, type ClipPackets } from "../../../protocol";
+import { FLUSH_TIMEOUT_MS, settleWithin } from "../deadline";
 
 export const AAC_FRAME = 1024;
 /** Silence fed at every configure (plan section 5). */
@@ -225,8 +243,9 @@ export interface AacSink {
 }
 
 /**
- * Most audio a backend may hold unencoded. A device that cannot encode AAC in
- * real time fails the stream instead of growing memory without limit.
+ * Last guard on the audio a backend holds unencoded. The session's flow
+ * control keeps a backend near FEED_AHEAD_FRAMES, so this fires only on a
+ * runaway caller, never on a catch-up.
  */
 export const MAX_BACKLOG_FRAMES = 10 * AUDIO_SAMPLE_RATE;
 
@@ -244,6 +263,39 @@ export type AacBackendFactory = (kind: AacKind, sink: AacSink) => Promise<AacBac
 // ---------------------------------------------------------------------------
 // Session
 // ---------------------------------------------------------------------------
+
+/** Flow control: the most audio fed past the packets that came out (1 s). */
+export const FEED_AHEAD_FRAMES = AUDIO_SAMPLE_RATE;
+/**
+ * Audio inside the encoder above this is work in progress, not lookahead.
+ * Real encoders hold about 2048-3200 frames of lookahead; this is about 170 ms.
+ */
+export const STALL_LAG_FRAMES = 8 * AAC_FRAME;
+/** Work in progress with no packet for this long (worker time) is a stalled encoder. */
+export const AAC_STALL_MS = 2000;
+/** Unfed audio above this is a backlog (5 s). */
+export const BEHIND_FRAMES = 5 * AUDIO_SAMPLE_RATE;
+/** A backlog that does not shrink by 1 s in this time means the encoder cannot keep up with real time. */
+export const BEHIND_MS = 10_000;
+/**
+ * A backend that is not ready in this time gives way to the next kind (a hung
+ * import or init). The last kind has no time limit: nothing better is left.
+ */
+export const BACKEND_START_MS = 10_000;
+/** Failures of one kind inside this window move the session to the next kind. Longer than every detection time. */
+export const FAILURE_WINDOW_MS = 60_000;
+/** Failures of one kind (inside the window) that move the session to the next kind. */
+export const FAILURES_TO_SWITCH = 3;
+/**
+ * At a flush (iOS hidden), packets from this far before the end of the fed
+ * audio are dropped and encoded again by the next stream. The MDCT window of
+ * a packet spans two frames, and the encoder looks one more frame ahead, so a
+ * packet closer to the end saw the silence that the flush pads. Its aliasing
+ * would not cancel against the next stream's first packet (a 21 ms artifact).
+ */
+export const SPLICE_MARGIN_FRAMES = 2 * AAC_FRAME;
+/** Frames per encode call. */
+const FEED_CHUNK = 8192;
 
 interface Stream {
   id: number;
@@ -264,6 +316,12 @@ interface Stream {
   lastEnd: number | null;
   backend: AacBackend | null;
   state: "starting" | "running" | "ending" | "dead";
+  /** Worker time when the stream began to start (backend creation). */
+  startedAt: number;
+  /** Worker time of the last sign of progress (a packet, or little work inside). */
+  progressAt: number;
+  /** A backlog above BEHIND_FRAMES: when it began (or last shrank by 1 s), and its size then. */
+  behind: { at: number; unfed: number } | null;
 }
 
 export interface AacSessionOptions {
@@ -277,8 +335,10 @@ export interface AacSessionOptions {
   /** Each packet that enters the ring (for the Record tee). */
   onPacket?: (p: AudioPacket) => void;
   onError: (code: "audio-encoder-missing" | "audio-encoder-error", detail: string) => void;
-  /** Clock for the failure window, in milliseconds. */
+  /** Worker clock in milliseconds, for the failure window and the health checks. */
   now?: () => number;
+  /** Longest wait for a flush in closeStream. Default FLUSH_TIMEOUT_MS. */
+  flushTimeoutMs?: number;
 }
 
 export interface AacSessionStats {
@@ -289,15 +349,10 @@ export interface AacSessionStats {
   packets: number;
 }
 
-/** Failures of one kind inside this window move the session to the next kind. */
-const FAILURE_WINDOW_MS = 10_000;
-const FAILURES_TO_SWITCH = 3;
-/** Frames per encode call. */
-const FEED_CHUNK = 8192;
-
 export class AacSession {
   private readonly o: AacSessionOptions;
   private readonly now: () => number;
+  private readonly flushTimeoutMs: number;
   private kindIndex = 0;
   private stream: Stream | null = null;
   private streamIds = 0;
@@ -308,13 +363,16 @@ export class AacSession {
   private failureTimes: number[] = [];
   private failures = 0;
   private disabled = false;
+  private suspendedNow = false;
   private packets = 0;
+  private lastPumpAt = -Infinity;
   /** A stream that is flushing. No new stream starts until it is done. */
   private closing: { stream: Stream; done: Promise<void> } | null = null;
 
   constructor(options: AacSessionOptions) {
     this.o = options;
     this.now = options.now ?? (() => performance.now());
+    this.flushTimeoutMs = options.flushTimeoutMs ?? FLUSH_TIMEOUT_MS;
     if (options.kinds.length === 0) this.disable("no AAC encoder is available");
   }
 
@@ -332,24 +390,52 @@ export class AacSession {
     return !this.disabled;
   }
 
+  /** True between suspend() and resume(). */
+  get suspended(): boolean {
+    return this.suspendedNow;
+  }
+
   get stats(): AacSessionStats {
     return { kind: this.kind, streams: this.streamIds, failures: this.failures, disabled: this.disabled, packets: this.packets };
   }
 
-  /** Feeds every PCM frame that is ready. Starts a stream when none is running. */
+  /**
+   * Feeds the PCM frames that are ready, up to the flow-control limit, and
+   * checks the stream's health. Starts a stream when none is running. Call it
+   * on every audio tick, also when no new audio came: a catch-up and the
+   * health checks move forward on each call.
+   */
   pump(): void {
     // While a stream flushes, its splice point is not known yet. The next pump after the flush starts the new stream.
-    if (this.disabled || this.closing) return;
+    if (this.disabled || this.closing || this.suspendedNow) return;
+    const t = this.now();
+    // A worker that did not run (a frozen tab) saw no packets either. That gap is no evidence of a stall.
+    const woke = t - this.lastPumpAt > AAC_STALL_MS;
+    this.lastPumpAt = t;
     const pcmEnd = this.o.pcm.endFrame;
     if (pcmEnd === null) return;
     if (!this.stream) {
-      this.startStream();
+      this.startStream(t);
       return;
     }
     const st = this.stream;
+    if (st.state === "starting") {
+      if (woke) st.startedAt = t;
+      // A kind that does not load in time gives way to the next kind. The last kind waits: a slow
+      // first load of the WASM chunk is no failure, and clips keep their video meanwhile.
+      const hasNext = this.kindIndex + 1 < this.o.kinds.length;
+      if (hasNext && t - st.startedAt > BACKEND_START_MS) {
+        this.failStream(st, new Error(`the ${st.kind} backend was not ready after ${BACKEND_START_MS} ms`), true);
+      }
+      return;
+    }
     if (st.state !== "running" || !st.backend) return;
+    if (woke) {
+      st.progressAt = t;
+      st.behind = null;
+    }
     try {
-      while (st.fed < pcmEnd) {
+      while (st.fed < pcmEnd && st.fed - nextPacketFrame(st) < FEED_AHEAD_FRAMES) {
         const n = Math.min(FEED_CHUNK, pcmEnd - st.fed);
         const [left, right] = planar(this.o.pcm.read(st.fed, n));
         st.fed += n;
@@ -357,10 +443,30 @@ export class AacSession {
       }
     } catch (e) {
       this.failStream(st, e);
+      return;
     }
+    this.checkHealth(st, pcmEnd, t);
   }
 
-  /** Flushes and closes the current stream (iOS hidden). The next pump splices a new one. */
+  /**
+   * iOS hidden (plan 7.1): flushes and closes the current stream at once, and
+   * starts no new stream until resume(). The PCM ring keeps filling.
+   */
+  async suspend(): Promise<void> {
+    this.suspendedNow = true;
+    await this.closeStream();
+  }
+
+  /** Allows new streams again. The next pump splices a stream on the audio in the ring. */
+  resume(): void {
+    this.suspendedNow = false;
+  }
+
+  /**
+   * Flushes and closes the current stream. The next pump splices a new one.
+   * A flush that does not finish in time closes the backend anyway and counts
+   * as a failure of its kind.
+   */
   async closeStream(): Promise<void> {
     if (this.closing) return this.closing.done;
     const st = this.stream;
@@ -372,20 +478,18 @@ export class AacSession {
       this.keepStartOf(st);
       return;
     }
-    st.endCut = gridFloor(st, st.fed);
+    st.endCut = gridFloor(st, st.fed) - SPLICE_MARGIN_FRAMES;
     st.state = "ending";
     const done = (async () => {
-      try {
-        await backend.flush();
-      } catch {
-        // A failed flush loses only the tail. The splice below uses what reached the ring.
-      }
+      // A failed flush loses only the tail. The splice below uses what reached the ring.
+      const settled = await settleWithin(backend.flush(), this.flushTimeoutMs);
       safeCloseBackend(backend);
       // A purge or an error during the flush already settled this stream.
       if (st.state === "dead") return;
       st.state = "dead";
       // Splice on what really reached the ring. A failed flush can leave it short of the end cut.
       this.setSpliceFrom(st, st.lastEnd);
+      if (!settled) this.countFailure(st.kind, `AAC ${st.kind} encoder: the flush did not finish in ${this.flushTimeoutMs} ms`, false);
     })();
     this.closing = { stream: st, done };
     try {
@@ -416,7 +520,24 @@ export class AacSession {
 
   // ---------------------------------------------------------------------------
 
-  private startStream(): void {
+  private checkHealth(st: Stream, pcmEnd: number, t: number): void {
+    // An encode call can fail the stream at once through the sink.
+    if (this.stream !== st || st.state !== "running") return;
+    const lag = st.fed - nextPacketFrame(st);
+    if (lag <= STALL_LAG_FRAMES) st.progressAt = t;
+    else if (t - st.progressAt > AAC_STALL_MS) {
+      this.failStream(st, new Error(`no packet for ${Math.round(t - st.progressAt)} ms with ${lag} frames inside`));
+      return;
+    }
+    const unfed = pcmEnd - st.fed;
+    if (unfed <= BEHIND_FRAMES) st.behind = null;
+    else if (!st.behind || unfed <= st.behind.unfed - AUDIO_SAMPLE_RATE) st.behind = { at: t, unfed };
+    else if (t - st.behind.at > BEHIND_MS) {
+      this.failStream(st, new Error(`cannot keep up: ${(unfed / AUDIO_SAMPLE_RATE).toFixed(1)} s of audio waits`));
+    }
+  }
+
+  private startStream(t: number): void {
     const kind = this.o.kinds[this.kindIndex];
     const delay = (this.o.primingSamples[kind] ?? PRIMING_CONSTANTS[kind]) + PRE_PAD_FRAMES;
     let k2: number;
@@ -431,7 +552,22 @@ export class AacSession {
       k2 = this.firstFrame ?? this.o.pcm.startFrame ?? 0;
       cut = -Infinity;
     }
-    const st: Stream = { id: ++this.streamIds, kind, delay, k2, fed: k2, index: 0, cut, endCut: Infinity, lastEnd: null, backend: null, state: "starting" };
+    const st: Stream = {
+      id: ++this.streamIds,
+      kind,
+      delay,
+      k2,
+      fed: k2,
+      index: 0,
+      cut,
+      endCut: Infinity,
+      lastEnd: null,
+      backend: null,
+      state: "starting",
+      startedAt: t,
+      progressAt: t,
+      behind: null,
+    };
     this.stream = st;
     const sink: AacSink = {
       packet: (data) => this.onPacket(st, data),
@@ -445,6 +581,7 @@ export class AacSession {
         }
         st.backend = backend;
         st.state = "running";
+        st.progressAt = this.now();
         try {
           const pad = new Float32Array(PRE_PAD_FRAMES);
           backend.encode(pad, pad.slice());
@@ -461,6 +598,7 @@ export class AacSession {
   private onPacket(st: Stream, data: ArrayBuffer): void {
     if (st.state === "dead" || st.state === "starting") return;
     const ts = st.k2 - st.delay + AAC_FRAME * st.index++;
+    st.progressAt = this.now();
     if (ts < st.cut || ts >= st.endCut) return;
     const p: AudioPacket = { tsFrames: ts, data, stream: st.id };
     st.lastEnd = ts + AAC_FRAME;
@@ -476,11 +614,24 @@ export class AacSession {
     if (st.backend) safeCloseBackend(st.backend);
     if (wasCurrent) this.stream = null;
     this.setSpliceFrom(st, st.lastEnd);
+    this.countFailure(st.kind, `AAC ${st.kind} encoder: ${describe(e)}`, creation);
+  }
+
+  /**
+   * Counts a failure of one kind. A kind that cannot load, or that fails
+   * FAILURES_TO_SWITCH times in FAILURE_WINDOW_MS, gives way to the next kind.
+   * With no kind left, audio is off for the session.
+   */
+  private countFailure(kind: AacKind, detail: string, creation: boolean): void {
     this.failures++;
+    // A late failure of a kind the session already left changes nothing more.
+    if (this.disabled || kind !== this.o.kinds[this.kindIndex]) {
+      if (!this.disabled) this.o.onError("audio-encoder-error", detail);
+      return;
+    }
     const t = this.now();
     this.failureTimes = this.failureTimes.filter((x) => t - x < FAILURE_WINDOW_MS);
     this.failureTimes.push(t);
-    const detail = `AAC ${st.kind} encoder: ${describe(e)}`;
     if (creation || this.failureTimes.length >= FAILURES_TO_SWITCH) {
       this.failureTimes = [];
       this.kindIndex++;
@@ -507,6 +658,11 @@ export class AacSession {
     this.disabled = true;
     this.o.onError("audio-encoder-missing", detail);
   }
+}
+
+/** Timestamp (output frame) of the next packet the stream will put out. */
+function nextPacketFrame(st: Stream): number {
+  return st.k2 - st.delay + AAC_FRAME * st.index;
 }
 
 /** Largest packet timestamp on the stream's grid at or before `frame`. */

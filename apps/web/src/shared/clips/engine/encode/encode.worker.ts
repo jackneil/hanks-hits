@@ -7,8 +7,16 @@
  *   "clip" -> assembleClip -> "clipReady" (buffers transferred)
  *
  * Every message goes through one serial queue, so commands apply in the order
- * they were sent. Most steps are synchronous. Only "arm" (priming
- * calibration) and "closeEncoder" (flush) wait.
+ * they were sent. Most steps are synchronous. Only "closeEncoder" waits (the
+ * flushes), and each flush has a time limit (FLUSH_TIMEOUT_MS), so a hung
+ * codec never stops the queue. While a flush runs, the audio timer does not
+ * mix: the timeline commands wait in the queue behind the flush, and a mix
+ * from an old timeline would put audio at the wrong capture time. Send the
+ * "timeline" pause before "closeEncoder" for the same reason.
+ *
+ * Arm opens the video encoder at once. The priming calibration runs beside
+ * the queue, so frames flow at once. "armed" follows when the audio setup is
+ * done, and never when the device refused the video config.
  *
  * The worker posts "consumed" after every frame message, also when it drops
  * the frame, so the frame pump on the main thread never loses its count.
@@ -22,7 +30,7 @@ import { AUDIO_SAMPLE_RATE } from "../../protocol";
 import { AacPacketRing, AacSession, PRIMING_CONSTANTS, PcmRing, type AacBackendFactory, type AacKind } from "./audio/aac";
 import { createAacBackend, nativeAacSupported } from "./audio/aacBackends";
 import { Mixer } from "./audio/mixer";
-import { measurePriming } from "./audio/priming";
+import { measurePriming, plausiblePriming } from "./audio/priming";
 import { RecordTee, assembleClip, type AudioSource } from "./clipAssembler";
 import { Compositor, CompositorInputError, type SurfaceFactory } from "./compositor";
 import { GopRing, VIDEO_RING_BYTE_CEILING } from "./gopRing";
@@ -47,12 +55,14 @@ export interface EncodeWorkerDeps {
   audioTickMs?: number;
   /** Stats period. Default 1000 ms. */
   statsIntervalMs?: number;
+  /** Longest wait for a codec flush. Default FLUSH_TIMEOUT_MS. */
+  flushTimeoutMs?: number;
 }
 
 export interface EncodeWorker {
   /** Queues one message. The promise settles when the worker has handled it. */
   handle(message: EncodeCmd | PcmBatch): Promise<void>;
-  /** Mixes the audio that is ready and feeds the AAC encoder (the audio timer calls this). */
+  /** Mixes the audio that is ready and feeds the AAC encoder (the audio timer calls this). Does nothing during a flush. */
   tickAudio(): void;
   /** Posts a "stats" event now (the stats timer calls this). */
   postStats(): void;
@@ -78,10 +88,16 @@ interface Session {
   audioPurgeFrame: number;
   /** An unexpected compositor failure is reported once, then only counted. */
   compositorFailureReported: boolean;
+  /** The page is hidden (closeEncoder "hidden"): no AAC stream may start until play resumes. */
+  hidden: boolean;
+  /** The device refused the video config. The session only waits for disarm. */
+  dead: boolean;
 }
 
 /** Most history the worker keeps when arm asks for none or for nonsense. */
 const DEFAULT_RING_SECONDS = 60;
+/** Record Stop with no frame after it (a pause): the tee stops waiting for the encoder's newest frame after this. */
+export const TEE_VIDEO_IDLE_MS = 200;
 
 async function defaultAacKinds(arm: ArmCmd): Promise<AacKind[]> {
   const kinds: AacKind[] = [];
@@ -102,6 +118,8 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
 
   let session: Session | null = null;
   let queue: Promise<void> = Promise.resolve();
+  /** Flushes in progress. The audio timer does not mix while one runs (see the header). */
+  let flushing = 0;
 
   function handle(message: EncodeCmd | PcmBatch): Promise<void> {
     const step = queue.then(() => process(message));
@@ -117,19 +135,20 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
       case "pixels":
         return frame(m);
       case "anchor":
-        if (session) {
+        if (session && !session.dead) {
           session.pageClock.observe(m.perfMs + m.timeOriginOffsetMs, now());
           session.mixer.anchor(m);
         }
         return;
       case "pcm":
-        session?.mixer.pushPcm(m);
+        if (session && !session.dead) session.mixer.pushPcm(m);
         return;
       case "timeline":
-        if (session) {
+        if (session && !session.dead) {
           session.pageClock.observe(m.atPerfMs, now());
           session.mixer.setTimeline(m.state, m.atPerfMs);
-          tickAudio();
+          if (m.state === "live") resumeAudio(session);
+          mix(session);
         }
         return;
       case "clip":
@@ -145,8 +164,16 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
     }
   }
 
-  async function arm(cmd: ArmCmd): Promise<void> {
+  function arm(cmd: ArmCmd): void {
     if (session) disarm();
+    // One source of truth for the coded frame: the compositor canvas must be the encoder's size.
+    if (cmd.video.width !== cmd.preset.width || cmd.video.height !== cmd.preset.height) {
+      error(
+        "config-unsupported",
+        `preset ${cmd.preset.width}x${cmd.preset.height} does not match the encoder size ${cmd.video.width}x${cmd.video.height}`,
+      );
+      return;
+    }
     const ringSeconds = cmd.ringSeconds > 0 && Number.isFinite(cmd.ringSeconds) ? cmd.ringSeconds : DEFAULT_RING_SECONDS;
     let compositor: Compositor;
     try {
@@ -171,9 +198,13 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
           current?.tee?.onVideo(p);
         },
         onEpoch: (info) => post({ t: "epoch", info }, [info.description]),
-        onError: (code, detail) => error(code, detail),
+        onError: (code, detail) => {
+          error(code, detail);
+          // The device cannot encode this config (often reported after configure returned).
+          if (code === "config-unsupported" && current) shutDown(current);
+        },
       },
-      { now },
+      { now, flushTimeoutMs: deps.flushTimeoutMs },
     );
     const s: Session = {
       arm: cmd,
@@ -199,23 +230,37 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
       framesRejected: 0,
       audioPurgeFrame: -Infinity,
       compositorFailureReported: false,
+      hidden: false,
+      dead: false,
     };
     current = s;
     session = s;
     if (cmd.audioPort) {
       cmd.audioPort.onmessage = (ev: MessageEvent) => {
-        if (session === s) void handle(ev.data as PcmBatch);
+        if (session === s && !s.dead) void handle(ev.data as PcmBatch);
       };
     }
     // Open the encoder now, so an unsupported config is reported at arm, not at the first frame.
-    if (!s.video.start()) return;
+    if (!s.video.start() || s.dead) return;
     s.timers.push(setTimer(tickAudio, deps.audioTickMs ?? 40), setTimer(postStats, deps.statsIntervalMs ?? 1000));
     // Priming calibration takes 50-300 ms. It runs beside the queue, so frames flow at once and
     // the mixer fills the PCM ring meanwhile. The AAC session encodes that backlog when it starts.
     void setupAudio(s, cmd);
   }
 
+  /** Stops the pipeline of a session the device cannot encode: no timers, no audio, no "armed". */
+  function shutDown(s: Session): void {
+    if (s.dead) return;
+    s.dead = true;
+    for (const t of s.timers) clearTimer(t);
+    s.timers = [];
+    s.aac?.close();
+    s.aac = null;
+    if (s.arm.audioPort) s.arm.audioPort.onmessage = null;
+  }
+
   async function setupAudio(s: Session, cmd: ArmCmd): Promise<void> {
+    const alive = () => session === s && !s.dead && !s.video.failed;
     try {
       let kinds: AacKind[] = [];
       try {
@@ -223,15 +268,15 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
       } catch {
         kinds = [];
       }
-      if (session !== s) return;
+      if (!alive()) return;
       const priming: Partial<Record<AacKind, number>> = {};
       if (cmd.primingSamples !== undefined) {
         for (const k of kinds) priming[k] = cmd.primingSamples;
-      } else if (kinds[0]) {
-        const kind = kinds[0];
-        const measured = await measurePriming((sink) => backendFactory(kind, sink));
-        if (session !== s) return;
-        priming[kind] = measured ?? PRIMING_CONSTANTS[kind];
+      } else if (kinds[0] === "native") {
+        // Only native is calibrated: the WASM delay is fixed by the pinned FFmpeg encoder (1024).
+        const measured = await measurePriming((sink) => backendFactory("native", sink));
+        if (!alive()) return;
+        priming.native = plausiblePriming(measured, PRIMING_CONSTANTS.native) ?? PRIMING_CONSTANTS.native;
       }
       s.aac = new AacSession({
         kinds,
@@ -242,12 +287,22 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
         onPacket: (p) => s.tee?.onAudio(p),
         onError: (code, detail) => error(code, detail),
         now,
+        flushTimeoutMs: deps.flushTimeoutMs,
       });
+      // Hidden while the setup ran: no stream until play resumes (plan 7.1).
+      if (s.hidden) void s.aac.suspend();
       tickAudio();
       post({ t: "armed", video: cmd.video, primingSamples: s.aac.primingSamples });
     } catch (e) {
-      if (session === s) error("audio-encoder-missing", `audio setup: ${describe(e)}`);
+      if (alive()) error("audio-encoder-missing", `audio setup: ${describe(e)}`);
     }
+  }
+
+  /** Play resumed after a hidden close: AAC streams may start again. */
+  function resumeAudio(s: Session): void {
+    if (!s.hidden) return;
+    s.hidden = false;
+    s.aac?.resume();
   }
 
   function frame(m: FrameIn): void {
@@ -261,6 +316,13 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
       if (s.video.failed) {
         // The device cannot encode this config (already reported). Do not paint frames for nothing.
         s.framesRejected++;
+        if (m.t === "frame") m.frame.close();
+        return;
+      }
+      // A frame after a hidden close means play is back (the first frame after the hidden close).
+      resumeAudio(s);
+      // Do not paint a frame that the encoder queue would drop. The session counts the drop.
+      if (!s.video.admit(m.tsUs)) {
         if (m.t === "frame") m.frame.close();
         return;
       }
@@ -304,7 +366,7 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
       });
       return;
     }
-    tickAudio();
+    mix(s);
     const built = assembleClip(m, {
       ring: s.ring,
       epochInfo: (e) => s.video.epochInfo(e),
@@ -324,7 +386,7 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
     const s = session;
     if (!s) return;
     if (m.on) {
-      s.tee?.stop(s.ring.endUs, false);
+      s.tee?.stop(s.ring.endUs, { wait: false });
       const port = m.port;
       s.tee = new RecordTee({
         recordingId: m.recordingId,
@@ -335,28 +397,44 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
         audio: s.aac && !s.aac.enabled ? null : s.audioSource,
         seed: s.ring.newest?.packets ?? null,
         now,
+        live: () => s.mixer.timeline.live,
       });
     } else if (s.tee) {
-      tickAudio();
-      s.tee.stop(s.ring.endUs);
+      mix(s);
+      // Stop at the end of the newest frame the encoder took. Frames still inside the encoder
+      // (and the packet the epoch guard holds) still reach the recording.
+      const mark = s.video.tailMark();
+      const stopMs = now();
+      const stopAt = Number.isFinite(s.video.submittedEndUs) ? s.video.submittedEndUs : s.ring.endUs;
+      // In a pause no frame follows the stop, and the encoder can keep its newest frame until one does.
+      const noFrameSince = () => s.video.tailMark().lastTs === mark.lastTs && now() - stopMs >= TEE_VIDEO_IDLE_MS;
+      s.tee.stop(Number.isFinite(stopAt) ? stopAt : 0, { videoTailDone: () => s.video.releaseTail(mark, noFrameSince()) });
       if (s.tee.finished) s.tee = null;
     }
   }
 
   async function closeEncoder(reason: "export" | "hidden"): Promise<void> {
     const s = session;
-    if (!s) return;
-    await s.video.closeEncoder();
-    if (reason === "hidden" && s.aac) {
-      tickAudio();
-      await s.aac.closeStream();
+    if (!s || s.dead) return;
+    flushing++;
+    try {
+      if (reason === "hidden") s.hidden = true;
+      await s.video.closeEncoder();
+      if (reason === "hidden" && session === s) {
+        // Plan 7.1: iOS hidden closes both encoders at once. Mix what is ready first, so the
+        // flush takes it; the rest waits in the PCM ring for the next stream.
+        mix(s);
+        await s.aac?.suspend();
+      }
+    } finally {
+      flushing--;
     }
   }
 
   function purge(): void {
     const s = session;
     if (!s) return;
-    s.tee?.stop(s.ring.endUs, false);
+    s.tee?.stop(s.ring.endUs, { wait: false });
     s.tee = null;
     s.video.purge();
     s.ring.clear();
@@ -378,7 +456,7 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
     if (!s) return;
     session = null;
     for (const t of s.timers) clearTimer(t);
-    s.tee?.stop(s.ring.endUs, false);
+    s.tee?.stop(s.ring.endUs, { wait: false });
     s.video.close();
     s.aac?.close();
     s.compositor.close();
@@ -388,21 +466,26 @@ export function createEncodeWorker(deps: EncodeWorkerDeps): EncodeWorker {
     }
   }
 
+  /** The audio timer. It skips while a flush runs, because the timeline may be stale then. */
   function tickAudio(): void {
     const s = session;
-    if (!s) return;
+    if (!s || flushing > 0) return;
+    mix(s);
+  }
+
+  /** Mixes the audio that is ready into the PCM ring, pumps the AAC session and checks the Record tee. */
+  function mix(s: Session): void {
+    if (s.dead) return;
     const pageNow = s.pageClock.pageNow(now());
     if (pageNow !== null) {
-      const blocks = s.mixer.render(pageNow);
-      let wrote = false;
-      for (const b of blocks) {
+      for (const b of s.mixer.render(pageNow)) {
         const cut = s.audioPurgeFrame - b.startFrame;
         if (cut >= b.data.length / 2) continue;
         if (cut > 0) b.data.fill(0, 0, cut * 2);
         s.pcm.write(b.startFrame, b.data);
-        wrote = true;
       }
-      if (wrote) s.aac?.pump();
+      // Pump on every tick: a catch-up and the AAC health checks move forward also without new audio.
+      s.aac?.pump();
     }
     if (s.tee?.tick()) s.tee = null;
   }

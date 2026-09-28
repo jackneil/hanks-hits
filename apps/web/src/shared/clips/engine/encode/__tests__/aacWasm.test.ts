@@ -6,7 +6,16 @@
  * same WASM. No fake is involved here.
  */
 import { describe, expect, it } from "vitest";
-import { AAC_FRAME, AacPacketRing, AacSession, PRE_PAD_FRAMES, PRIMING_CONSTANTS, PcmRing, type AacSink } from "../audio/aac";
+import {
+  AAC_FRAME,
+  AacPacketRing,
+  AacSession,
+  PRE_PAD_FRAMES,
+  PRIMING_CONSTANTS,
+  PcmRing,
+  SPLICE_MARGIN_FRAMES,
+  type AacSink,
+} from "../audio/aac";
 import { createWasmBackend } from "../audio/aacBackends";
 
 const SR = 48000;
@@ -74,17 +83,21 @@ describe("WASM AAC backend (real @mediabunny/aac-encoder)", () => {
         for (let f = 0; f < 1024; f++) data[f * 2] = data[f * 2 + 1] = l[f];
         pcm.write(b * 1024, data);
       }
-      s.pump();
+      // The audio timer pumps every tick. Flow control feeds at most 1 s past the packets that came out.
       const deadline = Date.now() + 20_000;
-      while (ring.size < 150 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      while (ring.size < 190 && Date.now() < deadline) {
+        s.pump();
+        await new Promise((r) => setTimeout(r, 20));
+      }
       await s.closeStream();
       expect(errors).toEqual([]);
       const packets = ring.packets;
       expect(packets[0].tsFrames).toBe(-(PRIMING_CONSTANTS.wasm + PRE_PAD_FRAMES));
       for (let i = 1; i < packets.length; i++) expect(packets[i].tsFrames - packets[i - 1].tsFrames).toBe(AAC_FRAME);
-      // The flush brings the stream up to the last whole packet at or before the fed audio.
-      expect(ring.endFrame).toBeLessThanOrEqual(200 * 1024);
-      expect(ring.endFrame).toBeGreaterThan(200 * 1024 - AAC_FRAME);
+      // The flush keeps only packets whose window (and lookahead) saw real audio, so the ring
+      // ends SPLICE_MARGIN_FRAMES or a little more before the fed audio. A next stream encodes that part again.
+      expect(ring.endFrame).toBeLessThanOrEqual(200 * 1024 - SPLICE_MARGIN_FRAMES);
+      expect(ring.endFrame).toBeGreaterThan(200 * 1024 - SPLICE_MARGIN_FRAMES - 2 * AAC_FRAME);
     },
     60_000,
   );
