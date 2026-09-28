@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef } from "react";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { unlockGameAudio } from "../lib/audio";
 import { useStartOverlayPresence } from "../lib/startOverlayPresence";
 import { ReadAloudButton } from "./ReadAloudButton";
 
@@ -35,6 +36,11 @@ import { ReadAloudButton } from "./ReadAloudButton";
  * children slot call the game's own start action directly (fine as long
  * as that action is an idempotent state reset, which every current game's
  * startGame is).
+ *
+ * Sound: Play (and every GameStartOverlayButton, so a picker that starts
+ * the game counts too) calls unlockGameAudio() synchronously inside the
+ * tap, before the game's handler. iOS only lets audio start inside a user
+ * gesture, and many games start their first sound later, in an effect.
  */
 
 interface GameStartOverlayButtonProps {
@@ -59,10 +65,16 @@ export function GameStartOverlayButton({
   "aria-pressed": ariaPressed,
   ref,
 }: GameStartOverlayButtonProps & { ref?: React.Ref<HTMLButtonElement> }) {
+  const handleClick = () => {
+    // A start-screen tap means a game is about to play: start the shared
+    // game sound now, inside the gesture (see the file comment).
+    unlockGameAudio();
+    onClick();
+  };
   return (
     <button
       ref={ref}
-      onClick={onClick}
+      onClick={handleClick}
       aria-pressed={ariaPressed}
       className={`btn ${
         // "choice" stays on the default (base-200/base-content) button: white
@@ -138,6 +150,8 @@ export function GameStartOverlay({
   const handleStart = useCallback(() => {
     if (startedRef.current) return;
     startedRef.current = true;
+    // Synchronously, before onStart: resume() only works inside the tap.
+    unlockGameAudio();
     onStart();
   }, [onStart]);
 

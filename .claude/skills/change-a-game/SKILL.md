@@ -32,6 +32,7 @@ A game is **one island, but it spans two folders:** the module `apps/web/src/gam
 - **Scoring, lives, what's saved** → `lib/store.ts`
 - **How it plays / looks inside** → `Game.tsx` / `components/`
 - **Page background / page-level color / theme** → usually the **route page** `src/app/games/<name>/page.tsx` (`min-h-screen bg-...`). Most games set their background here, not in the module. (A few, like 2048, set it in both — change both.)
+- **Sounds** → `lib/sounds.ts` or the store. Every NEW sound MUST come from `getGameAudio()` in `@/shared/lib/audio`: connect it to a channel's `input`, never to `ctx.destination` (see make-a-game, "Sound"). If the game's file is on `LEGACY_AUDIO_SITES` (`apps/web/src/shared/lib/audio/audioBusRule.mjs`), you may tune a sound that is already there. To ADD a sound, move that whole file onto `getGameAudio()` first, then delete its entry from `LEGACY_AUDIO_SITES`. (Each listed file has a ceiling. A new `ctx.destination` or `new AudioContext()` in a listed file fails the audio source-scan test.) That entry is the one edit under `src/shared/` this skill allows. A new saved value, such as a `soundEnabled` switch, still needs the schema edit below. Never add an entry, and never raise a ceiling.
 
 **Read the file before you claim you added something.** Open the game's `Game.tsx` and confirm the feature isn't already there before you say "I added it." If it turns out it already exists, happily tell the kid it's already there and make it pop more. Ground every claim in the real code, never in what you assume. Before declaring a CSS class "missing," check the component's own `<style jsx>` block, not just `globals.css` — classes are often defined locally.
 
@@ -75,7 +76,8 @@ If you add a brand-new saved value, remember the save plumbing from **make-a-gam
 
 ## Red flags
 - Reporting a change "done" on a green suite that never ran this game.
-- Editing `src/shared/`, `globals.css`, `layout.tsx`, or another game to change one (or "all") games.
+- Editing `src/shared/`, `globals.css`, `layout.tsx`, or another game to change one (or "all") games. (One exception: deleting this game's own entry from `LEGACY_AUDIO_SITES` after you move its sound onto `getGameAudio()`.)
+- A new sound wired to `ctx.destination` or `new Audio()` instead of `getGameAudio()`.
 - Claiming to add something without reading the file first.
 - Stacking difficulty multipliers with no beatability check.
 - Any sarcasm, or describing the change in raw numbers to the kid.
