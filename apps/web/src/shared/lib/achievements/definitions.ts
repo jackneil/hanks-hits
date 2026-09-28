@@ -53,10 +53,15 @@ export const BEST_ALIASES = [
 ] as const;
 
 // Only monotonic "best ever" streak fields — currentStreak can shrink.
+// bestWinStreak: chess, checkers and quoridor (issue #30). A class test in
+// __tests__/definitions.test.ts scans every progress schema and every
+// game/app source file for best/longest/max...Streak fields, so a new game
+// with a new name fails the build instead of silently losing its trophies.
 export const STREAK_ALIASES = [
   "longestStreak",
   "bestStreak",
   "maxStreak",
+  "bestWinStreak",
 ] as const;
 
 export const PLAYS_TIERS = [5, 25, 100] as const;
