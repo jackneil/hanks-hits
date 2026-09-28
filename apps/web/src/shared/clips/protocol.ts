@@ -225,6 +225,11 @@ export type EncodeCmd =
 export interface PacketDTO {
   kind: "video" | "audio";
   type: "key" | "delta";
+  /**
+   * Capture-timeline microseconds (plan 6.2). Audio: the time of the packet's
+   * first decoded sample, with the -P priming shift already applied (plan 6.4).
+   * Do not shift audio by primingSamples again.
+   */
   tsUs: number;
   durUs: number;
   /** Transferred bytes. */
@@ -251,7 +256,12 @@ export interface ClipPackets {
   videoEpochs: EpochInfo[];
   /** AAC AudioSpecificConfig, always rebuilt (WebKit 302253). */
   audioConfig: { codec: "mp4a.40.2"; sampleRate: number; numberOfChannels: number; description: ArrayBuffer } | null;
-  /** Encoder delay to signal with an edit list plus sgpd/sbgp roll groups (plan 6.4). */
+  /**
+   * Encoder delay P in samples (plan 6.4). The audio timestamps already carry
+   * the -P shift, so the first packets start before startUs and the edit list
+   * follows from the timestamps. Use P for the sgpd/sbgp roll-group patch and
+   * diagnostics, not to shift the timestamps again.
+   */
   primingSamples: number;
   startUs: number;
   endUs: number;
@@ -321,11 +331,31 @@ export interface ClipRecord {
   challengeScore?: number;
 }
 
+/**
+ * Row fields that the UI can change with the "update" command. The io worker sets
+ * every other field when it stores the clip.
+ */
+export type ClipRecordPatch = Partial<Pick<ClipRecord, "kept" | "watched" | "moments" | "challengeScore" | "ownerKey">>;
+
 export type IoCmd =
   | { t: "mux"; packets: ClipPackets; meta: Omit<ClipRecord, "bytes" | "storage" | "posterDataUrl"> }
   | { t: "read"; id: string }
   | { t: "delete"; id: string }
-  | { t: "list"; ownerKey: string };
+  | { t: "list"; ownerKey: string }
+  /**
+   * Changes fields of one row: Keep, watched, stars, the challenge score, or the owner
+   * ("Which of these are yours?", plan 8.1). The io worker is the only writer of
+   * library rows. It applies the change under the library lock, so a change cannot
+   * race an eviction. A new ownerKey also moves the clip's file into the folder of the
+   * new owner. An ownerKey change must go from "guest" or to "guest". Answer: "updated".
+   */
+  | { t: "update"; id: string; patch: ClipRecordPatch }
+  /**
+   * The memory class from the capability probe (plan 6.5). It sets the budget of the
+   * in-memory tier (private windows). Until this command arrives, the worker uses the
+   * "low" budget. No event answers this command.
+   */
+  | { t: "configure"; memoryClass: MemoryClass };
 
 /**
  * Events from the io worker. The worker runs commands one at a time, so events come
@@ -333,12 +363,20 @@ export type IoCmd =
  */
 export type IoEvent =
   | { t: "saved"; record: ClipRecord; muxMs: number }
+  /**
+   * The stored clip, for Share and Save. The File of an OPFS clip reads the stored
+   * bytes directly, so it stops working (NotReadableError) after the clip is removed
+   * or moves to another owner. On NotReadableError, send "read" again. A "not-found"
+   * answer then means that the clip is gone.
+   */
   | { t: "file"; id: string; file: File }
   | { t: "list"; records: ClipRecord[] }
   | { t: "deleted"; id: string }
+  | { t: "updated"; record: ClipRecord }
   /**
    * The library was over its budget, so watched, unkept "auto" clips were removed
-   * (oldest first) to make space. The UI tells the kid what stays (plan 8.1).
+   * (oldest first) to make space. The UI tells the kid what stays (plan 8.1). When a
+   * save removed clips and then failed, this event comes before the "error" event.
    */
   | { t: "evicted"; kept: string[]; removed: string[] }
   /**
@@ -348,7 +386,8 @@ export type IoEvent =
   | { t: "reconciled"; reindexed: number; missing: number; unreadable: number }
   | {
       t: "error";
-      code: "quota" | "opfs-unavailable" | "verify-failed" | "mux-failed" | "not-found";
+      /** "bad-command": the command was not valid (an unknown type or bad fields). */
+      code: "quota" | "opfs-unavailable" | "verify-failed" | "mux-failed" | "not-found" | "bad-command";
       detail: string;
       /** The clip id of the command that failed, when the command had one. */
       id?: string;

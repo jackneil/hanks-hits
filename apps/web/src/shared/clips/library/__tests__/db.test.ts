@@ -7,8 +7,10 @@ import {
   CLIPS_DB_NAME,
   CLIPS_DB_VERSION,
   CLIPS_STORE,
+  ClipsDb as ClipsDbClass,
   type ClipsDb,
   OWNER_CREATED_INDEX,
+  isLostConnectionError,
   openClipsDb,
 } from "../db";
 
@@ -102,6 +104,17 @@ describe("rows", () => {
     expect(await db.update("missing", { kept: true })).toBeUndefined();
   });
 
+  it("deleteIf deletes a row only when it still passes the test, in one transaction", async () => {
+    await db.put(row("a", "guest", 1, { kind: "auto", watched: true }));
+    await db.put(row("b", "guest", 2, { kind: "auto", watched: true, kept: true }));
+    const evictable = (record: ClipRecord) => record.kind === "auto" && !record.kept && record.watched;
+    expect(await db.deleteIf("b", evictable)).toBeUndefined();
+    expect(await db.get("b")).toBeTruthy();
+    expect(await db.deleteIf("a", evictable)).toMatchObject({ id: "a" });
+    expect(await db.get("a")).toBeUndefined();
+    expect(await db.deleteIf("a", evictable)).toBeUndefined();
+  });
+
   it("lists one owner's rows, newest first, and never another owner's", async () => {
     await db.put(row("old", "guest", 100));
     await db.put(row("new", "guest", 300));
@@ -168,5 +181,153 @@ describe("chunks", () => {
   it("stores an empty clip as no chunks", async () => {
     expect(await db.putChunks("a", new Uint8Array(0))).toBe(0);
     expect(await db.getChunks("a")).toBeNull();
+  });
+});
+
+/**
+ * WebKit drops the IndexedDB connection of a tab in the background. Every later call
+ * on it fails with "UnknownError: Connection to Indexed Database server lost", also a
+ * retry (WebKit bug 273827; iOS 26.4 and Safari 26 field data). ClipsDb must open a
+ * new connection and run the call again.
+ */
+describe("lost connections", () => {
+  it("knows the errors of a lost connection", () => {
+    expect(isLostConnectionError(new DOMException("x", "UnknownError"))).toBe(true);
+    expect(isLostConnectionError(new DOMException("x", "InvalidStateError"))).toBe(true);
+    expect(isLostConnectionError(new DOMException("x", "DataError"))).toBe(false);
+    expect(isLostConnectionError(new DOMException("x", "QuotaExceededError"))).toBe(false);
+    expect(isLostConnectionError(null)).toBe(false);
+  });
+
+  const LOST = () => new DOMException("Connection to Indexed Database server lost. Refresh the page to try again", "UnknownError");
+
+  /** A factory that records every connection it opens. */
+  function recordingFactory(base: IDBFactory): { factory: IDBFactory; opened: IDBDatabase[]; fail: { next: boolean } } {
+    const opened: IDBDatabase[] = [];
+    const fail = { next: false };
+    const factory = {
+      open(name: string, version?: number) {
+        if (fail.next) {
+          fail.next = false;
+          throw new DOMException("open failed (test)", "UnknownError");
+        }
+        const req = base.open(name, version);
+        req.addEventListener("success", () => opened.push(req.result));
+        return req;
+      },
+    } as unknown as IDBFactory;
+    return { factory, opened, fail };
+  }
+
+  let lost: ClipsDb | null = null;
+  afterEach(() => {
+    lost?.close();
+    lost = null;
+  });
+
+  it("opens a new connection after WebKit's UnknownError, and never retries on the dead one", async () => {
+    const { factory: wrapped, opened } = recordingFactory(factory);
+    lost = await openClipsDb(wrapped, IDBKeyRange);
+    await lost.put(row("a", "guest", 1));
+    let deadCalls = 0;
+    opened[0].transaction = (() => {
+      deadCalls++;
+      throw LOST();
+    }) as IDBDatabase["transaction"];
+    await lost.put(row("b", "guest", 2));
+    expect(await lost.get("a")).toMatchObject({ id: "a" });
+    expect(await lost.get("b")).toMatchObject({ id: "b" });
+    expect(opened.length).toBe(2);
+    expect(deadCalls).toBe(1);
+  });
+
+  it("opens a new connection when the old one is closed under it (InvalidStateError)", async () => {
+    const { factory: wrapped, opened } = recordingFactory(factory);
+    lost = await openClipsDb(wrapped, IDBKeyRange);
+    await lost.put(row("a", "guest", 1));
+    opened[0].close();
+    expect(await lost.listAll()).toHaveLength(1);
+    expect(opened.length).toBe(2);
+  });
+
+  it("opens a new connection at once after the browser's close event", async () => {
+    const { factory: wrapped, opened } = recordingFactory(factory);
+    lost = await openClipsDb(wrapped, IDBKeyRange);
+    let deadCalls = 0;
+    const dead = opened[0];
+    const original = dead.transaction.bind(dead);
+    dead.transaction = ((...args: Parameters<IDBDatabase["transaction"]>) => {
+      deadCalls++;
+      return original(...args);
+    }) as IDBDatabase["transaction"];
+    dead.close();
+    dead.onclose?.call(dead, new Event("close"));
+    await lost.put(row("a", "guest", 1));
+    expect(deadCalls).toBe(0);
+    expect(opened.length).toBe(2);
+  });
+
+  it("makes only one new connection for calls that arrive together", async () => {
+    const { factory: wrapped, opened } = recordingFactory(factory);
+    lost = await openClipsDb(wrapped, IDBKeyRange);
+    opened[0].close();
+    opened[0].onclose?.call(opened[0], new Event("close"));
+    await Promise.all([lost.put(row("a", "guest", 1)), lost.put(row("b", "guest", 2)), lost.listAll()]);
+    expect(opened.length).toBe(2);
+    expect((await lost.listAll()).length).toBe(2);
+  });
+
+  it("fails the call when the new connection cannot open either", async () => {
+    const { factory: wrapped, opened, fail } = recordingFactory(factory);
+    lost = await openClipsDb(wrapped, IDBKeyRange);
+    opened[0].transaction = (() => {
+      throw LOST();
+    }) as IDBDatabase["transaction"];
+    fail.next = true;
+    await expect(lost.get("a")).rejects.toMatchObject({ name: "UnknownError" });
+    // The next call tries again and works.
+    await lost.put(row("a", "guest", 1));
+    expect(await lost.get("a")).toMatchObject({ id: "a" });
+  });
+
+  it("does not retry an error that is not a lost connection", async () => {
+    const { factory: wrapped, opened } = recordingFactory(factory);
+    lost = await openClipsDb(wrapped, IDBKeyRange);
+    await expect(lost.put({ ...row("a", "guest", 1), id: undefined as unknown as string })).rejects.toMatchObject({ name: "DataError" });
+    expect(opened.length).toBe(1);
+  });
+
+  it("never opens again after close()", async () => {
+    const { factory: wrapped, opened } = recordingFactory(factory);
+    lost = await openClipsDb(wrapped, IDBKeyRange);
+    lost.close();
+    await expect(lost.get("a")).rejects.toMatchObject({ name: "InvalidStateError" });
+    expect(opened.length).toBe(1);
+  });
+
+  it("lets a newer version in another tab go ahead; this old code then fails with VersionError", async () => {
+    lost = await openClipsDb(factory, IDBKeyRange);
+    db.close();
+    await new Promise<void>((resolve, reject) => {
+      const req = factory.open(CLIPS_DB_NAME, CLIPS_DB_VERSION + 1);
+      req.onsuccess = () => {
+        req.result.close();
+        resolve();
+      };
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => reject(new Error("blocked: the old connection did not close"));
+    });
+    await expect(lost.get("a")).rejects.toMatchObject({ name: "VersionError" });
+  });
+
+  it("without a reopen function, a lost connection fails the call", async () => {
+    const raw = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = factory.open(CLIPS_DB_NAME, CLIPS_DB_VERSION);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    lost = new ClipsDbClass(raw, IDBKeyRange);
+    raw.close();
+    await expect(lost.get("a")).rejects.toMatchObject({ name: "InvalidStateError" });
   });
 });

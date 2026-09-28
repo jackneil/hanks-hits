@@ -25,7 +25,7 @@ export function installIoWorker(scope: IoWorkerScope, env: Omit<IoHandlerEnv, "p
     void handler.handle(event.data);
   });
   scope.addEventListener("messageerror", () => {
-    scope.postMessage({ t: "error", code: "mux-failed", detail: "the io worker could not read a message" });
+    scope.postMessage({ t: "error", code: "bad-command", detail: "the io worker could not read a message" });
   });
   // Startup check (plan 8.1) runs at once, not at the first command.
   void handler.start();

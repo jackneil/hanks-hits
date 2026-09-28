@@ -4,6 +4,7 @@
  * the checks that need real decoding use ffmpeg (mux.av.node.test.ts).
  */
 
+import { BufferTarget, EncodedPacket, EncodedVideoPacketSource, Output, WebMOutputFormat } from "mediabunny";
 import type { ClipPackets, EpochInfo, PacketDTO } from "../../../protocol";
 import { muxClip } from "../mux";
 
@@ -68,8 +69,11 @@ export interface ClipOptions {
 }
 
 /**
- * Builds ClipPackets. Audio packet timestamps are encoder-style: the time of the PCM
- * the packet starts at, before the priming shift (as AudioEncoder reports them).
+ * Builds ClipPackets in the form the encode worker sends (protocol PacketDTO.tsUs):
+ * an audio timestamp is the time of the packet's first decoded sample, with the -P
+ * priming shift already applied. Packet n of a stream whose PCM starts at S holds the
+ * decoded samples from S + (1024 n - P) / 48000, like encode/audio/aac.ts computes it
+ * (frame index to microseconds, rounded).
  */
 export function makeClipPackets(options: ClipOptions = {}): ClipPackets {
   const seconds = options.seconds ?? 2;
@@ -93,15 +97,16 @@ export function makeClipPackets(options: ClipOptions = {}): ClipPackets {
   }
   const audio: PacketDTO[] = [];
   const withAudio = options.audio ?? true;
+  const primingSamples = options.primingSamples ?? 2114;
   if (withAudio) {
     const leadUs = options.audioLeadUs ?? 100_000;
     const startUs = baseUs - leadUs;
     const endUs = baseUs + seconds * 1e6 + 200_000;
+    const at = (n: number) => Math.round(startUs + ((n * AAC_FRAME_SAMPLES - primingSamples) * 1e6) / 48000);
     for (let n = 0; ; n++) {
-      const tsUs = Math.round(startUs + (n * AAC_FRAME_SAMPLES * 1e6) / 48000);
+      const tsUs = at(n);
       if (tsUs >= endUs) break;
-      const nextUs = Math.round(startUs + ((n + 1) * AAC_FRAME_SAMPLES * 1e6) / 48000);
-      audio.push({ kind: "audio", type: "key", tsUs, durUs: nextUs - tsUs, data: packetBytes("audio", n), epoch: 0 });
+      audio.push({ kind: "audio", type: "key", tsUs, durUs: at(n + 1) - tsUs, data: packetBytes("audio", n), epoch: 0 });
     }
   }
   return {
@@ -117,7 +122,7 @@ export function makeClipPackets(options: ClipOptions = {}): ClipPackets {
           description: options.audioDescription ?? hexBytes(ASC_48K_STEREO_HEX).buffer,
         }
       : null,
-    primingSamples: options.primingSamples ?? 2114,
+    primingSamples,
     startUs: baseUs,
     endUs: baseUs + seconds * 1e6,
     cutToNewestEpoch: false,
@@ -130,3 +135,38 @@ export async function makeMp4(options: ClipOptions = {}): Promise<{ bytes: Uint8
   const result = await muxClip(makeClipPackets(options));
   return { bytes: result.bytes, videoDurationSec: result.videoDurationSec };
 }
+
+/**
+ * A real WebM like tier V makes (plan 5): VP8 video, container-valid, synthetic
+ * frames. Byte 0 bit 0 is the VP8 frame type (0 = keyframe).
+ */
+export async function makeWebm(options: { seconds?: number; fps?: number; size?: number } = {}): Promise<{
+  bytes: Uint8Array;
+  videoDurationSec: number;
+}> {
+  const seconds = options.seconds ?? 1;
+  const fps = options.fps ?? 30;
+  const size = options.size ?? 64;
+  const output = new Output({ format: new WebMOutputFormat(), target: new BufferTarget() });
+  const source = new EncodedVideoPacketSource("vp8");
+  output.addVideoTrack(source);
+  output.setMetadataTags({});
+  await output.start();
+  const frames = Math.round(seconds * fps);
+  for (let i = 0; i < frames; i++) {
+    const key = i % fps === 0;
+    const data = new Uint8Array([key ? 0x10 : 0x11, 0x02, 0x00, i & 0xff]);
+    await source.add(
+      new EncodedPacket(data, key ? "key" : "delta", i / fps, 1 / fps),
+      i === 0 ? { decoderConfig: { codec: "vp8", codedWidth: size, codedHeight: size } } : undefined,
+    );
+  }
+  source.close();
+  await output.finalize();
+  return { bytes: new Uint8Array((output.target as BufferTarget).buffer!), videoDurationSec: frames / fps };
+}
+
+/** A real 3x2 RGBA PNG (valid CRCs), like a picture card (plan 8.1). */
+export const PNG_3X2_HEX =
+  "89504e470d0a1a0a0000000d49484452000000030000000208060000009d74661a0000001149444154789c6338a1a1f11f86" +
+  "19903900a12d0c8b3f86cab60000000049454e44ae426082";

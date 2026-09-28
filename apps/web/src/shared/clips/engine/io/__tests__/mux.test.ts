@@ -131,46 +131,47 @@ describe("planAudio", () => {
       epoch: 0,
     }));
 
-  it("shifts by the priming and keeps one packet before the first played one", () => {
-    // Encoder-style timestamps from 0: with 2112 samples of priming the output
-    // timeline is packet start - 44 ms.
-    const audio = audioAt([0, 1, 2, 3, 4, 5].map(frameUs));
-    const plan = planAudio(audio, 0, 2112, 48000, 10);
+  it("uses the timestamps as they are (the encode worker applied the priming) and keeps one pre-roll packet", () => {
+    // The encode worker's form with 2112 samples of priming: packet n starts at
+    // n * 1024 - 2112 samples, that is packet start - 44 ms.
+    const audio = audioAt([0, 1, 2, 3, 4, 5].map((n) => frameUs(n) - 44000));
+    const plan = planAudio(audio, 0, 48000, 10);
     // Packet 2 ends at +20 ms (the first played packet). Packet 1 is the pre-roll.
-    expect(plan.map((p) => p.packet.tsUs)).toEqual([1, 2, 3, 4, 5].map(frameUs));
+    expect(plan.map((p) => p.packet.tsUs)).toEqual([1, 2, 3, 4, 5].map((n) => frameUs(n) - 44000));
     expect(plan[0].timestamp).toBeCloseTo((frameUs(1) - 44000) / 1e6, 9);
   });
 
+  it("never moves a packet by the priming a second time", () => {
+    // A packet at the video start plays at 0, whatever the stream's priming was.
+    const plan = planAudio(audioAt([0, 21333]), 0, 48000, 10);
+    expect(plan.map((p) => p.timestamp)).toEqual([0, 0.021333]);
+  });
+
   it("keeps the first packet as pre-roll when it ends exactly at 0 (priming 1024)", () => {
-    const audio = audioAt([0, 1, 2].map(frameUs));
-    const plan = planAudio(audio, 0, 1024, 48000, 10);
-    expect(plan.map((p) => p.packet.tsUs)).toEqual([0, 1, 2].map(frameUs));
+    const audio = audioAt([0, 1, 2].map((n) => frameUs(n) - frameUs(1)));
+    const plan = planAudio(audio, 0, 48000, 10);
+    expect(plan.map((p) => p.packet.tsUs)).toEqual([0, 1, 2].map((n) => frameUs(n) - frameUs(1)));
   });
 
   it("drops packets that start at or after the video end", () => {
     const audio = audioAt([0, 1, 2, 3, 4].map(frameUs));
-    const plan = planAudio(audio, 0, 0, 48000, frameUs(3) / 1e6);
+    const plan = planAudio(audio, 0, 48000, frameUs(3) / 1e6);
     expect(plan.map((p) => p.packet.tsUs)).toEqual([0, 1, 2].map(frameUs));
   });
 
   it("sorts packets by time and drops exact repeats", () => {
     const audio = audioAt([frameUs(2), frameUs(0), frameUs(1), frameUs(1)]);
-    const plan = planAudio(audio, 0, 0, 48000, 10);
+    const plan = planAudio(audio, 0, 48000, 10);
     expect(plan.map((p) => p.packet.tsUs)).toEqual([0, 1, 2].map(frameUs));
   });
 
   it("returns no packets when none reaches the picture", () => {
-    expect(planAudio(audioAt([-500_000, -400_000]), 0, 0, 48000, 10)).toEqual([]);
+    expect(planAudio(audioAt([-500_000, -400_000]), 0, 48000, 10)).toEqual([]);
   });
 
   it("measures time from the first video packet", () => {
-    const plan = planAudio(audioAt([5_000_000, 5_021_333]), 5_000_000, 0, 48000, 10);
+    const plan = planAudio(audioAt([5_000_000, 5_021_333]), 5_000_000, 48000, 10);
     expect(plan[0].timestamp).toBe(0);
-  });
-
-  it("refuses a priming value that is not a whole number of samples", () => {
-    expect(() => planAudio(audioAt([0]), 0, -1, 48000, 10)).toThrow(expect.objectContaining({ code: "bad-audio-config" }));
-    expect(() => planAudio(audioAt([0]), 0, 1.5, 48000, 10)).toThrow(MuxError);
   });
 });
 
@@ -201,6 +202,14 @@ describe("muxClip", () => {
     expect(audioEdit[0][1]).toBe(1090);
     expect(file.audioPackets[0].timestamp).toBeCloseTo(-1090 / 48000, 4);
     file.input.dispose();
+  });
+
+  it("gives the same file for any primingSamples value: the timestamps alone set the edit list", async () => {
+    const clip = makeClipPackets({ seconds: 1, primingSamples: 2114, audioLeadUs: 0 });
+    const same = await muxClip(clip);
+    const other = await muxClip({ ...clip, primingSamples: 1024 });
+    expect(toHex(other.bytes)).toBe(toHex(same.bytes));
+    expect(editList(same.bytes, "soun")![0][1]).toBe(1090);
   });
 
   it("uses the decoder config of the first epoch and the valid ASC", async () => {

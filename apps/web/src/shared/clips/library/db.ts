@@ -7,10 +7,20 @@
  * - "chunks": clip bytes, only for clips on the IndexedDB fallback tier (when OPFS
  *   fails in a normal window). Key [id, n], one ArrayBuffer per chunk.
  *
+ * The io worker is the only writer of rows. The UI changes rows with the "update"
+ * command (protocol IoCmd), so every write holds the library lock.
+ *
+ * Lost connections: WebKit closes the IndexedDB connection of a tab in the
+ * background, and every later call on that connection fails with "UnknownError:
+ * Connection to Indexed Database server lost" (WebKit bug 273827; seen on iOS 26.4
+ * and Safari 26). A retry on the same connection always fails. So when a call fails
+ * that way (or the browser fires "close"), ClipsDb opens a new connection and runs
+ * the call one more time. A transaction is atomic, so a second run is safe.
+ *
  * Works in a window and in a worker. Nothing touches indexedDB at import time.
  */
 
-import type { ClipRecord } from "../protocol";
+import type { ClipRecord, ClipRecordPatch } from "../protocol";
 
 export const CLIPS_DB_NAME = "hh-clips";
 export const CLIPS_DB_VERSION = 1;
@@ -25,9 +35,6 @@ interface ChunkRow {
   n: number;
   data: ArrayBuffer;
 }
-
-/** Fields that code outside the io worker may change on a row. */
-export type ClipRecordPatch = Partial<Pick<ClipRecord, "kept" | "watched" | "moments" | "challengeScore" | "ownerKey">>;
 
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -44,18 +51,73 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
-export class ClipsDb {
-  constructor(
-    private readonly db: IDBDatabase,
-    private readonly keyRange: typeof IDBKeyRange,
-  ) {}
+/**
+ * True for the errors of a connection that is gone: WebKit's "UnknownError" after it
+ * drops a background tab's connection, and "InvalidStateError" from transaction() on
+ * a connection that is closed.
+ */
+export function isLostConnectionError(error: unknown): boolean {
+  const name = typeof error === "object" && error !== null ? (error as { name?: unknown }).name : undefined;
+  return name === "UnknownError" || name === "InvalidStateError";
+}
 
-  private async run<T>(
+export class ClipsDb {
+  private connection: IDBDatabase | null = null;
+  private opening: Promise<IDBDatabase> | null = null;
+  private closed = false;
+
+  constructor(
+    db: IDBDatabase,
+    private readonly keyRange: typeof IDBKeyRange,
+    /** Opens a new connection after the old one is lost. Null: no reconnect. */
+    private readonly reopen: (() => Promise<IDBDatabase>) | null = null,
+  ) {
+    this.adopt(db);
+  }
+
+  private adopt(db: IDBDatabase): void {
+    this.connection = db;
+    // Let a future version upgrade in another tab go ahead. A later call then tries
+    // to open version 1 again, which fails with VersionError: old code must reload.
+    db.onversionchange = () => {
+      db.close();
+      this.forget(db);
+    };
+    // The browser closed the connection (for example WebKit in a background tab).
+    db.onclose = () => this.forget(db);
+  }
+
+  private forget(db: IDBDatabase): void {
+    if (this.connection === db) this.connection = null;
+  }
+
+  private current(): Promise<IDBDatabase> {
+    if (this.closed) return Promise.reject(new DOMException("The clip database is closed.", "InvalidStateError"));
+    if (this.connection) return Promise.resolve(this.connection);
+    if (!this.reopen) return Promise.reject(new DOMException("The clip database connection is lost.", "InvalidStateError"));
+    // One open at a time, so two calls never make two connections.
+    this.opening ??= this.reopen()
+      .then((db) => {
+        if (this.closed) {
+          db.close();
+          throw new DOMException("The clip database is closed.", "InvalidStateError");
+        }
+        this.adopt(db);
+        return db;
+      })
+      .finally(() => {
+        this.opening = null;
+      });
+    return this.opening;
+  }
+
+  private async runOn<T>(
+    db: IDBDatabase,
     stores: string | string[],
     mode: IDBTransactionMode,
     body: (tx: IDBTransaction) => Promise<T> | T,
   ): Promise<T> {
-    const tx = this.db.transaction(stores, mode);
+    const tx = db.transaction(stores, mode);
     const done = transactionDone(tx);
     // The caller awaits `done` below. This handler only stops an early abort from
     // being reported as an unhandled rejection before that await.
@@ -75,6 +137,27 @@ export class ClipsDb {
     }
   }
 
+  private async run<T>(
+    stores: string | string[],
+    mode: IDBTransactionMode,
+    body: (tx: IDBTransaction) => Promise<T> | T,
+  ): Promise<T> {
+    const first = await this.current();
+    try {
+      return await this.runOn(first, stores, mode, body);
+    } catch (error) {
+      if (!this.reopen || this.closed || !isLostConnectionError(error)) throw error;
+      // The connection is gone. A retry on it always fails, so drop it and open a new one.
+      try {
+        first.close();
+      } catch {
+        // Already closed.
+      }
+      this.forget(first);
+      return this.runOn(await this.current(), stores, mode, body);
+    }
+  }
+
   put(record: ClipRecord): Promise<void> {
     return this.run(CLIPS_STORE, "readwrite", (tx) => {
       tx.objectStore(CLIPS_STORE).put(record);
@@ -88,6 +171,21 @@ export class ClipsDb {
   delete(id: string): Promise<void> {
     return this.run(CLIPS_STORE, "readwrite", (tx) => {
       tx.objectStore(CLIPS_STORE).delete(id);
+    });
+  }
+
+  /**
+   * Deletes a row only if it still passes `test`, in one transaction. Returns the
+   * deleted row, or undefined when the row is gone or no longer passes. Eviction uses
+   * it, so a clip that the kid kept a moment ago is never removed from an old list.
+   */
+  deleteIf(id: string, test: (record: ClipRecord) => boolean): Promise<ClipRecord | undefined> {
+    return this.run(CLIPS_STORE, "readwrite", async (tx) => {
+      const store = tx.objectStore(CLIPS_STORE);
+      const current = (await request(store.get(id))) as ClipRecord | undefined;
+      if (!current || !test(current)) return undefined;
+      store.delete(id);
+      return current;
     });
   }
 
@@ -124,6 +222,7 @@ export class ClipsDb {
       store.delete(this.chunkRange(id));
       let n = 0;
       for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
+        // A copy of each chunk: IndexedDB clones the whole buffer of a view.
         const data = bytes.slice(offset, Math.min(bytes.length, offset + chunkBytes)).buffer;
         store.put({ id, n, data } satisfies ChunkRow);
         n++;
@@ -162,8 +261,11 @@ export class ClipsDb {
     });
   }
 
+  /** Closes the connection for good. No call opens it again. */
   close(): void {
-    this.db.close();
+    this.closed = true;
+    this.connection?.close();
+    this.connection = null;
   }
 
   private chunkRange(id: string): IDBKeyRange {
@@ -171,15 +273,7 @@ export class ClipsDb {
   }
 }
 
-/**
- * Opens (and on first use, creates) the clip database.
- * Rejects when IndexedDB is missing or refuses to open (some private windows).
- */
-export function openClipsDb(
-  factory: IDBFactory | null | undefined = globalThis.indexedDB,
-  keyRange: typeof IDBKeyRange | null | undefined = globalThis.IDBKeyRange,
-): Promise<ClipsDb> {
-  if (!factory || !keyRange) return Promise.reject(new Error("IndexedDB is not available"));
+function openConnection(factory: IDBFactory): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     let req: IDBOpenDBRequest;
     try {
@@ -200,11 +294,20 @@ export function openClipsDb(
     };
     req.onblocked = () => reject(new Error("IndexedDB upgrade is blocked by another tab"));
     req.onerror = () => reject(req.error ?? new Error("IndexedDB open failed"));
-    req.onsuccess = () => {
-      const db = req.result;
-      // Let a future version upgrade in another tab go ahead.
-      db.onversionchange = () => db.close();
-      resolve(new ClipsDb(db, keyRange));
-    };
+    req.onsuccess = () => resolve(req.result);
   });
+}
+
+/**
+ * Opens (and on first use, creates) the clip database. The ClipsDb opens a new
+ * connection by itself when the browser drops this one.
+ * Rejects when IndexedDB is missing or refuses to open (some private windows).
+ */
+export async function openClipsDb(
+  factory: IDBFactory | null | undefined = globalThis.indexedDB,
+  keyRange: typeof IDBKeyRange | null | undefined = globalThis.IDBKeyRange,
+): Promise<ClipsDb> {
+  if (!factory || !keyRange) throw new Error("IndexedDB is not available");
+  const db = await openConnection(factory);
+  return new ClipsDb(db, keyRange, () => openConnection(factory));
 }

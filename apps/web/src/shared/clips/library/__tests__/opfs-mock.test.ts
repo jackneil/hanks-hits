@@ -171,6 +171,69 @@ describe("opfs-mock", () => {
     await expect(mock.root.getFileHandle("a", { create: true })).resolves.toMatchObject({ kind: "file" });
   });
 
+  it("a File from getFile() goes stale like a real OPFS snapshot: after a change, a removal or a move", async () => {
+    const mock = createOpfsMock();
+    mock.writeFile("lib/a.mp4", bytes(1, 2, 3));
+    const lib = await mock.root.getDirectoryHandle("lib");
+    const handle = await lib.getFileHandle("a.mp4");
+
+    const before = await handle.getFile();
+    const slice = before.slice(1);
+    expect(new Uint8Array(await before.arrayBuffer())).toEqual(bytes(1, 2, 3));
+    const access = await handle.createSyncAccessHandle!();
+    access.write(bytes(9), { at: 0 });
+    await access.close();
+    // Size and name stay readable; the bytes do not.
+    expect(before.size).toBe(3);
+    await expect(before.arrayBuffer()).rejects.toMatchObject({ name: "NotReadableError" });
+    await expect(slice.arrayBuffer()).rejects.toMatchObject({ name: "NotReadableError" });
+    expect(() => before.stream()).toThrow(expect.objectContaining({ name: "NotReadableError" }));
+    expect(new Uint8Array(await (await handle.getFile()).arrayBuffer())).toEqual(bytes(9, 2, 3));
+
+    const beforeMove = await handle.getFile();
+    await handle.move!(await mock.root.getDirectoryHandle("tmp", { create: true }), "b.mp4");
+    await expect(beforeMove.text()).rejects.toMatchObject({ name: "NotReadableError" });
+    const afterMove = await handle.getFile();
+    expect(new Uint8Array(await afterMove.arrayBuffer())).toEqual(bytes(9, 2, 3));
+
+    await (await mock.root.getDirectoryHandle("tmp")).removeEntry("b.mp4");
+    await expect(afterMove.arrayBuffer()).rejects.toMatchObject({ name: "NotReadableError" });
+  });
+
+  it("a writable's close is a change too", async () => {
+    const mock = createOpfsMock();
+    mock.writeFile("a", bytes(1));
+    const handle = await mock.root.getFileHandle("a");
+    const before = await handle.getFile();
+    const writable = await handle.createWritable();
+    await writable.write(bytes(2));
+    // Not applied yet: the old snapshot still reads.
+    expect(new Uint8Array(await before.arrayBuffer())).toEqual(bytes(1));
+    await writable.close();
+    await expect(before.arrayBuffer()).rejects.toMatchObject({ name: "NotReadableError" });
+  });
+
+  it('syncAccess "async" gives the Safari 15.2 to 16.3 handle: Promises, and the lock goes when close settles', async () => {
+    const mock = createOpfsMock({ syncAccess: "async" });
+    const handle = await mock.root.getFileHandle("f", { create: true });
+    const access = await handle.createSyncAccessHandle!();
+    expect(access.write(bytes(1, 2, 3), { at: 0 })).toBe(3);
+    const truncated = access.truncate(2);
+    expect(truncated).toBeInstanceOf(Promise);
+    await truncated;
+    const size = access.getSize();
+    expect(size).toBeInstanceOf(Promise);
+    expect(await size).toBe(2);
+    await access.flush();
+    expect(mock.flushCount()).toBe(1);
+    // Code that does not await close() and reads at once finds the file still locked.
+    const closing = access.close();
+    await expect(handle.getFile()).rejects.toMatchObject({ name: "NoModificationAllowedError" });
+    await closing;
+    expect(new Uint8Array(await (await handle.getFile()).arrayBuffer())).toEqual(bytes(1, 2));
+    expect(mock.openSyncHandles()).toBe(0);
+  });
+
   it("installs on navigator.storage and restores it", async () => {
     const before = (globalThis.navigator as { storage?: unknown }).storage;
     const mock = installOpfsMock();

@@ -10,6 +10,13 @@
  * - FileSystemFileHandle: getFile, createWritable (swap file, applied on close),
  *   move (optional, as in older browsers), and createSyncAccessHandle only in the
  *   "worker" context (the method does not exist on window handles).
+ * - A File from getFile() is a snapshot of the file on disk, as in Chromium and
+ *   WebKit: after the file changes, is removed, or moves, reading the File (or a
+ *   slice of it) rejects with NotReadableError. Its size and name stay readable.
+ * - syncAccess "async" gives the SyncAccessHandle of Safari 15.2 to 16.3, where
+ *   truncate, flush, getSize and close return Promises (an older draft of the spec).
+ *   There, close() releases the file lock one microtask later, so code that does not
+ *   await close() and then reads the file gets NoModificationAllowedError.
  * - Locks: a SyncAccessHandle is exclusive. While one is open, createWritable,
  *   a second createSyncAccessHandle, getFile, move and removeEntry fail with
  *   NoModificationAllowedError. The mock is strict about getFile on purpose, so code
@@ -54,6 +61,8 @@ export interface OpfsMockOptions {
   persisted?: boolean;
   /** False removes move() from file handles. Default true. */
   move?: boolean;
+  /** "async": the SyncAccessHandle of Safari 15.2 to 16.3 (see above). Default "sync". */
+  syncAccess?: "sync" | "async";
   /** Clock for lastModified. Default Date.now. */
   now?: () => number;
 }
@@ -122,6 +131,70 @@ interface FileNode {
   lastModified: number;
   exclusive: boolean;
   shared: number;
+  /** Goes up at every change of the bytes. A File snapshot of an older version cannot be read. */
+  version: number;
+}
+
+/** A Blob that checks, at every read, that the file it came from did not change. */
+class SnapshotBlob extends Blob {
+  constructor(
+    parts: BlobPart[],
+    options: BlobPropertyBag,
+    private readonly check: () => void,
+  ) {
+    super(parts, options);
+  }
+  override async arrayBuffer(): Promise<ArrayBuffer> {
+    this.check();
+    return super.arrayBuffer();
+  }
+  override async text(): Promise<string> {
+    this.check();
+    return super.text();
+  }
+  override async bytes(): Promise<Uint8Array<ArrayBuffer>> {
+    this.check();
+    return super.bytes();
+  }
+  override stream(): ReadableStream<Uint8Array<ArrayBuffer>> {
+    this.check();
+    return super.stream();
+  }
+  override slice(start?: number, end?: number, contentType?: string): Blob {
+    // Like the real API, a slice reads nothing yet. Its reads do the check.
+    return new SnapshotBlob([super.slice(start, end, contentType)], { type: contentType ?? "" }, this.check);
+  }
+}
+
+/** The File that getFile() returns: a snapshot that goes stale (see SnapshotBlob). */
+class SnapshotFile extends File {
+  constructor(
+    parts: BlobPart[],
+    name: string,
+    options: FilePropertyBag,
+    private readonly check: () => void,
+  ) {
+    super(parts, name, options);
+  }
+  override async arrayBuffer(): Promise<ArrayBuffer> {
+    this.check();
+    return super.arrayBuffer();
+  }
+  override async text(): Promise<string> {
+    this.check();
+    return super.text();
+  }
+  override async bytes(): Promise<Uint8Array<ArrayBuffer>> {
+    this.check();
+    return super.bytes();
+  }
+  override stream(): ReadableStream<Uint8Array<ArrayBuffer>> {
+    this.check();
+    return super.stream();
+  }
+  override slice(start?: number, end?: number, contentType?: string): Blob {
+    return new SnapshotBlob([super.slice(start, end, contentType)], { type: contentType ?? "" }, this.check);
+  }
 }
 
 interface DirNode {
@@ -150,13 +223,14 @@ function lockedFiles(node: FileNode | DirNode): boolean {
   return false;
 }
 
+/** In "async" mode, truncate, getSize, flush and close return Promises. */
 export interface MockSyncAccessHandle {
   read(buffer: ArrayBufferView, options?: { at?: number }): number;
   write(buffer: ArrayBufferView, options?: { at?: number }): number;
-  truncate(newSize: number): void;
-  getSize(): number;
-  flush(): void;
-  close(): void;
+  truncate(newSize: number): void | Promise<void>;
+  getSize(): number | Promise<number>;
+  flush(): void | Promise<void>;
+  close(): void | Promise<void>;
 }
 
 export interface MockWritable {
@@ -290,7 +364,16 @@ export function createOpfsMock(options: OpfsMockOptions = {}): OpfsMock {
         present();
         if (node.exclusive) throw domError("NoModificationAllowedError", `"${name}" has an open SyncAccessHandle`);
         const bytes = node.data.read(0, node.data.size);
-        return new File([bytes], name, { lastModified: node.lastModified });
+        // The snapshot is valid while the file is at the same place with the same bytes.
+        const atParent = parent;
+        const atName = name;
+        const atVersion = node.version;
+        const check = () => {
+          if (atParent.entries.get(atName) !== node || node.version !== atVersion) {
+            throw domError("NotReadableError", `"${atName}" changed after the File was taken`);
+          }
+        };
+        return new SnapshotFile([bytes], name, { lastModified: node.lastModified }, check);
       },
       async createWritable(writableOptions = {}) {
         maybeFail("createWritable");
@@ -351,6 +434,7 @@ export function createOpfsMock(options: OpfsMockOptions = {}): OpfsMock {
             release();
             requireGrowth(node.data.size, next.size);
             node.data = next;
+            node.version++;
             node.lastModified = now();
           },
           async abort() {
@@ -378,8 +462,30 @@ export function createOpfsMock(options: OpfsMockOptions = {}): OpfsMock {
         const alive = () => {
           if (closed) throw domError("InvalidStateError", "The SyncAccessHandle is closed");
         };
-        return {
-          read(buffer, readOptions = {}) {
+        const truncate = (newSize: number) => {
+          alive();
+          maybeFail("syncTruncate");
+          requireGrowth(node.data.size, newSize);
+          node.data.truncate(newSize);
+          node.version++;
+          node.lastModified = now();
+          if (cursor > newSize) cursor = newSize;
+        };
+        const getSize = () => {
+          alive();
+          return node.data.size;
+        };
+        const flush = () => {
+          alive();
+          maybeFail("syncFlush");
+          flushes++;
+        };
+        const release = () => {
+          node.exclusive = false;
+          openSync--;
+        };
+        const base = {
+          read(buffer: ArrayBufferView, readOptions: { at?: number } = {}) {
             alive();
             const at = readOptions.at ?? cursor;
             const target = toBytes(buffer);
@@ -388,39 +494,44 @@ export function createOpfsMock(options: OpfsMockOptions = {}): OpfsMock {
             cursor = at + bytes.length;
             return bytes.length;
           },
-          write(buffer, writeOptions = {}) {
+          write(buffer: ArrayBufferView, writeOptions: { at?: number } = {}) {
             alive();
             maybeFail("syncWrite");
             const at = writeOptions.at ?? cursor;
             const bytes = toBytes(buffer);
             requireGrowth(node.data.size, Math.max(node.data.size, at + bytes.length));
             node.data.write(at, bytes);
+            node.version++;
             node.lastModified = now();
             cursor = at + bytes.length;
             return bytes.length;
           },
-          truncate(newSize) {
-            alive();
-            maybeFail("syncTruncate");
-            requireGrowth(node.data.size, newSize);
-            node.data.truncate(newSize);
-            node.lastModified = now();
-            if (cursor > newSize) cursor = newSize;
-          },
-          getSize() {
-            alive();
-            return node.data.size;
-          },
-          flush() {
-            alive();
-            maybeFail("syncFlush");
-            flushes++;
-          },
+        };
+        if (options.syncAccess === "async") {
+          // Safari 15.2 to 16.3: these four methods return Promises.
+          return {
+            ...base,
+            truncate: async (newSize: number) => truncate(newSize),
+            getSize: async () => getSize(),
+            flush: async () => flush(),
+            close: async () => {
+              if (closed) return;
+              closed = true;
+              // The lock goes one microtask later, as the promise settles.
+              await Promise.resolve();
+              release();
+            },
+          };
+        }
+        return {
+          ...base,
+          truncate,
+          getSize,
+          flush,
           close() {
             if (closed) return;
             closed = true;
-            node.exclusive = false;
-            openSync--;
+            release();
           },
         };
       };
@@ -484,7 +595,14 @@ export function createOpfsMock(options: OpfsMockOptions = {}): OpfsMock {
         if (existing?.kind === "directory") throw domError("TypeMismatchError", `"${childName}" is a folder`);
         if (existing) return fileHandle({ dir: node }, childName, existing);
         if (!getOptions.create) throw domError("NotFoundError", `"${childName}" does not exist`);
-        const created: FileNode = { kind: "file", data: new SparseBytes(), lastModified: now(), exclusive: false, shared: 0 };
+        const created: FileNode = {
+          kind: "file",
+          data: new SparseBytes(),
+          lastModified: now(),
+          exclusive: false,
+          shared: 0,
+          version: 0,
+        };
         node.entries.set(childName, created);
         return fileHandle({ dir: node }, childName, created);
       },
@@ -600,6 +718,7 @@ export function createOpfsMock(options: OpfsMockOptions = {}): OpfsMock {
         lastModified: writeOptions.lastModified ?? now(),
         exclusive: false,
         shared: 0,
+        version: 0,
       });
     },
     listFiles() {

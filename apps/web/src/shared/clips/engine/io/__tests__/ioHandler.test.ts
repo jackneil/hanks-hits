@@ -9,10 +9,11 @@ import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type OpfsMock, createOpfsMock } from "../../../../../__tests__/opfs-mock";
 import type { IoCmd, IoEvent } from "../../../protocol";
+import { LibraryError } from "../../../library/errors";
 import type { StorageLike } from "../../../library/fsTypes";
 import { ClipLibrary } from "../../../library/opfsStore";
 import { describeBoxes } from "../moovPatch";
-import { type IoHandler, type IoLibrary, createIoHandler } from "../ioHandler";
+import { type IoHandler, type IoLibrary, createIoHandler, describedVideoSec } from "../ioHandler";
 import { type IoWorkerScope, installIoWorker, isWorkerScope } from "../io.worker";
 import { PLACEHOLDER_POSTER } from "../poster";
 import { makeClipPackets } from "./fixtures";
@@ -209,7 +210,7 @@ describe("io command loop", () => {
   it("reports an unknown command and keeps working", async () => {
     const h = await harness();
     await h.handler.handle({ t: "nope" } as unknown as IoCmd);
-    expect(h.events.at(-1)).toMatchObject({ t: "error", code: "mux-failed", detail: expect.stringContaining("nope") });
+    expect(h.events.at(-1)).toMatchObject({ t: "error", code: "bad-command", detail: expect.stringContaining("nope") });
     expect(await h.send({ t: "list", ownerKey: "guest" })).toEqual({ t: "list", records: [] });
   });
 
@@ -223,6 +224,8 @@ describe("io command loop", () => {
       save: vi.fn(),
       read: vi.fn(),
       remove: vi.fn(),
+      update: vi.fn(),
+      setMemoryClass: vi.fn(),
     };
     const handler = createIoHandler({ post: (event) => events.push(event), openLibrary: async () => library });
     await handler.handle({ t: "list", ownerKey: "guest" });
@@ -241,6 +244,8 @@ describe("io command loop", () => {
       save: vi.fn(),
       read: vi.fn(),
       remove: vi.fn(),
+      update: vi.fn(),
+      setMemoryClass: vi.fn(),
     };
     const handler = createIoHandler({
       post: (event) => events.push(event),
@@ -269,6 +274,8 @@ describe("io command loop", () => {
       },
       read: vi.fn(),
       remove: vi.fn(),
+      update: vi.fn(),
+      setMemoryClass: vi.fn(),
     };
     const handler = createIoHandler({ post: (event) => events.push(event), openLibrary: async () => library });
     await handler.handle({ t: "list", ownerKey: "guest" });
@@ -277,6 +284,143 @@ describe("io command loop", () => {
       { t: "error", code: "opfs-unavailable", detail: "TypeError: boom" },
       { t: "error", code: "opfs-unavailable", detail: "Error: disk gone", id: "x" },
     ]);
+  });
+});
+
+describe("io command loop: review fixes", () => {
+  function fakeLibrary(overrides: Partial<IoLibrary> = {}): IoLibrary {
+    return {
+      reconcile: async () => ({ reindexed: 0, missing: 0, unreadable: 0, relocated: 0, orphanChunks: 0, staleTemp: 0, errors: 0 }),
+      list: async () => [],
+      save: vi.fn(),
+      read: vi.fn(),
+      remove: vi.fn(),
+      update: vi.fn(),
+      setMemoryClass: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  it("reports removed clips before the error when a save made room and then failed (never a silent eviction)", async () => {
+    const events: IoEvent[] = [];
+    const library = fakeLibrary({
+      save: async () => {
+        const error = new LibraryError("quota", "the clip needs 9 bytes");
+        error.eviction = { kept: ["mine"], removed: ["old1"] };
+        throw error;
+      },
+    });
+    const handler = createIoHandler({ post: (event) => events.push(event), openLibrary: async () => library });
+    await handler.handle(muxCmd("x"));
+    expect(events.slice(1)).toEqual([
+      { t: "evicted", kept: ["mine"], removed: ["old1"] },
+      { t: "error", code: "quota", detail: "the clip needs 9 bytes", id: "x" },
+    ]);
+  });
+
+  it("checks the stored clip against the length the encode worker described, not against the muxer", async () => {
+    const h = await harness();
+    const cmd = muxCmd("short");
+    // Packets lost upstream: the second half of the video never arrived, but the clip
+    // bounds (startUs, endUs) still say 1 s. A muxer-vs-muxer check could not see it.
+    cmd.packets.video = cmd.packets.video.slice(0, 12);
+    expect(await h.send(cmd)).toMatchObject({ t: "error", code: "verify-failed", id: "short" });
+    expect(h.mock.listFiles()).toEqual([]);
+  });
+
+  it("passes the described length to the library", async () => {
+    const save = vi.fn(async () => {
+      throw new LibraryError("verify-failed", "stop");
+    });
+    const handler = createIoHandler({ post: () => undefined, openLibrary: async () => fakeLibrary({ save }) });
+    const cmd = muxCmd("len");
+    cmd.packets.endUs = cmd.packets.startUs + 1_250_000;
+    await handler.handle(cmd);
+    expect(save).toHaveBeenCalledWith(expect.any(Uint8Array), expect.objectContaining({ id: "len", mime: "video/mp4" }), 1.25);
+    expect(describedVideoSec({ startUs: 5, endUs: 5 })).toBeNull();
+    expect(describedVideoSec({ startUs: 0, endUs: 2_000_000 })).toBe(2);
+  });
+
+  it("answers a mux command with no packet lists as bad-command", async () => {
+    const h = await harness();
+    const cmd = muxCmd("nopk");
+    expect(await h.send({ ...cmd, packets: undefined } as unknown as IoCmd)).toMatchObject({ t: "error", code: "bad-command", id: "nopk" });
+    expect(await h.send({ ...cmd, packets: { ...cmd.packets, audio: null } } as unknown as IoCmd)).toMatchObject({
+      t: "error",
+      code: "bad-command",
+    });
+  });
+
+  it("lets go of the packet buffers once the mux is done", async () => {
+    const h = await harness();
+    const cmd = muxCmd("free");
+    await h.send(cmd);
+    expect(cmd.packets.video).toEqual([]);
+    expect(cmd.packets.audio).toEqual([]);
+    const bad = muxCmd("bad");
+    bad.packets.video.shift();
+    await h.send(bad);
+    expect(bad.packets.video).toEqual([]);
+  });
+
+  it("update: Keep and watched, with the new row in the answer", async () => {
+    const h = await harness();
+    await h.send(muxCmd("u1", { kind: "auto" }));
+    const event = await h.send({ t: "update", id: "u1", patch: { kept: true, watched: true } });
+    expect(event).toMatchObject({ t: "updated", record: { id: "u1", kept: true, watched: true, storage: "opfs" } });
+  });
+
+  it('update: "Which of these are yours?" moves the file to the player', async () => {
+    const h = await harness();
+    await h.send(muxCmd("claim"));
+    const user = "u_0123456789abcdef0123";
+    expect(await h.send({ t: "update", id: "claim", patch: { ownerKey: user } })).toMatchObject({ t: "updated", record: { ownerKey: user } });
+    expect(h.mock.listFiles()).toEqual([`lib/${user}/claim.mp4`]);
+    expect(await h.send({ t: "read", id: "claim" })).toMatchObject({ t: "file", id: "claim" });
+  });
+
+  it("update: a bad patch is bad-command, an unknown clip is not-found", async () => {
+    const h = await harness();
+    await h.send(muxCmd("u2"));
+    expect(await h.send({ t: "update", id: "u2", patch: { bytes: 1 } as never })).toMatchObject({
+      t: "error",
+      code: "bad-command",
+      id: "u2",
+    });
+    expect(await h.send({ t: "update", id: "nope", patch: { kept: true } })).toMatchObject({ t: "error", code: "not-found", id: "nope" });
+    expect(await h.send({ t: "update", id: "../x", patch: { kept: true } })).toMatchObject({ t: "error", code: "not-found" });
+  });
+
+  it("configure: sets the memory class now, or when the library opens; no event answers it", async () => {
+    const events: IoEvent[] = [];
+    const library = fakeLibrary();
+    const handler = createIoHandler({ post: (event) => events.push(event), openLibrary: async () => library });
+    await handler.handle({ t: "configure", memoryClass: "mid" });
+    expect(events).toEqual([]);
+    expect(library.setMemoryClass).not.toHaveBeenCalled();
+    await handler.handle({ t: "list", ownerKey: "guest" });
+    expect(library.setMemoryClass).toHaveBeenCalledWith("mid");
+    await handler.handle({ t: "configure", memoryClass: "high" });
+    expect(library.setMemoryClass).toHaveBeenLastCalledWith("high");
+    expect(events.map((event) => event.t)).toEqual(["reconciled", "list"]);
+    await handler.handle({ t: "configure", memoryClass: "huge" as never });
+    expect(events.at(-1)).toMatchObject({ t: "error", code: "bad-command" });
+  });
+
+  it("configure on the real library sizes the private-window budget", async () => {
+    const mock = createOpfsMock({ privateMode: true });
+    let lib: ClipLibrary | null = null;
+    const handler = createIoHandler({
+      post: () => undefined,
+      openLibrary: async () => {
+        lib = await ClipLibrary.open({ storage: mock.storage as unknown as StorageLike, indexedDB: null, locks: null, channel: null });
+        libraries.push(lib);
+        return lib;
+      },
+    });
+    await handler.handle({ t: "configure", memoryClass: "high" });
+    await handler.start();
+    expect((await lib!.budget()).budgetBytes).toBe(256 * 1024 * 1024);
   });
 });
 
@@ -312,6 +456,8 @@ describe("io.worker entry", () => {
       save: vi.fn(),
       read: vi.fn(),
       remove: vi.fn(),
+      update: vi.fn(),
+      setMemoryClass: vi.fn(),
     };
     const handler = installIoWorker(scope, { openLibrary: async () => library });
     // The startup check runs at load, before any command.
@@ -321,6 +467,6 @@ describe("io.worker entry", () => {
     await handler.idle();
     expect(posted).toEqual([{ t: "reconciled", reindexed: 0, missing: 0, unreadable: 0 }, { t: "list", records: [] }]);
     listeners.get("messageerror")!({});
-    expect(posted.at(-1)).toMatchObject({ t: "error", code: "mux-failed" });
+    expect(posted.at(-1)).toMatchObject({ t: "error", code: "bad-command" });
   });
 });

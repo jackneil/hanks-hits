@@ -5,8 +5,12 @@
  * - Fast start in memory: ftyp, moov, mdat. The moov patch runs after this.
  * - Timestamps are rebased so the first video packet (a keyframe) is at 0. The video
  *   track has no edit list.
- * - Audio timestamps move by -primingSamples / sampleRate. The first audio packet is
- *   then before 0, so mediabunny writes an audio edit list that hides the priming.
+ * - Audio timestamps already carry the -P priming shift (protocol PacketDTO.tsUs):
+ *   the encode worker applies it per AAC stream, so a clip across an encoder restart
+ *   with another delay is still correct. The muxer only rebases them. The first audio
+ *   packet is then before 0, so mediabunny writes an audio edit list that hides the
+ *   priming. primingSamples is never applied a second time (it would put the sound
+ *   44 ms early on every clip).
  * - Metadata tags are {}. No udta box is written (plan 10: no hidden metadata).
  * - The decoder config comes from the epoch of the first video packet. The encode
  *   worker sends one avcC per clip; a packet from a different config is an error,
@@ -130,25 +134,16 @@ export function planVideo(video: PacketDTO[]): { packets: TimedPacket[]; endSec:
 /**
  * Audio packets on the output timeline.
  *
- * - Each packet moves by -primingSamples / sampleRate, so the decoded sound lines up
- *   with the video.
+ * - Each packet timestamp is the time of its first decoded sample, with the priming
+ *   shift already applied by the encode worker. The muxer only measures it from the
+ *   first video packet.
  * - Packets that end at or before 0 are not played. The muxer keeps only the last
  *   one of them: the AAC decoder needs one packet before the first played packet
  *   (roll distance -1). The edit list hides it.
  * - Packets that start at or after the video end are dropped, so the clip never
  *   ends with sound over no picture.
  */
-export function planAudio(
-  audio: PacketDTO[],
-  zeroUs: number,
-  primingSamples: number,
-  sampleRate: number,
-  videoEndSec: number,
-): TimedPacket[] {
-  if (!Number.isInteger(primingSamples) || primingSamples < 0) {
-    throw new MuxError("bad-audio-config", `priming ${primingSamples} is not a whole number of samples`);
-  }
-  const primingSec = primingSamples / sampleRate;
+export function planAudio(audio: PacketDTO[], zeroUs: number, sampleRate: number, videoEndSec: number): TimedPacket[] {
   const sorted = audio
     .map((packet, index) => {
       checkPacket(packet, `audio packet ${index}`);
@@ -160,7 +155,7 @@ export function planAudio(
   for (const { packet } of sorted) {
     if (packet.tsUs === lastTsUs) continue; // A repeated packet adds no sound.
     lastTsUs = packet.tsUs;
-    const timestamp = (packet.tsUs - zeroUs) / 1e6 - primingSec;
+    const timestamp = (packet.tsUs - zeroUs) / 1e6;
     if (timestamp >= videoEndSec) break;
     timed.push({ packet, timestamp, duration: packet.durUs / 1e6 });
   }
@@ -197,7 +192,7 @@ export async function muxClip(clip: ClipPackets): Promise<MuxResult> {
       throw new MuxError("bad-audio-config", (error as Error).message);
     }
     audioConfigRebuilt = sanitized.rebuilt;
-    audio = planAudio(clip.audio, clip.video[0].tsUs, clip.primingSamples, sampleRate, video.endSec);
+    audio = planAudio(clip.audio, clip.video[0].tsUs, sampleRate, video.endSec);
     if (audio.length > 0) {
       audioConfig = { codec: "mp4a.40.2", sampleRate, numberOfChannels, description: sanitized.description };
     }

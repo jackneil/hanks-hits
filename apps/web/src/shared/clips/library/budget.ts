@@ -1,78 +1,48 @@
 /**
- * Free-space probe for browsers without navigator.storage.estimate() (Safari before
- * 17, plan 8.1). It grows a probe file with a 1-byte write at the end, then truncates
- * it to 0. The browser checks the quota for the new size, so no large data is written
- * (the file is sparse). The result is the largest size that fitted.
+ * Library budgets (plan 6.5, 8.1). Pure functions.
+ *
+ * Persistent tiers (OPFS and IndexedDB): 25% of navigator.storage.estimate().quota.
+ *
+ * Where estimate() is missing (Safari 16.4 to 16.x; estimate() arrived in Safari 17),
+ * the library does NOT probe the free space. A probe must grow a file past the quota
+ * to find the quota, and before Safari 17 a site that went past about 1 GB got a
+ * "use more space?" prompt, with more space given in 200 MB steps (web.dev "Storage
+ * for the web"; WebKit "Updates to Storage Policy", 2023-08-10: "Safari 17.0 no longer
+ * prompts users about a website wanting to use more space"). A kid must never get a
+ * storage prompt in the middle of a save. So on these browsers the library keeps to
+ * 25% of that 1 GB, and QuotaExceededError (a typed "quota" error) stays the real stop.
+ *
+ * Memory tier (private windows): clips live in the tab's memory next to the encode
+ * rings and the game, so the budget follows the memory class (plan 6.5). Until the
+ * main thread sends the class, the budget of the "low" class applies.
  */
 
-import { isQuotaError } from "./errors";
-import type { DirectoryHandleLike, SyncAccessHandleLike } from "./fsTypes";
+import type { MemoryClass } from "../protocol";
+import { budgetFromQuota } from "./eviction";
 
-export const PROBE_FILE_NAME = ".space-probe";
-/** First probe size. */
-export const PROBE_START_BYTES = 64 * 1024 * 1024;
-/** The probe stops doubling here; more free space than this is "a lot". */
-export const PROBE_LIMIT_BYTES = 2 ** 40;
-/** Halving steps after the first failed size. Precision is (failed size / 2) / 2^steps. */
-export const PROBE_REFINE_STEPS = 6;
+const MiB = 1024 * 1024;
 
-const ONE_BYTE = new Uint8Array(1);
+/** The origin quota of Safari before 17, before its first "more space" prompt. */
+export const NO_ESTIMATE_QUOTA_BYTES = 1024 * MiB;
+/** The persistent budget where estimate() is missing or fails: 256 MiB. */
+export const NO_ESTIMATE_BUDGET_BYTES = budgetFromQuota(NO_ESTIMATE_QUOTA_BYTES);
 
-function fitsSize(access: SyncAccessHandleLike, size: number): boolean {
-  try {
-    access.write(ONE_BYTE, { at: size - 1 });
-    access.truncate(0);
-    return true;
-  } catch (error) {
-    try {
-      access.truncate(0);
-    } catch {
-      // The handle is already at size 0 or closed. The finally block removes the file.
-    }
-    if (isQuotaError(error)) return false;
-    throw error;
-  }
+/** In-memory budgets per memory class. The lowest export budget in plan 6.5 is 60 MB. */
+export const MEMORY_BUDGET_BYTES: Readonly<Record<MemoryClass, number>> = {
+  low: 64 * MiB,
+  mid: 128 * MiB,
+  high: 256 * MiB,
+};
+
+/** The memory-tier budget for a memory class. An unknown class gets the "low" budget. */
+export function memoryBudgetFor(memoryClass: MemoryClass | null | undefined): number {
+  return memoryClass && Object.prototype.hasOwnProperty.call(MEMORY_BUDGET_BYTES, memoryClass)
+    ? MEMORY_BUDGET_BYTES[memoryClass]
+    : MEMORY_BUDGET_BYTES.low;
 }
 
-/**
- * Measures the free space in the origin's storage, in bytes.
- * Returns null when the probe cannot run (no sync access handle in this context).
- */
-export async function probeFreeBytes(dir: DirectoryHandleLike): Promise<number | null> {
-  let access: SyncAccessHandleLike | null = null;
-  try {
-    const handle = await dir.getFileHandle(PROBE_FILE_NAME, { create: true });
-    if (typeof handle.createSyncAccessHandle !== "function") return null;
-    access = await handle.createSyncAccessHandle();
-    let fits = 0;
-    let fails: number | null = null;
-    for (let size = PROBE_START_BYTES; size <= PROBE_LIMIT_BYTES; size *= 2) {
-      if (fitsSize(access, size)) {
-        fits = size;
-      } else {
-        fails = size;
-        break;
-      }
-    }
-    if (fails !== null) {
-      let low = fits;
-      let high = fails;
-      for (let i = 0; i < PROBE_REFINE_STEPS; i++) {
-        const middle = Math.floor((low + high) / 2);
-        if (fitsSize(access, middle)) low = middle;
-        else high = middle;
-      }
-      fits = low;
-    }
-    return fits;
-  } catch {
-    return null;
-  } finally {
-    try {
-      access?.close();
-    } catch {
-      // Already closed.
-    }
-    await dir.removeEntry(PROBE_FILE_NAME).catch(() => undefined);
-  }
+/** The persistent budget from an estimate() result. No estimate (or a bad one) gives the fixed budget. */
+export function persistentBudgetFor(estimate: { quota?: number; usage?: number } | null | undefined): number {
+  const quota = estimate?.quota;
+  return typeof quota === "number" && Number.isFinite(quota) && quota > 0 ? budgetFromQuota(quota) : NO_ESTIMATE_BUDGET_BYTES;
 }

@@ -14,11 +14,12 @@ import {
   type PosterDeps,
   bytesToBase64,
   makePoster,
-  makePosterFromMp4,
+  makePosterFromFile,
+  makePosterFromImage,
   posterSize,
   stripJpegMetadata,
 } from "../poster";
-import { AVCC_64_HEX, epochInfo, makeClipPackets, makeMp4, toHex } from "./fixtures";
+import { AVCC_64_HEX, PNG_3X2_HEX, epochInfo, hexBytes, makeClipPackets, makeMp4, makeWebm, toHex } from "./fixtures";
 
 const PLACEHOLDER_BYTES = new Uint8Array(Buffer.from(PLACEHOLDER_POSTER.split(",")[1], "base64"));
 /** A JPEG that is not the placeholder: one quantization value (in the DQT at 20) is changed. */
@@ -171,7 +172,9 @@ function makeFakes(overrides: Partial<FakeState> = {}): { deps: PosterDeps; stat
     private pending = 0;
     constructor(private readonly init: { output: (frame: FakeFrame) => void; error: (e: DOMException) => void }) {}
     static async isConfigSupported(config: VideoDecoderConfig) {
-      return { supported: state.supported && config.codec.startsWith("avc1.") && !!config.description, config };
+      // H.264 needs its avcC; VP8 has no description.
+      const known = (config.codec.startsWith("avc1.") && !!config.description) || config.codec === "vp8";
+      return { supported: state.supported && known, config };
     }
     configure(config: VideoDecoderConfig) {
       if (this.state === "closed") throw new DOMException("closed", "InvalidStateError");
@@ -220,7 +223,7 @@ function makeFakes(overrides: Partial<FakeState> = {}): { deps: PosterDeps; stat
     getContext(kind: string) {
       if (kind !== "2d") return null;
       return {
-        drawImage: (frame: FakeFrame, _x: number, _y: number, width: number, height: number) => {
+        drawImage: (frame: { closed: boolean }, _x: number, _y: number, width: number, height: number) => {
           if (frame.closed) throw new DOMException("frame is closed", "InvalidStateError");
           state.draws.push({ width, height });
         },
@@ -232,12 +235,31 @@ function makeFakes(overrides: Partial<FakeState> = {}): { deps: PosterDeps; stat
     }
   }
 
+  /** Like createImageBitmap: decodes a PNG's IHDR size, rejects other bytes. */
+  const createImageBitmap = async (image: Blob) => {
+    const bytes = new Uint8Array(await image.arrayBuffer());
+    if (bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) throw new DOMException("not an image", "InvalidStateError");
+    const view = new DataView(bytes.buffer, bytes.byteOffset);
+    const bitmap = {
+      width: view.getUint32(16),
+      height: view.getUint32(20),
+      closed: false,
+      close() {
+        if (!bitmap.closed) state.framesClosed++;
+        bitmap.closed = true;
+      },
+    };
+    state.framesMade++;
+    return bitmap as unknown as ImageBitmap;
+  };
+
   return {
     state,
     deps: {
       VideoDecoder: FakeDecoder as unknown as typeof VideoDecoder,
       EncodedVideoChunk: FakeChunk as unknown as typeof EncodedVideoChunk,
       OffscreenCanvas: FakeCanvas as unknown as typeof OffscreenCanvas,
+      createImageBitmap,
     },
   };
 }
@@ -328,20 +350,63 @@ describe("makePoster", () => {
   });
 });
 
-describe("makePosterFromMp4", () => {
-  it("finds the first keyframe and the decoder config in the file", async () => {
+const CLEAN_POSTER = `data:image/jpeg;base64,${Buffer.from(IMAGE_BYTES).toString("base64")}`;
+
+describe("makePosterFromFile", () => {
+  it("MP4: finds the first keyframe and the decoder config in the file", async () => {
     const { bytes } = await makeMp4({ seconds: 1 });
     const { deps, state } = makeFakes();
-    const url = await makePosterFromMp4(new Blob([new Uint8Array(bytes)]), { deps });
-    expect(url).toBe(`data:image/jpeg;base64,${Buffer.from(IMAGE_BYTES).toString("base64")}`);
+    const url = await makePosterFromFile(new Blob([new Uint8Array(bytes)]), "video/mp4", { deps });
+    expect(url).toBe(CLEAN_POSTER);
     expect(state.configs[0]).toMatchObject({ codec: "avc1.64000a", codedWidth: 64, codedHeight: 64 });
     expect(toHex(new Uint8Array(state.configs[0].description as ArrayBuffer))).toBe(AVCC_64_HEX);
     expect(toHex(state.chunks[0].data)).toBe(toHex(new Uint8Array(makeClipPackets({ seconds: 1 }).video[0].data)));
     expect(state.canvasSizes).toEqual([[64, 64]]);
   });
 
-  it("returns the placeholder for a file that does not parse", async () => {
+  it("WebM (tier V): decodes the first VP8 keyframe", async () => {
+    const { bytes } = await makeWebm({ seconds: 1, size: 96 });
+    const { deps, state } = makeFakes();
+    const url = await makePosterFromFile(new Blob([new Uint8Array(bytes)]), "video/webm", { deps });
+    expect(url).toBe(CLEAN_POSTER);
+    expect(state.configs[0]).toMatchObject({ codec: "vp8", codedWidth: 96, codedHeight: 96 });
+    expect(state.chunks[0].type).toBe("key");
+    expect(state.canvasSizes).toEqual([[96, 96]]);
+  });
+
+  it("PNG (a picture): draws the picture and closes the bitmap", async () => {
+    const { deps, state } = makeFakes();
+    const url = await makePosterFromFile(new Blob([hexBytes(PNG_3X2_HEX)], { type: "image/png" }), "image/png", { deps });
+    expect(url).toBe(CLEAN_POSTER);
+    expect(state.canvasSizes).toEqual([[3, 2]]);
+    expect(state.framesClosed).toBe(state.framesMade);
+    // A picture never goes through the video decoder.
+    expect(state.configs).toEqual([]);
+  });
+
+  it("returns the placeholder for a file that does not parse, of every type", async () => {
     const { deps } = makeFakes();
-    expect(await makePosterFromMp4(new Blob([new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])]), { deps })).toBe(PLACEHOLDER_POSTER);
+    const junk = new Blob([new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])]);
+    expect(await makePosterFromFile(junk, "video/mp4", { deps })).toBe(PLACEHOLDER_POSTER);
+    expect(await makePosterFromFile(junk, "video/webm", { deps })).toBe(PLACEHOLDER_POSTER);
+    expect(await makePosterFromFile(junk, "image/png", { deps })).toBe(PLACEHOLDER_POSTER);
+  });
+});
+
+describe("makePosterFromImage", () => {
+  it("returns the placeholder without createImageBitmap or OffscreenCanvas (Node has neither)", async () => {
+    const png = new Blob([hexBytes(PNG_3X2_HEX)]);
+    const { deps } = makeFakes();
+    expect(await makePosterFromImage(png)).toBe(PLACEHOLDER_POSTER);
+    expect(await makePosterFromImage(png, { deps: { ...deps, OffscreenCanvas: undefined } })).toBe(PLACEHOLDER_POSTER);
+  });
+
+  it("scales a large picture to the poster width", async () => {
+    const big = hexBytes(PNG_3X2_HEX);
+    new DataView(big.buffer).setUint32(16, 1280);
+    new DataView(big.buffer).setUint32(20, 720);
+    const { deps, state } = makeFakes();
+    await makePosterFromImage(new Blob([big]), { deps });
+    expect(state.canvasSizes).toEqual([[POSTER_MAX_WIDTH, 180]]);
   });
 });

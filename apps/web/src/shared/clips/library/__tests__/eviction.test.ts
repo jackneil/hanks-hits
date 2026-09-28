@@ -123,4 +123,26 @@ describe("planEviction", () => {
     expect(plan.remove.length).toBe(3);
     expect(plan.keep).toEqual([]);
   });
+
+  it("removes a clip that the UI read a short time ago last, but still removes it when it must", () => {
+    const oldest = row({ createdAt: 1 });
+    const middle = row({ createdAt: 2 });
+    const newest = row({ createdAt: 3 });
+    const rows = [oldest, middle, newest];
+    // One removal needed: the oldest is on the share sheet, so the next one goes.
+    expect(planEviction(rows, 300, 100, new Set([oldest.id])).remove).toEqual([middle]);
+    // Three removals needed: the deferred clip goes last.
+    expect(planEviction(rows, 100, 100, new Set([oldest.id])).remove).toEqual([middle, newest, oldest]);
+    // Deferral never changes whether the new clip fits.
+    expect(planEviction(rows, 100, 101, new Set([oldest.id]))).toMatchObject({ fits: false, remove: [] });
+  });
+
+  it("never defers its way into removing a protected clip", () => {
+    const kept = row({ kept: true, createdAt: 1 });
+    const evictable = row({ createdAt: 2 });
+    // Used 200 + 100 needed > 200: only the evictable clip can go, deferred or not.
+    const plan = planEviction([kept, evictable], 200, 100, new Set([evictable.id]));
+    expect(plan.remove).toEqual([evictable]);
+    expect(plan.keep).toEqual([kept]);
+  });
 });

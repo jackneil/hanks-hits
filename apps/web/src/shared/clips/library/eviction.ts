@@ -16,6 +16,12 @@ import type { ClipRecord } from "../protocol";
 /** The share of the storage quota that the library can use. */
 export const LIBRARY_QUOTA_SHARE = 0.25;
 
+/** What an eviction did: the clips that stay and the clips it removed. */
+export interface EvictionOutcome {
+  kept: string[];
+  removed: string[];
+}
+
 export function budgetFromQuota(quotaBytes: number): number {
   if (!Number.isFinite(quotaBytes) || quotaBytes <= 0) return 0;
   return Math.floor(quotaBytes * LIBRARY_QUOTA_SHARE);
@@ -32,7 +38,7 @@ export interface EvictionPlan {
   usedBytes: number;
   budgetBytes: number;
   neededBytes: number;
-  /** Clips to remove, oldest first. Empty when the clip fits already or cannot fit. */
+  /** Clips to remove, in removal order. Empty when the clip fits already or cannot fit. */
   remove: ClipRecord[];
   /** Every clip that stays, in the input order. */
   keep: ClipRecord[];
@@ -42,16 +48,34 @@ function sumBytes(records: ClipRecord[]): number {
   return records.reduce((sum, record) => sum + Math.max(0, record.bytes || 0), 0);
 }
 
-/** Plans the removals that make `neededBytes` fit in `budgetBytes`. */
-export function planEviction(records: ClipRecord[], budgetBytes: number, neededBytes: number): EvictionPlan {
+function byAge(a: ClipRecord, b: ClipRecord): number {
+  return a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/**
+ * Plans the removals that make `neededBytes` fit in `budgetBytes`.
+ *
+ * `deferred` holds ids that the UI opened a short time ago (for example a clip on
+ * the share sheet). These clips are removed last: first the other candidates, oldest
+ * first, then the deferred ones, oldest first. The order changes only which clips go,
+ * never whether the new clip fits.
+ */
+export function planEviction(
+  records: ClipRecord[],
+  budgetBytes: number,
+  neededBytes: number,
+  deferred: ReadonlySet<string> = new Set(),
+): EvictionPlan {
   const usedBytes = sumBytes(records);
   const base = { usedBytes, budgetBytes, neededBytes };
   if (usedBytes + neededBytes <= budgetBytes) {
     return { ...base, fits: true, remove: [], keep: records.slice() };
   }
-  const candidates = records
-    .filter(isEvictable)
-    .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const evictable = records.filter(isEvictable);
+  const candidates = [
+    ...evictable.filter((record) => !deferred.has(record.id)).sort(byAge),
+    ...evictable.filter((record) => deferred.has(record.id)).sort(byAge),
+  ];
   const remove: ClipRecord[] = [];
   let freed = 0;
   for (const candidate of candidates) {

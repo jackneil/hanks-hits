@@ -1,15 +1,16 @@
 /**
  * Clip posters: a small JPEG data URL for library tiles and toasts (plan 8.1).
  *
- * The first keyframe is decoded with VideoDecoder, drawn into an OffscreenCanvas at
- * 320 px wide or less, and encoded as JPEG. All APP1 to APP15 and COM segments are
- * removed, so no EXIF or other metadata can reach a poster (plan 10).
+ * The first keyframe is decoded with VideoDecoder (a picture is decoded with
+ * createImageBitmap), drawn into an OffscreenCanvas at 320 px wide or less, and
+ * encoded as JPEG. All APP1 to APP15 and COM segments are removed, so no EXIF or
+ * other metadata can reach a poster (plan 10).
  *
- * makePoster never throws. When a browser API is missing or a step fails, it
- * returns PLACEHOLDER_POSTER, a neutral gray JPEG.
+ * The poster functions never throw. When a browser API is missing or a step fails,
+ * they return PLACEHOLDER_POSTER, a neutral gray JPEG.
  */
 
-import { BlobSource, EncodedPacketSink, Input, MP4 } from "mediabunny";
+import { BlobSource, EncodedPacketSink, Input, type InputFormat, MP4, WEBM } from "mediabunny";
 
 /** Widest poster, in pixels. */
 export const POSTER_MAX_WIDTH = 320;
@@ -37,7 +38,11 @@ export interface PosterDeps {
   VideoDecoder?: typeof VideoDecoder;
   EncodedVideoChunk?: typeof EncodedVideoChunk;
   OffscreenCanvas?: typeof OffscreenCanvas;
+  createImageBitmap?: (image: Blob) => Promise<ImageBitmap>;
 }
+
+/** The file types a stored clip can have (protocol ClipRecord.mime). */
+export type PosterMime = "video/mp4" | "video/webm" | "image/png";
 
 export interface PosterOptions {
   maxWidth?: number;
@@ -185,19 +190,10 @@ export async function makePoster(
     frame = await decodeKeyframe(deps as Required<PosterDeps>, config, toBytes(keyframe), options.timeoutMs ?? POSTER_TIMEOUT_MS);
     if (!frame) return PLACEHOLDER_POSTER;
 
-    const size = posterSize(frame.displayWidth, frame.displayHeight, options.maxWidth ?? POSTER_MAX_WIDTH);
-    const canvas = new deps.OffscreenCanvas(size.width, size.height);
-    const context = canvas.getContext("2d");
-    if (!context) return PLACEHOLDER_POSTER;
-    context.drawImage(frame, 0, 0, size.width, size.height);
+    const canvas = drawScaled(deps.OffscreenCanvas, frame, frame.displayWidth, frame.displayHeight, options);
     frame.close();
     frame = null;
-
-    const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: options.quality ?? POSTER_QUALITY });
-    if (blob.type !== "image/jpeg") return PLACEHOLDER_POSTER;
-    const clean = stripJpegMetadata(new Uint8Array(await blob.arrayBuffer()));
-    if (!clean) return PLACEHOLDER_POSTER;
-    return `data:image/jpeg;base64,${bytesToBase64(clean)}`;
+    return canvas ? await canvasToPoster(canvas, options) : PLACEHOLDER_POSTER;
   } catch {
     return PLACEHOLDER_POSTER;
   } finally {
@@ -205,13 +201,63 @@ export async function makePoster(
   }
 }
 
-/**
- * Makes a poster from an MP4 file, for clips that the library finds without a row.
- * Never throws.
- */
-export async function makePosterFromMp4(file: Blob, options: PosterOptions = {}): Promise<string> {
-  const input = new Input({ formats: [MP4], source: new BlobSource(file) });
+/** Draws an image into a new canvas at poster size. Null when the canvas has no 2D context. */
+function drawScaled(
+  Canvas: typeof OffscreenCanvas,
+  image: CanvasImageSource,
+  width: number,
+  height: number,
+  options: PosterOptions,
+): OffscreenCanvas | null {
+  const size = posterSize(width, height, options.maxWidth ?? POSTER_MAX_WIDTH);
+  const canvas = new Canvas(size.width, size.height);
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.drawImage(image, 0, 0, size.width, size.height);
+  return canvas;
+}
+
+/** Encodes a canvas as a JPEG data URL with no metadata segments. */
+async function canvasToPoster(canvas: OffscreenCanvas, options: PosterOptions): Promise<string> {
+  const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: options.quality ?? POSTER_QUALITY });
+  if (blob.type !== "image/jpeg") return PLACEHOLDER_POSTER;
+  const clean = stripJpegMetadata(new Uint8Array(await blob.arrayBuffer()));
+  if (!clean) return PLACEHOLDER_POSTER;
+  return `data:image/jpeg;base64,${bytesToBase64(clean)}`;
+}
+
+/** Makes a poster from a picture (PNG) with createImageBitmap. Never throws. */
+export async function makePosterFromImage(file: Blob, options: PosterOptions = {}): Promise<string> {
+  let bitmap: ImageBitmap | null = null;
   try {
+    const decode = options.deps?.createImageBitmap ?? globalThis.createImageBitmap?.bind(globalThis);
+    const Canvas = options.deps?.OffscreenCanvas ?? globalThis.OffscreenCanvas;
+    if (typeof decode !== "function" || typeof Canvas !== "function") return PLACEHOLDER_POSTER;
+    bitmap = await decode(file);
+    const canvas = drawScaled(Canvas, bitmap, bitmap.width, bitmap.height, options);
+    bitmap.close();
+    bitmap = null;
+    return canvas ? await canvasToPoster(canvas, options) : PLACEHOLDER_POSTER;
+  } catch {
+    return PLACEHOLDER_POSTER;
+  } finally {
+    bitmap?.close();
+  }
+}
+
+function videoFormats(mime: PosterMime): InputFormat[] {
+  return mime === "video/webm" ? [WEBM] : [MP4];
+}
+
+/**
+ * Makes a poster from a stored file (MP4, WebM or PNG), for clips that the library
+ * finds without a row. Never throws.
+ */
+export async function makePosterFromFile(file: Blob, mime: PosterMime, options: PosterOptions = {}): Promise<string> {
+  if (mime === "image/png") return makePosterFromImage(file, options);
+  let input: Input | null = null;
+  try {
+    input = new Input({ formats: videoFormats(mime), source: new BlobSource(file) });
     const track = await input.getPrimaryVideoTrack();
     if (!track) return PLACEHOLDER_POSTER;
     const config = await track.getDecoderConfig();
@@ -231,6 +277,6 @@ export async function makePosterFromMp4(file: Blob, options: PosterOptions = {})
   } catch {
     return PLACEHOLDER_POSTER;
   } finally {
-    input.dispose();
+    input?.dispose();
   }
 }

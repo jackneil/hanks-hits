@@ -5,13 +5,19 @@
  * uses these structural types. Real browser handles fit them.
  */
 
+/**
+ * A FileSystemSyncAccessHandle. Safari 15.2 to 16.3 implement close, flush, getSize
+ * and truncate as async methods (an older draft of the spec; MDN compat data), so
+ * these methods can return a Promise. The library awaits every call: an await of a
+ * plain value does no harm on browsers with the synchronous methods.
+ */
 export interface SyncAccessHandleLike {
   read(buffer: ArrayBufferView, options?: { at?: number }): number;
   write(buffer: ArrayBufferView, options?: { at?: number }): number;
-  truncate(newSize: number): void;
-  getSize(): number;
-  flush(): void;
-  close(): void;
+  truncate(newSize: number): void | Promise<void>;
+  getSize(): number | Promise<number>;
+  flush(): void | Promise<void>;
+  close(): void | Promise<void>;
 }
 
 export interface WritableLike {
