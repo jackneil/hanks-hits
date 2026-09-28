@@ -179,7 +179,10 @@ export interface PcmBatch {
 export interface ClockAnchor {
   t: "anchor";
   streamId: string;
-  /** performance.now() in the page realm. */
+  /**
+   * performance.now() in the realm that read ctxTimeSec. The page time is
+   * perfMs + timeOriginOffsetMs (0 when the page realm took the anchor).
+   */
   perfMs: number;
   /** The stream's AudioContext.currentTime at the same moment. */
   ctxTimeSec: number;
@@ -212,7 +215,9 @@ export type EncodeCmd =
   | ClockAnchor
   | { t: "timeline"; state: "live" | "paused"; atPerfMs: number }
   | { t: "clip"; requestId: string; seconds: number; endAtUs?: number }
-  | { t: "record"; on: boolean; recordingId?: string }
+  /** Start teeing packets to the io worker. It gets RecordTeeMsg on the port. */
+  | { t: "record"; on: true; recordingId: string; port: MessagePort }
+  | { t: "record"; on: false; recordingId?: string }
   | { t: "closeEncoder"; reason: "export" | "hidden" }
   | { t: "purge" }
   | { t: "disarm" };
@@ -225,6 +230,11 @@ export type EncodeCmd =
 export interface PacketDTO {
   kind: "video" | "audio";
   type: "key" | "delta";
+  /**
+   * Capture-timeline microseconds (plan 6.2). Audio: the time of the packet's
+   * first decoded sample, with the -P priming shift already applied (plan 6.4).
+   * Do not shift audio by primingSamples again.
+   */
   tsUs: number;
   durUs: number;
   /** Transferred bytes. */
@@ -251,7 +261,12 @@ export interface ClipPackets {
   videoEpochs: EpochInfo[];
   /** AAC AudioSpecificConfig, always rebuilt (WebKit 302253). */
   audioConfig: { codec: "mp4a.40.2"; sampleRate: number; numberOfChannels: number; description: ArrayBuffer } | null;
-  /** Encoder delay to signal with an edit list plus sgpd/sbgp roll groups (plan 6.4). */
+  /**
+   * Encoder delay P in samples (plan 6.4). The audio timestamps already carry
+   * the -P shift, so the first packets start before startUs and the edit list
+   * follows from the timestamps. Use P for the sgpd/sbgp roll-group patch and
+   * diagnostics, not to shift the timestamps again.
+   */
   primingSamples: number;
   startUs: number;
   endUs: number;
@@ -260,6 +275,15 @@ export interface ClipPackets {
   /** Real seconds covered (shown to the kid when shorter than requested). */
   coveredSec: number;
 }
+
+/**
+ * Record tee (plan 8.3, 8.4): encode worker -> io worker, on the port from the
+ * "record" command. One chunk per closed GOP, starting at a keyframe, with the
+ * AAC packets made since the last chunk. "end" follows the last chunk.
+ */
+export type RecordTeeMsg =
+  | { t: "chunk"; recordingId: string; packets: ClipPackets }
+  | { t: "end"; recordingId: string; endUs: number };
 
 export type EncodeEvent =
   | { t: "armed"; video: VideoEncoderChoice; primingSamples: number }
@@ -286,6 +310,8 @@ export type EngineErrorCode =
   | "config-unsupported"
   | "encoder-error"
   | "encoder-reclaimed"
+  /** An AAC stream failed and restarted (gapless). Not a video failure: keep it out of the video breaker. */
+  | "audio-encoder-error"
   | "audio-encoder-missing"
   | "out-of-memory"
   | "keyframe-starved";
