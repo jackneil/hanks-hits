@@ -4,6 +4,12 @@ const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
   output: "standalone",
 
+  // Next 16.3 `next dev` writes AGENTS.md and CLAUDE.md into apps/web when it
+  // detects an AI coding agent. The repo root CLAUDE.md is the one source of
+  // agent instructions, so turn the generator off.
+  // https://nextjs.org/docs/app/guides/ai-agents#opting-out
+  agentRules: false,
+
   // Transpile three.js for proper bundling
   transpilePackages: ["three"],
 
