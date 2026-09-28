@@ -15,8 +15,9 @@ import { useEffect, useLayoutEffect, useRef } from "react";
  * callbacks in refs, so new callbacks on each render never restart it.
  *
  * How the time works:
- * - The simulation moves in fixed steps of game time (60 steps each second
- *   by default). `update(stepMs)` runs once for each step.
+ * - The simulation moves in fixed steps of game time (`fixedStepMs`,
+ *   1000/60 ms by default, so 60 steps each second). `update(stepMs)` runs
+ *   once for each step.
  * - Each frame adds the real time since the last frame to an accumulator,
  *   multiplied by `timeScale`. The loop then runs as many whole steps as
  *   the accumulator holds. So the game runs at the same speed on a 60, 90,
@@ -26,6 +27,9 @@ import { useEffect, useLayoutEffect, useRef } from "react";
  *   Use it to draw positions between the last two steps.
  * - The frame time is clamped to `maxDtMs` (50 ms). A long frame, a stall
  *   or a debugger pause never makes a burst of steps.
+ * - When `update` throws, the loop drops the steps that were still due in
+ *   that frame. The next frame is already requested, so the game keeps
+ *   running, and the dropped steps never come back as a burst.
  * - `paused` stops the steps but keeps `render` running, so the picture
  *   stays on screen. When the game resumes, the first frame only restarts
  *   the clock. The loop never "catches up" the paused time.
@@ -35,10 +39,14 @@ import { useEffect, useLayoutEffect, useRef } from "react";
  *
  * Keep today's speed: a game that ran at half speed because of the old
  * loop bug keeps its feel with `timeScale: 0.5` (plan decision 3).
+ *
+ * The names `fixedStepMs`, `maxDtMs`, `timeScale` and `onAfterRender` are
+ * the contract in the gameplay-clips plan. The per-game PRs and the clip
+ * kit use these names, so do not rename them.
  */
 
-/** Simulation steps in each second of game time, when not set. */
-export const DEFAULT_STEPS_PER_SECOND = 60;
+/** The game time of one simulation step, in ms, when not set (60 steps each second). */
+export const DEFAULT_FIXED_STEP_MS = 1000 / 60;
 /** The longest frame time the loop accepts, in ms, when not set. */
 export const DEFAULT_MAX_DT_MS = 50;
 
@@ -61,7 +69,7 @@ export interface GameLoopCallbacks {
    * Runs after `render`, in the same frame. Use it to read the finished
    * picture (for example, to capture a clip frame).
    */
-  afterRender?: () => void;
+  onAfterRender?: () => void;
 }
 
 export interface GameLoopOptions {
@@ -69,8 +77,8 @@ export interface GameLoopOptions {
   running: boolean;
   /** Stop the updates but keep drawing. Resuming never catches up. */
   paused?: boolean;
-  /** Fixed steps in each second of game time. Default 60. */
-  stepsPerSecond?: number;
+  /** The game time of one fixed step, in ms. Default 1000/60 (60 steps each second). */
+  fixedStepMs?: number;
   /** The longest frame time in ms that the loop accepts. Default 50. */
   maxDtMs?: number;
   /** Game time for each unit of real time. 0.5 is half speed. Default 1. */
@@ -123,8 +131,8 @@ export function useGameLoop(
       frameId = window.requestAnimationFrame(tick);
 
       const opts = optionsRef.current;
-      const { update, render, afterRender } = callbacksRef.current;
-      const stepMs = 1000 / positiveOr(opts.stepsPerSecond, DEFAULT_STEPS_PER_SECOND);
+      const { update, render, onAfterRender } = callbacksRef.current;
+      const stepMs = positiveOr(opts.fixedStepMs, DEFAULT_FIXED_STEP_MS);
 
       if (opts.paused) {
         // Frozen: no updates, and the resume frame restarts the clock.
@@ -137,16 +145,23 @@ export function useGameLoop(
         lastTimestamp = timestamp;
 
         accumulatorMs += dtMs * timeScale;
-        while (accumulatorMs >= stepMs - STEP_EPSILON_MS) {
-          update(stepMs);
-          accumulatorMs -= stepMs;
+        try {
+          while (accumulatorMs >= stepMs - STEP_EPSILON_MS) {
+            update(stepMs);
+            accumulatorMs -= stepMs;
+          }
+        } finally {
+          // When update throws, the steps still due in this frame stay in
+          // the accumulator. Drop them. If they stay, each frame that throws
+          // adds more, and the first good frame runs them all as one burst.
+          if (accumulatorMs >= stepMs - STEP_EPSILON_MS) accumulatorMs = 0;
         }
         if (accumulatorMs < 0) accumulatorMs = 0;
         alpha = Math.min(accumulatorMs / stepMs, 1 - Number.EPSILON);
       }
 
       render?.(alpha);
-      afterRender?.();
+      onAfterRender?.();
     };
 
     const onVisibilityChange = () => {

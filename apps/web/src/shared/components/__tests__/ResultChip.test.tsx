@@ -43,7 +43,7 @@ describe("ResultChip layout contract", () => {
     expect(within(screen.getByTestId("game")).queryByTestId("result-chip")).toBeNull();
   });
 
-  it("gives every button a 44 px target", () => {
+  it("gives every button a 56 px target, and 44 px on a short screen", () => {
     installSpeechMock();
     render(
       <ResultChip resultText="Game over!" appId="snake" onRestart={vi.fn()} />
@@ -51,8 +51,20 @@ describe("ResultChip layout contract", () => {
     const buttons = within(chip()).getAllByRole("button");
     expect(buttons).toHaveLength(3);
     for (const button of buttons) {
-      expect(button.className).toMatch(/min-h-11|min-h-\[44px\]/);
+      expect(button.className).toMatch(/(^|\s)min-h-14(\s|$)/);
+      expect(button.className).toMatch(/(^|\s)short:min-h-11(\s|$)/);
     }
+  });
+
+  it("uses the big labelled read-aloud button, sized to its label", () => {
+    installSpeechMock();
+    render(<ResultChip resultText="Game over!" onRestart={vi.fn()} />);
+    const readAloud = within(chip()).getByTestId("read-aloud-button");
+    // The same words as the start card and the pause menu, not a bare icon.
+    expect(readAloud).toHaveTextContent("Read it to me");
+    expect(readAloud.className).not.toContain("btn-circle");
+    // In a row, the column-width button must not push the other buttons out.
+    expect(readAloud.className).toMatch(/(^|\s)w-auto!(\s|$)/);
   });
 
   it("uses a solid surface with no AI-slop tells", () => {
@@ -191,6 +203,74 @@ describe("ResultChip restart grace", () => {
     render(<ResultChip resultText="Game over!" onRestart={onRestart} graceMs={100} />);
     clock += 100;
     fireEvent.click(screen.getByRole("button", { name: /play again/i }));
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps ignoring a press that started inside the grace, even when held past 1 s", () => {
+    const onRestart = vi.fn();
+    render(<ResultChip resultText="Game over!" onRestart={onRestart} />);
+    const button = screen.getByRole("button", { name: /play again/i });
+
+    clock += 100;
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: "mouse", button: 0 });
+    clock += 1100; // a slow press: the grace ended long ago
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: "mouse", button: 0 });
+    fireEvent.click(button, { detail: 1 });
+    expect(onRestart).not.toHaveBeenCalled();
+
+    clock += 100;
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: "mouse", button: 0 });
+    fireEvent.pointerUp(button, { pointerId: 1, pointerType: "mouse", button: 0 });
+    fireEvent.click(button, { detail: 1 });
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("a blocked press that the browser cancels does not eat the next tap", () => {
+    const onRestart = vi.fn();
+    render(<ResultChip resultText="Game over!" onRestart={onRestart} />);
+    const button = screen.getByRole("button", { name: /play again/i });
+
+    clock += 500;
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: "touch", button: 0 });
+    // The finger scrolled or long-pressed: pointercancel, and no click.
+    fireEvent.pointerCancel(button, { pointerId: 1, pointerType: "touch", button: 0 });
+
+    clock += 200; // a deliberate tap soon after the grace
+    fireEvent.pointerDown(button, { pointerId: 2, pointerType: "touch", button: 0 });
+    fireEvent.pointerUp(button, { pointerId: 2, pointerType: "touch", button: 0 });
+    clock += 60;
+    fireEvent.click(button, { detail: 1 });
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("a blocked press that slides off the button does not eat the next tap", () => {
+    const onRestart = vi.fn();
+    render(<ResultChip resultText="Game over!" onRestart={onRestart} />);
+    const button = screen.getByRole("button", { name: /play again/i });
+
+    clock += 500;
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: "touch", button: 0 });
+    // The finger lifts somewhere else, so this button gets no click.
+
+    clock += 200;
+    fireEvent.pointerDown(button, { pointerId: 2, pointerType: "touch", button: 0 });
+    fireEvent.pointerUp(button, { pointerId: 2, pointerType: "touch", button: 0 });
+    fireEvent.click(button, { detail: 1 });
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("a key press after an abandoned blocked press still works", () => {
+    const onRestart = vi.fn();
+    render(<ResultChip resultText="Game over!" onRestart={onRestart} />);
+    const button = screen.getByRole("button", { name: /play again/i });
+
+    clock += 500;
+    fireEvent.pointerDown(button, { pointerId: 1, pointerType: "mouse", button: 0 });
+
+    clock += 300;
+    // Enter on the focused button: keydown, then the click it makes.
+    fireEvent.keyDown(button, { key: "Enter", repeat: false });
+    fireEvent.click(button, { detail: 0 });
     expect(onRestart).toHaveBeenCalledTimes(1);
   });
 

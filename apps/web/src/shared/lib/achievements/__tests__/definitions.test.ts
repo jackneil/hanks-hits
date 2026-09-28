@@ -10,7 +10,7 @@ import { emptyWatermarks, evaluate } from "../evaluate";
  * The streak trophies read ONLY the field names in STREAK_ALIASES. A game
  * that stores its best streak under a new name silently never awards them:
  * chess, checkers and quoridor stored "bestWinStreak" and their kids never
- * got a streak trophy (issue #30). These tests fix the class, not the one
+ * got a streak trophy (issue #30i). These tests fix the class, not the one
  * name: they scan every progress schema and every game/app source file for
  * monotonic best-streak fields and require each one to be an alias.
  */
@@ -138,7 +138,7 @@ function sourceStreakFields(): Map<string, string> {
 
 const aliases = new Set<string>(STREAK_ALIASES);
 
-describe("STREAK_ALIASES covers every best-streak field (issue #30)", () => {
+describe("STREAK_ALIASES covers every best-streak field (issue #30i)", () => {
   it("the pattern means best-ever streaks, never a streak that can shrink", () => {
     for (const name of ["bestStreak", "bestWinStreak", "longestStreak", "maxStreak", "maxComboStreak"]) {
       expect(MONOTONIC_STREAK.test(name), name).toBe(true);
@@ -193,7 +193,7 @@ describe("STREAK_ALIASES covers every best-streak field (issue #30)", () => {
   });
 });
 
-describe("board-game streak trophies (issue #30)", () => {
+describe("board-game streak trophies (issue #30i)", () => {
   for (const appId of ["chess", "checkers", "quoridor"]) {
     it(`${appId}: a best win streak of 3 awards the first streak trophy`, () => {
       const result = evaluate(

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { installRafMock, uninstallRafMock, type RafMock } from "@/__tests__/raf-mock";
-import { useGameLoop, type GameLoopOptions } from "../useGameLoop";
+import { DEFAULT_FIXED_STEP_MS, useGameLoop, type GameLoopOptions } from "../useGameLoop";
 
 const REFRESH_RATES = [60, 90, 120, 144] as const;
 const STEP_MS = 1000 / 60;
@@ -19,7 +19,7 @@ function Harness({ log, ...options }: GameLoopOptions & { log: Log }) {
     {
       update: (stepMs) => log.updates.push(stepMs),
       render: (alpha) => log.alphas.push(alpha),
-      afterRender: () => log.afterRenders.push(1),
+      onAfterRender: () => log.afterRenders.push(1),
     },
     options
   );
@@ -83,9 +83,13 @@ describe("useGameLoop fixed step", () => {
     });
   }
 
-  it("uses stepsPerSecond for both the count and the step size", () => {
+  it("defaults to a 1000/60 ms step", () => {
+    expect(DEFAULT_FIXED_STEP_MS).toBe(STEP_MS);
+  });
+
+  it("uses fixedStepMs for both the count and the step size", () => {
     const log = newLog();
-    render(<Harness log={log} running stepsPerSecond={30} />);
+    render(<Harness log={log} running fixedStepMs={1000 / 30} />);
     prime(120);
     runFor(1000, 120);
     expect(log.updates).toHaveLength(30);
@@ -98,7 +102,7 @@ describe("useGameLoop fixed step", () => {
       <Harness
         log={log}
         running
-        stepsPerSecond={0}
+        fixedStepMs={0}
         maxDtMs={Number.NaN}
         timeScale={-2}
       />
@@ -170,6 +174,54 @@ describe("useGameLoop stalls and pauses", () => {
     // The next second is a normal second, not 5 seconds of catch-up.
     runFor(1000, 120);
     expect(log.updates.length - updatesAtPause).toBe(30);
+  });
+
+  it("drops the due steps when update throws, so recovery is not a burst", () => {
+    const updates: number[] = [];
+    const failure = { on: false };
+    function Throwing() {
+      useGameLoop(
+        {
+          update: (stepMs) => {
+            if (failure.on) throw new Error("a ref is null for a moment");
+            updates.push(stepMs);
+          },
+        },
+        { running: true }
+      );
+      return null;
+    }
+
+    render(<Throwing />);
+    // 20 Hz: every frame is 50 ms, the clamp limit. Each frame adds three
+    // steps of time, and a throwing frame completes none of them.
+    prime(20);
+    runFor(1000, 20);
+    expect(updates).toHaveLength(60);
+
+    failure.on = true;
+    for (let frame = 0; frame < 10; frame += 1) {
+      expect(() =>
+        act(() => {
+          raf.nextFrame(20);
+        })
+      ).toThrow("a ref is null for a moment");
+    }
+    // The next frame was requested before the throw: the chain lives on.
+    expect(raf.pending()).toBe(1);
+
+    failure.on = false;
+    const before = updates.length;
+    act(() => {
+      raf.nextFrame(20);
+    });
+    // One clamped frame of game time at most. Without the drop, the ten
+    // throwing frames leave about 30 steps to run here at once.
+    expect(updates.length - before).toBeLessThanOrEqual(Math.ceil(50 / STEP_MS));
+
+    const afterRecovery = updates.length;
+    runFor(1000, 20);
+    expect(updates.length - afterRecovery).toBe(60);
   });
 
   it("restarts the clock when a hidden tab comes back", () => {

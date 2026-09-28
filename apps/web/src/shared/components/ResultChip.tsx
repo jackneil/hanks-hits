@@ -6,7 +6,6 @@ import { createPortal } from "react-dom";
 
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { getGameMetadata } from "../lib/gameMetadata.generated";
-import { COMPAT_CLICK_WINDOW_MS } from "../lib/input/usePointerTap";
 import {
   DEFAULT_RESTART_GRACE_MS,
   useRestartGrace,
@@ -37,13 +36,18 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *   restart twice (or flap the bird of the new run).
  * - Restart grace: for the first 600 ms after the bar appears, every
  *   button in it ignores taps, and a held key never repeats a button. A
- *   kid who is still tapping when the run ends sees the result first.
+ *   press that starts inside the grace stays ignored until the finger
+ *   lifts, however long it is held. A kid who is still tapping when the
+ *   run ends sees the result first.
  * - Mount it CONDITIONALLY on the result state
  *   (`{state === "gameOver" && <ResultChip ... />}`). The grace starts at
  *   mount, and Play again fires only once for each mount.
- * - Read-aloud: the voice says the result, then the name of every button
- *   in screen order. Name the buttons in the children slot with
- *   `spokenExtras`, in screen order.
+ * - Read-aloud: the big labelled "Read it to me" button, the same one as
+ *   on the start card and the pause menu. The voice says the result, then
+ *   the name of every button in screen order. Name the buttons in the
+ *   children slot with `spokenExtras`, in screen order.
+ * - Size: every button is 56 px high, and 44 px on a short screen (a phone
+ *   held sideways), like the read-aloud button on the start card.
  */
 
 /** The stacking level of the result chip (plan 11.4). */
@@ -65,7 +69,11 @@ export interface ResultChipProps {
   appId?: string;
   /** Starts a new run. Shows the Play again button. */
   onRestart?: () => void;
-  /** More actions, for example the clip buttons. Use 44 px targets. */
+  /**
+   * More actions, for example the clip buttons. Use the same size as the
+   * chip's own buttons: `min-h-14 short:min-h-11` (56 px, 44 px on a
+   * short screen).
+   */
   children?: React.ReactNode;
   /** Labels of the buttons in the children slot, in screen order. */
   spokenExtras?: string[];
@@ -83,8 +91,10 @@ function stopAtChip(event: React.SyntheticEvent): void {
   event.stopPropagation();
 }
 
-const ACTION_BUTTON =
-  "btn h-11 min-h-11 gap-2 px-4 text-lg active:scale-[0.97] touch-manipulation";
+/** 56 px buttons, 44 px on a short screen, like the start card's read-aloud button. */
+const BUTTON_SIZE = "h-14 min-h-14 short:h-11 short:min-h-11";
+
+const ACTION_BUTTON = `btn ${BUTTON_SIZE} gap-2 px-4 text-lg active:scale-[0.97] touch-manipulation`;
 
 export function ResultChip({
   resultText,
@@ -116,29 +126,39 @@ export function ResultChip({
   // During the grace, a tap or click on ANY button in the bar (the children
   // slot included) does nothing. Stopping it in the capture phase keeps it
   // from reaching the button at all.
-  const blockedPressAtRef = useRef(Number.NEGATIVE_INFINITY);
+  //
+  // The block follows the gesture, not the clock. A press that starts
+  // inside the grace stays ignored until its click, however long the
+  // finger stays down. Each new press or key starts clean, so a blocked
+  // press that never clicks (the browser cancelled it, or the finger slid
+  // off) cannot eat the next deliberate tap.
+  const pressBlockedRef = useRef(false);
   const block = (event: React.SyntheticEvent) => {
     event.preventDefault();
     event.stopPropagation();
   };
   const holdPressDuringGrace = (event: React.PointerEvent) => {
-    if (grace.accept()) return;
-    blockedPressAtRef.current = performance.now();
-    block(event);
+    pressBlockedRef.current = !grace.accept();
+    if (pressBlockedRef.current) block(event);
+  };
+  const endCancelledPress = () => {
+    // A cancelled press sends no click, so its gesture ends here.
+    pressBlockedRef.current = false;
   };
   const holdClickDuringGrace = (event: React.MouseEvent) => {
-    // A press that started inside the grace stays ignored, even when the
-    // finger lifts after the grace ends.
-    const pressWasBlocked =
-      performance.now() - blockedPressAtRef.current < COMPAT_CLICK_WINDOW_MS;
-    if (pressWasBlocked) blockedPressAtRef.current = Number.NEGATIVE_INFINITY;
-    if (grace.accept() && !pressWasBlocked) return;
-    block(event);
+    if (pressBlockedRef.current) {
+      // The click that ends a press that started inside the grace.
+      pressBlockedRef.current = false;
+      block(event);
+      return;
+    }
+    if (!grace.accept()) block(event);
   };
 
-  // A held Enter repeats the click on a focused button. Only a new press
-  // may act.
-  const blockKeyRepeat = (event: React.KeyboardEvent) => {
+  // A key press is a new gesture. A held Enter repeats the click on a
+  // focused button, so only a new press may act.
+  const startKeyGesture = (event: React.KeyboardEvent) => {
+    pressBlockedRef.current = false;
     if (event.repeat) event.preventDefault();
   };
 
@@ -165,13 +185,16 @@ export function ResultChip({
         aria-labelledby={resultId}
         onClickCapture={holdClickDuringGrace}
         onPointerDownCapture={holdPressDuringGrace}
-        onKeyDownCapture={blockKeyRepeat}
+        onPointerCancelCapture={endCancelledPress}
+        onKeyDownCapture={startKeyGesture}
         onPointerDown={stopAtChip}
         onPointerUp={stopAtChip}
+        onPointerCancel={stopAtChip}
         onMouseDown={stopAtChip}
         onMouseUp={stopAtChip}
         onTouchStart={stopAtChip}
         onTouchEnd={stopAtChip}
+        onTouchCancel={stopAtChip}
         onClick={stopAtChip}
         onDoubleClick={stopAtChip}
         onContextMenu={stopAtChip}
@@ -181,7 +204,12 @@ export function ResultChip({
           {resultText}
         </p>
 
-        <ReadAloudButton variant="icon" text={spokenText} />
+        {/* The full button is w-full for a column; in this row it takes
+            only the width of its label. */}
+        <ReadAloudButton
+          text={spokenText}
+          className={`w-auto! shrink-0 px-4 ${BUTTON_SIZE}`}
+        />
 
         {onRestart && (
           <button
