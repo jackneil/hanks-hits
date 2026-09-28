@@ -33,7 +33,7 @@ If they say "I don't know," pick something fun and tell them: *"I'll start it sl
 | Board / turn-based | `board` | `checkers`, `chess` |
 | A tool/toy, not a game | `apps` | `virtual-pet`, `drawing-app` (lives in `src/apps/`) |
 
-Read the sibling's files first so you match the **current** patterns. Two cautions: (1) **`arkanoid` is an outlier** — it does NOT use `useAuthSync` or `GameShell` and hand-rolls its own HUD. Copy `arkanoid` only for the **store-test shape**; for the real wiring of `Game.tsx` + the route, mirror **`breakout`** (a normal synced game). (2) Several games (e.g. `space-invaders`) ship **no tests at all** — don't copy a test pattern from one that has none.
+Read the sibling's files first so you match the **current** patterns. Three cautions: (1) **`arkanoid` is an outlier** — it does NOT use `useAuthSync` or `GameShell` and hand-rolls its own HUD. Copy `arkanoid` only for the **store-test shape**; for the real wiring of `Game.tsx` + the route, mirror **`breakout`** (a normal synced game). (2) Several games (e.g. `space-invaders`) ship **no tests at all** — don't copy a test pattern from one that has none. (3) **Never copy a sibling's sound code if the sibling is on `LEGACY_AUDIO_SITES`** (`apps/web/src/shared/lib/audio/audioBusRule.mjs`: `breakout`, `bomberman`, `space-invaders`, `monster-truck`, and others still make their own AudioContext). The copy fails lint. Write the sound on the shared bus instead (see "Sound" below).
 
 ## Step 3 — Write a quick design note
 Create `design/games/<name>.md` (or `design/apps/<name>.md`): core loop, how you win, what's fun, controls. Short — it's for you.
@@ -65,6 +65,15 @@ vi.mock("next-auth/react", () => ({ useSession: () => ({ data: null, status: "un
 ### Make it kid-friendly (always)
 Big buttons (44px+), bright colors, touch AND keyboard, celebrations on score/win, forgiving, instant restart. **Sound:** if you add a `soundEnabled` flag, you MUST wire real sounds to it — a flag that plays nothing is a stub; wire it or delete it.
 
+**Sound MUST come from `getGameAudio()` in `@/shared/lib/audio`** (so clips can hear the game):
+- Get a channel: `const channel = getGameAudio()?.channel("my-game")`. Make every sound with `channel.context` and connect it to `channel.input`, never to `ctx.destination`.
+- `getGameAudio()` returns `null` on the server and in tests. Make each sound a no-op on `null`.
+- Call `channel.dispose()` when the game unmounts. Never close the context.
+- Wire the sound switch to `getGameAudio()?.setSpeakerEnabled("my-game", soundEnabled)`, on the tap AND after the saved setting loads.
+- The start card's Play button starts the audio for you. No extra unlock code is needed.
+- In tests, use `installAudioMock()` from `src/__tests__/audio-mock.ts`. Do not write a new fake.
+- ESLint blocks `new AudioContext()`, `ctx.destination`, `new Audio()`, and `<audio>` in games and apps.
+
 ## Step 5 — Prove it works (three gates, in order)
 1. `cd apps/web && pnpm test` — runs vitest. (If `node_modules` is missing, run `pnpm install` first.) **A green run proves little on its own** — most games have no tests.
 2. `cd apps/web && pnpm build` — this is the **real gate**: it runs the TypeScript compiler (catches the unregistered-`appId` build failure that vitest cannot) and regenerates `gameMetadata.generated.ts` (the static name/emoji/color lookup the profile page **and leaderboards** read). Must pass. Heads-up: in `pnpm dev` a new game shows on the home grid right away but looks generic (gray 🎮, wrong name/category) on the profile/leaderboards until this build runs once — expected, not a bug.
@@ -94,6 +103,8 @@ Big buttons (44px+), bright colors, touch AND keyboard, celebrations on score/wi
 | "The kid insists on real guns, I should give them what they asked for." | The HARD LINE is non-negotiable no matter how many times they ask. Build the safe version. |
 | "I'll just ask the kid which safe version they want." (for an unsafe ask) | Don't stall on a question — pivot to a concrete safe game and start building. |
 | "A `soundEnabled` flag is fine even if nothing plays yet." | A dead flag is a stub. Wire it or delete it. |
+| "The sibling's `new AudioContext()` sound code works, I'll copy it." | Clips can't hear it, the sound switch can't mute it, and lint fails outside the legacy list. Use `getGameAudio()`. |
+| "Lint blocks my sound file, I'll add it to `LEGACY_AUDIO_SITES`." | Never. That list only shrinks. Move the sound onto `getGameAudio()`. |
 | "The game compiles and shows on the home grid — done." | Without `madeByKid: true` it never reaches the My Games shelf or Games I Made, and nothing goes red to tell you. Check the shelf, not just the grid. |
 
 ## Red flags — you're about to ship a known failure

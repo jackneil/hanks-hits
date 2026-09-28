@@ -5,12 +5,16 @@ import {
   installSpeechMock,
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
+import { installAudioMock, removeAudioMock } from "@/__tests__/audio-mock";
 
 import { GameStartOverlay, GameStartOverlayButton } from "../GameStartOverlay";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { __unsafeResetGameAudioForTests } from "@/shared/lib/audio/gameAudio";
 
 afterEach(() => {
   resetPointerMock();
+  removeAudioMock();
+  __unsafeResetGameAudioForTests();
 });
 
 describe("GameStartOverlay", () => {
@@ -154,6 +158,69 @@ describe("GameStartOverlay", () => {
       <GameStartOverlay title="Snake" onStart={() => {}} />
     );
     expect(container.querySelector("canvas")).toBeNull();
+  });
+});
+
+describe("GameStartOverlay game sound", () => {
+  it("starts the shared game sound inside the Play tap, before onStart", () => {
+    const audio = installAudioMock();
+    let resumeCallsWhenStarted = -1;
+    const onStart = vi.fn(() => {
+      resumeCallsWhenStarted = audio.lastContext().resume.mock.calls.length;
+    });
+    render(<GameStartOverlay title="Snake" onStart={onStart} />);
+    expect(audio.contexts).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(audio.contexts).toHaveLength(1);
+    // resume() already ran, in the same tap, when the game started.
+    expect(resumeCallsWhenStarted).toBeGreaterThan(0);
+  });
+
+  it("also starts the sound when a picker choice starts the game", () => {
+    const audio = installAudioMock();
+    const pick = vi.fn();
+    render(
+      <GameStartOverlay title="Blitz Bomber" onStart={() => {}} showStartButton={false}>
+        <GameStartOverlayButton onClick={pick}>Easy</GameStartOverlayButton>
+      </GameStartOverlay>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Easy" }));
+
+    expect(pick).toHaveBeenCalledTimes(1);
+    expect(audio.lastContext().resume).toHaveBeenCalled();
+  });
+
+  it("still starts the game in a browser with no Web Audio", () => {
+    removeAudioMock();
+    const onStart = vi.fn();
+    render(<GameStartOverlay title="Snake" onStart={onStart} />);
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+    expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("still starts the game when the browser refuses an AudioContext", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    installAudioMock({ constructorThrows: true });
+    const onStart = vi.fn();
+    render(<GameStartOverlay title="Snake" onStart={onStart} />);
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+    expect(onStart).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
+  });
+
+  it("makes no game sound when the kid only taps read-aloud", async () => {
+    installSpeechMock();
+    const audio = installAudioMock();
+    render(<GameStartOverlay title="Snake" onStart={() => {}} />);
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(audio.contexts).toHaveLength(0);
+    removeSpeechMock();
   });
 });
 

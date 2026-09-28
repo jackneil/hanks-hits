@@ -257,6 +257,91 @@ HUDs render while playing, the overlay pre-start), OrientationWarning 100
 
 ---
 
+## Audio
+
+All game and app sound goes through one shared audio bus. The bus is in
+`src/shared/lib/audio/gameAudio.ts`. Call `getGameAudio()` to get it.
+
+**Why one bus.** A gameplay clip must record the game sound. A recorder
+can only hear a sound that goes through a node that it can reach. A sound
+that goes directly to `ctx.destination` does not get into a clip.
+
+**The graph:**
+
+```
+channel.input  (one for each channel() call)
+  -> master
+  -> tap point     (a clip recorder connects here)
+  -> speaker gain  (the sound switch of the game sets this to 0 or 1)
+  -> limiter       (a DynamicsCompressorNode that stops clipping)
+  -> destination   (the speakers)
+
+uiOutput -> limiter  (site sounds; they never get to the tap point)
+```
+
+The speaker gain is after the tap point. Because of this, a clip keeps
+the game sound when the kid turns the sound off. Read-aloud speech does
+not use the bus, and it does not get into a clip.
+
+**Rules for a game or an app:**
+
+- Get a channel with `getGameAudio()?.channel("<app id>")`.
+- Connect each sound to `channel.input`.
+- Make nodes with `channel.context`. Its type is `BaseAudioContext`, so
+  a game cannot close it.
+- Call `channel.dispose()` when the game unmounts.
+- Connect the sound switch to `setSpeakerEnabled("<app id>", enabled)`.
+  The newest live channel identifies the app on the screen. Because of
+  this, a mute in one game does not continue into the next game.
+- Make each sound a no-op when `getGameAudio()` returns `null`. It
+  returns `null` on the server, in a browser with no Web Audio, and in a
+  test without the audio mock.
+- Connect a site sound (not a game sound) to `uiOutput`.
+
+**Unlock.** A browser keeps a new AudioContext silent until a user
+gesture calls `resume()`. When the module is first imported, it adds a
+capture-phase listener to `document`. The listener calls `unlock()` on
+`pointerdown`, `pointerup`, `touchend`, `keydown` and `click`. The
+listener stops when the context runs. It starts again after an
+interruption, for example a phone call on iOS. The listener does not
+make an AudioContext. Only `getGameAudio()` makes one. The Play button of
+`GameStartOverlay` calls `unlockGameAudio()` in the tap, before the game
+starts. Each `GameStartOverlayButton` (a level or difficulty choice) does
+the same.
+
+**Iframe games.** An iframe has its own JavaScript realm. Web Audio cannot
+connect nodes from two realms. `buildAudioShimSource()` in `audioShim.ts`
+returns a script for the iframe. Put this script first in the iframe
+document, before the game scripts. The script wraps `AudioContext` in that
+realm. The `destination` of each new context becomes a GainNode bus, and
+the bus connects to the real speakers. The script puts each context and
+its bus on `window.__hhAudioBus`. It also resumes a suspended context when
+the kid taps in the iframe.
+
+**Enforcement:**
+
+- ESLint (`no-restricted-syntax`) blocks `new AudioContext()`,
+  `window.AudioContext`, `webkitAudioContext`, `.destination`,
+  `new Audio()`, `createElement("audio")` and `<audio>` in
+  `src/games/**` and `src/apps/**`. Tests are exempt.
+- `src/shared/lib/audio/audioBusRule.mjs` holds the rule and the
+  `LEGACY_AUDIO_SITES` list. The list names the files that still make
+  their own sound. Each migration PR removes its own files from the list.
+  Do not add a file to the list.
+- A source-scan test (`src/shared/lib/audio/__tests__/audioBusSources.test.ts`)
+  checks the same rule. It also reads the HTML games in `public/`. The
+  test fails when a file that is not on the list breaks the rule. The test
+  also fails when a file on the list no longer breaks the rule.
+- `SHIMMED_REALM_DOCUMENTS` in the same file names each HTML game whose
+  host adds the iframe shim. The test checks that the host calls
+  `buildAudioShimSource()`.
+
+**Tests.** Use `installAudioMock()` from `src/__tests__/audio-mock.ts`. It
+is the only fake Web Audio API. Call `__unsafeResetGameAudioForTests()`
+between tests.
+
+---
+
 ## Next.js Configuration
 
 ```ts

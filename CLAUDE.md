@@ -421,6 +421,8 @@ When building a new game or app, you MUST do ALL of these. **Steps 7 and 8 are t
 8. **`apps/web/src/lib/progress-schemas.ts`** — add a Zod schema (use `.strict()`) and register it in `PROGRESS_SCHEMAS` under `"my-game"`. Without it, all progress saves are rejected.
 9. **`apps/web/src/shared/lib/gameStatExtractor.ts`** — add a `case "my-game":` so the profile page shows real stats.
 
+**Sound (every game or app that makes a noise):** Sound MUST come from `getGameAudio()` in `@/shared/lib/audio`. Make a channel with `getGameAudio()?.channel("my-game")` and connect every sound to `channel.input`. Call `channel.dispose()` when the game unmounts. Wire the game's sound switch to `getGameAudio()?.setSpeakerEnabled("my-game", soundEnabled)`. Never write `new AudioContext()`, `ctx.destination`, `new Audio()`, or `<audio>`: ESLint blocks them in `src/games/` and `src/apps/`, because a clip records only the sound that goes through the bus. `getGameAudio()` returns `null` on the server and in tests without `src/__tests__/audio-mock.ts`, so make every sound a no-op on `null`. Some older games still make their own AudioContext (the `LEGACY_AUDIO_SITES` list in `src/shared/lib/audio/audioBusRule.mjs`). Do not copy their sound code, and never add a file to that list. Details: `design/ARCHITECTURE.md`, section "Audio".
+
 **Optional:**
 10. **`apps/web/src/lib/leaderboard-extractors.ts`** — add a `my-game` entry to turn on the in-game leaderboard button + leaderboard pages.
 
@@ -435,6 +437,7 @@ When building a new game or app, you MUST do ALL of these. **Steps 7 and 8 are t
 - [ ] You ran `pnpm build` at least once before judging the profile page — in `pnpm dev` a brand-new game shows on the home grid instantly but looks generic (gray 🎮, wrong name/category) on the profile/leaderboards until that build regenerates the lookup
 - [ ] Progress saves and survives a reload
 - [ ] The profile page shows proper stats for this game
+- [ ] If it makes sound: you heard it from the first tap, the game's sound switch mutes it, and every sound goes through `getGameAudio()` (lint is clean)
 
 ---
 
