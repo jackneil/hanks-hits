@@ -72,10 +72,9 @@ describe("CookieClickerGame golden cookie", () => {
     });
   });
 
-  // Mounting the full game (ticker + floating-text machinery) legitimately
-  // exceeds vitest's 5s default under full-suite parallel load — this was
-  // the suite's other documented flake (with monster-truck's import), so it
-  // gets a generous timeout. The assertions themselves are synchronous.
+  // Mounting the full game (ticker + floating-text machinery) is slow under
+  // full-suite parallel load; the suite-wide testTimeout in vitest.config.ts
+  // covers it. The assertions themselves are synchronous.
   it("lets users click a visible golden cookie to activate its effect", () => {
     render(<CookieClickerGame />);
 
@@ -88,7 +87,7 @@ describe("CookieClickerGame golden cookie", () => {
     expect(
       screen.queryByRole("button", { name: "Golden cookie" })
     ).not.toBeInTheDocument();
-  }, 30_000);
+  });
 });
 
 describe("CookieClickerGame achievement toast tap-through", () => {
@@ -188,7 +187,7 @@ describe("CookieClickerGame start overlay", () => {
       screen.getAllByRole("heading", { name: "Cookie Clicker" })
     ).toHaveLength(1);
     expect(screen.getAllByText("Cookie Clicker")).toHaveLength(1);
-  }, 30_000);
+  });
 
   it("shows touch hints (not mouse copy) on coarse pointers", () => {
     mockPointer(true);
@@ -198,7 +197,7 @@ describe("CookieClickerGame start overlay", () => {
     expect(
       screen.queryByText("🍪 Click the cookie to bake")
     ).not.toBeInTheDocument();
-  }, 30_000);
+  });
 
   it("shows mouse hints (not touch copy) on fine pointers", () => {
     mockPointer(false);
@@ -208,7 +207,7 @@ describe("CookieClickerGame start overlay", () => {
     expect(
       screen.queryByText("🍪 Tap the cookie to bake")
     ).not.toBeInTheDocument();
-  }, 30_000);
+  });
 
   it("bakes nothing before Play, and starts exactly once when Play is mashed", () => {
     render(<CookieClickerGame />);
@@ -226,5 +225,5 @@ describe("CookieClickerGame start overlay", () => {
     // One start, and the cookie is live exactly once per real tap.
     fireEvent.click(screen.getByRole("button", { name: "cookie" }));
     expect(useCookieClickerStore.getState().totalClicks).toBe(1);
-  }, 30_000);
+  });
 });

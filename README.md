@@ -106,7 +106,7 @@ The "magic" is in two files of guardrails that travel with the repo:
 A child can't do this part — a grown-up does it **once**:
 
 ```bash
-# 1. Install Node 20+ and pnpm (https://pnpm.io/installation)
+# 1. Install Node 24+ (the version in .nvmrc) and pnpm (https://pnpm.io/installation)
 # 2. Install the Claude Code CLI (https://claude.com/claude-code)
 # 3. Clone and install:
 git clone https://github.com/jackneil/hanks-hits.git
@@ -119,6 +119,8 @@ pnpm dev          # open http://localhost:3000
 ```
 
 To let the child **publish games to the internet**, connect this GitHub repo to a Railway project (Postgres + a web service using the included `Dockerfile`). After that, every push to `master` auto-deploys. If you clone this as a *different* person, point it at **your own** GitHub repo + Railway project.
+
+Before the site goes on the internet, put **your own** contact details in **`apps/web/src/config/legal.json`**: the operator name, a mailing address that is not your home, a phone number that is not personal, and an email address. The privacy notice at `/privacy` shows them to parents, as COPPA requires. A clone keeps the details of the person it came from, so replace them. Then run `node apps/web/scripts/check-legal-config.mjs` and make sure that it prints `PASS`.
 
 After setup, hand the keyboard to the kid: they just open Claude Code in this folder and start talking.
 

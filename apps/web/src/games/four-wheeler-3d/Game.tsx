@@ -202,7 +202,7 @@ export function FourWheeler3dGame() {
         gameName="Four-Wheeler Adventure 3D"
         onResume={() => setPaused(false)}
         onHome={() => {
-          window.location.href = "/";
+          window.location.assign(new URL("/", window.location.origin));
         }}
       />
     </div>

@@ -6,6 +6,7 @@ import { db, eq } from "@hank-neil/db";
 import * as schema from "@hank-neil/db/schema";
 import bcrypt from "bcryptjs";
 import { checkLoginRateLimit } from "@/lib/rate-limit";
+import { logServerError } from "@/lib/server-log";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -116,6 +117,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
   // Trust Railway and localhost
   trustHost: true,
+
+  // The default Auth.js logger writes the full error. A database error from
+  // the adapter holds the values of the new account (the name, the email
+  // address and the picture link), so write only the safe fields.
+  logger: {
+    error(error) {
+      logServerError("[auth][error]", error);
+    },
+  },
 });
 
 // Export auth config for use in API routes

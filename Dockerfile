@@ -1,5 +1,7 @@
 # Base stage
-FROM node:20.18-alpine AS base
+# Node 24 is the current LTS line. Keep this major the same as .nvmrc and the
+# root package.json "engines" field (platform-config.test.ts checks all three).
+FROM node:24.21-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.15.2 --activate
 
 # Builder stage - install deps and build in one stage to avoid pnpm symlink issues

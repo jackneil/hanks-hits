@@ -77,6 +77,27 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {/* COPPA 312.4(d): "Continue with Google" makes an account the first
+            time a Google account signs in, so this page collects a child's
+            information too and needs the notice link next to the request. */}
+        <div className="mb-6 rounded-2xl bg-slate-100 p-4 text-sm leading-relaxed text-gray-700">
+          <p className="font-bold text-gray-800">For grown-ups</p>
+          <p>
+            The first time a Google account signs in here, it makes a new
+            account. Use a grown-up&apos;s Google account or email, or get
+            permission first.
+          </p>
+          <Link
+            href="/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex min-h-[44px] items-center font-bold text-blue-700 underline underline-offset-2"
+          >
+            Read our privacy notice
+            <span className="sr-only"> (opens in a new tab)</span>
+          </Link>
+        </div>
+
         {/* Notice from signup redirect */}
         {notice && !error && (
           <div className="alert alert-success mb-6">

@@ -83,17 +83,17 @@ describe("Four-Wheeler Adventure 3D module", () => {
     const gameModule = await import("../index");
     expect(gameModule.FourWheeler3dGame).toBeDefined();
     expect(gameModule.default).toBeDefined();
-  }, 30_000);
+  });
 
   it("exports the store", async () => {
     const gameModule = await import("../index");
     expect(gameModule.useFourWheeler3dStore).toBeDefined();
-  }, 30_000);
+  });
 
   it("exports the game shell", async () => {
     const shell = await import("../GameShell");
     expect(shell.default).toBeDefined();
-  }, 30_000);
+  });
 
   it("registers itself on the home page with plain literals", async () => {
     const { metadata } = await import("../metadata");
@@ -108,7 +108,7 @@ describe("Four-Wheeler Adventure 3D module", () => {
     expect(world.World).toBeDefined();
     const badge = await import("../components/hud/ClockBadge");
     expect(badge.ClockBadge).toBeDefined();
-  }, 30_000);
+  });
 
   it("keeps the world constants the design doc specifies", async () => {
     const { WORLD, SCALE, DAY_MINUTES } = await import("../lib/constants");
@@ -134,21 +134,21 @@ describe("Four-Wheeler Adventure 3D module", () => {
     expect(camera.ChaseCamera).toBeDefined();
     const effects = await import("../components/Effects");
     expect(effects.Effects).toBeDefined();
-  }, 30_000);
+  });
 
   it("exports the speedometer and the phone controls", async () => {
     const speedo = await import("../components/hud/Speedo");
     expect(speedo.Speedo).toBeDefined();
     const mobile = await import("../components/MobileControls");
     expect(mobile.MobileControls).toBeDefined();
-  }, 30_000);
+  });
 
   it("draws a body for the quad and for every other vehicle", async () => {
     const models = await import("../components/models");
     expect(models.VehicleModel).toBeTypeOf("function");
     expect(models.AtvModel).toBeTypeOf("function");
     expect(models.GenericVehicleModel).toBeTypeOf("function");
-  }, 30_000);
+  });
 
   it("gives the boost the three seconds the 2D game gives it", async () => {
     const { NOS_SECONDS, useFourWheeler3dStore } = await import("../lib/store");

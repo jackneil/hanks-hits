@@ -441,12 +441,20 @@ export function HomeClient({ categories }: HomeClientProps) {
       {/* Footer */}
       <footer className="bg-slate-950 border-t border-white/5 py-8 px-4">
         <div className="max-w-6xl mx-auto text-center">
-          <p className="text-2xl mb-2">
+          <p className="text-2xl mb-2 font-bold text-white">
             <span className="text-3xl">{SITE.emoji}</span> {SITE.name}
           </p>
-          <p className="text-white/40 text-sm">
+          <p className="text-white/70 text-sm">
             Made for {SITE.owner} with ❤️
           </p>
+          {/* COPPA 312.4(d): a clearly labeled link to the notice on the
+              home page. */}
+          <Link
+            href="/privacy"
+            className="mt-3 inline-flex min-h-[44px] items-center px-2 font-semibold text-white underline underline-offset-4 hover:text-cyan-200"
+          >
+            Privacy notice
+          </Link>
         </div>
       </footer>
 

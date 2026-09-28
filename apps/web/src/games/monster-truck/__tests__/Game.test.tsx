@@ -32,19 +32,19 @@ vi.mock('@react-three/drei', () => ({
 }));
 
 // We test the store separately, so just test that the Game module loads.
-// The first import pulls the whole three.js/R3F chain, which legitimately
-// exceeds vitest's default 5s under full-suite parallel load — this was the
-// suite's one documented flake, so the import tests get a generous timeout.
+// The first import pulls the whole three.js/R3F chain, which is slow under
+// full-suite parallel load; the suite-wide testTimeout in vitest.config.ts
+// covers it.
 describe('Monster Truck Game Module', () => {
   it('exports MonsterTruckGame component', async () => {
     const gameModule = await import('../index');
     expect(gameModule.MonsterTruckGame).toBeDefined();
-  }, 30_000);
+  });
 
   it('exports useGameStore hook', async () => {
     const gameModule = await import('../index');
     expect(gameModule.useGameStore).toBeDefined();
-  }, 30_000);
+  });
 
   it('keeps physics colliders out of the ambient environment', async () => {
     const { Environment, EnvironmentColliders } = await import('../components/Environment');
@@ -133,7 +133,7 @@ describe('Monster Truck start overlay', () => {
 
     expect(screen.getByTestId('game-start-overlay')).toBeInTheDocument();
     expect(screen.getAllByText('Monster Truck Mayhem')).toHaveLength(1);
-  }, 30_000);
+  });
 
   it('shows touch instructions that match the DEFAULT controls (tilt is off)', async () => {
     // Regression: the card promised "Tilt your phone to steer" while useTilt
@@ -158,7 +158,7 @@ describe('Monster Truck start overlay', () => {
     expect(
       screen.queryByText('🦶 Press W or the up arrow to go')
     ).not.toBeInTheDocument();
-  }, 30_000);
+  });
 
   it('never dismisses itself on a timer', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -168,7 +168,7 @@ describe('Monster Truck start overlay', () => {
     vi.advanceTimersByTime(2000);
 
     expect(screen.getByTestId('game-start-overlay')).toBeInTheDocument();
-  }, 30_000);
+  });
 
   it('starts the game once and hides the overlay on Play', async () => {
     const { MonsterTruckGame } = await import('../Game');
@@ -180,7 +180,7 @@ describe('Monster Truck start overlay', () => {
 
     expect(screen.queryByTestId('game-start-overlay')).toBeNull();
     expect(screen.getAllByTestId('r3f-canvas')).toHaveLength(1);
-  }, 30_000);
+  });
 });
 
 describe('monster-truck pause menu read aloud', () => {

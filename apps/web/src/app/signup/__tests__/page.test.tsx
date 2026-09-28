@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import SignUpPage from "../page";
@@ -27,12 +27,49 @@ describe("SignUpPage", () => {
     expect(
       screen.getByText(/Accounts save game progress for this player/)
     ).toBeInTheDocument();
+    // Leaderboards show the random handle (gaming_profiles.handle), never
+    // users.name, so the page must not claim the typed name goes public.
     expect(
-      screen.getByText(/Leaderboard scores may show the player's display name/)
+      screen.getByText(/Leaderboards show a random player name, never the name typed here/)
     ).toBeInTheDocument();
+    expect(screen.queryByText(/display name/)).not.toBeInTheDocument();
     expect(
       screen.getByText(/get permission before creating an account/)
     ).toBeInTheDocument();
+  });
+
+  it("links the privacy notice from the grown-up note and next to the email field", () => {
+    render(<SignUpPage />);
+
+    const noteLink = screen.getByRole("link", {
+      name: /^Read our privacy notice\s*\(opens in a new tab\)$/,
+    });
+    expect(noteLink).toHaveAttribute("href", "/privacy");
+
+    const emailInput = screen.getByPlaceholderText("your@email.com");
+    const noteId = emailInput.getAttribute("aria-describedby");
+    expect(noteId).toBeTruthy();
+    const emailNote = document.getElementById(noteId!);
+    expect(emailNote).toHaveTextContent(/We never send email/);
+    const emailNoteLink = within(emailNote!).getByRole("link", {
+      name: /^Privacy notice\s*\(opens in a new tab\)$/,
+    });
+    expect(emailNoteLink).toHaveAttribute("href", "/privacy");
+  });
+
+  it("opens the privacy notice in a new tab, so the form keeps what was typed", () => {
+    // The form fields are plain component state. A same-tab link in the
+    // middle of the form would throw away the name and email on the way out.
+    render(<SignUpPage />);
+
+    const links = screen.getAllByRole("link", { name: /privacy notice/i });
+    expect(links).toHaveLength(2);
+    for (const link of links) {
+      expect(link).toHaveAttribute("href", "/privacy");
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      expect(link.className).toMatch(/min-h-\[44px\]/);
+    }
   });
 
   it("rejects a 7-character password before ever calling the API", () => {

@@ -78,7 +78,7 @@ Kids **love** coins, points, high scores, achievements, badges, levels, streaks,
 9. **If the environment isn't ready** (e.g. `node_modules` is missing), quietly fix it (`pnpm install`) — don't make the kid debug anything. If even `pnpm install` fails (Node or pnpm isn't installed at all), that's a one-time grown-up setup thing — reassure the kid and ask for a grown-up; never show them a raw error/stack trace.
 
 ### First time on a new computer (one-time, a grown-up does this)
-A kid who clones this onto a fresh computer needs a grown-up to do the one-time setup **once**: install Node 20+, install pnpm, run `pnpm install`, and — for putting games online — connect the repo to Railway + GitHub. After that, you (Claude) handle everything. The README has the grown-up setup steps. If something isn't set up yet, explain it kindly: "Ask a grown-up to help with this one part, then we're good to go!"
+A kid who clones this onto a fresh computer needs a grown-up to do the one-time setup **once**: install Node 24+ (the version in `.nvmrc`), install pnpm, run `pnpm install`, and (for putting games online) connect the repo to Railway + GitHub. After that, you (Claude) handle everything. The README has the grown-up setup steps. If something isn't set up yet, explain it kindly: "Ask a grown-up to help with this one part, then we're good to go!"
 
 ---
 

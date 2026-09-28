@@ -7,6 +7,7 @@
 
 import type { ScoreType } from "./leaderboard-schemas";
 import { VALID_APP_IDS, type ValidAppId } from "@hank-neil/db/schema";
+import { logServerWarning } from "./server-log";
 
 export interface LeaderboardScore {
   score: number;
@@ -449,7 +450,7 @@ export function extractLeaderboardScore(
   try {
     return extractor(data);
   } catch (error) {
-    console.warn(`[LEADERBOARD] Failed to extract score for ${appId}:`, error);
+    logServerWarning(`[LEADERBOARD] Failed to extract score for ${appId}`, error);
     return null;
   }
 }

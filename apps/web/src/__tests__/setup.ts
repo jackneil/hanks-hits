@@ -1,5 +1,15 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { afterAll, vi } from 'vitest';
+
+import { installTimerLeakGuard } from './timerLeakGuard';
+
+// A component timer that outlives its test file fires after the jsdom window
+// is gone and fails the whole run with "window is not defined" (see
+// timerLeakGuard.ts). Clear the pending ones when the file ends.
+const timerLeakGuard = installTimerLeakGuard();
+afterAll(() => {
+  timerLeakGuard.clearPending();
+});
 
 // next-auth's useSession throws "must be wrapped in a <SessionProvider />"
 // outside a provider. Shared chrome that renders LoginButton (Header,

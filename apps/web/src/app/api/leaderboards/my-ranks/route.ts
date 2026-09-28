@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db, eq, and, sql } from "@hank-neil/db";
 import { gamingProfiles, leaderboardEntries } from "@hank-neil/db/schema";
 import { getGameMetadata } from "@/shared/lib/gameMetadata.generated";
+import { logServerError } from "@/lib/server-log";
 
 /**
  * GET /api/leaderboards/my-ranks
@@ -109,7 +110,7 @@ export async function GET() {
       ranks,
     });
   } catch (error) {
-    console.error("GET /api/leaderboards/my-ranks error:", error);
+    logServerError("GET /api/leaderboards/my-ranks error", error);
     return NextResponse.json(
       { error: "Failed to fetch ranks" },
       { status: 500 }
