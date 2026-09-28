@@ -100,13 +100,21 @@ export default function SignUpPage() {
           </p>
         </div>
 
-        <div className="mb-6 border-l-4 border-green-500 pl-4 text-sm leading-relaxed text-gray-700">
+        <div className="mb-6 rounded-2xl bg-slate-100 p-4 text-sm leading-relaxed text-gray-700">
           <p className="font-bold text-gray-800">For grown-ups</p>
           <p>
-            Accounts save game progress for this player. Leaderboard scores may
-            show the player&apos;s display name. Use a grown-up&apos;s email or
-            get permission before creating an account.
+            Accounts save game progress for this player. Leaderboards show a
+            random player name, never the name typed here. Use a grown-up&apos;s
+            email or get permission before creating an account.
           </p>
+          {/* COPPA 312.4(d): link to the notice next to the request for
+              the child's information. */}
+          <Link
+            href="/privacy"
+            className="inline-flex min-h-[44px] items-center font-bold text-blue-700 underline underline-offset-2"
+          >
+            Read our privacy notice
+          </Link>
         </div>
 
         {/* Error Alert */}
@@ -174,8 +182,18 @@ export default function SignUpPage() {
               className="input input-bordered input-lg w-full"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              aria-describedby="signup-email-note"
               required
             />
+            <div id="signup-email-note" className="mt-2 text-sm text-gray-600">
+              <p>The email is your sign-in name. We never send email.</p>
+              <Link
+                href="/privacy"
+                className="inline-flex min-h-[44px] items-center font-bold text-blue-700 underline underline-offset-2"
+              >
+                Privacy notice
+              </Link>
+            </div>
           </div>
 
           <div className="form-control">

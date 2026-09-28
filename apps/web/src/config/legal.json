@@ -1,0 +1,7 @@
+{
+  "_comment": "Contact details for the privacy notice at /privacy. COPPA (16 CFR 312.4(d)(1)) requires all four on the site. Use a mailing address that is not a home address (a PO box or a business address) and a phone number that is not a personal number. Put a line break as \\n in mailingAddress. Before a release, run: node apps/web/scripts/check-legal-config.mjs",
+  "operatorName": "",
+  "mailingAddress": "",
+  "phone": "",
+  "email": ""
+}
