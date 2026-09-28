@@ -168,13 +168,10 @@ EmulatorJS is designed as a plugin that runs in a container element. **Critical 
 
 ```javascript
 // Base configuration
-EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+EJS_pathtodata = "https://cdn.emulatorjs.org/4.2.3/data/";
 ```
 
-Use the `stable` version for reliability. Options:
-- `stable` - Tested, recommended for production
-- `latest` - Current code, stable cores
-- `nightly` - Bleeding edge, may break
+Use a pinned version path (for example `4.2.3`). Do not use the `stable`, `latest`, or `nightly` paths. These paths change when EmulatorJS makes a release, and the change gets no review from us (issue #22). The pin test `apps/web/src/games/retro-arcade/__tests__/emulator-pin.test.ts` fails when an EmulatorJS URL does not use the pinned version. To change the version, change the URLs in `public/emulator/index.html` and the version in the pin test in the same pull request.
 
 #### Iframe Approach (Required for React/Next.js)
 
@@ -203,7 +200,7 @@ Create a standalone HTML template that loads EmulatorJS:
     EJS_core = params.get('core') || 'nes';
     EJS_gameUrl = params.get('rom');
     EJS_gameName = params.get('name') || 'Game';
-    EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+    EJS_pathtodata = "https://cdn.emulatorjs.org/4.2.3/data/";
 
     // Kid-friendly defaults
     EJS_volume = 0.5;
@@ -225,7 +222,7 @@ Create a standalone HTML template that loads EmulatorJS:
       window.parent.postMessage({ type: 'ready' }, '*');
     };
   </script>
-  <script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
+  <script src="https://cdn.emulatorjs.org/4.2.3/data/loader.js"></script>
 </body>
 </html>
 ```
@@ -534,6 +531,17 @@ Minimal overlay - let the game shine:
    - N64: Rainbow gradient
 5. **No scary settings** - Hide advanced options, sensible defaults
 6. **Instant feedback** - Loading spinner, "Game starting..." text
+
+### Content Rules (Catalog Blocklist)
+
+Do not put a game with blood, gore, or sexual content in a catalog (Guardrail 1, issue #25).
+
+- The rules are in `apps/web/src/games/retro-arcade/lib/content-blocklist.json`. Each rule has a pattern, a reason, and a source (an ESRB rating or a description of the game).
+- The test `__tests__/catalog-content.test.ts` finds each `lib/*catalog*` file. The test fails when a catalog entry matches a rule. A catalog for a new console gets this check with no test change.
+- The catalog generators (`scripts/upload_snes_roms.py`, `scripts/upload_atari_roms.py`) read the same rules through `scripts/retro_blocklist.py`. They do not upload or list a blocked ROM.
+- A rule reads the display name, the ROM file name, and the id. Old ROM dumps often have short names (for example `custerev.bin`), so the display name alone is not sufficient.
+- To identify an unclear Atari 2600 ROM, compare its MD5 with the Stella ROM database (`src/emucore/DefProps.hxx` in the Stella source).
+- To add a rule, add the pattern, the reason, the source, and examples to the JSON file. Then run `python3 scripts/retro_blocklist.py` and the catalog test.
 
 ---
 

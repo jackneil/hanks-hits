@@ -11,6 +11,8 @@ import boto3
 from pathlib import Path
 from botocore.config import Config
 
+from retro_blocklist import blocked_rule
+
 # Railway S3 configuration - NEVER COMMIT CREDENTIALS
 # Set these environment variables before running:
 #   RAILWAY_S3_ENDPOINT
@@ -193,6 +195,7 @@ def upload_roms():
     catalog = []
     uploaded = 0
     skipped = 0
+    blocked = 0
     seen_filenames = set()  # Track duplicates
 
     for rom_path in sorted(rom_files, key=lambda p: p.name.lower()):
@@ -206,6 +209,15 @@ def upload_roms():
         seen_filenames.add(safe_name)
 
         display_name = get_display_name(original_name)
+        game_id = f"atari2600-{safe_name.replace('.bin', '').replace('_', '-')}"
+
+        # Kid-safe content: do not upload or list a blocked title
+        rule = blocked_rule(display_name, safe_name, game_id)
+        if rule:
+            print(f"  [BLOCKED] {original_name} ({rule['id']}: {rule['reason']})")
+            blocked += 1
+            continue
+
         genre = categorize_game(display_name)
         favorite = is_favorite(display_name)
 
@@ -235,7 +247,6 @@ def upload_roms():
                 continue
 
         # Add to catalog
-        game_id = f"atari2600-{safe_name.replace('.bin', '').replace('_', '-')}"
         catalog.append({
             "id": game_id,
             "displayName": display_name,
@@ -244,7 +255,7 @@ def upload_roms():
             "favorite": favorite,
         })
 
-    print(f"\nUpload complete: {uploaded} uploaded, {skipped} skipped")
+    print(f"\nUpload complete: {uploaded} uploaded, {skipped} skipped, {blocked} blocked")
     print(f"Total unique games in catalog: {len(catalog)}")
 
     # Save catalog as JSON for reference
@@ -282,9 +293,11 @@ export interface CatalogGame {
   favorite: boolean;
 }
 
-// ROM base URL - uses env var in production, falls back for local dev
+// ROM base URL - env var can override, but the default is the same-origin
+// /api/roms proxy (works in every environment; the old "/roms" fallback
+// 404'd all of local dev)
 export const ROM_BASE_URL =
-  process.env.NEXT_PUBLIC_ROM_CDN_URL || "/roms";
+  process.env.NEXT_PUBLIC_ROM_CDN_URL || "/api/roms";
 
 export function getRomUrl(game: CatalogGame): string {
   return `${ROM_BASE_URL}/atari2600/${game.filename}`;
@@ -351,10 +364,17 @@ def generate_catalog_only():
         seen_filenames.add(safe_name)
 
         display_name = get_display_name(original_name)
+        game_id = f"atari2600-{safe_name.replace('.bin', '').replace('_', '-')}"
+
+        # Kid-safe content: do not list a blocked title
+        rule = blocked_rule(display_name, safe_name, game_id)
+        if rule:
+            print(f"  [BLOCKED] {original_name} ({rule['id']}: {rule['reason']})")
+            continue
+
         genre = categorize_game(display_name)
         favorite = is_favorite(display_name)
 
-        game_id = f"atari2600-{safe_name.replace('.bin', '').replace('_', '-')}"
         catalog.append({
             "id": game_id,
             "displayName": display_name,

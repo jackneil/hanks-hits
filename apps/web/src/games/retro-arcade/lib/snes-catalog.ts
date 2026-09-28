@@ -77,20 +77,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     favorite: false,
   },
   {
-    id: "snes-alien-3",
-    displayName: "Alien 3",
-    filename: "alien_3.smc",
-    genre: "action",
-    favorite: false,
-  },
-  {
-    id: "snes-alien-vs-predator",
-    displayName: "Alien vs. Predator",
-    filename: "alien_vs_predator.smc",
-    genre: "action",
-    favorite: false,
-  },
-  {
     id: "snes-another-world",
     displayName: "Another World",
     filename: "another_world.smc",
@@ -165,13 +151,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     displayName: "Breath of Fire 2",
     filename: "breath_of_fire_2.smc",
     genre: "rpg",
-    favorite: false,
-  },
-  {
-    id: "snes-cannon-fodder",
-    displayName: "Cannon Fodder",
-    filename: "cannon_fodder.smc",
-    genre: "action",
     favorite: false,
   },
   {
@@ -250,13 +229,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     filename: "donkey_kong_3_dixie_kongs_double_trouble.smc",
     genre: "platformer",
     favorite: true,
-  },
-  {
-    id: "snes-doom",
-    displayName: "Doom",
-    filename: "doom.smc",
-    genre: "shooter",
-    favorite: false,
   },
   {
     id: "snes-drakkhen",
@@ -434,13 +406,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     favorite: false,
   },
   {
-    id: "snes-killer-instinct",
-    displayName: "Killer Instinct",
-    filename: "killer_instinct.smc",
-    genre: "fighting",
-    favorite: false,
-  },
-  {
     id: "snes-kirby-superstar",
     displayName: "Kirby Superstar",
     filename: "kirby_superstar.smc",
@@ -550,27 +515,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     displayName: "Metal Warriors",
     filename: "metal_warriors.smc",
     genre: "shooter",
-    favorite: false,
-  },
-  {
-    id: "snes-mortal-kombat-1",
-    displayName: "Mortal Kombat 1",
-    filename: "mortal_kombat_1.smc",
-    genre: "fighting",
-    favorite: false,
-  },
-  {
-    id: "snes-mortal-kombat-2",
-    displayName: "Mortal Kombat 2",
-    filename: "mortal_kombat_2.smc",
-    genre: "fighting",
-    favorite: false,
-  },
-  {
-    id: "snes-mortal-kombat-3",
-    displayName: "Mortal Kombat 3",
-    filename: "mortal_kombat_3.smc",
-    genre: "fighting",
     favorite: false,
   },
   {
@@ -728,13 +672,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     favorite: false,
   },
   {
-    id: "snes-samurai-showdown",
-    displayName: "Samurai Showdown",
-    filename: "samurai_showdown.smc",
-    genre: "fighting",
-    favorite: false,
-  },
-  {
     id: "snes-secret-of-evermore",
     displayName: "Secret of Evermore",
     filename: "secret_of_evermore.smc",
@@ -882,13 +819,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     favorite: false,
   },
   {
-    id: "snes-super-fire-pro-wrestling-x-premium",
-    displayName: "Super Fire Pro Wrestling X Premium",
-    filename: "super_fire_pro_wrestling_x_premium.smc",
-    genre: "fighting",
-    favorite: false,
-  },
-  {
     id: "snes-super-ghouls-n-ghosts",
     displayName: "Super Ghouls 'n' Ghosts",
     filename: "super_ghouls_n_ghosts.smc",
@@ -956,13 +886,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     displayName: "Super R-Type",
     filename: "super_r_type.smc",
     genre: "shooter",
-    favorite: false,
-  },
-  {
-    id: "snes-super-smash-tv",
-    displayName: "Super Smash TV",
-    filename: "super_smash_tv.smc",
-    genre: "action",
     favorite: false,
   },
   {
@@ -1047,13 +970,6 @@ export const SNES_CATALOG: CatalogGame[] = [
     displayName: "Wild Guns",
     filename: "wild_guns.smc",
     genre: "action",
-    favorite: false,
-  },
-  {
-    id: "snes-wolfenstein-3d",
-    displayName: "Wolfenstein 3D",
-    filename: "wolfenstein_3d.smc",
-    genre: "shooter",
     favorite: false,
   },
   {

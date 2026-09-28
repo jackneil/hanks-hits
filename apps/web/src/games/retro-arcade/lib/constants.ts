@@ -100,14 +100,6 @@ export interface GameInfo {
   isCustom?: boolean; // User-uploaded ROM
 }
 
-// EmulatorJS CDN configuration
-export const EMULATOR_CONFIG = {
-  cdnBase: "https://cdn.emulatorjs.org/stable/data/",
-  loaderScript: "https://cdn.emulatorjs.org/stable/data/loader.js",
-  defaultVolume: 0.5,
-  themeColor: "#3B82F6", // Blue for kid-friendly
-};
-
 // Pre-loaded homebrew games (user will need to provide their own ROMs)
 // These are just metadata - actual ROMs must be user-provided
 export const SAMPLE_GAMES: GameInfo[] = [

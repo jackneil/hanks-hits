@@ -32,8 +32,12 @@ const nextConfig: NextConfig = {
             value: "max-age=31536000; includeSubDomains",
           },
           {
+            // No page may use the camera, the microphone, screen capture
+            // (getDisplayMedia) or the location. Game clips record only game
+            // pixels and game sound (COPPA). The emulator rule below does not
+            // set this header, so this value applies to /emulator too.
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            value: "camera=(), microphone=(), display-capture=(), geolocation=()",
           },
           {
             key: "Content-Security-Policy",

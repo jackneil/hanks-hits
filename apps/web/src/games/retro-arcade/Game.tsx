@@ -5,7 +5,6 @@ import { useRetroArcadeStore } from "./lib/store";
 import {
   SYSTEMS,
   SYSTEM_IDS,
-  EMULATOR_CONFIG,
   isValidRomFile,
   type SystemType,
   type SystemInfo,

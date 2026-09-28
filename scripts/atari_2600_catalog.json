@@ -245,27 +245,6 @@
     "favorite": false
   },
   {
-    "id": "atari2600-bachelor-party",
-    "displayName": "Bachelor Party",
-    "filename": "bachelor_party.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-bachelor",
-    "displayName": "Bachelor",
-    "filename": "bachelor.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-bachelorette-party",
-    "displayName": "Bachelorette Party",
-    "filename": "bachelorette_party.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
     "id": "atari2600-backfire",
     "displayName": "backfire",
     "filename": "backfire.bin",
@@ -343,13 +322,6 @@
     "favorite": false
   },
   {
-    "id": "atari2600-beat-em-and-eat-em",
-    "displayName": "Beat 'Em & Eat 'Em",
-    "filename": "beat_em_and_eat_em.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
     "id": "atari2600-berenstain-bears",
     "displayName": "Berenstain Bears",
     "filename": "berenstain_bears.bin",
@@ -409,13 +381,6 @@
     "id": "atari2600-blackjack-black-jack",
     "displayName": "Blackjack - Black Jack",
     "filename": "blackjack_black_jack.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-bloodyhumanfreeway-ntsc",
-    "displayName": "BloodyHumanFreeway_NTSC",
-    "filename": "bloodyhumanfreeway_ntsc.bin",
     "genre": "action",
     "favorite": false
   },
@@ -553,13 +518,6 @@
     "favorite": false
   },
   {
-    "id": "atari2600-burning-desire",
-    "displayName": "Burning Desire",
-    "filename": "burning_desire.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
     "id": "atari2600-cabbage-patch-kids-adventures-in-the-park",
     "displayName": "Cabbage Patch Kids - Adventures in the Park",
     "filename": "cabbage_patch_kids_adventures_in_the_park.bin",
@@ -612,13 +570,6 @@
     "id": "atari2600-cat-trax",
     "displayName": "Cat Trax",
     "filename": "cat_trax.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-cathouse-blues",
-    "displayName": "Cathouse Blues",
-    "filename": "cathouse_blues.bin",
     "genre": "action",
     "favorite": false
   },
@@ -955,20 +906,6 @@
     "id": "atari2600-cubo-magico",
     "displayName": "Cubo Magico",
     "filename": "cubo_magico.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-custers-revenge",
-    "displayName": "Custer's Revenge",
-    "filename": "custers_revenge.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-custerev",
-    "displayName": "Custerev",
-    "filename": "custerev.bin",
     "genre": "action",
     "favorite": false
   },
@@ -1631,13 +1568,6 @@
     "favorite": false
   },
   {
-    "id": "atari2600-general-re-treat",
-    "displayName": "General Re-Treat",
-    "filename": "general_re_treat.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
     "id": "atari2600-ghost-manor",
     "displayName": "Ghost Manor",
     "filename": "ghost_manor.bin",
@@ -1655,13 +1585,6 @@
     "id": "atari2600-ghostbusters-ii",
     "displayName": "Ghostbusters II",
     "filename": "ghostbusters_ii.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-gigolo",
-    "displayName": "Gigolo",
-    "filename": "gigolo.bin",
     "genre": "action",
     "favorite": false
   },
@@ -1778,13 +1701,6 @@
     "favorite": false
   },
   {
-    "id": "atari2600-halloween",
-    "displayName": "Halloween",
-    "filename": "halloween.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
     "id": "atari2600-hangman-spelling",
     "displayName": "Hangman - Spelling",
     "filename": "hangman_spelling.bin",
@@ -1795,13 +1711,6 @@
     "id": "atari2600-harbor-escape",
     "displayName": "Harbor Escape",
     "filename": "harbor_escape.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-harem",
-    "displayName": "Harem",
-    "filename": "harem.bin",
     "genre": "action",
     "favorite": false
   },
@@ -2016,13 +1925,6 @@
     "favorite": true
   },
   {
-    "id": "atari2600-jungle-fever",
-    "displayName": "Jungle Fever",
-    "filename": "jungle_fever.bin",
-    "genre": "adventure",
-    "favorite": false
-  },
-  {
     "id": "atari2600-jungle-hunt",
     "displayName": "Jungle Hunt",
     "filename": "jungle_hunt.bin",
@@ -2100,13 +2002,6 @@
     "favorite": false
   },
   {
-    "id": "atari2600-knight-on-the-town",
-    "displayName": "Knight on the Town",
-    "filename": "knight_on_the_town.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
     "id": "atari2600-kool-aid-man",
     "displayName": "Kool-Aid Man",
     "filename": "kool_aid_man.bin",
@@ -2138,13 +2033,6 @@
     "id": "atari2600-labyrinth",
     "displayName": "labyrinth",
     "filename": "labyrinth.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-lady-in-wading",
-    "displayName": "Lady in Wading",
-    "filename": "lady_in_wading.bin",
     "genre": "action",
     "favorite": false
   },
@@ -2922,13 +2810,6 @@
     "id": "atari2600-phaser-patrol",
     "displayName": "Phaser Patrol",
     "filename": "phaser_patrol.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-philly-flasher",
-    "displayName": "Philly Flasher",
-    "filename": "philly_flasher.bin",
     "genre": "action",
     "favorite": false
   },
@@ -4736,20 +4617,6 @@
     "displayName": "Tetris 2600",
     "filename": "tetris_2600.bin",
     "genre": "puzzle",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-texas-chainsaw-massacre-the",
-    "displayName": "Texas Chainsaw Massacre, The",
-    "filename": "texas_chainsaw_massacre_the.bin",
-    "genre": "action",
-    "favorite": false
-  },
-  {
-    "id": "atari2600-texas-chainsaw-massacre",
-    "displayName": "Texas Chainsaw Massacre",
-    "filename": "texas_chainsaw_massacre.bin",
-    "genre": "action",
     "favorite": false
   },
   {

@@ -15,7 +15,6 @@ export type { SystemType, SystemInfo, GameInfo } from "./lib/constants";
 export {
   SYSTEMS,
   SYSTEM_IDS,
-  EMULATOR_CONFIG,
   SAMPLE_GAMES,
   getGamesForSystem,
   isValidRomFile,

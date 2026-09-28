@@ -166,7 +166,11 @@
     window.EJS_core = core;
     window.EJS_gameUrl = romUrl;
     window.EJS_gameName = gameName;
-    window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+    // EmulatorJS is pinned to one version (issue #22). The floating "stable"
+    // path changes under us without a review. To change the version, change
+    // this URL and the loader.js URL below, then update the pin test in
+    // src/games/retro-arcade/__tests__/emulator-pin.test.ts.
+    window.EJS_pathtodata = 'https://cdn.emulatorjs.org/4.2.3/data/';
 
     // Kid-friendly defaults
     window.EJS_volume = 0.5;
@@ -236,7 +240,7 @@
 
     // Load the EmulatorJS loader script
     const script = document.createElement('script');
-    script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+    script.src = 'https://cdn.emulatorjs.org/4.2.3/data/loader.js';
     script.async = true;
     script.onerror = function() {
       document.getElementById('loading').innerHTML = `
