@@ -180,6 +180,24 @@ describe("PauseMenu ESC hint", () => {
   });
 });
 
+describe("PauseMenu layout", () => {
+  it("centers its column with auto margins, so a tall column scrolls from its top", () => {
+    render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
+    const overlay = screen.getByTestId("pause-menu");
+    const content = screen.getByTestId("pause-menu-content");
+
+    // justify-center on a scroll container clips the top of a column that
+    // is taller than the screen ("Paused" included), where no scroll can
+    // reach it. Auto margins center it only when it fits.
+    expect(overlay).toHaveClass("fixed", "inset-0", "flex", "overflow-y-auto");
+    expect(overlay.className).not.toMatch(/justify-center|items-center/);
+    expect(content.parentElement).toBe(overlay);
+    expect(content).toHaveClass("m-auto");
+    expect(content).toContainElement(screen.getByRole("heading", { name: "Paused" }));
+    expect(content).toContainElement(screen.getByTestId("pause-menu-break-slot"));
+  });
+});
+
 describe("PauseMenu break slot", () => {
   it("registers its slot while open and removes it when closed", () => {
     const { rerender } = render(

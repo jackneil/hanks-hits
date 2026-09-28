@@ -14,13 +14,17 @@ import { ReadAloudButton } from './ReadAloudButton';
  * the installed app. It has two modes.
  *
  * Automatic (the default, mounted by a game or an app):
- * - It never shows during active play (issue #32). While a GameShell is on
- *   screen, it shows only inside a break surface: when the pause menu is
- *   open, the tip renders into the menu's break slot, as part of the menu,
- *   so it cannot cover a game control or a menu button.
- * - It stays hidden while a start card is on screen, because a bottom sheet
- *   sits over the Play button on an iPhone.
- * - On a page with no GameShell, it is a bottom sheet.
+ * - It never shows during active play (issue #32). It shows as a tip
+ *   INSIDE a break surface (gameBreaks.ts), as part of that surface, so it
+ *   cannot cover a game control or a menu button:
+ *   - on the start card, below the Play button;
+ *   - in the pause menu, below the menu buttons.
+ *   Both surfaces read the tip out loud with the rest of their words.
+ * - On a game page with no break surface up, the kid is playing: it hides.
+ * - On an app page (under /apps/) or a page with no GameShell, there is no
+ *   play to cover, so it is a bottom sheet. It stays hidden while a start
+ *   card with no break slot is on screen, because the sheet would sit over
+ *   the Play button.
  * - "Don't show this again" is remembered in localStorage.
  *
  * Requested (`requested`, used by the 📲 button): the kid asked for the
@@ -29,9 +33,17 @@ import { ReadAloudButton } from './ReadAloudButton';
 
 const DISMISS_KEY = 'ios-install-prompt-dismissed';
 
-/** The words that the read-aloud control speaks for this prompt. */
+/** The steps, in the words that the read-aloud controls speak. */
 export const IOS_INSTALL_SPOKEN =
   'Play full screen! Tap the Share button. Then tap Add to Home Screen.';
+
+const DONT_SHOW_SPOKEN = "To hide this tip for good, tap Don't show this again.";
+
+/** What the tip inside a break surface says: the steps and its one button. */
+export const IOS_INSTALL_TIP_SPOKEN = `${IOS_INSTALL_SPOKEN} ${DONT_SHOW_SPOKEN}`;
+
+/** What the sheet says: the steps and both of its buttons. */
+export const IOS_INSTALL_SHEET_SPOKEN = `${IOS_INSTALL_SPOKEN} Tap the X to close it. ${DONT_SHOW_SPOKEN}`;
 
 interface IOSInstallPromptProps {
   onClose?: () => void;
@@ -132,7 +144,7 @@ function InstallSheet({
         <Steps />
 
         <div className="flex items-center justify-between gap-2">
-          <ReadAloudButton variant="icon" text={IOS_INSTALL_SPOKEN} />
+          <ReadAloudButton variant="icon" text={IOS_INSTALL_SHEET_SPOKEN} />
           <DontShowAgainButton onClick={onDontShowAgain} />
         </div>
       </div>
@@ -154,13 +166,14 @@ function InstallSheet({
 
 /**
  * The tip inside a break surface. It has no close button: closing the
- * surface hides it. The pause menu reads the data-read-aloud words.
+ * surface hides it. The surface reads the data-read-aloud words, which
+ * name the tip's one button too.
  */
 function InstallTip({ onDontShowAgain }: { onDontShowAgain: () => void }) {
   return (
     <div
       data-testid="ios-install-tip"
-      data-read-aloud={IOS_INSTALL_SPOKEN}
+      data-read-aloud={IOS_INSTALL_TIP_SPOKEN}
       className="rounded-2xl bg-blue-700 p-4 text-left text-white"
     >
       <div className="mb-2 flex items-center gap-2 text-lg font-bold">
@@ -210,15 +223,17 @@ export function IOSInstallPrompt({ onClose, requested = false }: IOSInstallPromp
 
   if (!eligible || dismissedForever) return null;
 
-  // Play is stopped and a break surface is up: be part of it.
+  // Play is stopped and a break surface (start card, pause menu) is up:
+  // be part of it.
   if (breakSlot) {
     return createPortal(<InstallTip onDontShowAgain={dontShowAgain} />, breakSlot);
   }
 
-  // A game or an app is on screen and running: never cover its controls.
+  // A game is on screen and running: never cover its controls. (A shell
+  // on an app page does not count: gameBreaks.ts, shellHasPlay.)
   if (shellMounted) return null;
 
-  // A start card is up: the sheet would cover the Play button.
+  // A start card with no break slot is up: the sheet would cover Play.
   if (startCardShowing) return null;
 
   return createPortal(

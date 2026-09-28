@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import {
   LEADERBOARD_NAME_LABEL,
   LeaderboardNameToggle,
+  NO_GAMER_NAME_YET,
 } from "../components/LeaderboardNameToggle";
 
 type FetchCall = [input: string, init?: RequestInit];
@@ -50,6 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  removeSpeechMock();
 });
 
 describe("LeaderboardNameToggle", () => {
@@ -121,13 +124,52 @@ describe("LeaderboardNameToggle", () => {
     mockFetch({ get: () => jsonResponse({ handle: null, showOnLeaderboards: true, createdAt: null }) });
     render(<LeaderboardNameToggle />);
 
-    expect(
-      await screen.findByText("You get a gamer name when you play your first game.")
-    ).toBeInTheDocument();
+    // True to the server: a gaming profile is made only when a game with a
+    // leaderboard saves a score above 0, not on any first game.
+    expect(await screen.findByText(NO_GAMER_NAME_YET)).toBeInTheDocument();
+    expect(NO_GAMER_NAME_YET).toBe(
+      "You get a gamer name when you score points in a game with a 🏆 leaderboard."
+    );
     const toggle = await findSwitch();
     expect(toggle).toBeDisabled();
     fireEvent.click(toggle);
     expect(patchCalls()).toHaveLength(0);
+  });
+
+  it("speaks why the switch is locked, for a kid who cannot read", async () => {
+    const synth = installSpeechMock();
+    mockFetch({ get: () => jsonResponse({ handle: null, showOnLeaderboards: true, createdAt: null }) });
+    render(<LeaderboardNameToggle />);
+    await screen.findByText(NO_GAMER_NAME_YET);
+
+    fireEvent.click(screen.getByTestId("read-aloud-button"));
+
+    const spoken = synth.lastUtterance().text;
+    expect(spoken).toMatch(/^Show my gamer name on leaderboards\./);
+    expect(spoken).toContain(
+      "You get a gamer name when you score points in a game with a leaderboard."
+    );
+    // The trophy is a picture: the voice does not try to say it.
+    expect(spoken).not.toMatch(/🏆/u);
+  });
+
+  it("speaks the gamer name and the save status", async () => {
+    const synth = installSpeechMock();
+    mockFetch({
+      get: () => jsonResponse({ handle: "TurboFox42", showOnLeaderboards: true }),
+      patch: () => jsonResponse({ error: "Failed to update gaming profile" }, 500),
+    });
+    render(<LeaderboardNameToggle />);
+    const toggle = await findSwitch();
+    await waitFor(() => expect(toggle).toBeEnabled());
+
+    fireEvent.click(toggle);
+    await screen.findByText("Oops! That did not save. Try again?");
+    fireEvent.click(screen.getByTestId("read-aloud-button"));
+
+    expect(synth.lastUtterance().text).toMatch(
+      /Your gamer name: TurboFox42\. Oops! That did not save\. Try again\?$/
+    );
   });
 
   it("stays locked and says so when the setting cannot load", async () => {

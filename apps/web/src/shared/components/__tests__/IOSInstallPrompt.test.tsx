@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IOSInstallPrompt, IOS_INSTALL_SPOKEN } from "../IOSInstallPrompt";
+import {
+  IOSInstallPrompt,
+  IOS_INSTALL_SHEET_SPOKEN,
+  IOS_INSTALL_SPOKEN,
+  IOS_INSTALL_TIP_SPOKEN,
+} from "../IOSInstallPrompt";
 import { GameShell } from "../GameShell";
 import { GameStartOverlay } from "../GameStartOverlay";
 import { useStartOverlayPresence } from "../../lib/startOverlayPresence";
@@ -45,7 +50,7 @@ describe("IOSInstallPrompt", () => {
     removeSpeechMock();
   });
 
-  it("stays hidden while a start card is on screen, then appears after Play on a page with no game", () => {
+  it("sits inside a start card below Play, then becomes a sheet after Play on a page with no game", () => {
     const { rerender } = render(
       <>
         <GameStartOverlay title="Snake" onStart={() => {}} />
@@ -53,14 +58,20 @@ describe("IOSInstallPrompt", () => {
       </>
     );
 
-    // The sheet would sit over the Play button, so it waits.
-    expect(screen.getByTestId("game-start-overlay")).toBeInTheDocument();
-    expect(screen.queryByText("Play Fullscreen!")).not.toBeInTheDocument();
+    // A sheet would sit over the Play button, so the tip is part of the
+    // card instead, after Play.
+    const card = screen.getByTestId("game-start-overlay");
+    const slot = within(card).getByTestId("start-card-break-slot");
+    expect(within(slot).getByTestId("ios-install-tip")).toBeInTheDocument();
+    expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+    const play = within(card).getByRole("button", { name: "▶ Play!" });
+    expect(play.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // The card unmounts. No game shell is on screen, so the sheet may show.
     rerender(<IOSInstallPrompt />);
 
-    expect(screen.getByText("Play Fullscreen!")).toBeInTheDocument();
+    expect(screen.getByTestId("ios-install-sheet")).toBeInTheDocument();
+    expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
   });
 
   it("shows on iPhone browsers when not dismissed", () => {
@@ -134,7 +145,7 @@ describe("IOSInstallPrompt", () => {
       expect(screen.queryByText("Play Fullscreen!")).not.toBeInTheDocument();
     });
 
-    it("is read out loud with the pause menu", async () => {
+    it("is read out loud with the pause menu, its button included", async () => {
       const synth = installSpeechMock();
       renderGameWithPrompt();
 
@@ -143,8 +154,73 @@ describe("IOSInstallPrompt", () => {
       fireEvent.click(await within(menu).findByTestId("read-aloud-button"));
 
       expect(synth.lastUtterance().text).toBe(
-        `Paused. Snake. Resume. Leaderboard. Go Home. ${IOS_INSTALL_SPOKEN}`
+        `Paused. Snake. Resume. Leaderboard. Go Home. ${IOS_INSTALL_TIP_SPOKEN}`
       );
+      expect(IOS_INSTALL_TIP_SPOKEN).toBe(
+        `${IOS_INSTALL_SPOKEN} To hide this tip for good, tap Don't show this again.`
+      );
+    });
+
+    it("shows inside the start card of a game that cannot pause, and is read with it", async () => {
+      const synth = installSpeechMock();
+      const { rerender } = render(
+        <GameShell gameName="Flappy Bird" appId="flappy-bird" canPause={false}>
+          <div className="relative">
+            <GameStartOverlay title="Flappy Bird" onStart={() => {}} />
+          </div>
+          <IOSInstallPrompt />
+        </GameShell>
+      );
+
+      const card = screen.getByTestId("game-start-overlay");
+      expect(
+        within(within(card).getByTestId("start-card-break-slot")).getByTestId("ios-install-tip")
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+
+      fireEvent.click(within(card).getByTestId("read-aloud-button"));
+      // The voice skips the ▶ picture.
+      expect(synth.lastUtterance().text).toBe(
+        `Flappy Bird. Then tap Play! to start. ${IOS_INSTALL_TIP_SPOKEN}`
+      );
+
+      // Play starts: the card goes, and the tip goes with it. No sheet
+      // covers the game.
+      rerender(
+        <GameShell gameName="Flappy Bird" appId="flappy-bird" canPause={false}>
+          <div>game</div>
+          <IOSInstallPrompt />
+        </GameShell>
+      );
+      expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+    });
+
+    it("moves from the start card into the pause menu, the newest break", () => {
+      render(
+        <GameShell gameName="Snake" appId="snake">
+          <div className="relative">
+            <GameStartOverlay title="Snake" onStart={() => {}} />
+          </div>
+          <IOSInstallPrompt />
+        </GameShell>
+      );
+      expect(
+        within(screen.getByTestId("start-card-break-slot")).getByTestId("ios-install-tip")
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
+      expect(
+        within(screen.getByTestId("pause-menu-break-slot")).getByTestId("ios-install-tip")
+      ).toBeInTheDocument();
+      expect(screen.getAllByTestId("ios-install-tip")).toHaveLength(1);
+
+      fireEvent.click(
+        within(screen.getByTestId("pause-menu")).getByRole("button", { name: /Resume/ })
+      );
+      expect(
+        within(screen.getByTestId("start-card-break-slot")).getByTestId("ios-install-tip")
+      ).toBeInTheDocument();
     });
 
     it("remembers don't-show-again from the pause menu", () => {
@@ -157,6 +233,39 @@ describe("IOSInstallPrompt", () => {
 
       expect(localStorage.getItem("ios-install-prompt-dismissed")).toBe("true");
       expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("on an app page (no play to cover)", () => {
+    it("is a bottom sheet under an app's GameShell, as on a page with no game", () => {
+      window.history.pushState({}, "", "/apps/weather");
+      try {
+        render(
+          <GameShell gameName="Weather Buddy" canPause={false}>
+            <div>weather</div>
+            <IOSInstallPrompt />
+          </GameShell>
+        );
+
+        expect(useGameBreaks.getState().shells).toBe(0);
+        expect(screen.getByTestId("ios-install-sheet")).toBeInTheDocument();
+      } finally {
+        window.history.pushState({}, "", "/");
+      }
+    });
+
+    it("names both of the sheet's buttons when read out loud", async () => {
+      const synth = installSpeechMock();
+      render(<IOSInstallPrompt />);
+
+      fireEvent.click(
+        await within(screen.getByTestId("ios-install-sheet")).findByTestId("read-aloud-button")
+      );
+
+      expect(synth.lastUtterance().text).toBe(IOS_INSTALL_SHEET_SPOKEN);
+      expect(IOS_INSTALL_SHEET_SPOKEN).toBe(
+        `${IOS_INSTALL_SPOKEN} Tap the X to close it. To hide this tip for good, tap Don't show this again.`
+      );
     });
   });
 

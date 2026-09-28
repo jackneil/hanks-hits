@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { GAME_METADATA } from "../gameMetadata.generated";
 import {
   HEADER_COMPACT_BELOW_PX,
+  HEADER_EMOJI_TIGHT_TITLE_PX,
+  HEADER_TITLE_MIN_PX,
   planHeader,
   resolveHeaderEmoji,
   routeIdFromPath,
@@ -84,6 +86,17 @@ describe("planHeader: the header matrix", () => {
       const layout = plan(c);
       expect(layout.fits).toBe(true);
       expect(layout.requiredPx).toBeLessThanOrEqual(c.width);
+    }
+  );
+
+  it.each(cases)(
+    "keeps a visible title of at least 16 px at $width px ($state, $login, pausable=$pausable, resultChipReady=$resultChipReady)",
+    (c) => {
+      // Plan section 15.2: "title at least 16 px across the 11.2 matrix,
+      // in all three states". The screen-reader-only title is a guard only.
+      const layout = plan(c);
+      expect(layout.title).not.toBe("screenReaderOnly");
+      expect(layout.titleRoomPx).toBeGreaterThanOrEqual(HEADER_TITLE_MIN_PX);
     }
   );
 
@@ -218,7 +231,7 @@ describe("planHeader: each step", () => {
     expect(planHeader(320, fullControls({ fullscreen: false })).fullscreen).toBe("none");
   });
 
-  it("step 6: hides the emoji title only as the last resort", () => {
+  it("step 6: shrinks the emoji title (no padding) instead of hiding it", () => {
     // The plan's worst case: a guest in a game that cannot pause, with
     // Leaderboard, Fullscreen, Restart, the clip slot and the Sign In icon.
     const worst = planHeader(
@@ -227,15 +240,42 @@ describe("planHeader: each step", () => {
     );
     expect(worst.fullscreen).toBe("header");
     expect(worst.signInLabel).toBe(false);
-    expect(worst.title).toBe("screenReaderOnly");
+    expect(worst.title).toBe("emojiTight");
+    expect(worst.titleRoomPx).toBeGreaterThanOrEqual(HEADER_EMOJI_TIGHT_TITLE_PX);
     expect(worst.fits).toBe(true);
 
-    // The same game at 360 px keeps its emoji.
+    // The same game at 360 px keeps the full emoji.
     const roomier = planHeader(
       360,
       fullControls({ pausable: false, pause: false, clipSlot: true })
     );
     expect(roomier.title).toBe("emoji");
+  });
+
+  it("step 6: keeps the title of a pausable game with the clip slot and no result chip", () => {
+    // Every header control plus the pause button: the tightest pausable
+    // case before a game sets resultChipReady.
+    for (const width of [320, 360, 375]) {
+      for (const login of ["guest", "signedIn"] as const) {
+        const layout = planHeader(width, fullControls({ clipSlot: true, login }));
+        expect(layout.title).toBe("emojiTight");
+        expect(layout.fits).toBe(true);
+      }
+    }
+    expect(planHeader(390, fullControls({ clipSlot: true })).title).toBe("emoji");
+  });
+
+  it("step 7: hides the title only when even the tight emoji cannot fit", () => {
+    // Narrower than any phone in the matrix: only the guard is left.
+    const layout = planHeader(280, fullControls({ pausable: false, pause: false, clipSlot: true }));
+    expect(layout.title).toBe("screenReaderOnly");
+  });
+
+  it("gives an unlimited title room to the wide server layout", () => {
+    const layout = planHeader(Number.POSITIVE_INFINITY, fullControls({ clipSlot: true }));
+    expect(layout.title).toBe("text");
+    expect(layout.titleRoomPx).toBe(Number.POSITIVE_INFINITY);
+    expect(layout.fits).toBe(true);
   });
 
   it("keeps the wide layout in landscape (844 px)", () => {

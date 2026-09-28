@@ -57,53 +57,67 @@ export function MobileControls({
         {useTilt ? '🎮 TILT ON' : '🎮 TILT OFF'}
       </button>
 
-      {/* Steering: the arrow buttons, or CALIBRATE in their place while
-          tilt steers. The side columns keep their old screen position (the
-          middle of the whole screen, not of this lower layer), so they do
-          not slide further under the pedals on a phone held sideways. */}
-      <div
-        data-testid="steering-area"
-        className="absolute left-4 top-[calc(50%-1.5rem)] md:top-[calc(50%-1.75rem)] -translate-y-1/2 pointer-events-auto"
-      >
-        {useTilt ? (
+      {/* CALIBRATE, while tilt steers.
+          - Upright phone: where the arrow buttons were (the left HUD
+            column ends far above it).
+          - Phone on its side (short screen): the left HUD column (coins,
+            stars, Session and Challenges) fills the left side from the
+            header down to the pedals, so CALIBRATE sits just right of TILT
+            instead, in the same row. TILT does not move. The max width
+            keeps it clear of the NOS button column on narrow phones (the
+            label wraps instead). */}
+      {useTilt && (
+        <button
+          type="button"
+          onClick={onCalibrate}
+          data-testid="calibrate-button"
+          className={`
+            absolute left-4 top-[calc(50%-1.5rem)] md:top-[calc(50%-1.75rem)] -translate-y-1/2
+            short:left-[calc(50%+4.5rem)] short:top-16 short:translate-y-0 short:max-w-[calc(50%-11rem)]
+            pointer-events-auto min-h-[44px] px-4 py-2 rounded-full bg-blue-700 text-white font-bold text-sm leading-tight active:scale-95
+          `}
+        >
+          ⚙️ CALIBRATE
+        </button>
+      )}
+
+      {/* Steering buttons (when tilt is off). The side columns keep their
+          old screen position (the middle of the whole screen, not of this
+          lower layer), so they do not slide further under the pedals on a
+          phone held sideways. */}
+      {!useTilt && (
+        <div
+          data-testid="steering-area"
+          className="absolute left-4 top-[calc(50%-1.5rem)] md:top-[calc(50%-1.75rem)] -translate-y-1/2 pointer-events-auto flex flex-col gap-4"
+        >
           <button
-            type="button"
-            onClick={onCalibrate}
-            className="min-h-[44px] px-4 py-2 rounded-full bg-blue-700 text-white font-bold text-sm active:scale-95"
+            {...handlers.left}
+            className={`
+              w-16 h-24 rounded-xl
+              flex items-center justify-center
+              text-white font-bold text-3xl
+              ${state.left ? 'bg-blue-400 scale-105' : 'bg-blue-600'}
+              transition-all shadow-lg
+            `}
+            style={{ touchAction: 'none' }}
           >
-            ⚙️ CALIBRATE
+            ◀
           </button>
-        ) : (
-          <div className="flex flex-col gap-4">
-            <button
-              {...handlers.left}
-              className={`
-                w-16 h-24 rounded-xl
-                flex items-center justify-center
-                text-white font-bold text-3xl
-                ${state.left ? 'bg-blue-400 scale-105' : 'bg-blue-600'}
-                transition-all shadow-lg
-              `}
-              style={{ touchAction: 'none' }}
-            >
-              ◀
-            </button>
-            <button
-              {...handlers.right}
-              className={`
-                w-16 h-24 rounded-xl
-                flex items-center justify-center
-                text-white font-bold text-3xl
-                ${state.right ? 'bg-blue-400 scale-105' : 'bg-blue-600'}
-                transition-all shadow-lg
-              `}
-              style={{ touchAction: 'none' }}
-            >
-              ▶
-            </button>
-          </div>
-        )}
-      </div>
+          <button
+            {...handlers.right}
+            className={`
+              w-16 h-24 rounded-xl
+              flex items-center justify-center
+              text-white font-bold text-3xl
+              ${state.right ? 'bg-blue-400 scale-105' : 'bg-blue-600'}
+              transition-all shadow-lg
+            `}
+            style={{ touchAction: 'none' }}
+          >
+            ▶
+          </button>
+        </div>
+      )}
 
       {/* Side buttons - NOS and Horn */}
       <div className="absolute right-4 top-[calc(50%-1.5rem)] md:top-[calc(50%-1.75rem)] -translate-y-1/2 flex flex-col gap-4 pointer-events-auto">

@@ -69,13 +69,13 @@ describe("Monster Truck MobileControls", () => {
     expect(screen.queryByRole("button", { name: /CALIBRATE/ })).toBeNull();
   });
 
-  it("puts CALIBRATE where the steering buttons were when tilt is on", () => {
+  it("shows CALIBRATE instead of the steering buttons when tilt is on", () => {
     const onCalibrate = vi.fn();
     render(<Harness useTilt onCalibrate={onCalibrate} />);
-    const steering = screen.getByTestId("steering-area");
 
-    const calibrate = within(steering).getByRole("button", { name: /CALIBRATE/ });
+    const calibrate = screen.getByRole("button", { name: /CALIBRATE/ });
     expect(calibrate).toHaveClass("min-h-[44px]");
+    expect(screen.queryByTestId("steering-area")).toBeNull();
     expect(screen.queryByRole("button", { name: "◀" })).toBeNull();
     expect(screen.getByRole("button", { name: /TILT ON/ })).toHaveAttribute(
       "aria-pressed",
@@ -84,6 +84,29 @@ describe("Monster Truck MobileControls", () => {
 
     fireEvent.click(calibrate);
     expect(onCalibrate).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts CALIBRATE where the arrows were upright, and right of TILT sideways", () => {
+    render(<Harness useTilt />);
+    const calibrate = screen.getByTestId("calibrate-button");
+
+    // Upright phone: the arrow column's place, far below the left HUD.
+    expect(calibrate).toHaveClass(
+      "left-4",
+      "top-[calc(50%-1.5rem)]",
+      "md:top-[calc(50%-1.75rem)]",
+      "-translate-y-1/2"
+    );
+    // Phone on its side: the left HUD column (Session, Challenges) fills
+    // the left side, so CALIBRATE sits in TILT's row, right of TILT
+    // (TILT is 8rem wide and centered), and stops short of the NOS column.
+    expect(calibrate).toHaveClass(
+      "short:left-[calc(50%+4.5rem)]",
+      "short:top-16",
+      "short:translate-y-0",
+      "short:max-w-[calc(50%-11rem)]"
+    );
+    expect(screen.getByTestId("tilt-toggle")).toHaveClass("short:top-16", "min-w-[8rem]");
   });
 
   it("does not move TILT when the kid turns tilt on", () => {
@@ -115,5 +138,8 @@ describe("Monster Truck MobileControls", () => {
       "top-[calc(50%-1.5rem)]",
       "md:top-[calc(50%-1.75rem)]"
     );
+    expect(
+      screen.getByRole("button", { name: "◀" }).closest("[data-testid='steering-area']")
+    ).toBeInTheDocument();
   });
 });

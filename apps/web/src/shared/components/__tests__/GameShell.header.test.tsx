@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { GAME_METADATA } from "../../lib/gameMetadata.generated";
+import { useGameBreaks } from "../../lib/gameBreaks";
 import { GameShell } from "../GameShell";
 
 vi.mock("../../hooks/useFullscreen", () => ({
@@ -121,6 +122,24 @@ describe("GameShell header: title", () => {
     }
   });
 
+  it("keeps a smaller emoji title (no padding) when the header is tight", () => {
+    // A pausable game with every control and the clip slot, before its
+    // result chip: the tightest real header at 360 px.
+    setViewportWidth(360);
+    renderFullGame({ clipSlot: true });
+    const title = within(header()).getByRole("img", { name: "Snake" });
+    expect(title).toHaveTextContent(GAME_METADATA.snake.icon);
+    expect(title).toHaveClass("text-xl");
+    expect(screen.getByTestId("header-title")).not.toHaveClass("px-2");
+  });
+
+  it("keeps the full emoji title with its padding when there is room", () => {
+    setViewportWidth(390);
+    renderFullGame({ clipSlot: true });
+    expect(within(header()).getByRole("img", { name: "Snake" })).toHaveClass("text-2xl");
+    expect(screen.getByTestId("header-title")).toHaveClass("px-2");
+  });
+
   it("keeps the text title for a route whose emoji is unknown", () => {
     setViewportWidth(390);
     render(
@@ -189,6 +208,71 @@ describe("GameShell header: width budget", () => {
     );
   });
 
+  it("keeps Fullscreen reachable between runs below 340 px: it takes the free pause slot", () => {
+    // Games such as asteroids turn canPause on only during a run, so there
+    // is no pause menu on the start card or at game over.
+    setViewportWidth(320);
+    const onPause = vi.fn();
+    const { rerender } = render(
+      <GameShell gameName="Snake" appId="snake" canPause={false} onPause={onPause} onRestart={vi.fn()}>
+        <div>game</div>
+      </GameShell>
+    );
+    const beforeRun = Array.from(controls().children);
+    const slot = screen.getByTestId("header-pause-slot-fullscreen");
+    expect(slot).toHaveClass("w-11", "h-11", "shrink-0");
+    expect(within(slot).getByRole("button", { name: "Enter fullscreen" })).toBeInTheDocument();
+    expect(screen.queryByTestId("header-pause-placeholder")).toBeNull();
+    expect(screen.queryByTestId("pause-menu")).toBeNull();
+
+    // The run starts: Pause takes the same slot, and Fullscreen is in the
+    // pause menu.
+    rerender(
+      <GameShell gameName="Snake" appId="snake" canPause onPause={onPause} onRestart={vi.fn()}>
+        <div>game</div>
+      </GameShell>
+    );
+    const duringRun = Array.from(controls().children);
+    const pause = screen.getByRole("button", { name: "Pause game" });
+    expect(duringRun).toHaveLength(beforeRun.length);
+    expect(duringRun.indexOf(pause)).toBe(beforeRun.indexOf(slot));
+    expect(within(header()).queryByRole("button", { name: /fullscreen/i })).toBeNull();
+
+    fireEvent.click(pause);
+    expect(
+      within(screen.getByTestId("pause-menu")).getByRole("button", { name: "Full Screen" })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps Fullscreen in the header below 340 px when the game shows no pause button", () => {
+    // Without a pause button the pause menu opens only with ESC, never by
+    // touch, so nothing may move into it.
+    setViewportWidth(320);
+    render(
+      <GameShell gameName="Snake" appId="snake" showPauseButton={false} onRestart={vi.fn()}>
+        <div>game</div>
+      </GameShell>
+    );
+    expect(within(header()).getByRole("button", { name: "Enter fullscreen" })).toBeInTheDocument();
+  });
+
+  it("keeps Leaderboard and Restart in the header when the game shows no pause button", () => {
+    setViewportWidth(375);
+    render(
+      <GameShell
+        gameName="Snake"
+        appId="snake"
+        showPauseButton={false}
+        onRestart={vi.fn()}
+        resultChipReady
+      >
+        <div>game</div>
+      </GameShell>
+    );
+    expect(within(header()).getByRole("button", { name: /leaderboard/i })).toBeInTheDocument();
+    expect(within(header()).getByRole("button", { name: "Restart game" })).toBeInTheDocument();
+  });
+
   it("keeps Fullscreen in the header below 340 px for a game that cannot pause", () => {
     setViewportWidth(320);
     render(
@@ -251,6 +335,31 @@ describe("GameShell header: width budget", () => {
     );
     expect(screen.queryByTestId("header-pause-placeholder")).toBeNull();
     expect(screen.queryByRole("button", { name: "Pause game" })).toBeNull();
+  });
+});
+
+describe("GameShell: the game-on-screen signal for nudges", () => {
+  it("counts a game page as a game shell", () => {
+    useGameBreaks.setState({ shells: 0, slots: [] });
+    const { unmount } = renderFullGame();
+    expect(useGameBreaks.getState().shells).toBe(1);
+    unmount();
+    expect(useGameBreaks.getState().shells).toBe(0);
+  });
+
+  it("does not count an app page, which has no play to cover", () => {
+    useGameBreaks.setState({ shells: 0, slots: [] });
+    window.history.pushState({}, "", "/apps/weather");
+    try {
+      render(
+        <GameShell gameName="Weather Buddy" canPause={false}>
+          <div>page</div>
+        </GameShell>
+      );
+      expect(useGameBreaks.getState().shells).toBe(0);
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
   });
 });
 

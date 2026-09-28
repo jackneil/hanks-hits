@@ -19,14 +19,19 @@
  *      game over, so neither control becomes unreachable.
  *   4. If the header is still too wide, the Sign In button drops its label.
  *   5. Below 340 px, Fullscreen moves into the pause menu for a game that
- *      can pause. A game that cannot pause keeps it in the header.
- *   6. If the header is still too wide, the emoji title becomes a
- *      screen-reader-only name. A real control is worth more than a
- *      picture of the game.
+ *      can pause. A game that cannot pause keeps it in the header. Between
+ *      runs (no pause menu yet), GameShell shows Fullscreen in the reserved
+ *      pause slot, so it is always reachable.
+ *   6. If the header is still too wide, the emoji title drops its padding
+ *      and becomes a smaller glyph (24 px). This fits every case of the
+ *      header matrix, with the plan's minimum title width of 16 px.
+ *   7. A guard that the header matrix never reaches: if the header is
+ *      still too wide, the title becomes a screen-reader-only name.
  *
- * Every step keys on what the game CAN do (pausable), never on the
- * current pause state, so the header does not reflow when a run starts
- * or ends.
+ * "pausable" means that the kid can open the pause menu by touch: the
+ * game can pause at some point AND the header shows its pause button.
+ * Every step keys on this capability, never on the current pause state,
+ * so the header does not reflow when a run starts or ends.
  */
 
 /** The hit area of one header control, in CSS pixels. */
@@ -37,6 +42,13 @@ export const HEADER_PADDING_X_PX = 24;
 export const HEADER_GAP_PX = 4;
 /** The emoji title, with its own padding. */
 export const HEADER_EMOJI_TITLE_PX = 44;
+/**
+ * The tight emoji title: a text-xl glyph with no padding. Measured at 22 px
+ * in Chromium (2026-09-28); 2 px more covers other emoji fonts.
+ */
+export const HEADER_EMOJI_TIGHT_TITLE_PX = 24;
+/** The smallest title width that the plan accepts (section 15.2). */
+export const HEADER_TITLE_MIN_PX = 16;
 /** The smallest width at which a text title is still readable. */
 export const HEADER_TEXT_TITLE_MIN_PX = 96;
 /**
@@ -69,7 +81,11 @@ export interface HeaderControls {
   pause: boolean;
   clipSlot: boolean;
   login: HeaderLogin;
-  /** The game can pause at some point (a capability, not the current state). */
+  /**
+   * The kid can open the pause menu by touch: the game can pause at some
+   * point AND the header shows a pause button. A capability, not the
+   * current state.
+   */
   pausable: boolean;
   /** The game shows the shared result chip at game over. */
   resultChipReady: boolean;
@@ -84,7 +100,11 @@ export type HeaderPlacement = "header" | "moved" | "none";
 export interface HeaderLayout {
   /** Gap 0 between the right-hand controls. */
   compactGap: boolean;
-  title: "text" | "emoji" | "screenReaderOnly";
+  /**
+   * "emojiTight" is the emoji with no padding and a smaller glyph.
+   * "screenReaderOnly" is a guard that the header matrix never reaches.
+   */
+  title: HeaderTitle;
   /** "moved" means the pause menu and the result chip hold it. */
   leaderboard: HeaderPlacement;
   /** "moved" means the pause menu and the result chip hold it. */
@@ -95,11 +115,23 @@ export interface HeaderLayout {
   signInLabel: boolean;
   /** The width that the layout needs, in CSS pixels. */
   requiredPx: number;
+  /** The width that is left for the title, in CSS pixels. */
+  titleRoomPx: number;
   /** The layout fits inside the viewport width. */
   fits: boolean;
 }
 
-type Decision = Omit<HeaderLayout, "requiredPx" | "fits">;
+/** How the header shows the game's name. */
+export type HeaderTitle = "text" | "emoji" | "emojiTight" | "screenReaderOnly";
+
+type Decision = Omit<HeaderLayout, "requiredPx" | "titleRoomPx" | "fits">;
+
+const TITLE_PX: Record<HeaderTitle, number> = {
+  text: HEADER_TEXT_TITLE_MIN_PX,
+  emoji: HEADER_EMOJI_TITLE_PX,
+  emojiTight: HEADER_EMOJI_TIGHT_TITLE_PX,
+  screenReaderOnly: 0,
+};
 
 function clusterWidths(controls: HeaderControls, d: Decision): number[] {
   const widths: number[] = [];
@@ -116,21 +148,20 @@ function clusterWidths(controls: HeaderControls, d: Decision): number[] {
   return widths;
 }
 
-/** The width in CSS pixels that a layout decision needs. */
-function requiredWidth(controls: HeaderControls, d: Decision): number {
+/** The width in CSS pixels that everything except the title needs. */
+function widthWithoutTitle(controls: HeaderControls, d: Decision): number {
   const cluster = clusterWidths(controls, d);
   const gap = d.compactGap ? 0 : HEADER_GAP_PX;
   const clusterPx =
     cluster.reduce((sum, w) => sum + w, 0) + Math.max(0, cluster.length - 1) * gap;
-  const titlePx =
-    d.title === "text"
-      ? HEADER_TEXT_TITLE_MIN_PX
-      : d.title === "emoji"
-        ? HEADER_EMOJI_TITLE_PX
-        : 0;
   // The home button and its spacer are the same 44 px, so the title
   // stays centered whether the home button shows or not.
-  return HEADER_PADDING_X_PX + HEADER_CONTROL_PX + titlePx + clusterPx;
+  return HEADER_PADDING_X_PX + HEADER_CONTROL_PX + clusterPx;
+}
+
+/** The width in CSS pixels that a layout decision needs. */
+function requiredWidth(controls: HeaderControls, d: Decision): number {
+  return widthWithoutTitle(controls, d) + TITLE_PX[d.title];
 }
 
 /**
@@ -177,13 +208,24 @@ export function planHeader(width: number, controls: HeaderControls): HeaderLayou
     d.fullscreen = "moved";
   }
 
-  // Step 6: the last resort. The name stays for screen readers.
+  // Step 6: a smaller emoji with no padding.
   if (d.title === "emoji" && requiredWidth(controls, d) > width) {
+    d.title = "emojiTight";
+  }
+
+  // Step 7: a guard that the header matrix never reaches. The name stays
+  // for screen readers.
+  if (d.title === "emojiTight" && requiredWidth(controls, d) > width) {
     d.title = "screenReaderOnly";
   }
 
   const requiredPx = requiredWidth(controls, d);
-  return { ...d, requiredPx, fits: requiredPx <= width };
+  return {
+    ...d,
+    requiredPx,
+    titleRoomPx: width - widthWithoutTitle(controls, d),
+    fits: requiredPx <= width,
+  };
 }
 
 type EmojiLookup = Record<string, { name: string; icon: string }>;

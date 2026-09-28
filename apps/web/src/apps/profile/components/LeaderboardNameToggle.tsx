@@ -11,12 +11,19 @@ import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
  * the kid out. The label says only what this switch does: it is not the
  * account name and not a clip name (those are separate controls).
  *
- * A kid gets a gamer name (and a gaming profile) when a game first saves
- * progress. Before that, PATCH has no profile to change, so the switch
- * stays off-limits and says why.
+ * A kid gets a gamer name (and a gaming profile) the first time a game
+ * with a leaderboard saves a score above 0 (POST /api/progress/[appId]).
+ * Before that, PATCH has no profile to change, so the switch stays
+ * off-limits and says why. The read-aloud button speaks that reason and
+ * the save status too, so a kid who cannot read knows why the switch is
+ * grey and whether the change saved.
  */
 
 export const LEADERBOARD_NAME_LABEL = "Show my gamer name on leaderboards";
+
+/** Why the switch is locked before the kid has a gamer name. */
+export const NO_GAMER_NAME_YET =
+  "You get a gamer name when you score points in a game with a 🏆 leaderboard.";
 
 const SPOKEN =
   "Show my gamer name on leaderboards. When this is on, other players can see your gamer name and your best scores. When it is off, the leaderboards leave you out.";
@@ -102,19 +109,29 @@ export function LeaderboardNameToggle() {
   };
 
   let note: React.ReactNode;
+  // The same note as words for the voice.
+  let noteText: string;
   if (loadFailed) {
-    note = "We could not load this setting. Try again later.";
+    noteText = "We could not load this setting. Try again later.";
+    note = noteText;
   } else if (!setting) {
-    note = "Loading...";
+    noteText = "Loading...";
+    note = noteText;
   } else if (!hasProfile) {
-    note = "You get a gamer name when you play your first game.";
+    noteText = NO_GAMER_NAME_YET;
+    note = noteText;
   } else {
+    noteText = `Your gamer name: ${setting.handle}.`;
     note = (
       <>
         Your gamer name: <span className="font-bold text-white">{setting.handle}</span>
       </>
     );
   }
+
+  // Built at tap time: the words, then the note (the lock reason or the
+  // gamer name), then the save status. The voice skips the 🏆 picture.
+  const spokenText = () => [SPOKEN, noteText, message?.text].filter(Boolean).join(" ");
 
   return (
     <div data-testid="leaderboard-name-setting" className="mt-6 border-t border-white/20 pt-5">
@@ -137,7 +154,7 @@ export function LeaderboardNameToggle() {
           />
           <span className="font-bold text-white">{LEADERBOARD_NAME_LABEL}</span>
         </label>
-        <ReadAloudButton variant="icon" text={SPOKEN} />
+        <ReadAloudButton variant="icon" text={spokenText} />
       </div>
 
       <p id={`${switchId}-note`} className="mt-1 text-sm text-white/80">

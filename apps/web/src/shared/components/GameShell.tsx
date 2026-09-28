@@ -12,7 +12,7 @@ import { RestartConfirmationDialog } from "./RestartConfirmationDialog";
 import { RestartGameButton } from "./RestartGameButton";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { GAME_METADATA } from "../lib/gameMetadata.generated";
-import { useGameBreaks } from "../lib/gameBreaks";
+import { shellHasPlay, useGameBreaks } from "../lib/gameBreaks";
 import {
   planHeader,
   resolveHeaderEmoji,
@@ -137,10 +137,12 @@ export function GameShell({
 
   // Tell sheets and nudges that a game is on screen (gameBreaks.ts). A
   // layout effect runs before paint, so a nudge rendered in the same
-  // commit never flashes over the game for one frame.
+  // commit never flashes over the game for one frame. An app page (under
+  // /apps/) has no play to cover, so it does not count.
   const enterShell = useGameBreaks((s) => s.enterShell);
   const leaveShell = useGameBreaks((s) => s.leaveShell);
   useLayoutEffect(() => {
+    if (!shellHasPlay(window.location.pathname)) return;
     enterShell();
     return leaveShell;
   }, [enterShell, leaveShell]);
@@ -151,8 +153,10 @@ export function GameShell({
   // What the game CAN do, not what it can do this second: many games turn
   // canPause off between runs and wire onPause/onResume, and the header
   // must not reflow when a run starts or ends.
-  const pausable = canPause || !!onPause || !!onResume;
-  const hasPauseSlot = showPauseButton && pausable;
+  const canEverPause = canPause || !!onPause || !!onResume;
+  // The header budget may move controls into the pause menu only when the
+  // kid can open that menu by touch, which needs the pause button.
+  const hasPauseSlot = showPauseButton && canEverPause;
   const hasClipSlot = clipSlot !== undefined && clipSlot !== null && clipSlot !== false;
   const titleEmoji = resolveHeaderEmoji(GAME_METADATA, { emoji, appId, routeId, gameName });
   // Mirrors LoginButton: a spinner while loading, the avatar when signed
@@ -173,7 +177,7 @@ export function GameShell({
     pause: hasPauseSlot,
     clipSlot: hasClipSlot,
     login,
-    pausable,
+    pausable: hasPauseSlot,
     resultChipReady,
     hasEmoji: !!titleEmoji,
   });
@@ -211,13 +215,20 @@ export function GameShell({
             {gameName}
           </div>
         )}
-        {layout.title === "emoji" && (
-          <div className="flex-1 min-w-0 px-2 flex items-center justify-center">
+        {(layout.title === "emoji" || layout.title === "emojiTight") && (
+          <div
+            data-testid="header-title"
+            className={`flex-1 min-w-0 flex items-center justify-center ${
+              layout.title === "emoji" ? "px-2" : ""
+            }`}
+          >
+            {/* The tight title drops the padding and uses a smaller glyph,
+                so it stays visible on the narrowest phones (step 6). */}
             <span
               role="img"
               aria-label={gameName}
               title={gameName}
-              className="text-2xl leading-none"
+              className={`${layout.title === "emoji" ? "text-2xl" : "text-xl"} leading-none`}
             >
               {titleEmoji}
             </span>
@@ -279,6 +290,16 @@ export function GameShell({
               >
                 ⏸️
               </button>
+            ) : layout.fullscreen === "moved" ? (
+              // Between runs there is no pause menu to hold Fullscreen
+              // (step 5), so it takes the free pause slot. Same 44 px, so
+              // nothing moves when the run starts and Pause comes back.
+              <div
+                data-testid="header-pause-slot-fullscreen"
+                className="w-11 h-11 shrink-0 flex items-center justify-center"
+              >
+                <FullscreenButton variant="header" />
+              </div>
             ) : (
               <div
                 data-testid="header-pause-placeholder"
