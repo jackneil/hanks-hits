@@ -106,7 +106,7 @@ The "magic" is in two files of guardrails that travel with the repo:
 A child can't do this part — a grown-up does it **once**:
 
 ```bash
-# 1. Install Node 20+ and pnpm (https://pnpm.io/installation)
+# 1. Install Node 24+ (the version in .nvmrc) and pnpm (https://pnpm.io/installation)
 # 2. Install the Claude Code CLI (https://claude.com/claude-code)
 # 3. Clone and install:
 git clone https://github.com/jackneil/hanks-hits.git

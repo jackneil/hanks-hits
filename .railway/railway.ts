@@ -1,23 +1,29 @@
 // Railway Infrastructure as Code for the Hank's Hits web app.
-//
-// This file replaces railway.toml (Config as Code). Railway stops reading
-// Config as Code files on 2026-12-01.
 // https://docs.railway.com/infrastructure-as-code
 //
-// Railway does not read this file during a deploy. The settings go live only
-// when you run `railway config apply`. Read .railway/README.md first.
+// STATUS: PREPARED, NOT APPLIED. railway.toml (Config as Code) still sets the
+// deploy settings. Railway reads railway.toml during every deploy and never
+// reads this folder. Railway stops reading railway.toml on 2026-12-01, so do
+// the one-time migration in .railway/README.md before that date.
 //
-// The file is a named partial: it manages the "hanks-garage" service only.
-// The other resources in the project (Postgres, webserver, url-cache and the
-// backup bucket) stay as they are. Without the partial export, an apply would
-// delete every resource that this file does not declare.
+// WARNING: `railway config apply` makes the service match this file.
+// - A variable that is not in `env` is DELETED from the service.
+// - Without `source`, the service is detached from the repository and
+//   auto-deploy stops.
+// - Without the `partial` export, an apply deletes every resource in the
+//   project that this file does not declare (Postgres, webserver, url-cache
+//   and the backup bucket).
+// Before you add a variable in the Railway dashboard, add it here with
+// preserve(). Apply only when `railway config plan` shows "0 to destroy".
 
-import { defineRailway, project, service } from "railway/iac";
+import { defineRailway, github, preserve, project, service } from "railway/iac";
 
 export const partial = "hanks-garage";
 
 export default defineRailway(() => {
   const web = service("hanks-garage", {
+    // Deploy the master branch of this repository (auto-deploy on merge).
+    source: github("jackneil/hanks-hits", { branch: "master" }),
     build: {
       builder: "DOCKERFILE",
       dockerfilePath: "Dockerfile",
@@ -27,6 +33,20 @@ export default defineRailway(() => {
       healthcheckTimeout: 100,
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 3,
+    },
+    // Every variable that the service has on Railway. preserve() keeps the
+    // value that Railway holds, so no value is written into this repository.
+    env: {
+      AUTH_GOOGLE_ID: preserve(),
+      AUTH_GOOGLE_SECRET: preserve(),
+      AUTH_SECRET: preserve(),
+      AUTH_URL: preserve(),
+      DATABASE_URL: preserve(),
+      NEXT_PUBLIC_ROM_CDN_URL: preserve(),
+      S3_ACCESS_KEY_ID: preserve(),
+      S3_BUCKET: preserve(),
+      S3_ENDPOINT: preserve(),
+      S3_SECRET_ACCESS_KEY: preserve(),
     },
   });
 
