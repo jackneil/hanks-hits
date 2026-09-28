@@ -1,12 +1,13 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 import { ClipServiceContext } from "../../service/context";
 import { HOLD_FOR_MENU_MS, type ClipButtonState } from "../../service/contract";
 import { ClipButton } from "../ClipButton";
-import { BUTTON_NAMES, MENU_COPY, REASON_COPY, RESULT_COPY } from "../copy";
+import { BUTTON_NAMES, buttonTooltip, deferredMenuText, MENU_COPY, REASON_COPY, RESULT_COPY } from "../copy";
 import { ToastSlot } from "../ToastSlot";
 import { createFakeClipService } from "./fakeClipService";
 import { flush, pointer, renderWithClips } from "./renderClips";
@@ -244,6 +245,40 @@ describe("ClipButton taps (plan 11.1)", () => {
     expect(fake.records).toHaveLength(1);
   });
 
+  it("clips with a finger that is not the page's first (the other thumb holds the gas pedal)", async () => {
+    const { fake } = renderWithClips(<ClipButton />);
+    // Another finger is down somewhere else on the page, so this touch is not primary.
+    fireEvent.pointerDown(button(), pointer({ pointerId: 5, isPrimary: false }));
+    await act(async () => {
+      vi.advanceTimersByTime(120);
+    });
+    fireEvent.pointerUp(button(), pointer({ pointerId: 5, isPrimary: false }));
+    await flush();
+    expect(fake.service.beginPress).toHaveBeenCalledTimes(1);
+    expect(fake.records).toHaveLength(1);
+  });
+
+  it("keeps its touches, pointers and clicks from the game's window listeners (Hill Climb's gas zone)", async () => {
+    const seen: string[] = [];
+    const types = ["touchstart", "touchend", "pointerdown", "pointerup", "mousedown", "mouseup", "click"];
+    const listener = (event: Event) => seen.push(event.type);
+    for (const type of types) window.addEventListener(type, listener);
+    try {
+      renderWithClips(<ClipButton />);
+      fireEvent.touchStart(button());
+      fireEvent.pointerDown(button(), pointer());
+      fireEvent.mouseDown(button());
+      fireEvent.touchEnd(button());
+      fireEvent.pointerUp(button(), pointer());
+      fireEvent.mouseUp(button());
+      fireEvent.click(button());
+      await flush();
+      expect(seen).toEqual([]);
+    } finally {
+      for (const type of types) window.removeEventListener(type, listener);
+    }
+  });
+
   it("ignores a second finger while the first is down", async () => {
     const { fake } = renderWithClips(<ClipButton />);
     fireEvent.pointerDown(button(), pointer({ pointerId: 1 }));
@@ -268,6 +303,146 @@ describe("ClipButton taps (plan 11.1)", () => {
     const first = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
     button().dispatchEvent(first);
     expect(first.defaultPrevented).toBe(false);
+  });
+
+  it("never keeps keyboard focus after a mouse click, so Space still reaches the game", async () => {
+    const { fake } = renderWithClips(<ClipButton />);
+    const gameKeys: string[] = [];
+    const game = (event: KeyboardEvent) => {
+      // The games' own guard (keyBelongsToTarget) hands Space to a focused button.
+      if (keyBelongsToTarget(event)) return;
+      gameKeys.push(event.key);
+    };
+    window.addEventListener("keydown", game);
+    try {
+      // A browser focuses a button on mousedown unless the default is prevented.
+      const mouse = pointer({ pointerType: "mouse" });
+      fireEvent.pointerDown(button(), mouse);
+      const focusAllowed = fireEvent.mouseDown(button());
+      if (focusAllowed) button().focus();
+      fireEvent.pointerUp(button(), mouse);
+      fireEvent.mouseUp(button());
+      fireEvent.click(button());
+      await flush();
+      expect(focusAllowed).toBe(false);
+      expect(document.activeElement).not.toBe(button());
+      expect(fake.records).toHaveLength(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1500); // past the compatibility-click window
+      });
+      const target = document.activeElement ?? document.body;
+      fireEvent.keyDown(target, { key: " ", code: "Space" });
+      fireEvent.keyUp(target, { key: " ", code: "Space" });
+      await flush();
+      expect(gameKeys).toEqual([" "]);
+      expect(fake.records).toHaveLength(1);
+    } finally {
+      window.removeEventListener("keydown", game);
+    }
+  });
+
+  it("drops focus that a touch gave it, and keeps focus the kid gave it with the keyboard", async () => {
+    renderWithClips(<ClipButton />);
+    // Some browsers focus a button on touch.
+    fireEvent.pointerDown(button(), pointer());
+    button().focus();
+    fireEvent.pointerUp(button(), pointer());
+    expect(document.activeElement).not.toBe(button());
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+    });
+    // Tab put focus on the button first: a tap leaves it there.
+    button().focus();
+    fireEvent.pointerDown(button(), pointer({ pointerId: 2 }));
+    fireEvent.pointerUp(button(), pointer({ pointerId: 2 }));
+    expect(document.activeElement).toBe(button());
+  });
+
+  it("gives focus back to the game, not to itself, when a menu opened by a hold closes", async () => {
+    renderWithClips(
+      <>
+        <ClipButton />
+        <canvas tabIndex={0} data-testid="game" />
+      </>,
+    );
+    const game = screen.getByTestId("game");
+    game.focus();
+    const mouse = pointer({ pointerType: "mouse" });
+    fireEvent.pointerDown(button(), mouse);
+    if (fireEvent.mouseDown(button())) button().focus();
+    await act(async () => {
+      vi.advanceTimersByTime(HOLD_FOR_MENU_MS);
+    });
+    expect(menu()).not.toBeNull();
+    fireEvent.pointerUp(button(), mouse);
+    fireEvent.click(within(menu()!).getByRole("button", { name: MENU_COPY.close }));
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(game);
+  });
+
+  it("opens the menu on a Mac Control-click, with no clip", async () => {
+    const { fake } = renderWithClips(<ClipButton />);
+    fireEvent.pointerDown(button(), pointer({ pointerType: "mouse", button: 0 }));
+    // Control is down: the Mac fires the context menu on the press itself.
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ctrlKey: true });
+    act(() => {
+      button().dispatchEvent(event);
+    });
+    fireEvent.pointerUp(button(), pointer({ pointerType: "mouse" }));
+    fireEvent.click(button());
+    await flush();
+    expect(menu()).not.toBeNull();
+    expect(fake.records).toHaveLength(0);
+    expect(fake.openPressCount()).toBe(0);
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
+  });
+
+  it("says Option+C on a Mac and Alt+C elsewhere", () => {
+    const realUa = navigator.userAgent;
+    const setUa = (ua: string) => Object.defineProperty(navigator, "userAgent", { configurable: true, get: () => ua });
+    try {
+      setUa("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
+      const mac = renderWithClips(<ClipButton />);
+      expect(button().getAttribute("title")).toBe(buttonTooltip(true));
+      mac.unmount();
+      setUa("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36");
+      renderWithClips(<ClipButton />);
+      expect(button().getAttribute("title")).toBe(buttonTooltip(false));
+    } finally {
+      setUa(realUa);
+    }
+  });
+
+  it("in a run that cannot pause, a hold clips the moment of the press and covers nothing", async () => {
+    const { fake, pauseGame } = renderWithClips(<ClipButton />, { snapshot: { gameCanPause: false, atBreak: false } });
+    await pressFor(700);
+    const token = vi.mocked(fake.service.beginPress).mock.results[0].value;
+    expect(fake.service.clipLast).toHaveBeenCalledWith(30, token);
+    expect(fake.records).toHaveLength(1);
+    expect(menu()).toBeNull();
+    expect(pauseGame).not.toHaveBeenCalled();
+    expect(screen.getByTestId("clip-button-announcer")).toHaveTextContent(RESULT_COPY.clip);
+  });
+
+  it("in a run that cannot pause, keeps a right-click menu for the end of the run", async () => {
+    const { fake } = renderWithClips(
+      <>
+        <ClipButton />
+        <ToastSlot />
+      </>,
+      { snapshot: { gameCanPause: false, atBreak: false } },
+    );
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    act(() => {
+      button().dispatchEvent(event);
+    });
+    expect(menu()).toBeNull();
+    expect(screen.getByTestId("clip-reply")).toHaveTextContent(deferredMenuText(null));
+    act(() => fake.set({ atBreak: true })); // the run ends
+    await flush();
+    expect(menu()).not.toBeNull();
+    expect(fake.records).toHaveLength(0);
   });
 
   it("does not act on a mouse right button press, and opens the menu on the context menu", async () => {
@@ -379,6 +554,44 @@ describe("ClipButton keyboard shortcuts (plan 11.2)", () => {
     });
     return event;
   }
+
+  it("keeps a matched shortcut, and its repeats, from the game's own key listeners", async () => {
+    const { fake } = renderWithClips(
+      <>
+        <ClipButton />
+        <input aria-label="answer" />
+      </>,
+    );
+    const gameSaw: string[] = [];
+    const game = (event: KeyboardEvent) => gameSaw.push(`${event.altKey ? "Alt+" : ""}${event.code}${event.repeat ? " repeat" : ""}`);
+    window.addEventListener("keydown", game);
+    document.addEventListener("keydown", game, true);
+    try {
+      // Keys go to the page (the body), the way a game hears them.
+      const page = document.body;
+      key({ key: "ç", code: "KeyC", altKey: true }, page); // not a camera switch
+      await act(async () => {
+        vi.advanceTimersByTime(6000);
+      });
+      key({ key: "F8", code: "F8" }, page);
+      await flush();
+      expect(fake.records).toHaveLength(2);
+      key({ key: "®", code: "KeyR", altKey: true }, page); // not a truck reset
+      key({ key: "®", code: "KeyR", altKey: true, repeat: true }, page);
+      await flush();
+      expect(gameSaw).toEqual([]);
+      expect(fake.service.startRecording).toHaveBeenCalledTimes(1);
+      expect(fake.service.stopRecording).not.toHaveBeenCalled(); // the repeat did not stop it
+      // A key the shortcut leaves alone still reaches the game.
+      key({ key: "c", code: "KeyC" }, page);
+      // A shortcut typed into a text field belongs to the field.
+      key({ key: "ç", code: "KeyC", altKey: true }, screen.getByLabelText("answer"));
+      expect(gameSaw).toEqual(["KeyC", "KeyC", "Alt+KeyC", "Alt+KeyC"]);
+    } finally {
+      window.removeEventListener("keydown", game);
+      document.removeEventListener("keydown", game, true);
+    }
+  });
 
   it("clips on Alt+C (Option+C gives ç) and on F8", async () => {
     const { fake } = renderWithClips(<ClipButton />);
@@ -547,18 +760,37 @@ describe("ClipButton game controller (plan 11.2)", () => {
     expect(menu()).toBeNull();
   });
 
-  it("opens the menu on a 500 ms hold of the Share button and commits nothing", async () => {
+  it("clips once on a long hold of the Share button, and never opens a menu it cannot close", async () => {
     const { fake } = renderWithClips(<ClipButton />);
     const pad = makePad(XBOX, 18);
     connect(pad);
     pad.buttons[17].pressed = true;
     await frames(650);
-    expect(menu()).not.toBeNull();
+    expect(menu()).toBeNull();
+    expect(fake.records).toHaveLength(0);
     pad.buttons[17].pressed = false;
     await frames(20);
     await flush();
+    expect(menu()).toBeNull();
+    expect(fake.records).toHaveLength(1);
+    expect(vi.mocked(fake.service.endPress).mock.results[0].value.kind).toBe("clip");
+  });
+
+  it("does nothing from a controller while a clip sheet is open", async () => {
+    const { fake } = renderWithClips(<ClipButton />, { snapshot: { button: "resting" } });
+    await pressFor(50); // a resting tap opens the menu
+    expect(menu()).not.toBeNull();
+    const pressesBefore = vi.mocked(fake.service.beginPress).mock.calls.length;
+    act(() => fake.set({ button: "ready" }));
+    const pad = makePad(XBOX, 18);
+    connect(pad);
+    pad.buttons[17].pressed = true;
+    await frames(100);
+    pad.buttons[17].pressed = false;
+    await frames(20);
+    await flush();
+    expect(vi.mocked(fake.service.beginPress).mock.calls.length).toBe(pressesBefore);
     expect(fake.records).toHaveLength(0);
-    expect(fake.service.clipLast).not.toHaveBeenCalled();
   });
 
   it("clips after a 1 s hold of Back on other controllers, and leaves a short Back press to the game", async () => {

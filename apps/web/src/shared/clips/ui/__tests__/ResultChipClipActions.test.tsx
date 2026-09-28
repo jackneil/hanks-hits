@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HIDDEN_SNAPSHOT, type ClipSnapshot } from "../../service/contract";
 import { MENU_COPY, RESULT_ACTION_COPY, VIEWER_TITLES, wholeRunLabel } from "../copy";
@@ -17,6 +17,7 @@ beforeEach(() => {
 
 afterEach(() => {
   window.localStorage.clear();
+  vi.useRealTimers();
 });
 
 const AT_GAME_OVER: Partial<ClipSnapshot> = { atBreak: true, bufferedSec: 45 };
@@ -49,6 +50,9 @@ describe("result chip clip actions (plan 11.4)", () => {
     expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), Number.NaN).map((action) => action.id)).not.toContain(
       "wholeRun",
     );
+    // Capture that ran since the run ended pushed the ring's start on by that much.
+    expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), 42, 3).map((action) => action.id)).toContain("wholeRun");
+    expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), 42, 3.5).map((action) => action.id)).not.toContain("wholeRun");
   });
 
   it("fits limited states: record only has no instant clips, the breaker has no capture", () => {
@@ -99,21 +103,71 @@ describe("result chip clip actions (plan 11.4)", () => {
     expect(screen.getByRole("dialog", { name: VIEWER_TITLES.clip })).toBeInTheDocument();
   });
 
-  it("Watch clips the last 30 seconds and opens it when there is no new clip", async () => {
-    const { fake } = renderWithClips(<ResultChipClipActions />, { snapshot: AT_GAME_OVER });
+  it("Watch clips the last 30 seconds OF THE RUN and opens it when there is no new clip", async () => {
+    const fake = createFakeClipService({ snapshot: AT_GAME_OVER });
+    const runEndUs = fake.captureUs();
+    renderWithClips(<ResultChipClipActions />, { fake });
+    const token = vi.mocked(fake.service.beginPress).mock.results[0].value;
+    expect(token).toMatchObject({ endAtUs: runEndUs });
+    // The kid stays on the result screen while capture runs on.
+    fake.advanceCapture(8);
     fireEvent.click(screen.getByRole("button", { name: RESULT_ACTION_COPY.watch }));
     await flush(6);
-    expect(fake.service.clipLast).toHaveBeenCalledWith(30);
+    expect(fake.service.clipLast).toHaveBeenCalledWith(30, token);
+    expect(fake.clipRequests).toEqual([{ seconds: 30, endAtUs: runEndUs, frozen: true }]);
     expect(screen.getByTestId("clip-viewer")).toBeInTheDocument();
     expect(fake.service.library.file).toHaveBeenCalledWith(fake.records[0].id);
+    // The frozen end was taken as a press and let go at once: nothing stays open.
+    expect(fake.openPressCount()).toBe(0);
   });
 
-  it("Make the whole run a video clips the run length and opens it", async () => {
-    const { fake } = renderWithClips(<ResultChipClipActions runSeconds={41.2} />, { snapshot: AT_GAME_OVER });
+  it("Make the whole run a video clips the whole run, ending where the run ended", async () => {
+    const fake = createFakeClipService({ snapshot: AT_GAME_OVER });
+    const runEndUs = fake.captureUs();
+    renderWithClips(<ResultChipClipActions runSeconds={41.2} />, { fake });
+    fake.advanceCapture(2); // a short post-roll on the result screen
     fireEvent.click(screen.getByRole("button", { name: wholeRunLabel("0:41") }));
     await flush(6);
-    expect(fake.service.clipLast).toHaveBeenCalledWith(42);
+    expect(fake.clipRequests).toEqual([{ seconds: 42, endAtUs: runEndUs, frozen: true }]);
+    expect(fake.records[0].durationMs).toBe(42_000);
     expect(screen.getByTestId("clip-viewer")).toBeInTheDocument();
+  });
+
+  it("drops the whole-run button once capture on the result screen pushes the run's start out of the ring", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"] });
+    const fake = createFakeClipService({ snapshot: { ...AT_GAME_OVER, engine: "buffering", bufferedSec: 45 } });
+    renderWithClips(<ResultChipClipActions runSeconds={42} />, { fake });
+    const wholeRun = () => screen.queryByRole("button", { name: wholeRunLabel("0:42") });
+    expect(wholeRun()).not.toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(wholeRun()).not.toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(2000); // 4 s of capture since the run ended: 42 + 4 > 45
+    });
+    expect(wholeRun()).toBeNull();
+  });
+
+  it("keeps the whole-run button while capture is stopped at the break (the ring does not move)", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"] });
+    const fake = createFakeClipService({ snapshot: { ...AT_GAME_OVER, engine: "buffering", bufferedSec: 45 } });
+    renderWithClips(<ResultChipClipActions runSeconds={42} />, { fake });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    act(() => fake.set({ engine: "suspended", button: "suspended" })); // the post-roll ends
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(screen.queryByRole("button", { name: wholeRunLabel("0:42") })).not.toBeNull();
+  });
+
+  it("does not leave keyboard focus on a clip button after a mouse press", () => {
+    renderWithClips(<ResultChipClipActions />, { snapshot: AT_GAME_OVER });
+    const watch = screen.getByRole("button", { name: RESULT_ACTION_COPY.watch });
+    // fireEvent returns false when the default (focusing the button) was prevented.
+    expect(fireEvent.mouseDown(watch)).toBe(false);
   });
 
   it("Take a picture takes the result screen and opens it", async () => {

@@ -2,13 +2,17 @@
  * Game controller clips (plan 11.2).
  *
  * - Switch Pro and Xbox Series controllers have a Share or Capture button.
- *   The standard mapping puts it at buttons[17]. It works like the clip
- *   button on the screen: a press under HOLD_FOR_MENU_MS clips, a hold of
- *   HOLD_FOR_MENU_MS opens the Capture menu.
+ *   The standard mapping puts it at buttons[17]. A press clips, however
+ *   long it is held (a press within 5 s of a clip extends it). A
+ *   controller never opens the Capture menu: nothing in the menu can be
+ *   reached or closed with a controller.
  * - Every other controller with the standard mapping: hold the Back/View
  *   button (buttons[8]) for BACK_HOLD_MS to clip. A shorter press stays the
  *   game's own button.
  * - Never in Retro Arcade: the emulator owns every controller button.
+ * - Never while a clip sheet is open (`enabled` says no): the press would
+ *   make a clip behind the sheet. A button that is still down when the
+ *   sheet closes does nothing until it is let go.
  *
  * The poller reads navigator.getGamepads() once per animation frame, and
  * ONLY while a controller is connected. It stops when the last one goes.
@@ -72,6 +76,8 @@ export function clipButtonFor(pad: PadLike): PadClipButton | null {
 
 export interface GamepadPollerDeps {
   press: ClipPress;
+  /** False while controller presses must do nothing (a clip sheet is open). Default: always true. */
+  enabled?: () => boolean;
   getGamepads: () => ReadonlyArray<PadLike | null>;
   now: () => number;
   requestFrame: (callback: () => void) => number;
@@ -88,6 +94,7 @@ export interface GamepadPoller {
 interface HeldButton {
   kind: PadClipButton["kind"];
   since: number;
+  /** A press is down in the press machine. False for a button that was blocked. */
   started: boolean;
   committed: boolean;
 }
@@ -110,6 +117,7 @@ export function createGamepadPoller(deps: GamepadPollerDeps): GamepadPoller {
     const pads = deps.getGamepads().filter((pad): pad is PadLike => !!pad && pad.connected);
     const seen = new Set<number>();
     const now = deps.now();
+    const enabled = deps.enabled ? deps.enabled() : true;
 
     for (const pad of pads) {
       seen.add(pad.index);
@@ -117,10 +125,15 @@ export function createGamepadPoller(deps: GamepadPollerDeps): GamepadPoller {
       const pressed = button ? pad.buttons[button.index]?.pressed === true : false;
       const state = held.get(pad.index);
 
+      if (!enabled && state?.started) {
+        // A sheet opened while the button was down: end the press with no clip.
+        state.started = false;
+        if (!state.committed) deps.press.cancel(keyFor(pad.index));
+      }
+
       if (pressed && button && !state) {
-        const started = deps.press.down(keyFor(pad.index), 0, 0, "gamepad", {
-          holdToMenu: button.kind === "share",
-        });
+        // A blocked button is remembered, so it does not act when the sheet closes.
+        const started = enabled && deps.press.down(keyFor(pad.index), 0, 0, "gamepad", { holdToMenu: false });
         held.set(pad.index, { kind: button.kind, since: now, started, committed: false });
       } else if (pressed && state) {
         if (state.kind === "back-hold" && state.started && !state.committed && now - state.since >= BACK_HOLD_MS) {

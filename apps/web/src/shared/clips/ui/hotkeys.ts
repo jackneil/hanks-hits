@@ -9,7 +9,11 @@
  *   gives the key "ç".
  * - A key that belongs to a text field is never a shortcut (keyBelongsToTarget,
  *   plus a check that also works for elements inside an iframe).
- * - A held key repeats; only the first press acts.
+ * - A held key repeats; only the first press acts. The repeats of a
+ *   shortcut still do not reach the game.
+ * - A matched shortcut stops at the clip listener (ClipButton): the games
+ *   match event.code and do not look at Alt, so Alt+R would also reset a
+ *   truck.
  * - The shortcuts also work while focus is inside a same-origin iframe
  *   (iframe games), because the listener is on every same-origin window.
  */
@@ -40,9 +44,14 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
   return element.closest("input, textarea, select, [contenteditable]") !== null;
 }
 
+/** True when the key belongs to a text field or to the focused control, not to the clip shortcuts. */
+export function hotkeyBelongsToTarget(event: KeyboardEvent): boolean {
+  return isTextEntryTarget(event.target) || keyBelongsToTarget(event);
+}
+
 /** True when this key press must not act as a clip shortcut. */
 export function ignoreForHotkey(event: KeyboardEvent): boolean {
-  return event.repeat || isTextEntryTarget(event.target) || keyBelongsToTarget(event);
+  return event.repeat || hotkeyBelongsToTarget(event);
 }
 
 /**

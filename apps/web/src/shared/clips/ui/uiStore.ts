@@ -3,24 +3,36 @@
  *
  * The clip button, the toast slot, the pause-menu entry and the result-chip
  * actions are mounted in different places. They share one store: which
- * sheet is open, the tap reply toast, a clip that waits for the end of a
- * run, and the one-time hold tip. The store is framework-free, so the
- * tests drive it without React. ClipUiProvider makes one per game page.
+ * sheet is open, the tap reply toast, a clip or a menu that waits for the
+ * end of a run, the frozen end of the last run, and the one-time hold tip.
+ * The store is framework-free, so the tests drive it without React.
+ * ClipUiProvider makes one per game page.
  *
  * Pausing (plan 11.1, 12): before a sheet opens during play, the game
  * pauses where it can. The UI cannot pause a game through the service
  * contract, so the host (GameShell) gives pauseGame and resumeGame to
  * ClipUiProvider.
+ *
+ * Never cover a run that cannot pause (plan 11.1 "Never interrupt play",
+ * 11.4 "the result chip is the Capture home for games that cannot pause"):
+ * during such a run no sheet opens. A hold on the clip button still clips
+ * the moment of the press, and any other request for a sheet waits for the
+ * next break, with a reply that says so.
  */
 
 import {
   DEFAULT_CLIP_SECONDS,
   type ClipActionResult,
+  type ClipButtonState,
+  type ClipReasonCode,
   type ClipServiceApi,
   type ClipSnapshot,
+  type EngineState,
   type PressToken,
 } from "../service/contract";
-import { reasonText, TOAST_COPY, type SavePlatform } from "./copy";
+import { deferredMenuText, reasonText, TOAST_COPY, type SavePlatform } from "./copy";
+import { logClipUiFailure } from "./log";
+import { nowMs } from "./platform";
 import type { TapOutcome, TapSource } from "./pressGesture";
 
 // ---------------------------------------------------------------------------
@@ -48,11 +60,36 @@ export interface ReplyToast {
   tappable: boolean;
 }
 
+/**
+ * The end of the run that the result chip shows (plan 11.4). The press
+ * token freezes the capture-timeline end at the moment the chip appeared,
+ * so "Watch" and "Make the whole run a video" clip the run and not the time
+ * the kid spent on the result screen. Capture can go on after the run
+ * (a post-roll, or a service that captures between runs), so the mark also
+ * counts how long capture ran since then: that much of the ring's start is
+ * gone.
+ */
+export interface ResultMark {
+  token: PressToken | null;
+  /**
+   * Capture time (ms) since the mark, up to the last count. While capture
+   * runs, ClipUiProvider counts it on once a second (tickResultMark), so
+   * every part that reads it sees the same number.
+   */
+  capturedMs: number;
+  /** When the running capture was last counted (this module's clock), or null while capture is stopped. */
+  runningSince: number | null;
+}
+
 export interface ClipUiState {
   sheet: SheetState | null;
   reply: ReplyToast | null;
   /** A clip the kid asked to watch during a run that cannot pause. It opens at the next break. */
   pendingOpenId: string | null;
+  /** The Capture menu was asked for during a run that cannot pause. It opens at the next break. */
+  pendingMenu: boolean;
+  /** The frozen end of the run on the result chip, while the chip is on screen. */
+  resultMark: ResultMark | null;
   /**
    * The one-time hold tip (plan 11.4): "due" after the third clip, "showing"
    * at the next break, "none" before and after.
@@ -71,6 +108,22 @@ export const HOLD_TIP_AFTER_CLIPS = 3;
 export const SHARE_COACH_TIMES = 3;
 /** localStorage key of the small UI memory (no personal data). */
 export const UI_PREFS_KEY = "hh-clips-ui";
+
+/** Engine states in which the capture timeline moves (the service's own "flowing" states). */
+const CAPTURE_RUNNING: ReadonlySet<EngineState> = new Set(["warming", "bridged", "buffering", "recording"]);
+
+/** True while the capture timeline moves. */
+export function captureRuns(engine: EngineState): boolean {
+  return CAPTURE_RUNNING.has(engine);
+}
+
+/** Capture seconds since the mark, as last counted. 0 without a mark. */
+export function capturedSecSince(mark: ResultMark | null): number {
+  return mark ? mark.capturedMs / 1000 : 0;
+}
+
+/** How often a running capture is counted on the result mark. */
+export const RESULT_MARK_TICK_MS = 1000;
 
 interface UiPrefs {
   manualClips: number;
@@ -121,6 +174,8 @@ export interface ClipUiStore {
   holdReply(id: number): void;
   clearReply(id?: number): void;
   setPendingOpen(id: string | null): void;
+  setPendingMenu(pending: boolean): void;
+  setResultMark(mark: ResultMark | null): void;
   /** Count a clip made with the clip button; the hold tip becomes due after the third. */
   noteManualClip(): void;
   /** Show a due hold tip (at a break). It never shows again after this. */
@@ -142,6 +197,8 @@ export function createClipUiStore(): ClipUiStore {
     sheet: null,
     reply: null,
     pendingOpenId: null,
+    pendingMenu: false,
+    resultMark: null,
     holdTip: "none",
     pulse: 0,
   };
@@ -189,6 +246,12 @@ export function createClipUiStore(): ClipUiStore {
     },
     setPendingOpen(id) {
       if (state.pendingOpenId !== id) set({ pendingOpenId: id });
+    },
+    setPendingMenu(pending) {
+      if (state.pendingMenu !== pending) set({ pendingMenu: pending });
+    },
+    setResultMark(mark) {
+      if (state.resultMark !== mark) set({ resultMark: mark });
     },
     noteManualClip() {
       const current = loadPrefs();
@@ -242,6 +305,8 @@ export interface ClipUiDeps {
   snapshot: () => ClipSnapshot;
   host: () => ClipUiHost;
   platform: () => SavePlatform;
+  /** This module's clock (ms). Default performance.now(). */
+  now?: () => number;
 }
 
 export interface ClipUiController {
@@ -249,13 +314,17 @@ export interface ClipUiController {
   platform(): SavePlatform;
   /** Act on a clip button press (pointer, keyboard or gamepad). */
   handleTapOutcome(outcome: TapOutcome): void;
+  /**
+   * Open the Capture menu. During a run that cannot pause it opens at the
+   * next break instead (with a reply that says so).
+   */
   openMenu(token: PressToken | null, source: MenuSource): void;
   /**
-   * Open the viewer. During play the game pauses first where it can.
-   * `deferInRun`: in a run that cannot pause, say the clip is ready when the
-   * run ends and open it at the next break instead (the new-clip chip).
+   * Open the viewer. During play the game pauses first where it can. In a
+   * run that cannot pause, a clip opens at the next break instead (the
+   * new-clip chip says "Your clip is ready when this run ends!").
    */
-  openViewer(target: ViewerTarget, options?: { deferInRun?: boolean }): void;
+  openViewer(target: ViewerTarget): void;
   openSettings(): void;
   /** Close the open sheet. A Capture menu that paused the game resumes it. */
   closeSheet(options?: { resume?: boolean }): void;
@@ -263,7 +332,7 @@ export interface ClipUiController {
   replaceSheet(next: { kind: "viewer"; target: ViewerTarget } | { kind: "settings" }): void;
   /** The new-clip chip: open the newest clip (plan 11.1). */
   openNewestClip(): void;
-  /** Open a clip that waited for the end of a run. Call when the snapshot reaches a break. */
+  /** Open a clip or the menu that waited for the end of a run. Call when the snapshot reaches a break. */
   flushPendingOpen(): void;
 
   // Capture menu rows
@@ -273,7 +342,15 @@ export interface ClipUiController {
   pictureFromMenu(): void;
   wakeFromMenu(): void;
 
-  // Result chip actions (at a break)
+  // Result chip (at a break)
+  /** Freeze the end of the run: call when the result chip's clip actions appear. */
+  beginResultMark(): void;
+  /** Forget the frozen end: call when the result chip goes away. */
+  endResultMark(): void;
+  /** Count the capture that runs now onto the result mark (ClipUiProvider calls it once a second). */
+  tickResultMark(): void;
+  /** The snapshot's engine state changed: keep the result mark's capture count. */
+  noteEngine(engine: EngineState): void;
   watch(): void;
   wholeRunVideo(seconds: number): void;
   recordFromChip(): void;
@@ -286,16 +363,32 @@ export interface ClipUiController {
   replyForResult(result: ClipActionResult | null): void;
 }
 
-/** A thrown action counts as "the file could not be made". */
-function settle(promise: Promise<ClipActionResult>): Promise<ClipActionResult | null> {
+/** Button states where a hold in a run that cannot pause clips its frozen moment. */
+const HOLD_CLIPS_IN: ReadonlySet<ClipButtonState> = new Set(["ready", "made", "suspended", "resting"]);
+
+/**
+ * Wait for a clip action. A thrown action counts as "the file could not be
+ * made", and it logs a values-free reason (plan 12).
+ */
+function settle(action: string, promise: Promise<ClipActionResult>): Promise<ClipActionResult | null> {
   return promise.then(
     (result) => result,
-    () => null,
+    (error: unknown) => {
+      logClipUiFailure(action, error);
+      return null;
+    },
   );
 }
 
 export function createClipUiController(deps: ClipUiDeps): ClipUiController {
   const { store } = deps;
+  const now = deps.now ?? nowMs;
+
+  /** True when a sheet may open now: at a break, or where the game can pause. */
+  const canCoverPlay = (): boolean => {
+    const snapshot = deps.snapshot();
+    return snapshot.atBreak || (snapshot.gameCanPause && typeof deps.host().pauseGame === "function");
+  };
 
   const pauseIfPlaying = (): boolean => {
     const snapshot = deps.snapshot();
@@ -311,7 +404,32 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       store.showReply(reasonText("mux-failed"), true);
       return;
     }
-    if (!result.ok) store.showReply(reasonText(result.reason), true);
+    if (!result.ok) {
+      logClipUiFailure(result.action, undefined, result.reason);
+      store.showReply(reasonText(result.reason), true);
+    }
+  };
+
+  /** A clip made with the clip button (a tap or a hold): count it, then reply. */
+  const commitFromButton = (action: string, result: Promise<ClipActionResult>) => {
+    void settle(action, result).then((settled) => {
+      if (settled?.ok && settled.action === "clip") store.noteManualClip();
+      replyForResult(settled);
+    });
+  };
+
+  /** The reason a resting or record-only button gives before its menu. */
+  const menuReason = (): ClipReasonCode | null => {
+    const button = deps.snapshot().button;
+    if (button === "resting") return "resting";
+    if (button === "record-only") return "record-only";
+    return null;
+  };
+
+  /** The Capture menu waits for the next break. The reply says so. */
+  const deferMenu = () => {
+    store.setPendingMenu(true);
+    store.showReply(deferredMenuText(menuReason()), true);
   };
 
   const openViewerNow = (target: ViewerTarget, pausedByUs: boolean) => {
@@ -329,6 +447,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     replyForResult(result);
   };
 
+  const resultToken = (): PressToken | undefined => store.getState().resultMark?.token ?? undefined;
+
   const controller: ClipUiController = {
     store,
     platform: () => deps.platform(),
@@ -336,17 +456,26 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     handleTapOutcome(outcome) {
       switch (outcome.kind) {
         case "commit":
-          void settle(outcome.result).then((result) => {
-            if (result?.ok && result.action === "clip") store.noteManualClip();
-            replyForResult(result);
-          });
+          commitFromButton(outcome.action, outcome.result);
           return;
         case "stop":
-          void settle(outcome.result).then(replyForResult);
+          void settle("record", outcome.result).then(replyForResult);
           return;
-        case "menu":
+        case "menu": {
+          const service = deps.service();
+          if (!service) return;
+          if (!canCoverPlay()) {
+            // A slow press in a run that cannot pause: clip the moment of the press.
+            if (outcome.hold && outcome.token && HOLD_CLIPS_IN.has(deps.snapshot().button)) {
+              commitFromButton("clip", service.clipLast(DEFAULT_CLIP_SECONDS, outcome.token));
+              return;
+            }
+            deferMenu();
+            return;
+          }
           controller.openMenu(outcome.token, outcome.source);
           return;
+        }
         case "reply":
           if (outcome.pulse) store.bumpPulse();
           store.showReply(reasonText(outcome.reason), true);
@@ -358,16 +487,19 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
 
     openMenu(token, source) {
       if (!deps.service()) return;
-      const open = store.getState().sheet;
-      if (open) return;
+      if (store.getState().sheet) return;
+      if (!canCoverPlay()) {
+        deferMenu();
+        return;
+      }
       const pausedByUs = pauseIfPlaying();
+      store.setPendingMenu(false);
       store.setSheet({ kind: "menu", token, source, pausedByUs });
     },
 
-    openViewer(target, options = {}) {
+    openViewer(target) {
       if (!deps.service()) return;
-      const snapshot = deps.snapshot();
-      if (snapshot.atBreak) {
+      if (deps.snapshot().atBreak) {
         openViewerNow(target, false);
         return;
       }
@@ -375,16 +507,25 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
         openViewerNow(target, true);
         return;
       }
-      if (options.deferInRun && target.kind === "clip") {
+      if (canCoverPlay()) {
+        openViewerNow(target, false);
+        return;
+      }
+      // A run that cannot pause: never cover it.
+      if (target.kind === "clip") {
         store.setPendingOpen(target.id);
         store.showReply(TOAST_COPY.readyAtRunEnd, true);
         return;
       }
-      openViewerNow(target, false);
+      deferMenu();
     },
 
     openSettings() {
       if (!deps.service() || store.getState().sheet) return;
+      if (!canCoverPlay()) {
+        deferMenu();
+        return;
+      }
       store.setSheet({ kind: "settings", pausedByUs: pauseIfPlaying() });
     },
 
@@ -409,20 +550,27 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     openNewestClip() {
       const id = deps.snapshot().unwatchedClipId;
       if (!id) return;
-      controller.openViewer({ kind: "clip", id }, { deferInRun: true });
+      controller.openViewer({ kind: "clip", id });
     },
 
     flushPendingOpen() {
       const state = store.getState();
-      const id = state.pendingOpenId;
-      if (!id || state.sheet || !deps.snapshot().atBreak) return;
-      openViewerNow({ kind: "clip", id }, false);
+      if (state.sheet || !deps.snapshot().atBreak || !deps.service()) return;
+      if (state.pendingOpenId) {
+        store.setPendingMenu(false);
+        openViewerNow({ kind: "clip", id: state.pendingOpenId }, false);
+        return;
+      }
+      if (state.pendingMenu) {
+        store.setPendingMenu(false);
+        store.setSheet({ kind: "menu", token: null, source: "result-chip", pausedByUs: false });
+      }
     },
 
     clipLastFromMenu(token) {
       const service = deps.service();
       if (!service) return;
-      const result = settle(service.clipLast(DEFAULT_CLIP_SECONDS, token ?? undefined));
+      const result = settle("clip", service.clipLast(DEFAULT_CLIP_SECONDS, token ?? undefined));
       controller.closeSheet();
       void result.then(replyForResult);
     },
@@ -432,7 +580,10 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       if (!service) return;
       const started = service.startRecording().then(
         (result) => result,
-        () => null,
+        (error: unknown) => {
+          logClipUiFailure("record", error);
+          return null;
+        },
       );
       controller.closeSheet();
       void started.then((result) => {
@@ -443,7 +594,7 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     stopRecordingFromMenu() {
       const service = deps.service();
       if (!service) return;
-      const result = settle(service.stopRecording());
+      const result = settle("record", service.stopRecording());
       controller.closeSheet();
       void result.then(replyForResult);
     },
@@ -452,7 +603,7 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       const service = deps.service();
       if (!service) return;
       // Take the picture first: the frame is the one under the menu.
-      const result = settle(service.takePicture());
+      const result = settle("picture", service.takePicture());
       controller.closeSheet();
       void result.then(replyForResult);
     },
@@ -464,6 +615,42 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       controller.closeSheet();
     },
 
+    beginResultMark() {
+      if (store.getState().resultMark) return;
+      const service = deps.service();
+      let token: PressToken | null = null;
+      if (service) {
+        // The same frozen end a press takes (plan 11.1), released at once:
+        // nothing is committed until the kid taps a result chip action.
+        token = service.beginPress();
+        if (token) service.endPress(token, { upAtMs: token.downAtMs, moved: false, cancelled: true });
+      }
+      const running = captureRuns(deps.snapshot().engine);
+      store.setResultMark({ token, capturedMs: 0, runningSince: running ? now() : null });
+    },
+
+    endResultMark() {
+      store.setResultMark(null);
+    },
+
+    tickResultMark() {
+      const mark = store.getState().resultMark;
+      if (!mark || mark.runningSince === null) return;
+      const at = now();
+      store.setResultMark({ ...mark, capturedMs: mark.capturedMs + Math.max(0, at - mark.runningSince), runningSince: at });
+    },
+
+    noteEngine(engine) {
+      const mark = store.getState().resultMark;
+      if (!mark) return;
+      const running = captureRuns(engine);
+      if (running && mark.runningSince === null) {
+        store.setResultMark({ ...mark, runningSince: now() });
+      } else if (!running && mark.runningSince !== null) {
+        store.setResultMark({ ...mark, capturedMs: mark.capturedMs + Math.max(0, now() - mark.runningSince), runningSince: null });
+      }
+    },
+
     watch() {
       const service = deps.service();
       if (!service) return;
@@ -472,13 +659,13 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
         controller.openViewer({ kind: "clip", id: newest });
         return;
       }
-      void settle(service.clipLast(DEFAULT_CLIP_SECONDS)).then(openResultAtBreak);
+      void settle("clip", service.clipLast(DEFAULT_CLIP_SECONDS, resultToken())).then(openResultAtBreak);
     },
 
     wholeRunVideo(seconds) {
       const service = deps.service();
       if (!service) return;
-      void settle(service.clipLast(Math.max(1, Math.ceil(seconds)))).then(openResultAtBreak);
+      void settle("clip", service.clipLast(Math.max(1, Math.ceil(seconds)), resultToken())).then(openResultAtBreak);
     },
 
     recordFromChip() {
@@ -489,7 +676,7 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     pictureFromChip() {
       const service = deps.service();
       if (!service) return;
-      void settle(service.takePicture()).then(openResultAtBreak);
+      void settle("picture", service.takePicture()).then(openResultAtBreak);
     },
 
     toggleRecord() {
@@ -497,14 +684,17 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       if (!service) return;
       const snapshot = deps.snapshot();
       if (snapshot.recording !== null || snapshot.button === "recording") {
-        void settle(service.stopRecording()).then(replyForResult);
+        void settle("record", service.stopRecording()).then(replyForResult);
         return;
       }
       void service.startRecording().then(
         (result) => {
           if (result && !result.ok) replyForResult(result);
         },
-        () => replyForResult(null),
+        (error: unknown) => {
+          logClipUiFailure("record", error);
+          replyForResult(null);
+        },
       );
     },
 

@@ -8,7 +8,7 @@ import { recordTimerName, TOAST_COPY, VIEWER_TITLES } from "../copy";
 import { TOAST_SLOT_Z_INDEX, ToastSlot } from "../ToastSlot";
 import { HOLD_TIP_AFTER_CLIPS, REPLY_MS, REPLY_READING_MS, UI_PREFS_KEY } from "../uiStore";
 import { createFakeClipService, makeRecord } from "./fakeClipService";
-import { flush, renderWithClips, stubObjectUrls } from "./renderClips";
+import { flush, pointer, renderWithClips, stubObjectUrls } from "./renderClips";
 
 const TIMERS = ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"] as const;
 
@@ -81,7 +81,6 @@ describe("ToastSlot placement and tap rules (plan 11.3, 11.4)", () => {
     );
     fireEvent.click(screen.getByTestId("reply-tap"));
     let reply = screen.getByTestId("clip-reply");
-    expect(reply.getAttribute("role")).toBe("status");
     expect(reply.className).toContain("pointer-events-none");
     const readAloud = within(reply).getByTestId("read-aloud-button");
     expect(readAloud.className).toContain("min-h-[44px]");
@@ -142,6 +141,124 @@ describe("ToastSlot placement and tap rules (plan 11.3, 11.4)", () => {
     fireEvent.pointerDown(screen.getByTestId("clip-new-chip"));
     fireEvent.click(screen.getByTestId("clip-new-chip"));
     expect(gameTap).not.toHaveBeenCalled();
+  });
+});
+
+describe("in-play controls take a second finger (plan 11.3)", () => {
+  // A phone sends no click for a second finger while another finger holds
+  // the gas pedal: these events are all the control gets.
+  function secondFingerTap(target: HTMLElement, pointerId = 7) {
+    fireEvent.pointerDown(target, pointer({ pointerId, isPrimary: false }));
+    fireEvent.pointerUp(target, pointer({ pointerId, isPrimary: false }));
+  }
+
+  const RECORDING = {
+    button: "recording" as const,
+    engine: "recording" as const,
+    recording: { recordingId: "r", startedAtMs: 0, elapsedSec: 5, stars: 0 },
+  };
+
+  it("adds a star on the pointer, with no click, and the click after it does not add a second", () => {
+    const { fake } = renderWithClips(<ToastSlot />, { snapshot: RECORDING });
+    const star = screen.getByTestId("clip-star-button");
+    secondFingerTap(star);
+    expect(fake.service.addStar).toHaveBeenCalledTimes(1);
+    fireEvent.click(star); // the compatibility click of that tap
+    expect(fake.service.addStar).toHaveBeenCalledTimes(1);
+    // A pointer that slid onto the star from elsewhere is not a tap on it.
+    fireEvent.pointerUp(star, pointer({ pointerId: 9 }));
+    expect(fake.service.addStar).toHaveBeenCalledTimes(1);
+    // A right-click is not a star.
+    fireEvent.pointerDown(star, pointer({ pointerId: 3, pointerType: "mouse", button: 2 }));
+    fireEvent.pointerUp(star, pointer({ pointerId: 3, pointerType: "mouse", button: 2 }));
+    expect(fake.service.addStar).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds a star once per Enter or Space (a click with no pointer)", () => {
+    const { fake } = renderWithClips(<ToastSlot />, { snapshot: RECORDING });
+    fireEvent.click(screen.getByTestId("clip-star-button"));
+    expect(fake.service.addStar).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the newest clip from the chip on the pointer, with no click", async () => {
+    const { fake } = renderWithClips(<ToastSlot />, {
+      records: [makeRecord({ id: "c1" })],
+      snapshot: { unwatchedClipId: "c1", gameCanPause: true, atBreak: false },
+    });
+    secondFingerTap(screen.getByTestId("clip-new-chip"));
+    await flush();
+    expect(screen.getByRole("dialog", { name: VIEWER_TITLES.clip })).toBeInTheDocument();
+    expect(fake.service.markWatched).toHaveBeenCalledWith("c1");
+  });
+
+  it("reads a reply out loud on the pointer, with no click, and keeps the reply up", () => {
+    const speech = installSpeechMock();
+    renderWithClips(
+      <>
+        <ToastSlot />
+        <Controls />
+      </>,
+    );
+    fireEvent.click(screen.getByTestId("reply-tap"));
+    const readAloud = within(screen.getByTestId("clip-reply")).getByTestId("read-aloud-button");
+    act(() => {
+      vi.advanceTimersByTime(REPLY_MS - 500);
+    });
+    fireEvent.pointerDown(readAloud, pointer({ pointerId: 4, isPrimary: false }));
+    act(() => {
+      vi.advanceTimersByTime(1000); // a slow press: the reply must not time out under the finger
+    });
+    expect(screen.getByTestId("clip-reply")).toBeInTheDocument();
+    fireEvent.pointerUp(readAloud, pointer({ pointerId: 4, isPrimary: false }));
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    expect(speech.lastUtterance().text).toBe("Play a little first!");
+    fireEvent.click(readAloud); // the compatibility click: no second voice, no stop
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    expect(speech.cancel).toHaveBeenCalledTimes(1); // speak() cancels what was playing first
+  });
+
+  it("never leaves keyboard focus on an in-play control after a pointer press", () => {
+    installSpeechMock();
+    renderWithClips(
+      <>
+        <ToastSlot />
+        <Controls />
+      </>,
+      { records: [makeRecord({ id: "c1" })], snapshot: { ...RECORDING, unwatchedClipId: "c1" } },
+    );
+    fireEvent.click(screen.getByTestId("reply-tap"));
+    const controls = [
+      screen.getByTestId("clip-star-button"),
+      screen.getByTestId("clip-new-chip"),
+      within(screen.getByTestId("clip-reply")).getByTestId("read-aloud-button"),
+    ];
+    for (const control of controls) {
+      // false: the default action of mousedown (focus) was prevented.
+      expect(fireEvent.mouseDown(control), control.getAttribute("data-testid") ?? "").toBe(false);
+    }
+  });
+});
+
+describe("the reply announcer (plan 11.3)", () => {
+  it("keeps one live region on the page and changes only its words", () => {
+    renderWithClips(
+      <>
+        <ToastSlot />
+        <Controls />
+      </>,
+    );
+    const announcer = screen.getByTestId("clip-toast-announcer");
+    expect(announcer.getAttribute("role")).toBe("status");
+    expect(announcer.getAttribute("aria-live")).toBe("polite");
+    expect(announcer).toHaveTextContent("");
+    fireEvent.click(screen.getByTestId("reply-tap"));
+    expect(screen.getByTestId("clip-toast-announcer")).toBe(announcer);
+    expect(announcer).toHaveTextContent("Play a little first!");
+    fireEvent.click(screen.getByTestId("reply-info"));
+    expect(screen.getByTestId("clip-toast-announcer")).toBe(announcer);
+    expect(announcer).toHaveTextContent("Clip made!");
+    // The visible toast is not a second live region.
+    expect(screen.getByTestId("clip-reply").getAttribute("role")).toBeNull();
   });
 });
 
@@ -312,6 +429,52 @@ describe("the one-time hold tip (plan 11.4)", () => {
       // @ts-expect-error - remove the stub again
       delete document.elementFromPoint;
       cover.remove();
+    }
+  });
+
+  it("speaks the tip once when it shows (a spoken tip, plan 11.4)", () => {
+    const speech = installSpeechMock();
+    const { fake } = renderWithClips(
+      <>
+        <ToastSlot />
+        <Controls />
+      </>,
+    );
+    for (let i = 0; i < HOLD_TIP_AFTER_CLIPS; i++) fireEvent.click(screen.getByTestId("note-clip"));
+    expect(speech.speak).not.toHaveBeenCalled(); // not during play
+    act(() => fake.set({ atBreak: true }));
+    expect(screen.getByTestId("clip-hold-tip").getAttribute("data-tip")).toBe("showing");
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    expect(speech.lastUtterance().text).toBe(TOAST_COPY.holdTip);
+    // Later changes do not say it again.
+    act(() => fake.set({ bufferedSec: 12 }));
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    // The tip's button shares the tip's voice: while it speaks, a tap stops it.
+    const button = within(screen.getByTestId("clip-hold-tip")).getByTestId("read-aloud-button");
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    const cancelsBefore = speech.cancel.mock.calls.length;
+    fireEvent.click(button);
+    expect(speech.cancel.mock.calls.length).toBe(cancelsBefore + 1);
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("stays quiet when the page has not been tapped yet (the browser would block the voice)", () => {
+    const speech = installSpeechMock();
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { hasBeenActive: false } });
+    try {
+      const { fake } = renderWithClips(
+        <>
+          <ToastSlot />
+          <Controls />
+        </>,
+      );
+      for (let i = 0; i < HOLD_TIP_AFTER_CLIPS; i++) fireEvent.click(screen.getByTestId("note-clip"));
+      act(() => fake.set({ atBreak: true }));
+      expect(screen.getByTestId("clip-hold-tip")).toBeInTheDocument();
+      expect(speech.speak).not.toHaveBeenCalled();
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
     }
   });
 

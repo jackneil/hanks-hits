@@ -8,7 +8,7 @@
  */
 
 import { act, fireEvent, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
@@ -93,11 +93,14 @@ function OpenSheets() {
 beforeEach(() => {
   stubObjectUrls();
   installSpeechMock();
+  // A browser with a share sheet, so the viewer shows every action.
+  Object.defineProperty(navigator, "share", { configurable: true, writable: true, value: vi.fn() });
 });
 
 afterEach(() => {
   removeSpeechMock();
   setViewport(REAL_WIDTH, REAL_HEIGHT);
+  delete (navigator as { share?: unknown }).share;
 });
 
 describe.each(VIEWPORTS)("clip UI at %ix%i", (width, height) => {
@@ -199,6 +202,23 @@ describe.each(VIEWPORTS)("clip UI at %ix%i", (width, height) => {
       expect(tile.className).toContain("w-full");
       expect(tile.className).toContain("min-w-0");
     }
+  });
+});
+
+describe("toast slot beside a notch (844x390 landscape, plan 11.2)", () => {
+  it("keeps every row inside the safe areas", () => {
+    const insets = { left: 47, right: 47 };
+    const plan = planToastSlot(844, { chip: true, recording: true }, insets);
+    expect(plan.available).toBe(844 - 47 - 47);
+    expect(plan.rowWidth).toBeLessThanOrEqual(plan.available);
+    // A side with no inset still pads by the normal 12 px.
+    expect(planToastSlot(390, { chip: true, recording: false }, { left: 0, right: 30 }).available).toBe(390 - TOAST_SLOT_PAD_PX - 30);
+    // The CSS pads each side by the larger of 12 px and the inset, like the planner.
+    renderWithClips(<ToastSlot />, { records: [makeRecord({ id: "c1" })], snapshot: { unwatchedClipId: "c1" } });
+    const slot = screen.getByTestId("clip-toast-slot");
+    expect(slot.className).toContain("pl-[max(0.75rem,env(safe-area-inset-left))]");
+    expect(slot.className).toContain("pr-[max(0.75rem,env(safe-area-inset-right))]");
+    expect(slot.className).not.toMatch(/(^|\s)px-3(\s|$)/);
   });
 });
 

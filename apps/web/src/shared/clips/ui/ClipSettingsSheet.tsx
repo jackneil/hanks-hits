@@ -13,6 +13,7 @@ import { useClipService, useClipSnapshot } from "../service/context";
 import { useClipUi } from "./ClipUiProvider";
 import { MENU_COPY, SETTINGS_COPY, storageLine } from "./copy";
 import { formatBytes } from "./format";
+import { NO_GAMEPAD_CLIP_APPS } from "./gamepad";
 import { PowerGlyph } from "./glyphs";
 import { Sheet } from "./Sheet";
 
@@ -20,7 +21,12 @@ export interface ClipSettingsSheetProps {
   onClose: () => void;
 }
 
-const TIPS = [SETTINGS_COPY.tapTip, SETTINGS_COPY.holdTip, SETTINGS_COPY.keyTip, SETTINGS_COPY.padTip] as const;
+/** The how-to tips. The controller tip is left out where the game owns every controller button (Retro Arcade). */
+export function clipSettingsTips(appId: string | null): string[] {
+  const tips: string[] = [SETTINGS_COPY.tapTip, SETTINGS_COPY.holdTip, SETTINGS_COPY.keyTip];
+  if (!(appId !== null && NO_GAMEPAD_CLIP_APPS.has(appId))) tips.push(SETTINGS_COPY.padTip);
+  return tips;
+}
 
 export function ClipSettingsSheet({ onClose }: ClipSettingsSheetProps) {
   const ui = useClipUi();
@@ -53,8 +59,9 @@ export function ClipSettingsSheet({ onClose }: ClipSettingsSheetProps) {
 
   const resting = snapshot.button === "resting";
   const line = usage ? storageLine(usage.count, formatBytes(usage.bytes)) : SETTINGS_COPY.storageLoading;
+  const tips = clipSettingsTips(snapshot.appId);
   const readAloud = () =>
-    [SETTINGS_COPY.title, resting ? MENU_COPY.wake : null, line, SETTINGS_COPY.whereTip, SETTINGS_COPY.howTitle, ...TIPS]
+    [SETTINGS_COPY.title, resting ? MENU_COPY.wake : null, line, SETTINGS_COPY.whereTip, SETTINGS_COPY.howTitle, ...tips]
       .filter(Boolean)
       .join(". ");
 
@@ -81,7 +88,7 @@ export function ClipSettingsSheet({ onClose }: ClipSettingsSheetProps) {
       <p className="mb-4 text-base">{SETTINGS_COPY.whereTip}</p>
       <h3 className="mb-2 text-lg font-bold">{SETTINGS_COPY.howTitle}</h3>
       <ul className="flex list-disc flex-col gap-1 pl-6 text-base">
-        {TIPS.map((tip) => (
+        {tips.map((tip) => (
           <li key={tip}>{tip}</li>
         ))}
       </ul>

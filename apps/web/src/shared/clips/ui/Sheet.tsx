@@ -18,8 +18,13 @@
  *   the capture phase and stops the event, so GameShell does not also
  *   toggle the pause menu. Tab stays inside the sheet.
  * - Focus: the main action (the control with data-autofocus), else the
- *   first control, takes focus when the sheet opens. The control that
- *   opened it gets focus back when it closes.
+ *   first control, takes focus when the sheet opens. Focus never stays
+ *   behind the sheet: while the main action is still disabled (the viewer
+ *   reads its file first), the panel itself holds focus, and the main
+ *   action gets it as soon as it can take it. The element that had focus
+ *   before the sheet opened gets it back when the sheet closes. The clip
+ *   controls never take focus from a pointer press, so that element is the
+ *   game (or the page) after a tap, and the control after a keyboard press.
  * - Read-aloud: the header has the read-aloud button (every sheet has one).
  * - Motion: it opens in 250 ms with the house easing, and closes at once.
  *   With reduced motion it only fades.
@@ -54,6 +59,9 @@ export interface SheetProps {
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])';
+
+/** The main action, when it can take focus. */
+const AUTOFOCUS = "[data-autofocus]:not([disabled])";
 
 function stopHere(event: React.SyntheticEvent): void {
   event.stopPropagation();
@@ -91,19 +99,43 @@ export function Sheet({ title, variant, onClose, readAloudText, children, testId
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
 
-  // Focus the first control, and give focus back on close.
+  // Focus the main action, and give focus back on close.
+  // While the main action is disabled, the panel holds focus in its place.
+  const waitingForMain = useRef(false);
   useEffect(() => {
     if (!isClient) return;
+    const panel = panelRef.current;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    // The main action (data-autofocus) first, else the first control.
-    const first =
-      panelRef.current?.querySelector<HTMLElement>("[data-autofocus]") ??
-      panelRef.current?.querySelector<HTMLElement>(FOCUSABLE);
-    first?.focus({ preventScroll: true });
+    const main = panel?.querySelector<HTMLElement>(AUTOFOCUS) ?? null;
+    if (main) {
+      main.focus({ preventScroll: true });
+    } else if (panel?.querySelector("[data-autofocus]")) {
+      // The main action is there but disabled: a disabled button cannot take focus.
+      waitingForMain.current = true;
+      panel.focus({ preventScroll: true });
+    } else {
+      (panel?.querySelector<HTMLElement>(FOCUSABLE) ?? panel)?.focus({ preventScroll: true });
+    }
     return () => {
       if (opener && opener.isConnected) opener.focus({ preventScroll: true });
     };
   }, [isClient]);
+
+  // The main action can take focus now (its file is ready): move focus to it,
+  // unless the kid already moved focus somewhere else.
+  useEffect(() => {
+    if (!waitingForMain.current) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (document.activeElement !== panel) {
+      waitingForMain.current = false;
+      return;
+    }
+    const main = panel.querySelector<HTMLElement>(AUTOFOCUS);
+    if (!main) return;
+    waitingForMain.current = false;
+    main.focus({ preventScroll: true });
+  });
 
   const keepTabInside = (event: React.KeyboardEvent) => {
     if (event.key !== "Tab" || !panelRef.current) return;
@@ -111,7 +143,8 @@ export function Sheet({ title, variant, onClose, readAloudText, children, testId
     if (items.length === 0) return;
     const first = items[0];
     const last = items[items.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
+    const onPanel = document.activeElement === panelRef.current;
+    if (event.shiftKey && (document.activeElement === first || onPanel)) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -162,8 +195,9 @@ export function Sheet({ title, variant, onClose, readAloudText, children, testId
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         onKeyDown={keepTabInside}
-        className={`${PANEL_BASE} ${PANEL_BY_VARIANT[variant]}`}
+        className={`${PANEL_BASE} ${PANEL_BY_VARIANT[variant]} outline-none`}
       >
         <div className="mb-3 flex items-center gap-2">
           <h2 id={titleId} className="min-w-0 flex-1 truncate text-xl font-bold">

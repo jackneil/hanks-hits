@@ -10,6 +10,10 @@
  *   EXTEND_WINDOW_MS of the last clip extends it.
  * - Every clip action adds a library row and sets lastResult, button "made"
  *   and unwatchedClipId, and tells subscribers.
+ * - A capture clock (captureUs) stands for the capture-timeline end. A press
+ *   token freezes it; clipLast records the length it was asked for and the
+ *   end it clips to (clipRequests), so a test can check WHICH footage a
+ *   clip holds, not only that a clip was made.
  *
  * Every method is a vi.fn, so tests read calls and order. Time is
  * performance.now(), the same clock the UI uses, so fake timers move both.
@@ -19,6 +23,7 @@ import { vi } from "vitest";
 
 import type { ClipKind, ClipRecord } from "../../protocol";
 import {
+  DEFAULT_CLIP_SECONDS,
   EXTEND_WINDOW_MS,
   HIDDEN_SNAPSHOT,
   HOLD_FOR_MENU_MS,
@@ -90,6 +95,9 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
   let failNext: ClipReasonCode | null = null;
   let shareOutcome: ShareOutcome = { kind: "shared" };
   let saveOutcome: SaveOutcome = { kind: "saved" };
+  /** The capture-timeline end now, in microseconds. */
+  let captureUs = Math.round(snapshot.bufferedSec * 1e6);
+  const clipRequests: Array<{ seconds: number; endAtUs: number; frozen: boolean }> = [];
 
   const now = () => performance.now();
 
@@ -101,7 +109,7 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
   const notifyLibrary = () => libraryListeners.forEach((listener) => listener());
 
   /** Make a clip action: a new row, or a failure when failNext is set. */
-  const act = (action: ClipActionResult["action"], kind: ClipKind): Promise<ClipActionResult> => {
+  const act = (action: ClipActionResult["action"], kind: ClipKind, seconds?: number): Promise<ClipActionResult> => {
     const atMs = now();
     if (failNext) {
       const reason = failNext;
@@ -110,7 +118,11 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
       set({ lastResult: result });
       return Promise.resolve(result);
     }
-    const record = makeRecord({ kind, gameId: snapshot.appId ?? "unknown" });
+    const record = makeRecord({
+      kind,
+      gameId: snapshot.appId ?? "unknown",
+      ...(seconds !== undefined ? { durationMs: seconds * 1000 } : {}),
+    });
     records.push(record);
     const result: ClipActionResult = { ok: true, action, record, atMs };
     if (action === "clip" || action === "extend") lastClipAtMs = atMs;
@@ -141,7 +153,7 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
     beginPress: vi.fn((): PressToken | null => {
       if (snapshot.button === "hidden") return null;
       pressSeq += 1;
-      const token: PressToken = { pressId: `press-${pressSeq}`, downAtMs: now(), endAtUs: Math.round(snapshot.bufferedSec * 1e6) };
+      const token: PressToken = { pressId: `press-${pressSeq}`, downAtMs: now(), endAtUs: captureUs };
       openPresses.add(token.pressId);
       return token;
     }),
@@ -173,7 +185,10 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
       return { kind: "clip", result: act("clip", "clip") };
     }),
 
-    clipLast: vi.fn(() => act("clip", "clip")),
+    clipLast: vi.fn((seconds: number = DEFAULT_CLIP_SECONDS, token?: PressToken) => {
+      clipRequests.push({ seconds, endAtUs: token ? token.endAtUs : captureUs, frozen: token !== undefined });
+      return act("clip", "clip", seconds);
+    }),
     startRecording: vi.fn(async (): Promise<ClipActionResult | null> => {
       if (failNext) {
         const reason = failNext;
@@ -273,6 +288,13 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
     },
     openPressCount: () => openPresses.size,
     listenerCount: () => listeners.size,
+    /** Capture runs on: the capture-timeline end moves by `seconds`. */
+    advanceCapture(seconds: number) {
+      captureUs += Math.round(seconds * 1e6);
+    },
+    captureUs: () => captureUs,
+    /** Every clipLast call: the length asked for and the end it clips to. */
+    clipRequests,
   };
 }
 

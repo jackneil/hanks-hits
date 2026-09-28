@@ -9,10 +9,12 @@ import { ClipTile } from "../ClipTile";
 import { useClipUi } from "../ClipUiProvider";
 import {
   DELETE_QUESTIONS,
-  MEMORY_NOTE,
+  SAVE_BUTTON_LABELS,
   SAVE_LABELS,
+  SAVE_TO_FILES,
   VIEWER_COPY,
   VIEWER_TITLES,
+  memoryNote,
   saveReply,
   shareReply,
 } from "../copy";
@@ -30,14 +32,23 @@ function setUserAgent(ua: string) {
 
 let urls: ReturnType<typeof stubObjectUrls>;
 
+/** Give the browser a share sheet (navigator.share), or take it away. */
+function setBrowserShare(present: boolean) {
+  if (present) Object.defineProperty(navigator, "share", { configurable: true, writable: true, value: vi.fn() });
+  else delete (navigator as { share?: unknown }).share;
+}
+
 beforeEach(() => {
   urls = stubObjectUrls();
   window.localStorage.clear();
+  setBrowserShare(true);
 });
 
 afterEach(() => {
   removeSpeechMock();
   setUserAgent(REAL_UA);
+  setBrowserShare(false);
+  vi.restoreAllMocks();
 });
 
 /** Opens the viewer through the controller, at a break. */
@@ -132,24 +143,62 @@ describe("ClipViewer: one clip (plan 11.4)", () => {
     expect(within(viewer()).getByTestId("read-aloud-button")).toBeInTheDocument();
   });
 
-  it("says the clip is gone when its file cannot be read", async () => {
+  it("says a clip whose file cannot be read cannot play, and keeps Delete so it can be cleared away", async () => {
+    installSpeechMock();
     const record = makeRecord({ id: "c1" });
     const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
-    vi.mocked(fake.service.library.file).mockRejectedValueOnce(new Error("NotReadableError"));
+    vi.mocked(fake.service.library.file).mockRejectedValueOnce(Object.assign(new Error("secret-path/c1.mp4"), { name: "NotReadableError" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await openClip(record, { fake });
-    expect(screen.getByTestId("clip-viewer-missing")).toBeInTheDocument();
+    const broken = screen.getByTestId("clip-viewer-broken");
+    expect(broken).toHaveTextContent(VIEWER_COPY.brokenSay);
+    expect(broken).toHaveTextContent(VIEWER_COPY.brokenNext);
+    expect(action("share")).toBeNull();
+    expect(action("save")).toBeNull();
+    // The failure is logged with its type only: no id, no file name.
+    expect(warn).toHaveBeenCalledWith("[clips] ui: read failed (NotReadableError)");
+    expect(warn.mock.calls.flat().join(" ")).not.toMatch(/c1|secret/);
+
+    fireEvent.click(action("delete"));
+    expect(screen.getByTestId("clip-viewer-confirm")).toHaveTextContent(DELETE_QUESTIONS.clip);
+    fireEvent.click(action("delete-yes"));
+    await flush();
+    expect(fake.service.library.remove).toHaveBeenCalledWith("c1");
+    expect(fake.records).toHaveLength(0);
+    expect(screen.queryByTestId("clip-viewer")).toBeNull();
   });
 
   it("shows the sticky note for a clip that lives only in memory (a private window)", async () => {
     const record = makeRecord({ id: "m1", storage: "memory" });
     await openClip(record);
     const note = screen.getByTestId("clip-viewer-memory-note");
-    expect(note).toHaveTextContent(MEMORY_NOTE.computer);
+    expect(note).toHaveTextContent(memoryNote("computer", true));
     expect(note.className).toContain("sticky");
+  });
+
+  it("names only buttons that are on screen in the private-window note", async () => {
+    setBrowserShare(false);
+    await openClip(makeRecord({ id: "m1", storage: "memory" }));
+    expect(screen.getByTestId("clip-viewer-memory-note")).toHaveTextContent(memoryNote("computer", false));
+    expect(action("share")).toBeNull();
   });
 });
 
 describe("ClipViewer: Share (plan 12)", () => {
+  it("hands the service the SAME file on every Share tap (a block is a second refusal of the same file)", async () => {
+    const record = makeRecord({ id: "c1" });
+    const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
+    fake.setShareOutcome({ kind: "retry" });
+    await openClip(record, { fake });
+    fireEvent.click(action("share"));
+    await flush();
+    fireEvent.click(action("share"));
+    await flush();
+    const files = vi.mocked(fake.service.share).mock.calls.map((call) => call[0]);
+    expect(files).toHaveLength(2);
+    expect(files[1]).toBe(files[0]);
+  });
+
   it("calls service.share synchronously in the tap, with a file named for the device", async () => {
     const record = makeRecord({ id: "c1", gameId: "snake" });
     const { fake } = await openClip(record);
@@ -181,17 +230,38 @@ describe("ClipViewer: Share (plan 12)", () => {
 
   const OUTCOMES: ShareOutcome["kind"][] = ["shared", "cancelled", "retry", "ignored", "fallback-save", "blocked", "unsupported"];
 
-  it.each(OUTCOMES)("replies to the %s outcome the plan 12 way", async (kind) => {
+  const PLATFORM_UAS: Array<["photos" | "phone" | "computer", string]> = [
+    ["computer", REAL_UA],
+    ["phone", ANDROID_UA],
+    ["photos", IPHONE_UA],
+  ];
+  const CASES = PLATFORM_UAS.flatMap(([platform, ua]) => OUTCOMES.map((kind) => [platform, kind, ua] as const));
+
+  it.each(CASES)("on %s, replies to the %s outcome the plan 12 way, naming a button that is on screen", async (platform, kind, ua) => {
+    setUserAgent(ua);
     const record = makeRecord({ id: "c1" });
     const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
     fake.setShareOutcome({ kind } as ShareOutcome);
     await openClip(record, { fake });
     fireEvent.click(action("share"));
     await flush();
-    const expected = shareReply(kind, "computer");
+    // After a rejected or impossible share, an iPhone copies to Files.
+    const trouble = kind === "fallback-save" || kind === "unsupported";
+    const shown = platform === "photos" && trouble ? "files" : platform;
+    const expected = shareReply(kind, shown);
     expect(screen.getByTestId("clip-viewer-status").textContent).toBe(expected ?? "");
     if (kind === "ignored") expect(screen.getByTestId("clip-viewer-status").textContent).toBe("");
     if (kind === "retry") expect(action("share")).not.toBeDisabled();
+    // Every "Save to ..." button the reply names is a button in the viewer.
+    for (const [named] of (expected ?? "").matchAll(/Save to \w+/g)) {
+      expect(within(viewer()).getByRole("button", { name: named })).toBeInTheDocument();
+    }
+    if (trouble) {
+      expect(action("save")).toHaveTextContent(SAVE_BUTTON_LABELS[shown]);
+      expect(action("save").className).toContain("btn-primary");
+    }
+    // A browser that cannot share at all loses the Share button.
+    if (kind === "unsupported") expect(action("share")).toBeNull();
   });
 
   it("highlights the Save button after the share type is rejected", async () => {
@@ -207,14 +277,58 @@ describe("ClipViewer: Share (plan 12)", () => {
     expect(action("save").className).toContain("btn-primary");
   });
 
-  it("gives a kid-word reply when share throws", async () => {
+  it("gives a kid-word reply when share throws, and logs only the error type", async () => {
     const record = makeRecord({ id: "c1" });
     const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
-    vi.mocked(fake.service.share).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(fake.service.share).mockRejectedValueOnce(Object.assign(new Error("boom c1"), { name: "DataError" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await openClip(record, { fake });
     fireEvent.click(action("share"));
     await flush();
-    expect(screen.getByTestId("clip-viewer-status")).toHaveTextContent(shareReply("unsupported", "computer")!);
+    expect(screen.getByTestId("clip-viewer-status")).toHaveTextContent(shareReply("fallback-save", "computer")!);
+    expect(warn).toHaveBeenCalledWith("[clips] ui: share failed (DataError)");
+  });
+
+  it("on an iPhone, turns Save into Save to Files after the share sheet refuses the clip, and copies the file", async () => {
+    setUserAgent(IPHONE_UA);
+    const record = makeRecord({ id: "c1", kind: "record" });
+    const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
+    fake.setShareOutcome({ kind: "fallback-save" });
+    await openClip(record, { fake });
+    expect(action("save")).toHaveTextContent(SAVE_LABELS.photos);
+    fireEvent.click(action("save")); // Save to Photos is the share sheet
+    await flush();
+    expect(fake.service.share).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("clip-viewer-status")).toHaveTextContent(`Tap ${SAVE_TO_FILES}.`);
+    expect(action("save")).toHaveTextContent(SAVE_TO_FILES);
+    expect(screen.queryByTestId("clip-viewer-coach")).toBeNull();
+
+    fireEvent.click(action("save"));
+    expect(fake.service.saveToDevice).toHaveBeenCalledTimes(1);
+    expect(fake.service.share).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fake.service.saveToDevice).mock.calls[0][0]).toBe(vi.mocked(fake.service.share).mock.calls[0][0]);
+    await flush();
+    expect(screen.getByTestId("clip-viewer-status")).toHaveTextContent(saveReply({ kind: "saved" }, "files", "record"));
+  });
+
+  it("on an iPhone browser with no share sheet, offers only Save to Files, and the private note says so", async () => {
+    setUserAgent(IPHONE_UA);
+    setBrowserShare(false);
+    const record = makeRecord({ id: "m1", storage: "memory" });
+    const { fake } = await openClip(record);
+    expect(action("share")).toBeNull();
+    expect(action("save")).toHaveTextContent(SAVE_TO_FILES);
+    expect(screen.getByTestId("clip-viewer-memory-note")).toHaveTextContent(memoryNote("files", false));
+    fireEvent.click(action("save"));
+    expect(fake.service.saveToDevice).toHaveBeenCalledTimes(1);
+    expect(fake.service.share).not.toHaveBeenCalled();
+  });
+
+  it("hides Share where the browser has no share sheet (Firefox on a computer)", async () => {
+    setBrowserShare(false);
+    await openClip(makeRecord({ id: "c1" }));
+    expect(action("share")).toBeNull();
+    expect(action("save")).toHaveTextContent(SAVE_LABELS.computer);
   });
 });
 
@@ -312,6 +426,20 @@ describe("ClipViewer: Keep and Delete", () => {
     expect(fake.records).toHaveLength(1);
   });
 
+  it("says so when the library does not delete the clip", async () => {
+    const record = makeRecord({ id: "c1" });
+    const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
+    vi.mocked(fake.service.library.remove).mockRejectedValueOnce(new Error("locked"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await openClip(record, { fake });
+    fireEvent.click(action("delete"));
+    fireEvent.click(action("delete-yes"));
+    await flush();
+    expect(screen.getByTestId("clip-viewer-status")).toHaveTextContent(VIEWER_COPY.deleteFailed);
+    expect(screen.queryByTestId("clip-viewer-missing")).toBeNull();
+    expect(action("delete")).toBeInTheDocument();
+  });
+
   it("deletes after Yes and closes", async () => {
     const record = makeRecord({ id: "c1" });
     const { fake } = await openClip(record);
@@ -367,6 +495,24 @@ describe("ClipViewer: My clips from this game", () => {
     expect(screen.getByTestId("clip-viewer-empty")).toHaveTextContent(VIEWER_COPY.gameListEmptySay);
     expect(screen.getByTestId("clip-viewer-empty")).toHaveTextContent(VIEWER_COPY.gameListEmptyNext);
     expect(within(viewer()).getByTestId("read-aloud-button")).toBeInTheDocument();
+  });
+});
+
+describe("ClipViewer: focus (plan 11.4)", () => {
+  it("never leaves focus behind the sheet while Share waits for the file, then moves it to Share", async () => {
+    const record = makeRecord({ id: "c1" });
+    const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
+    let release: (file: File) => void = () => {};
+    vi.mocked(fake.service.library.file).mockImplementationOnce(() => new Promise<File>((resolve) => (release = resolve)));
+    setUserAgent(ANDROID_UA); // Share is the main action
+    await openClip(record, { fake });
+    const dialog = screen.getByRole("dialog", { name: VIEWER_TITLES.clip });
+    expect(action("share")).toBeDisabled();
+    // The opener behind the sheet does not keep focus: the panel holds it.
+    expect(document.activeElement).toBe(dialog);
+    await act(async () => release(new File(["x"], "c1.bin", { type: "video/mp4" })));
+    await flush();
+    expect(document.activeElement).toBe(action("share"));
   });
 });
 

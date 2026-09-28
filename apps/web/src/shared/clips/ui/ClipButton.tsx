@@ -12,12 +12,24 @@
  *   release calls endPress; a hold of 500 ms opens the Capture menu and
  *   commits nothing. Each press acts once: the compatibility click after a
  *   pointer press is ignored, and a held Enter does not repeat.
+ * - Every finger counts: a kid who holds a gas pedal with one thumb can
+ *   clip with the other (the press machine refuses a second press on the
+ *   button itself).
+ * - The game never sees the button's taps: every pointer, touch, mouse and
+ *   click event stops here (Hill Climb reads any touch on the right half of
+ *   the window as gas).
+ * - A pointer press never leaves keyboard focus on the button. A focused
+ *   button owns Space and Enter (keyBelongsToTarget), so the game's jump key
+ *   would make clips instead. Keyboard focus (Tab) works as usual.
  * - Keyboard: Enter or Space on the focused button. Alt+C (Option+C) and F8
  *   clip, Alt+R starts or stops a video, anywhere on the page while a
- *   clip-enabled game is on screen (hotkeys.ts). The context-menu key and a
- *   right-click open the Capture menu.
+ *   clip-enabled game is on screen (hotkeys.ts). A matched shortcut stops
+ *   there: the game never also sees it (Alt+R is not a truck reset). The
+ *   context-menu key, a right-click and a Mac Control-click open the
+ *   Capture menu.
  * - Game controller: the Share or Capture button, or a 1 s hold of Back
- *   (gamepad.ts). Never in Retro Arcade.
+ *   (gamepad.ts). A controller always clips; it never opens a sheet, and it
+ *   does nothing while a clip sheet is open. Never in Retro Arcade.
  * - It renders nothing when there is no clip service, no ClipUiProvider,
  *   or the state is "hidden".
  */
@@ -29,11 +41,11 @@ import { useClipService, useClipSnapshot } from "../service/context";
 import type { ClipButtonState, ClipServiceApi, ClipSnapshot } from "../service/contract";
 import { faceFor, LOOK_HOLD_MS, LOOK_MAX_MS, sameLook, type FaceLook } from "./buttonFace";
 import { useClipUi, useClipUiState } from "./ClipUiProvider";
-import { BUTTON_NAMES, BUTTON_TOOLTIP, RESULT_COPY } from "./copy";
+import { BUTTON_NAMES, buttonTooltip, RESULT_COPY } from "./copy";
 import { createGamepadPoller, NO_GAMEPAD_CLIP_APPS, type PadLike } from "./gamepad";
 import { CheckGlyph, ClipGlyph } from "./glyphs";
-import { ignoreForHotkey, listenOnSameOriginWindows, matchClipHotkey } from "./hotkeys";
-import { nowMs, prefersReducedMotion, subscribeToReducedMotion } from "./platform";
+import { hotkeyBelongsToTarget, listenOnSameOriginWindows, matchClipHotkey } from "./hotkeys";
+import { isApplePlatform, nowMs, prefersReducedMotion, subscribeToNothing, subscribeToReducedMotion } from "./platform";
 import { COMPAT_CLICK_WINDOW_MS, createClipPress, forwardPress, type ClipPress } from "./pressGesture";
 import type { ClipUiController } from "./uiStore";
 
@@ -195,10 +207,19 @@ function useClipHotkeys(
       if (!action) return;
       const { snapshot, ui, service } = latest.current;
       if (!ui || !service || snapshot.button === "hidden" || snapshot.appId === null) return;
-      if (ignoreForHotkey(event)) return;
+      // A text field or a focused control keeps its own keys.
+      if (hotkeyBelongsToTarget(event)) return;
       // Keys belong to an open clip sheet, not the game or the button.
       if (ui.store.getState().sheet) return;
+      // The shortcut is ours: the game must not also act on it. The games
+      // match event.code and do not look at Alt, so Alt+R would also reset a
+      // truck and Alt+C would switch a camera. This listener is in the
+      // capture phase on the window, the first stop of the event, so
+      // stopImmediatePropagation keeps it from every game listener.
       event.preventDefault();
+      event.stopImmediatePropagation();
+      // A held key repeats: only the first press acts. The repeats stop here too.
+      if (event.repeat) return;
       if (action === "clip") press.tap("keyboard");
       else ui.toggleRecord();
     };
@@ -206,12 +227,18 @@ function useClipHotkeys(
   }, [enabled, pressRef, latest]);
 }
 
-function useClipGamepad(enabled: boolean, pressRef: React.RefObject<ClipPress | null>) {
+function useClipGamepad(
+  enabled: boolean,
+  pressRef: React.RefObject<ClipPress | null>,
+  latest: React.RefObject<LatestRefs>,
+) {
   useEffect(() => {
     if (!enabled || typeof window === "undefined" || typeof navigator === "undefined") return;
     if (typeof navigator.getGamepads !== "function") return;
     const poller = createGamepadPoller({
       press: forwardPress(() => pressRef.current),
+      // A press while a clip sheet is open would clip behind the sheet.
+      enabled: () => !latest.current.ui?.store.getState().sheet,
       getGamepads: () => {
         try {
           return (navigator.getGamepads() ?? []) as unknown as ReadonlyArray<PadLike | null>;
@@ -232,7 +259,7 @@ function useClipGamepad(enabled: boolean, pressRef: React.RefObject<ClipPress | 
       window.removeEventListener("gamepadconnected", onConnected);
       poller.stop();
     };
-  }, [enabled, pressRef]);
+  }, [enabled, pressRef, latest]);
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +276,7 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
   const snapshot = useClipSnapshot();
   const uiState = useClipUiState();
   const reducedMotion = useSyncExternalStore(subscribeToReducedMotion, prefersReducedMotion, () => false);
+  const apple = useSyncExternalStore(subscribeToNothing, () => isApplePlatform(), () => false);
 
   const latest = useRef<LatestRefs>({ service, snapshot, ui });
   useLayoutEffect(() => {
@@ -276,7 +304,7 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
 
   useClipHotkeys(visible && keyboardShortcuts, pressRef, latest);
   const gamepadAllowed = gamepad && !(snapshot.appId !== null && NO_GAMEPAD_CLIP_APPS.has(snapshot.appId));
-  useClipGamepad(visible && gamepadAllowed, pressRef);
+  useClipGamepad(visible && gamepadAllowed, pressRef, latest);
 
   // One pulse per warming tap. No motion with reduced motion.
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -299,18 +327,33 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
   const announcement = result && result.ok && resultKey !== firstResultKey ? RESULT_COPY[result.action] : "";
 
   const lastPointerAt = useRef(Number.NEGATIVE_INFINITY);
+  /** The pointer of the press that is down, and whether the button had focus before it. */
+  const activePointer = useRef<{ key: string; type: string; hadFocus: boolean } | null>(null);
 
   if (!visible) return null;
 
   const pointerKey = (event: React.PointerEvent) => `pointer:${event.pointerId}`;
 
+  /**
+   * After a pointer press, take away any focus the press gave the button
+   * (some browsers focus a button on touch). Focus that the kid gave it
+   * with the keyboard stays.
+   */
+  const dropPointerFocus = (element: HTMLButtonElement, hadFocus: boolean) => {
+    if (!hadFocus && element.ownerDocument.activeElement === element) element.blur();
+  };
+
   const onPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
     lastPointerAt.current = nowMs();
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    // A second finger on the button is not a new press.
-    if (event.pointerType === "touch" && !event.isPrimary) return;
+    // Every finger counts, the first one on the page or not. The press
+    // machine refuses a second press while one is down on the button.
     const press = pressRef.current;
-    if (!press || !press.down(pointerKey(event), event.clientX, event.clientY, "pointer")) return;
+    const key = pointerKey(event);
+    const hadFocus = event.currentTarget.ownerDocument.activeElement === event.currentTarget;
+    if (!press || !press.down(key, event.clientX, event.clientY, "pointer")) return;
+    activePointer.current = { key, type: event.pointerType, hadFocus };
     try {
       event.currentTarget.setPointerCapture?.(event.pointerId);
     } catch {
@@ -318,17 +361,31 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
     }
   };
   const onPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
     pressRef.current?.move(pointerKey(event), event.clientX, event.clientY);
   };
-  const onPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const endPointer = (event: React.PointerEvent<HTMLButtonElement>, how: "up" | "cancel") => {
+    event.stopPropagation();
     lastPointerAt.current = nowMs();
-    pressRef.current?.up(pointerKey(event));
+    const key = pointerKey(event);
+    const pointer = activePointer.current;
+    if (pointer?.key === key) {
+      activePointer.current = null;
+      dropPointerFocus(event.currentTarget, pointer.hadFocus);
+    }
+    if (how === "up") pressRef.current?.up(key);
+    else pressRef.current?.cancel(key);
   };
-  const onPointerCancel = (event: React.PointerEvent<HTMLButtonElement>) => {
-    lastPointerAt.current = nowMs();
-    pressRef.current?.cancel(pointerKey(event));
+  const onPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => endPointer(event, "up");
+  const onPointerCancel = (event: React.PointerEvent<HTMLButtonElement>) => endPointer(event, "cancel");
+  const onMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    // A mouse or pen press must not focus the button (see above).
+    event.preventDefault();
   };
-  const onClick = () => {
+  const stopHere = (event: React.SyntheticEvent) => event.stopPropagation();
+  const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
     // The compatibility click after a pointer press: that press already acted.
     if (nowMs() - lastPointerAt.current < COMPAT_CLICK_WINDOW_MS) return;
     // A click with no pointer: Enter, Space or a screen reader.
@@ -339,11 +396,20 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
     if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();
   };
   const onContextMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
-    // A long press on a phone must not open the browser menu. A press that
-    // is down already opens the Capture menu through its hold.
+    event.stopPropagation();
+    // A long press on a phone must not open the browser menu.
     event.preventDefault();
     const press = pressRef.current;
-    if (!press || press.isActive()) return;
+    if (!press) return;
+    const pointer = activePointer.current;
+    if (press.isActive()) {
+      // A finger or pen that is down opens the menu through its own hold.
+      if (!pointer || pointer.type !== "mouse") return;
+      // A Mac Control-click is a mouse press AND a context menu: end the
+      // press with no clip, and open the menu.
+      activePointer.current = null;
+      press.cancel(pointer.key);
+    }
     press.openMenu(nowMs() - lastPointerAt.current < COMPAT_CLICK_WINDOW_MS ? "pointer" : "keyboard");
   };
 
@@ -359,12 +425,18 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
         aria-label={BUTTON_NAMES[snapshot.button as Exclude<ClipButtonState, "hidden">]}
         aria-disabled={busy ? "true" : undefined}
         aria-haspopup="dialog"
-        title={BUTTON_TOOLTIP}
+        title={buttonTooltip(apple)}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
         onLostPointerCapture={onPointerCancel}
+        onMouseDown={onMouseDown}
+        onMouseUp={stopHere}
+        onTouchStart={stopHere}
+        onTouchMove={stopHere}
+        onTouchEnd={stopHere}
+        onTouchCancel={stopHere}
         onClick={onClick}
         onKeyDown={onKeyDown}
         onContextMenu={onContextMenu}

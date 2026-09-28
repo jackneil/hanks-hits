@@ -33,6 +33,7 @@ import { detectSavePlatform, subscribeToNothing } from "./platform";
 import {
   createClipUiController,
   createClipUiStore,
+  RESULT_MARK_TICK_MS,
   type ClipUiController,
   type ClipUiHost,
   type ClipUiState,
@@ -49,6 +50,8 @@ const SERVER_UI_STATE: ClipUiState = Object.freeze({
   sheet: null,
   reply: null,
   pendingOpenId: null,
+  pendingMenu: false,
+  resultMark: null,
   holdTip: "none",
   pulse: 0,
 }) as ClipUiState;
@@ -103,12 +106,25 @@ export function ClipUiProvider({ children, pauseGame, resumeGame }: ClipUiProvid
   const state = useSyncExternalStore(controller.store.subscribe, controller.store.getState, serverUiState);
   const isClient = useSyncExternalStore(subscribeToNothing, () => true, () => false);
 
-  // A clip that waited for the end of a run opens at the next break.
+  // A clip or a Capture menu that waited for the end of a run opens at the next break.
   const pendingOpenId = state.pendingOpenId;
+  const pendingMenu = state.pendingMenu;
   const atBreak = snapshot.atBreak;
   useEffect(() => {
-    if (pendingOpenId && atBreak) controller.flushPendingOpen();
-  }, [controller, pendingOpenId, atBreak]);
+    if ((pendingOpenId || pendingMenu) && atBreak) controller.flushPendingOpen();
+  }, [controller, pendingOpenId, pendingMenu, atBreak]);
+
+  // The result chip's frozen run end counts how long capture ran since.
+  const engine = snapshot.engine;
+  useEffect(() => {
+    controller.noteEngine(engine);
+  }, [controller, engine]);
+  const markCounting = state.resultMark !== null && state.resultMark.runningSince !== null;
+  useEffect(() => {
+    if (!markCounting) return;
+    const timer = setInterval(() => controller.tickResultMark(), RESULT_MARK_TICK_MS);
+    return () => clearInterval(timer);
+  }, [controller, markCounting]);
 
   // The service went away (the page left clips on): close any sheet.
   const hasService = service !== null;

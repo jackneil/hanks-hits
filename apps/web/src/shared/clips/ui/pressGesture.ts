@@ -10,9 +10,12 @@
  * - On the release before HOLD_FOR_MENU_MS, call service.endPress() and
  *   act on its outcome (clip, extend, menu, or ignored with a reason).
  * - A hold of HOLD_FOR_MENU_MS without movement ends the press at that
- *   moment: endPress() gets the real time, the service answers "menu",
- *   and the Capture menu opens while the finger is still down. The later
- *   release does nothing. Nothing is committed.
+ *   moment: endPress() gets a press length of at least HOLD_FOR_MENU_MS
+ *   (a timer can fire a little early, and browsers blur the clock), the
+ *   service answers "menu", and the Capture menu opens while the finger is
+ *   still down. The later release does nothing. Nothing is committed.
+ * - A press that must never open the menu (a game controller) reports a
+ *   length under HOLD_FOR_MENU_MS, so however long it is held, it is a tap.
  * - While a video records, the button is the stop control: the release
  *   stops the video. There is no hold.
  * - Each press acts once. A second finger, and the compatibility click
@@ -24,12 +27,14 @@ import {
   DEFAULT_CLIP_SECONDS,
   HOLD_FOR_MENU_MS,
   type ClipActionResult,
+  type ClipButtonState,
   type ClipReasonCode,
   type ClipServiceApi,
   type ClipSnapshot,
   type PressOutcome,
   type PressToken,
 } from "../service/contract";
+import { isClipReasonCode } from "./copy";
 import { nowMs } from "./platform";
 
 /**
@@ -48,11 +53,16 @@ export const COMPAT_CLICK_WINDOW_MS = 1000;
 /** Where a press came from. The UI uses it for the hold tip and the menu. */
 export type TapSource = "pointer" | "keyboard" | "gamepad";
 
-/** What the UI must do after a press. */
+/**
+ * What the UI must do after a press. A "menu" outcome says whether the
+ * press was a hold: in a run that cannot pause, a hold still clips the
+ * moment (the menu would cover the game), and any other menu request waits
+ * for the end of the run (uiStore.ts).
+ */
 export type TapOutcome =
   | { kind: "commit"; action: "clip" | "extend"; result: Promise<ClipActionResult>; source: TapSource }
   | { kind: "stop"; result: Promise<ClipActionResult>; source: TapSource }
-  | { kind: "menu"; token: PressToken | null; source: TapSource }
+  | { kind: "menu"; token: PressToken | null; source: TapSource; hold: boolean }
   | { kind: "reply"; reason: ClipReasonCode; pulse: boolean; source: TapSource }
   | { kind: "none"; source: TapSource };
 
@@ -65,7 +75,10 @@ export interface ClipPressDeps {
 }
 
 export interface PressOptions {
-  /** False: a long hold does not open the menu (gamepad Back button). Default true. */
+  /**
+   * False: a hold never opens the menu, however long (a game controller,
+   * and one-shot taps). The release is a tap. Default true.
+   */
   holdToMenu?: boolean;
 }
 
@@ -102,11 +115,27 @@ interface ActivePress {
   downAt: number;
   moved: boolean;
   mode: PressMode;
+  holdToMenu: boolean;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-/** The outcome of a tap when the service gave no press token: decided by the button state. */
-export function outcomeForState(snapshot: ClipSnapshot, source: TapSource): TapOutcome {
+/**
+ * States that clip what the ring holds when the service gave no press
+ * token: Ready and Made clip now, and Suspended clips the footage from
+ * before the pause (plan 11.3).
+ */
+const CLIP_WITHOUT_TOKEN: ReadonlySet<ClipButtonState> = new Set(["ready", "made", "suspended"]);
+
+/**
+ * The outcome of a tap when the service gave no press token: decided by the
+ * button state. `clipNow` makes the clip for Ready, Made and Suspended
+ * (service.clipLast); without it those states do nothing.
+ */
+export function outcomeForState(
+  snapshot: ClipSnapshot,
+  source: TapSource,
+  clipNow?: () => Promise<ClipActionResult>,
+): TapOutcome {
   switch (snapshot.button) {
     case "warming":
     case "source-lost":
@@ -114,7 +143,7 @@ export function outcomeForState(snapshot: ClipSnapshot, source: TapSource): TapO
       return { kind: "reply", reason: "warming", pulse: true, source };
     case "resting":
     case "record-only":
-      return { kind: "menu", token: null, source };
+      return { kind: "menu", token: null, source, hold: false };
     case "disabled":
       return { kind: "reply", reason: "breaker", pulse: false, source };
     case "error":
@@ -122,7 +151,7 @@ export function outcomeForState(snapshot: ClipSnapshot, source: TapSource): TapO
     case "ready":
     case "made":
     case "suspended":
-      return snapshot.reason ? { kind: "reply", reason: snapshot.reason, pulse: false, source } : { kind: "none", source };
+      return clipNow ? { kind: "commit", action: "clip", result: clipNow(), source } : { kind: "none", source };
     case "saving":
     case "exporting":
     case "recording":
@@ -131,27 +160,32 @@ export function outcomeForState(snapshot: ClipSnapshot, source: TapSource): TapO
   }
 }
 
-/** Turn the service's PressOutcome into what the UI does. */
-export function outcomeForPress(outcome: PressOutcome, token: PressToken, source: TapSource): TapOutcome {
+/**
+ * Turn the service's PressOutcome into what the UI does. `hold` is true when
+ * the press ended as a hold. An ignored press whose code is not a reason
+ * ("busy", or "cancelled" from a newer service) does nothing.
+ */
+export function outcomeForPress(outcome: PressOutcome, token: PressToken, source: TapSource, hold = false): TapOutcome {
   switch (outcome.kind) {
     case "clip":
     case "extend":
       return { kind: "commit", action: outcome.kind, result: outcome.result, source };
     case "menu":
-      return { kind: "menu", token, source };
-    case "ignored":
-      switch (outcome.reason) {
-        case "busy":
-          return { kind: "none", source };
+      return { kind: "menu", token, source, hold };
+    case "ignored": {
+      const code: string = outcome.reason;
+      if (!isClipReasonCode(code)) return { kind: "none", source };
+      switch (code) {
         case "resting":
         case "record-only":
-          return { kind: "menu", token, source };
+          return { kind: "menu", token, source, hold };
         case "warming":
         case "source-lost":
           return { kind: "reply", reason: "warming", pulse: true, source };
         default:
-          return { kind: "reply", reason: outcome.reason, pulse: false, source };
+          return { kind: "reply", reason: code, pulse: false, source };
       }
+    }
   }
 }
 
@@ -165,8 +199,19 @@ export function createClipPress(deps: ClipPressDeps): ClipPress {
    * does not name the clock of PressToken.downAtMs, so the press length is
    * measured here and added to downAtMs: the hold rule then works on any
    * clock.
+   * - A press that the hold timer ended reports at least HOLD_FOR_MENU_MS.
+   *   The timer can fire a little early and the clock is coarse (a measured
+   *   499.9 ms), and the service must not commit a clip while the finger is
+   *   still down.
+   * - A press that must never open the menu reports less than
+   *   HOLD_FOR_MENU_MS, so the service treats it as a tap.
    */
-  const upAtFor = (token: PressToken, press: ActivePress): number => token.downAtMs + Math.max(0, now() - press.downAt);
+  const upAtFor = (token: PressToken, press: ActivePress, hold: boolean): number => {
+    const held = Math.max(0, now() - press.downAt);
+    if (hold) return token.downAtMs + Math.max(HOLD_FOR_MENU_MS, held);
+    if (!press.holdToMenu) return token.downAtMs + Math.min(held, HOLD_FOR_MENU_MS - 1);
+    return token.downAtMs + held;
+  };
 
   const clearTimer = (press: ActivePress) => {
     if (press.timer !== null) {
@@ -190,11 +235,11 @@ export function createClipPress(deps: ClipPressDeps): ClipPress {
     if (press.mode === "press") {
       if (!service || !press.token) return;
       const outcome = service.endPress(press.token, {
-        upAtMs: upAtFor(press.token, press),
+        upAtMs: upAtFor(press.token, press, how.hold),
         moved: press.moved,
         ...(how.cancelled ? { cancelled: true } : {}),
       });
-      emit(outcomeForPress(outcome, press.token, press.source));
+      emit(outcomeForPress(outcome, press.token, press.source, how.hold));
       return;
     }
 
@@ -211,10 +256,13 @@ export function createClipPress(deps: ClipPressDeps): ClipPress {
 
     // "state": the service gave no token. A hold still opens the menu.
     if (how.hold) {
-      emit({ kind: "menu", token: null, source: press.source });
+      emit({ kind: "menu", token: null, source: press.source, hold: true });
       return;
     }
-    emit(outcomeForState(deps.snapshot(), press.source));
+    const snapshot = deps.snapshot();
+    const clipNow =
+      service && CLIP_WITHOUT_TOKEN.has(snapshot.button) ? () => service.clipLast(DEFAULT_CLIP_SECONDS) : undefined;
+    emit(outcomeForState(snapshot, press.source, clipNow));
   };
 
   const findActive = (key: string): ActivePress | null => (active && active.key === key ? active : null);
@@ -226,8 +274,9 @@ export function createClipPress(deps: ClipPressDeps): ClipPress {
       const snapshot = deps.snapshot();
       if (!service || snapshot.button === "hidden") return false;
 
+      const holdToMenu = options.holdToMenu !== false;
       if (snapshot.button === "recording") {
-        active = { key, source, x, y, token: null, downAt: now(), moved: false, mode: "stop", timer: null };
+        active = { key, source, x, y, token: null, downAt: now(), moved: false, mode: "stop", holdToMenu: false, timer: null };
         return true;
       }
 
@@ -241,10 +290,11 @@ export function createClipPress(deps: ClipPressDeps): ClipPress {
         downAt: now(),
         moved: false,
         mode: token ? "press" : "state",
+        holdToMenu,
         timer: null,
       };
       active = started;
-      if (options.holdToMenu !== false) {
+      if (holdToMenu) {
         started.timer = setTimeout(() => {
           started.timer = null;
           if (active !== started || started.moved) return;
@@ -285,7 +335,7 @@ export function createClipPress(deps: ClipPressDeps): ClipPress {
       clearTimer(current);
       active = null;
       const token = current.token;
-      service.endPress(token, { upAtMs: upAtFor(token, current), moved: false, cancelled: true });
+      service.endPress(token, { upAtMs: upAtFor(token, current, false), moved: false, cancelled: true });
       deps.onOutcome({
         kind: "commit",
         action: "clip",
@@ -307,12 +357,12 @@ export function createClipPress(deps: ClipPressDeps): ClipPress {
       const snapshot = deps.snapshot();
       if (!service || snapshot.button === "hidden") return;
       if (snapshot.button === "recording") {
-        deps.onOutcome({ kind: "menu", token: null, source });
+        deps.onOutcome({ kind: "menu", token: null, source, hold: false });
         return;
       }
       const token = service.beginPress();
       if (token) service.endPress(token, { upAtMs: token.downAtMs, moved: false, cancelled: true });
-      deps.onOutcome({ kind: "menu", token, source });
+      deps.onOutcome({ kind: "menu", token, source, hold: false });
     },
 
     isActive() {

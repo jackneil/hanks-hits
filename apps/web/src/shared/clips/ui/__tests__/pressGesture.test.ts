@@ -4,6 +4,7 @@ import { DEFAULT_CLIP_SECONDS, HOLD_FOR_MENU_MS, type ClipButtonState } from "..
 import {
   createClipPress,
   forwardPress,
+  outcomeForPress,
   outcomeForState,
   PRESS_SLOP_PX,
   type TapOutcome,
@@ -65,6 +66,44 @@ describe("clip press (plan 11.1)", () => {
     expect(outcomes).toHaveLength(1);
     expect(fake.records).toHaveLength(0);
     expect(fake.service.clipLast).not.toHaveBeenCalled();
+  });
+
+  it("opens the menu, never a clip, when the hold timer fires a little early on a coarse clock", () => {
+    // Real browsers blur performance.now() and can fire a timer early: the
+    // clock may read 499.9 ms when the 500 ms timer runs.
+    let clock = 1000;
+    outcomes = [];
+    const press = createClipPress({
+      service: () => fake.service,
+      snapshot: () => fake.snapshot(),
+      onOutcome: (outcome) => outcomes.push(outcome),
+      now: () => clock,
+    });
+    vi.mocked(fake.service.beginPress).mockImplementation(() => ({ pressId: "jitter", downAtMs: 1000, endAtUs: 7 }));
+    vi.mocked(fake.service.endPress).mockImplementation((token, info) => {
+      if (info.cancelled) return { kind: "ignored", reason: "busy" };
+      if (info.upAtMs - token.downAtMs >= HOLD_FOR_MENU_MS && !info.moved) return { kind: "menu" };
+      return { kind: "clip", result: fake.service.clipLast() };
+    });
+    press.down("p1", 0, 0, "pointer");
+    clock = 1000 + 499.9;
+    vi.advanceTimersByTime(HOLD_FOR_MENU_MS);
+    expect(vi.mocked(fake.service.endPress).mock.calls[0][1].upAtMs).toBe(1000 + HOLD_FOR_MENU_MS);
+    expect(outcomes).toEqual([expect.objectContaining({ kind: "menu", hold: true })]);
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
+    expect(fake.records).toHaveLength(0);
+  });
+
+  it("reports a press that must not open the menu as a tap, however long it is held (a controller)", async () => {
+    const press = makePress();
+    press.down("pad:0", 0, 0, "gamepad", { holdToMenu: false });
+    vi.advanceTimersByTime(900);
+    press.up("pad:0");
+    const [token, info] = vi.mocked(fake.service.endPress).mock.calls[0];
+    expect(info.upAtMs - token.downAtMs).toBeLessThan(HOLD_FOR_MENU_MS);
+    expect(outcomes).toEqual([expect.objectContaining({ kind: "commit", action: "clip", source: "gamepad" })]);
+    await Promise.resolve();
+    expect(fake.records).toHaveLength(1);
   });
 
   it("measures the press on its own clock, whatever clock the token uses", async () => {
@@ -155,8 +194,8 @@ describe("clip press (plan 11.1)", () => {
       ["warming", { kind: "reply", reason: "warming", pulse: true }],
       ["source-lost", { kind: "reply", reason: "warming", pulse: true }],
       ["recovering", { kind: "reply", reason: "warming", pulse: true }],
-      ["resting", { kind: "menu" }],
-      ["record-only", { kind: "menu" }],
+      ["resting", { kind: "menu", hold: false }],
+      ["record-only", { kind: "menu", hold: false }],
       ["disabled", { kind: "reply", reason: "breaker" }],
       ["saving", { kind: "none" }],
       ["exporting", { kind: "none" }],
@@ -180,7 +219,26 @@ describe("clip press (plan 11.1)", () => {
     // A hold with no token still opens the menu.
     press.down("p1", 0, 0, "pointer");
     vi.advanceTimersByTime(HOLD_FOR_MENU_MS);
-    expect(outcomes[1]).toEqual({ kind: "menu", token: null, source: "pointer" });
+    expect(outcomes[1]).toEqual({ kind: "menu", token: null, source: "pointer", hold: true });
+  });
+
+  it("clips the footage from before the pause on a Suspended tap with no token (plan 11.3)", async () => {
+    fake = createFakeClipService({ snapshot: { button: "suspended", reason: "hidden", atBreak: true } });
+    vi.mocked(fake.service.beginPress).mockReturnValue(null);
+    const press = makePress();
+    press.tap("pointer");
+    expect(fake.service.clipLast).toHaveBeenCalledWith(DEFAULT_CLIP_SECONDS);
+    expect(outcomes[0]).toMatchObject({ kind: "commit", action: "clip" });
+    await Promise.resolve();
+    expect(fake.records).toHaveLength(1);
+  });
+
+  it("does nothing for an ignored press whose code is not a reason (busy, or cancelled from a newer service)", () => {
+    const token = { pressId: "t", downAtMs: 0, endAtUs: 0 };
+    expect(outcomeForPress({ kind: "ignored", reason: "busy" }, token, "pointer")).toEqual({ kind: "none", source: "pointer" });
+    const cancelled = { kind: "ignored", reason: "cancelled" } as unknown as Parameters<typeof outcomeForPress>[0];
+    expect(outcomeForPress(cancelled, token, "pointer")).toEqual({ kind: "none", source: "pointer" });
+    expect(outcomeForPress({ kind: "ignored", reason: "quota" }, token, "pointer")).toMatchObject({ kind: "reply", reason: "quota" });
   });
 
   it("does nothing when the button is hidden", () => {

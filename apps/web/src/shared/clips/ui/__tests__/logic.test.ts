@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HIDDEN_SNAPSHOT, type ClipButtonState } from "../../service/contract";
 import { faceFor, LOOK_HOLD_MS, sameLook } from "../buttonFace";
-import { reasonText, TOAST_COPY } from "../copy";
+import { deferredMenuText, reasonText, TOAST_COPY } from "../copy";
 import { clipGameInfo, formatBytes, formatDuration, UNKNOWN_GAME_EMOJI } from "../format";
 import { BACK_BUTTON_INDEX, clipButtonFor, createGamepadPoller, parseVendorProduct, SHARE_BUTTON_INDEX, type PadLike } from "../gamepad";
 import { ignoreForHotkey, isTextEntryTarget, matchClipHotkey } from "../hotkeys";
-import { detectSavePlatform } from "../platform";
+import { canShareHere, detectSavePlatform, isApplePlatform, pageHasBeenActive } from "../platform";
 import { createClipPress, type ClipPress } from "../pressGesture";
 import {
+  capturedSecSince,
   createClipUiController,
   createClipUiStore,
   HOLD_TIP_AFTER_CLIPS,
@@ -52,6 +53,22 @@ describe("save platform", () => {
     expect(detectSavePlatform({ userAgent: "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0)" })).toBe("computer");
     expect(detectSavePlatform({ userAgent: "", userAgentData: { mobile: true } })).toBe("phone");
     expect(detectSavePlatform(undefined)).toBe("computer");
+  });
+
+  it("knows Apple keyboards, the share sheet and a page the kid has tapped", () => {
+    expect(isApplePlatform({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" })).toBe(true);
+    expect(isApplePlatform({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X)" })).toBe(true);
+    expect(isApplePlatform({ userAgent: "", userAgentData: { platform: "macOS" } })).toBe(true);
+    expect(isApplePlatform({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" })).toBe(false);
+    expect(isApplePlatform({ userAgent: "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0)" })).toBe(false);
+    expect(isApplePlatform(undefined)).toBe(false);
+    expect(canShareHere({ share: () => Promise.resolve() })).toBe(true);
+    expect(canShareHere({})).toBe(false);
+    expect(canShareHere(undefined)).toBe(false);
+    expect(pageHasBeenActive({ userActivation: { hasBeenActive: false } })).toBe(false);
+    expect(pageHasBeenActive({ userActivation: { hasBeenActive: true } })).toBe(true);
+    // A browser that cannot tell: the voice may try.
+    expect(pageHasBeenActive({})).toBe(true);
   });
 });
 
@@ -153,6 +170,56 @@ describe("game controller detection (plan 11.2)", () => {
     expect(clipButtonFor(pad("Xbox (Vendor: 045e Product: 0b13)", 17))).toEqual({ index: BACK_BUTTON_INDEX, kind: "back-hold" });
     // No standard mapping, no known layout: nothing.
     expect(clipButtonFor(pad("Joystick", 12, ""))).toBeNull();
+  });
+
+  it("does nothing while a clip sheet is open, and a button held across the sheet does not act when it closes", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const fake = createFakeClipService();
+      const outcomes: string[] = [];
+      const press: ClipPress = createClipPress({
+        service: () => fake.service,
+        snapshot: () => fake.snapshot(),
+        onOutcome: (outcome) => outcomes.push(outcome.kind),
+      });
+      const share = pad("Xbox (Vendor: 045e Product: 0b13)", 18);
+      const frames: Array<() => void> = [];
+      let sheetOpen = true;
+      const poller = createGamepadPoller({
+        press,
+        enabled: () => !sheetOpen,
+        getGamepads: () => [share],
+        now: () => performance.now(),
+        requestFrame: (callback) => frames.push(callback),
+        cancelFrame: () => {},
+      });
+      poller.start();
+      share.buttons[SHARE_BUTTON_INDEX].pressed = true;
+      frames.shift()!();
+      expect(fake.service.beginPress).not.toHaveBeenCalled();
+      sheetOpen = false; // the sheet closes while the button is still down
+      vi.advanceTimersByTime(100);
+      frames.shift()!();
+      share.buttons[SHARE_BUTTON_INDEX].pressed = false;
+      frames.shift()!();
+      expect(fake.service.beginPress).not.toHaveBeenCalled();
+      expect(fake.records).toHaveLength(0);
+
+      // A press that starts, then a sheet opens: it ends with no clip.
+      share.buttons[SHARE_BUTTON_INDEX].pressed = true;
+      frames.shift()!();
+      expect(fake.openPressCount()).toBe(1);
+      sheetOpen = true;
+      frames.shift()!();
+      expect(fake.openPressCount()).toBe(0);
+      share.buttons[SHARE_BUTTON_INDEX].pressed = false;
+      frames.shift()!();
+      expect(fake.records).toHaveLength(0);
+      expect(outcomes).toEqual(["none"]);
+      poller.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("cancels a held button when its controller goes away", () => {
@@ -280,13 +347,27 @@ describe("clip UI store and controller", () => {
     expect(store.getState().reply?.text).toBe(reasonText("quota"));
   });
 
-  it("replies with a kid reason when an action throws", async () => {
-    const { store, controller } = makeController();
-    vi.mocked(fake.service.clipLast).mockRejectedValueOnce(new Error("worker died"));
-    controller.clipLastFromMenu(null);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(store.getState().reply?.text).toBe(reasonText("mux-failed"));
+  it("replies with a kid reason when an action throws, and logs a values-free reason (plan 12)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { store, controller } = makeController();
+      vi.mocked(fake.service.clipLast).mockRejectedValueOnce(Object.assign(new Error("worker died on clip-7"), { name: "AbortError" }));
+      controller.clipLastFromMenu(null);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(store.getState().reply?.text).toBe(reasonText("mux-failed"));
+      // A worker crash is told apart from a normal mux failure, and no id leaks into the log.
+      expect(warn).toHaveBeenCalledWith("[clips] ui: clip failed (AbortError)");
+      warn.mockClear();
+      fake.failNext("quota");
+      controller.pictureFromMenu();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(warn).toHaveBeenCalledWith("[clips] ui: picture failed (quota)");
+      expect(warn.mock.calls.flat().join(" ")).not.toMatch(/clip-\d/);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("does not open a second sheet over the first", () => {
@@ -314,14 +395,116 @@ describe("clip UI store and controller", () => {
     expect(store.getState().pendingOpenId).toBeNull();
   });
 
-  it("opens the viewer during play without a host pause when the page gives none", () => {
+  it("never opens the viewer over a running game that the page gives no pause for", () => {
     host = {} as typeof host;
     fake.set({ gameCanPause: true });
     const { store, controller } = makeController();
-    controller.openViewer({ kind: "clip", id: "x" }, { deferInRun: true });
+    controller.openViewer({ kind: "clip", id: "x" });
     // No way to pause: it waits for the break instead of covering a running game.
     expect(store.getState().sheet).toBeNull();
     expect(store.getState().pendingOpenId).toBe("x");
+  });
+
+  describe("in a run that cannot pause (plan 11.1: never interrupt play)", () => {
+    beforeEach(() => {
+      fake.set({ gameCanPause: false, atBreak: false });
+    });
+
+    function pressFor(ms: number, controller: ReturnType<typeof makeController>["controller"]) {
+      const press = createClipPress({
+        service: () => fake.service,
+        snapshot: () => fake.snapshot(),
+        onOutcome: (outcome) => controller.handleTapOutcome(outcome),
+      });
+      press.down("p1", 0, 0, "pointer");
+      vi.advanceTimersByTime(ms);
+      press.up("p1");
+    }
+
+    it("clips a 600 ms hold at the moment of the press and opens no sheet", async () => {
+      const { store, controller } = makeController();
+      pressFor(600, controller);
+      await Promise.resolve();
+      await Promise.resolve();
+      const token = vi.mocked(fake.service.beginPress).mock.results[0].value;
+      expect(vi.mocked(fake.service.endPress).mock.results[0].value).toEqual({ kind: "menu" });
+      expect(fake.service.clipLast).toHaveBeenCalledWith(30, token);
+      expect(fake.records).toHaveLength(1);
+      expect(store.getState().sheet).toBeNull();
+      expect(host.pauseGame).not.toHaveBeenCalled();
+      expect(JSON.parse(window.localStorage.getItem(UI_PREFS_KEY)!).manualClips).toBe(1);
+    });
+
+    it("keeps a right-click menu for the end of the run, says so, and opens it at the break", () => {
+      const { store, controller } = makeController();
+      const press = createClipPress({
+        service: () => fake.service,
+        snapshot: () => fake.snapshot(),
+        onOutcome: (outcome) => controller.handleTapOutcome(outcome),
+      });
+      press.openMenu("pointer");
+      expect(store.getState().sheet).toBeNull();
+      expect(store.getState().pendingMenu).toBe(true);
+      expect(store.getState().reply).toMatchObject({ text: deferredMenuText(null), tappable: true });
+      expect(fake.records).toHaveLength(0);
+      controller.flushPendingOpen(); // still in the run
+      expect(store.getState().sheet).toBeNull();
+      fake.set({ atBreak: true });
+      controller.flushPendingOpen();
+      expect(store.getState().sheet).toMatchObject({ kind: "menu", pausedByUs: false });
+      expect(store.getState().pendingMenu).toBe(false);
+    });
+
+    it("says why a resting button waits, and never covers the run", () => {
+      fake.set({ button: "resting" });
+      const { store, controller } = makeController();
+      pressFor(100, controller);
+      expect(store.getState().sheet).toBeNull();
+      expect(store.getState().reply?.text).toBe(deferredMenuText("resting"));
+      controller.openSettings();
+      controller.openMenu(null, "result-chip");
+      expect(store.getState().sheet).toBeNull();
+    });
+  });
+
+  describe("the result chip's frozen run end (plan 11.4)", () => {
+    it("takes one released token, and counts only the time capture runs", () => {
+      fake.set({ atBreak: true, engine: "buffering" });
+      const { store, controller } = makeController();
+      controller.beginResultMark();
+      controller.beginResultMark(); // one mark per result chip
+      expect(fake.service.beginPress).toHaveBeenCalledTimes(1);
+      expect(fake.openPressCount()).toBe(0);
+      const token = vi.mocked(fake.service.beginPress).mock.results[0].value;
+      expect(store.getState().resultMark?.token).toBe(token);
+
+      vi.advanceTimersByTime(1500);
+      controller.tickResultMark();
+      expect(capturedSecSince(store.getState().resultMark)).toBeCloseTo(1.5, 5);
+      vi.advanceTimersByTime(500);
+      controller.noteEngine("suspended"); // capture stops (a post-roll ended)
+      expect(capturedSecSince(store.getState().resultMark)).toBeCloseTo(2, 5);
+      vi.advanceTimersByTime(10_000);
+      controller.tickResultMark();
+      expect(capturedSecSince(store.getState().resultMark)).toBeCloseTo(2, 5);
+      controller.noteEngine("buffering");
+      vi.advanceTimersByTime(1000);
+      controller.tickResultMark();
+      expect(capturedSecSince(store.getState().resultMark)).toBeCloseTo(3, 5);
+
+      controller.endResultMark();
+      expect(store.getState().resultMark).toBeNull();
+      expect(capturedSecSince(null)).toBe(0);
+    });
+
+    it("starts with a stopped count when capture is paused at the break", () => {
+      fake.set({ atBreak: true, engine: "suspended" });
+      const { store, controller } = makeController();
+      controller.beginResultMark();
+      vi.advanceTimersByTime(5000);
+      controller.tickResultMark();
+      expect(capturedSecSince(store.getState().resultMark)).toBe(0);
+    });
   });
 
   it("keeps the menu's pause when it swaps to the viewer, and resumes only after a menu", () => {
