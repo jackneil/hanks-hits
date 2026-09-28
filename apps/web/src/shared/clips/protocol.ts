@@ -201,6 +201,12 @@ export type EncodeCmd =
       audioPort?: MessagePort;
       /** Priming calibration override in samples (tests); otherwise measured. */
       primingSamples?: number;
+      /**
+       * The deployment's own host (for example "hankshits.com"), painted small in the
+       * band. From location.host, never a literal, so clones brand themselves. Never
+       * the site name, which can contain an owner's first name (plan section 10).
+       */
+      brandHost: string;
     }
   | FrameIn
   | ClockAnchor
