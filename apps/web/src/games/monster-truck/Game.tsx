@@ -180,7 +180,7 @@ export function MonsterTruckGame() {
   }, []);
 
   const handleQuit = () => {
-    window.location.href = '/';
+    window.location.assign(new URL('/', window.location.origin));
   };
 
   return (

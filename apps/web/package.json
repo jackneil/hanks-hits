@@ -14,7 +14,7 @@
     "generate:metadata": "npx tsx scripts/generate-game-metadata.ts"
   },
   "dependencies": {
-    "@auth/drizzle-adapter": "^1.11.2",
+    "@auth/drizzle-adapter": "^1.11.3",
     "@hank-neil/db": "workspace:*",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
@@ -24,7 +24,7 @@
     "daisyui": "^5.6.18",
     "matter-js": "^0.20.0",
     "next": "16.3.6",
-    "next-auth": "5.0.0-beta.31",
+    "next-auth": "5.0.0-beta.32",
     "react": "19.2.3",
     "react-chessboard": "^5.10.0",
     "react-dom": "19.2.3",
@@ -44,14 +44,14 @@
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.182.0",
     "@vitejs/plugin-react": "^5.2.0",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.6",
     "jsdom": "^27.4.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "7.3.6",
-    "vitest": "^4.1.10",
+    "vitest": "^4.1.11",
     "zod": "^4.4.3"
   }
 }
