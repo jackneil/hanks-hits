@@ -3,15 +3,19 @@ import { exhaustSamples, engineTargets } from "../lib/engineAudio";
 describe("ATV exhaust", () => {
   it("has headroom, no DC offset and a bounded loop seam", () => {
     const pcm = exhaustSamples(22050);
+    // One expect per property, not per sample: 44,100 expect() calls took
+    // 3-6 s under load and timed the test out.
     let sum = 0,
       energy = 0,
-      peak = 0;
+      peak = 0,
+      nonFinite = 0;
     for (const n of pcm) {
-      expect(Number.isFinite(n)).toBe(true);
+      if (!Number.isFinite(n)) nonFinite++;
       sum += n;
       energy += n * n;
       peak = Math.max(peak, Math.abs(n));
     }
+    expect(nonFinite).toBe(0);
     expect(peak).toBeLessThanOrEqual(0.801);
     expect(Math.abs(sum / pcm.length)).toBeLessThan(0.00001);
     expect(Math.sqrt(energy / pcm.length)).toBeGreaterThan(0.07);
