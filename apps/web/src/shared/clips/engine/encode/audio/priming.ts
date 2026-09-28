@@ -8,7 +8,8 @@
  * every period, and a threshold on the onset would read a few samples late.
  *
  * Only the native encoder is calibrated. The WASM encoder is FFmpeg aacenc,
- * pinned with the package, and its delay is fixed at 1024. A round trip
+ * pinned by scripts/clips/aac-wasm, and its delay is fixed at 1024 (a decode
+ * in ffmpeg measures it: aacWasmDecode.node.test.ts). A round trip
  * through the platform AudioDecoder would only add that decoder's behavior.
  *
  * The round trip measures encoder and decoder together. A platform decoder

@@ -3,8 +3,8 @@
  *
  * The mixer writes 48 kHz stereo blocks into the PCM ring. The AAC session
  * reads the PCM ring and feeds an encoder backend: the native AudioEncoder
- * (mp4a.40.2, 48 kHz, 2 channels, 128 kbps), or the WASM encoder from
- * @mediabunny/aac-encoder where native AAC is missing (tier W+).
+ * (mp4a.40.2, 48 kHz, 2 channels, 128 kbps), or our WASM build of the FFmpeg
+ * encoder (scripts/clips/aac-wasm) where native AAC is missing (tier W+).
  *
  * Timestamps come from our own sample counter, never from the encoder:
  * - At every configure, 1024 frames of silence go in first (Safari drops the

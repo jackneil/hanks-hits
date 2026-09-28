@@ -1,0 +1,6 @@
+# Pinned and generated files. Git must keep their exact bytes on every
+# computer (no line-ending change), because tests check their SHA-256 and the
+# build scripts run in Linux containers. See scripts/clips/aac-wasm/README.md.
+apps/web/public/clips/aac/** binary
+apps/web/public/licenses/** -text
+scripts/clips/aac-wasm/** -text

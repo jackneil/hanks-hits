@@ -1,0 +1,22 @@
+--target-os=none
+--arch=x86_32
+--enable-cross-compile
+--disable-asm
+--disable-x86asm
+--disable-inline-asm
+--disable-programs
+--disable-doc
+--disable-debug
+--disable-all
+--disable-everything
+--disable-autodetect
+--disable-pthreads
+--disable-runtime-cpudetect
+--enable-avcodec
+--enable-encoder=aac
+--cc=emcc
+--cxx=em++
+--ar=emar
+--ranlib=emranlib
+--extra-cflags=-DNDEBUG -Oz -flto -msimd128
+--extra-ldflags=-Oz -flto
