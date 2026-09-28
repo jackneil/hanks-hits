@@ -18,10 +18,11 @@ function verdictRequest(cookie?: string): NextRequest {
   });
 }
 
+/** A request as a browser sends it: every HTTP request carries Host. */
 function dogfoodRequest(method: "POST" | "DELETE", origin?: string): NextRequest {
   return new NextRequest("http://localhost/api/clips-config/dogfood", {
     method,
-    headers: origin ? { origin } : {},
+    headers: origin ? { host: "localhost", origin } : { host: "localhost" },
   });
 }
 
@@ -129,6 +130,40 @@ describe("POST /api/clips-config/dogfood", () => {
     expect(response.status).toBe(403);
     expect(authMock).not.toHaveBeenCalled();
     expect(response.cookies.get(DOGFOOD_COOKIE)).toBeUndefined();
+  });
+
+  /**
+   * The deployed shape: the standalone server builds request.nextUrl from its
+   * bind address (HOSTNAME=0.0.0.0, PORT=3000), while the browser sends the
+   * public host. The check must use what the browser sent.
+   */
+  function deployedRequest(method: "POST" | "DELETE", headers: Record<string, string>): NextRequest {
+    return new NextRequest("http://0.0.0.0:3000/api/clips-config/dogfood", { method, headers });
+  }
+
+  it("accepts a same-origin browser POST on the deployed server, whose own URL is its bind address", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-a" } });
+    const viaSecFetch = await POST(deployedRequest("POST", { host: "hankshits.com", origin: "https://hankshits.com", "sec-fetch-site": "same-origin" }));
+    expect(viaSecFetch.status).toBe(200);
+    expect(viaSecFetch.cookies.get(DOGFOOD_COOKIE)?.value).toMatch(/^v1\./);
+    // An older browser with no Sec-Fetch-Site: Origin against Host, or against the proxy's X-Forwarded-Host.
+    expect((await POST(deployedRequest("POST", { host: "hankshits.com", origin: "https://hankshits.com" }))).status).toBe(200);
+    expect(
+      (await POST(deployedRequest("POST", { host: "internal:3000", "x-forwarded-host": "hankshits.com", origin: "https://hankshits.com" }))).status,
+    ).toBe(200);
+    expect((await DELETE(deployedRequest("DELETE", { host: "hankshits.com", origin: "https://hankshits.com", "sec-fetch-site": "same-origin" }))).status).toBe(200);
+  });
+
+  it("refuses a cross-site POST on the deployed server by Sec-Fetch-Site, and by Origin when that header is missing", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-a" } });
+    for (const site of ["cross-site", "same-site", "none"]) {
+      const response = await POST(deployedRequest("POST", { host: "hankshits.com", origin: "https://hankshits.com", "sec-fetch-site": site }));
+      expect(response.status, site).toBe(403);
+    }
+    expect((await POST(deployedRequest("POST", { host: "hankshits.com", origin: "https://evil.example" }))).status).toBe(403);
+    expect((await POST(deployedRequest("POST", { host: "hankshits.com", origin: "not a url" }))).status).toBe(403);
+    expect((await DELETE(deployedRequest("DELETE", { host: "hankshits.com", "sec-fetch-site": "cross-site" }))).status).toBe(403);
+    expect(authMock).not.toHaveBeenCalled();
   });
 
   it("answers 503 when AUTH_SECRET is not set", async () => {

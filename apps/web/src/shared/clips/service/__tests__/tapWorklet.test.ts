@@ -20,12 +20,17 @@ class ScopePort {
   }
 }
 
+/**
+ * The data port. Like a real MessagePort, it copies the message when it is
+ * posted (structured clone), so a later change of the worklet's own buffer
+ * never changes a batch that was already sent.
+ */
 class DataPort {
   onmessage: ((event: { data: unknown }) => void) | null = null;
   closed = false;
-  readonly posted: Array<{ message: PcmBatch; transfer: Transferable[] }> = [];
-  postMessage(message: PcmBatch, transfer: Transferable[]): void {
-    this.posted.push({ message, transfer });
+  readonly posted: Array<{ message: PcmBatch; transfer: Transferable[] | undefined; sent: unknown }> = [];
+  postMessage(message: PcmBatch, transfer?: Transferable[]): void {
+    this.posted.push({ message: structuredClone(message), transfer, sent: message });
   }
   close(): void {
     this.closed = true;
@@ -42,6 +47,20 @@ function loadWorklet(sampleRate = 48000) {
   class AudioWorkletProcessor {
     port = new ScopePort();
   }
+  // Counts the typed arrays and buffers the worklet makes (the audio thread must make none per batch).
+  const made = { int16: 0, buffers: 0 };
+  class CountingInt16Array extends Int16Array {
+    constructor(length: number) {
+      super(length);
+      made.int16++;
+    }
+  }
+  class CountingArrayBuffer extends ArrayBuffer {
+    constructor(length: number) {
+      super(length);
+      made.buffers++;
+    }
+  }
   const scope = {
     AudioWorkletProcessor,
     registerProcessor: (name: string, ctor: new () => Processor) => registered.set(name, ctor),
@@ -49,8 +68,8 @@ function loadWorklet(sampleRate = 48000) {
     sampleRate,
     Math,
     Number,
-    ArrayBuffer,
-    Int16Array,
+    ArrayBuffer: CountingArrayBuffer,
+    Int16Array: CountingInt16Array,
   };
   vm.createContext(scope);
   vm.runInContext(SOURCE, scope);
@@ -60,6 +79,7 @@ function loadWorklet(sampleRate = 48000) {
   const data = new DataPort();
   return {
     scope,
+    made,
     processor,
     data,
     start(streamId = "page") {
@@ -82,7 +102,7 @@ function ramp(start: number, frames = 128, step = 1 / 1024): Float32Array {
 }
 
 describe("tap worklet", () => {
-  it("posts 2048-frame Int16 stereo batches with the stream-clock first frame, transferred", () => {
+  it("posts 2048-frame Int16 stereo batches with the stream-clock first frame, as a copy", () => {
     const w = loadWorklet();
     w.scope.currentFrame = 96_000;
     w.start("page");
@@ -90,7 +110,9 @@ describe("tap worklet", () => {
     expect(w.data.posted).toHaveLength(1);
     const { message, transfer } = w.data.posted[0];
     expect(message).toMatchObject({ t: "pcm", streamId: "page", firstFrame: 96_000, sampleRate: 48000 });
-    expect(transfer).toEqual([message.data]);
+    // Nothing is transferred: the port copies the bytes and the worklet keeps its buffer.
+    expect(transfer).toBeUndefined();
+    expect(message.data).toBeInstanceOf(ArrayBuffer);
     const pcm = new Int16Array(message.data);
     expect(pcm).toHaveLength(4096);
     expect(pcm[0]).toBe(16384);
@@ -154,17 +176,40 @@ describe("tap worklet", () => {
     expect(w.data.posted[0].message.firstFrame).toBe(32 * 128);
   });
 
-  it("uses recycled buffers from the encode worker before it makes new ones", () => {
+  it("makes no buffer, typed array or message per batch on the audio thread (plan 6.4)", () => {
     const w = loadWorklet();
     w.start();
-    const spare = new ArrayBuffer(2048 * 4);
-    w.data.onmessage?.({ data: { t: "recycle", buffer: spare } });
-    w.data.onmessage?.({ data: { t: "recycle", buffer: new ArrayBuffer(12) } });
-    for (let q = 0; q < 16; q++) w.quantum(new Float32Array(128));
-    expect(w.data.posted[0].message.data).toBe(spare);
-    for (let q = 0; q < 16; q++) w.quantum(new Float32Array(128));
-    expect(w.data.posted[1].message.data).not.toBe(spare);
+    const primed = { ...w.made };
+    for (let q = 0; q < 16 * 20; q++) w.quantum(new Float32Array(128).fill(q / 1000));
+    expect(w.data.posted).toHaveLength(20);
+    expect(w.made).toEqual(primed);
+    // One message object, changed in place and copied by the port at each post.
+    const sent = new Set(w.data.posted.map((p) => p.sent));
+    expect(sent.size).toBe(1);
+    // Each posted batch kept its own samples (the port copied them before the next fill).
+    expect(new Int16Array(w.data.posted[0].message.data)[0]).toBe(0);
+    expect(new Int16Array(w.data.posted[19].message.data)[0]).toBe(Math.round((304 / 1000) * 32768));
+  });
+
+  it("posts the part batch at flush, and starts the next batch at the new stream frame (the tap paused)", () => {
+    const w = loadWorklet();
+    w.scope.currentFrame = 1000;
+    w.start();
+    w.quantum(new Float32Array(128).fill(0.5));
+    w.quantum(new Float32Array(128).fill(0.5));
+    w.processor.port.send({ t: "flush" });
+    expect(w.data.posted).toHaveLength(1);
+    expect(w.data.posted[0].message).toMatchObject({ firstFrame: 1000 });
+    expect(w.data.posted[0].message.data.byteLength).toBe(256 * 4);
+    // A flush with nothing open posts nothing.
+    w.processor.port.send({ t: "flush" });
+    expect(w.data.posted).toHaveLength(1);
+    // The tap was out of the graph for a while: the stream clock moved on.
+    w.scope.currentFrame = 50_000;
+    for (let q = 0; q < 16; q++) w.quantum(new Float32Array(128).fill(0.25));
+    expect(w.data.posted[1].message).toMatchObject({ firstFrame: 50_000 });
     expect(w.data.posted[1].message.data.byteLength).toBe(2048 * 4);
+    expect(w.data.closed).toBe(false);
   });
 
   it("posts the part batch at stop, closes the port and ends the node", () => {

@@ -30,7 +30,16 @@ import type { CapabilityReport } from "../../runtime/capabilities";
 import type { PowerState } from "../../runtime/governor";
 import type { AudioTap } from "../audioTap";
 import type { EngineEvent } from "../engine";
-import { ENGINE_TICK_MS, EngineHost, NO_OUTPUT_MS, REARM_DELAY_MS, type EncodeWorkerLike, type PowerSource } from "../engineHost";
+import {
+  ARM_FAILURE_LIMIT,
+  ENGINE_TICK_MS,
+  EngineHost,
+  NO_OUTPUT_MS,
+  PICTURE_WAIT_MS,
+  REARM_DELAY_MS,
+  type EncodeWorkerLike,
+  type PowerSource,
+} from "../engineHost";
 import { IoClient, type IoWorkerLike } from "../ioClient";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -517,7 +526,8 @@ describe("EngineHost against the worker handlers", () => {
     await armedAndPlaying(env, 2);
     env.canvas.tainted = true;
     await env.play(100);
-    expect(env.events.slice(-2)).toEqual([{ t: "source-error" }, { t: "source", present: false }]);
+    // The stats timer can post "buffered" at any time: only the source events matter here.
+    expect(env.events.filter((e) => e.t !== "buffered").slice(-2)).toEqual([{ t: "source-error" }, { t: "source", present: false }]);
     env.engine.dispose();
   });
 
@@ -549,7 +559,13 @@ describe("EngineHost against the worker handlers", () => {
     engine.subscribe((e) => events.push(e));
     await engine.prepare();
     const realm = new CanvasRealm(performance.timeOrigin);
-    engine.registerCanvas(realm.createCanvas(640, 480).asElement);
+    const canvas = realm.createCanvas(640, 480);
+    const ctx = canvas.getContext("2d") as FakeContext2D;
+    engine.registerCanvas(canvas.asElement);
+    await flushMicrotasks(20);
+    // The encoder is chosen only once the game has drawn (its context type is known).
+    expect(commands).toHaveLength(0);
+    ctx.drawPicture(1);
     await flushMicrotasks(20);
     expect(commands[0]).toMatchObject({ t: "arm", preset: { orientation: "wide", width: 1280, height: 720 } });
     const info = { epoch: 0, codec: "avc1.64001f", codedWidth: 1280, codedHeight: 720, description: new ArrayBuffer(4) };
@@ -565,5 +581,274 @@ describe("EngineHost against the worker handlers", () => {
       const env = setup({ probe: async () => report({ tier }) });
       expect(await env.engine.prepare()).toEqual({ tier, supported: false });
     }
+  });
+});
+
+describe("the governor on a healthy game (encoder signal per stats interval)", () => {
+  it("keeps the top rung for 65 s of healthy play, with a quality-mode encoder that holds a frame", async () => {
+    const env = setup();
+    // Phase 0: "quality" mode holds about one frame; the epoch guard holds one packet too.
+    expect(codecs.video.outputLatencyFrames).toBe(1);
+    await armedAndPlaying(env, 65);
+    // No governor decision at all: the level never left the top rung (no step down, no rest).
+    expect(env.events.filter((e) => e.t === "governor")).toEqual([]);
+    const timeline = env.workers[0].commands.filter((c) => c.t === "timeline");
+    expect(timeline.map((c) => (c as { state: string }).state)).toEqual(["live"]);
+    const buffered = env.events.filter((e) => e.t === "buffered").at(-1) as Extract<EngineEvent, { t: "buffered" }>;
+    expect(buffered.seconds).toBeGreaterThan(55);
+    env.engine.dispose();
+  });
+
+  it("steps down when the encoder really falls behind (its queue is full and it refuses frames)", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 3);
+    for (const encoder of codecs.videoEncoders) encoder.stall(true);
+    await env.play(8000);
+    const decisions = env.events.filter((e) => e.t === "governor") as Array<Extract<EngineEvent, { t: "governor" }>>;
+    expect(decisions.length).toBeGreaterThan(0);
+    expect(decisions[0].level.kind === "rung" && decisions[0].level.k === 2).toBe(false);
+    env.engine.dispose();
+  });
+
+  it("keeps the full queue value equal to the encode worker's queue limit", async () => {
+    const { MAX_ENCODE_QUEUE } = await import("../../engine/encode/videoSession");
+    const { FULL_ENCODER_QUEUE } = await import("../engineHost");
+    expect(FULL_ENCODER_QUEUE).toBe(MAX_ENCODE_QUEUE);
+  });
+});
+
+describe("encoderSignal (pure)", () => {
+  const stats = (framesIn: number, framesEncoded: number, framesDropped: number) =>
+    ({ framesIn, framesEncoded, framesDropped, outOfOrder: 0, encodeQueueMax: 2, ringSeconds: 10, ringBytes: 0, audioStreams: 0, audioUnderrunMs: 0, ttfcMs: 1 }) as const;
+
+  it("reads the running totals per interval: a constant difference is no queue", async () => {
+    const { encoderSignal } = await import("../engineHost");
+    // The difference is 3 in both samples (a held packet, a held frame, a lone keyframe): nothing waits longer.
+    expect(encoderSignal(stats(300, 297, 0), stats(330, 327, 0), 30)).toEqual({ queue: 0, latencyMs: 0 });
+  });
+
+  it("reports growth as frames and time, and refused frames as a full queue", async () => {
+    const { encoderSignal, FULL_ENCODER_QUEUE } = await import("../engineHost");
+    expect(encoderSignal(stats(300, 297, 0), stats(330, 325, 0), 30)).toEqual({ queue: 2, latencyMs: (2 * 1000) / 30 });
+    // 5 of 30 frames refused (over MAX_BACKPRESSURE_DROPS): the codec queue was full.
+    expect(encoderSignal(stats(300, 297, 0), stats(330, 322, 5), 30).queue).toBe(FULL_ENCODER_QUEUE);
+    // 2 of 30 refused is within the limit.
+    expect(encoderSignal(stats(300, 297, 0), stats(330, 325, 2), 30).queue).toBe(0);
+  });
+});
+
+describe("content kind (plan 5.1 bitrates)", () => {
+  it("encodes a WebGL game as 3D, also when its context existed before registration", async () => {
+    const env = setup();
+    await env.engine.prepare();
+    const gl = env.realm.createCanvas(480, 640);
+    const ctx = gl.getContext("webgl2") as { clear(mask: number): void; drawArrays(mode: number, first: number, count: number): void };
+    // The game's loop draws every frame (three.js clears, then draws).
+    const loop = () => {
+      ctx.clear(0x4000);
+      ctx.drawArrays(4, 0, 3);
+      env.realm.requestAnimationFrame(loop);
+    };
+    env.realm.requestAnimationFrame(loop);
+    env.engine.registerCanvas(gl.asElement);
+    await env.play(100);
+    const arm = env.workers[0].commands.find((c) => c.t === "arm") as Extract<EncodeCmd, { t: "arm" }>;
+    expect(arm.video.bitrate).toBe(3_000_000);
+    env.engine.dispose();
+  });
+
+  it("encodes a 2D game at the 2D bitrate", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 1);
+    const arm = env.workers[0].commands.find((c) => c.t === "arm") as Extract<EncodeCmd, { t: "arm" }>;
+    expect(arm.video.bitrate).toBe(2_000_000);
+    env.engine.dispose();
+  });
+
+  it("does not arm (no encoder, no probe) until the game has a context on the canvas", async () => {
+    const env = setup();
+    await env.engine.prepare();
+    const blank = env.realm.createCanvas(480, 640);
+    env.engine.registerCanvas(blank.asElement);
+    await env.play(500);
+    expect(env.workers).toHaveLength(0);
+    expect(env.probe).toHaveBeenCalledTimes(1);
+    (blank.getContext("2d") as FakeContext2D).drawPicture(3);
+    await flushMicrotasks(30);
+    expect(env.workers[0].commands[0]).toMatchObject({ t: "arm" });
+    env.engine.dispose();
+  });
+});
+
+describe("the engine stops when it must (plan 7)", () => {
+  it("never arms again after the service disarmed it from its failure listener (worker crash)", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 2);
+    // The service's listener: capture off (DISABLED) at the failure.
+    env.engine.subscribe((e) => {
+      if (e.t === "encoder-error") env.engine.disarm();
+    });
+    env.workers[0].onerror?.(new Event("error"));
+    await flushMicrotasks(10);
+    for (let i = 0; i < 5; i++) {
+      env.clock.advanceTo(env.clock.t + 60_000);
+      await flushMicrotasks(30);
+    }
+    expect(env.workers).toHaveLength(1);
+    expect(env.probe).toHaveBeenCalledTimes(2);
+    env.engine.dispose();
+  });
+
+  it("never arms or probes again after the service disarmed it at a config-unsupported", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 1);
+    env.engine.subscribe((e) => {
+      if (e.t === "encoder-error") env.engine.disarm();
+    });
+    env.workers[0].emit({ t: "error", code: "config-unsupported", detail: "x" });
+    for (let i = 0; i < 5; i++) {
+      env.clock.advanceTo(env.clock.t + 60_000);
+      await flushMicrotasks(30);
+    }
+    expect(env.workers[0].commands.filter((c) => c.t === "arm")).toHaveLength(1);
+    expect(env.probe).toHaveBeenCalledTimes(2);
+    env.engine.dispose();
+  });
+
+  it("backs off after failures in a row, forces one probe only, and stops with 'unavailable' after ARM_FAILURE_LIMIT", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 1);
+    const arms = () => env.workers[0].commands.filter((c) => c.t === "arm").length;
+    const waits: number[] = [];
+    for (let i = 1; i < ARM_FAILURE_LIMIT; i++) {
+      env.workers[0].emit({ t: "error", code: "config-unsupported", detail: "x" });
+      const before = arms();
+      const wait = env.engine.rearmDelayMs();
+      waits.push(wait);
+      env.clock.advanceTo(env.clock.t + wait - 1);
+      await flushMicrotasks(30);
+      expect(arms()).toBe(before);
+      env.clock.advanceTo(env.clock.t + 1);
+      await flushMicrotasks(30);
+      expect(arms()).toBe(before + 1);
+    }
+    expect(waits).toEqual([REARM_DELAY_MS, 2 * REARM_DELAY_MS, 4 * REARM_DELAY_MS, 8 * REARM_DELAY_MS, 16 * REARM_DELAY_MS].slice(0, ARM_FAILURE_LIMIT - 1));
+    // The uncached probe ran once, at the first retry.
+    expect(env.probe.mock.calls.filter(([o]) => o.force).length).toBe(1);
+    env.workers[0].emit({ t: "error", code: "config-unsupported", detail: "x" });
+    expect(env.events.at(-1)).toEqual({ t: "unavailable", reason: "failing" });
+    const armsAtEnd = arms();
+    env.clock.advanceTo(env.clock.t + 10 * 60_000);
+    await flushMicrotasks(30);
+    expect(arms()).toBe(armsAtEnd);
+    env.engine.dispose();
+  });
+
+  it("says 'unavailable' (no re-arm loop) when a probe finds no encoder for the game's picture", async () => {
+    let calls = 0;
+    const noHardwareAttempt = () => {
+      const r = report();
+      // The first probe (prepare) says the device can capture; the arm's probe finds no usable setting.
+      if (++calls > 1) r.video.attempts = r.video.attempts.filter((a) => a.hardwareAcceleration === "no-preference");
+      return r;
+    };
+    const env = setup({ probe: async () => noHardwareAttempt() });
+    expect(await env.engine.prepare()).toMatchObject({ supported: true });
+    env.engine.registerCanvas(env.canvas.asElement);
+    await env.play(200);
+    expect(env.events.at(-1)).toEqual({ t: "unavailable", reason: "no-encoder" });
+    env.clock.advanceTo(env.clock.t + 10 * 60_000);
+    await flushMicrotasks(30);
+    expect(env.workers).toHaveLength(0);
+    expect(env.probe).toHaveBeenCalledTimes(2);
+    env.engine.dispose();
+  });
+
+  it("arms again after a disarm when the next game (or source) comes", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 1);
+    env.engine.disarm();
+    await flushMicrotasks(20);
+    env.clock.advanceTo(env.clock.t + 60_000);
+    await flushMicrotasks(20);
+    expect(env.workers[0].commands.filter((c) => c.t === "arm")).toHaveLength(1);
+    env.engine.setGame({ appId: "breakout", gameName: "Breakout", emoji: "🧱" });
+    await env.play(100);
+    expect(env.workers[0].commands.filter((c) => c.t === "arm")).toHaveLength(2);
+    env.engine.dispose();
+  });
+});
+
+describe("park (the game went away, the ring is kept)", () => {
+  it("closes the encoders and suspends the audio tap, and the next source wakes the tap", async () => {
+    const tap = { attach: vi.fn(), detach: vi.fn(), suspend: vi.fn(), resume: vi.fn() };
+    const env = setup({ tap: tap as unknown as AudioTap });
+    await armedAndPlaying(env, 2);
+    const off = [...[env.canvas.asElement]];
+    void off;
+    env.engine.setPaused("source", true);
+    env.engine.park();
+    expect(env.workers[0].commands.at(-1)).toEqual({ t: "closeEncoder", reason: "hidden" });
+    expect(tap.suspend).toHaveBeenCalledTimes(1);
+    expect(tap.detach).not.toHaveBeenCalled();
+    env.engine.park();
+    expect(tap.suspend).toHaveBeenCalledTimes(1);
+    env.engine.registerCanvas(env.canvas.asElement);
+    expect(tap.resume).toHaveBeenCalledTimes(1);
+    // The same session: no new arm.
+    expect(env.workers[0].commands.filter((c) => c.t === "arm")).toHaveLength(1);
+    env.engine.dispose();
+  });
+});
+
+describe("pictures of a paused WebGL game (plan 11.4)", () => {
+  function webglGame(env: Env) {
+    const gl = env.realm.createCanvas(480, 640);
+    const ctx = gl.getContext("webgl2") as { clear(mask: number): void; drawArrays(mode: number, first: number, count: number): void };
+    const state = { paused: false, draws: 0 };
+    const loop = () => {
+      if (!state.paused) {
+        ctx.clear(0x4000);
+        ctx.drawArrays(4, 0, 3);
+        state.draws++;
+      }
+      env.realm.requestAnimationFrame(loop);
+    };
+    env.realm.requestAnimationFrame(loop);
+    const reads: number[] = [];
+    (gl as unknown as { toBlob: (cb: (b: Blob) => void, type: string) => void }).toBlob = (cb) => {
+      reads.push(state.draws);
+      cb(new Blob([hexBytes(PNG_3X2_HEX)], { type: "image/png" }));
+    };
+    return { gl, state, reads };
+  }
+
+  it("takes the picture right after a draw of the game", async () => {
+    const env = setup();
+    await env.engine.prepare();
+    const game = webglGame(env);
+    env.engine.registerCanvas(game.gl.asElement);
+    await env.play(300);
+    const pending = env.engine.picture(env.meta("pic-gl", { kind: "picture" }));
+    await env.play(50);
+    expect(await pending).toMatchObject({ id: "pic-gl", kind: "picture" });
+    expect(game.reads).toHaveLength(1);
+    env.engine.dispose();
+  });
+
+  it("stores no blank picture when the game does not draw (paused): it fails with the reason 'hidden'", async () => {
+    const env = setup();
+    await env.engine.prepare();
+    const game = webglGame(env);
+    env.engine.registerCanvas(game.gl.asElement);
+    await env.play(300);
+    game.state.paused = true;
+    const pending = env.engine.picture(env.meta("pic-blank", { kind: "picture" }));
+    const settled = pending.catch((error: unknown) => error);
+    await env.play(PICTURE_WAIT_MS + 50);
+    expect(await settled).toMatchObject({ reason: "hidden" });
+    expect(game.reads).toEqual([]);
+    expect(await env.io.list("guest")).toEqual([]);
+    env.engine.dispose();
   });
 });

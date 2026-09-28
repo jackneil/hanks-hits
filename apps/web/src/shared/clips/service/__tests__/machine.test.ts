@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EngineState } from "../contract";
-import { TRANSITIONS, deriveButton, transition, WARM_SECONDS, type ButtonInput, type MachineEvent } from "../machine";
+import { IMPLIED_EDGES, TRANSITIONS, deriveButton, transition, WARM_SECONDS, type ButtonInput, type MachineEvent } from "../machine";
 
 /** The plan 7 diagram, edge by edge, as written in the plan. */
 const DIAGRAM: Array<[EngineState, MachineEvent, EngineState, string]> = [
@@ -75,10 +75,25 @@ describe("plan 7 state machine", () => {
     expect(transition("buffering", "breaker")).toBeNull();
   });
 
-  it("has no edge that the diagram (plus the breaker entry edge) does not draw", () => {
+  it("sends an encoder failure before the first output to RECOVERING, so 4 in 60 s can reach DISABLED", () => {
+    expect(transition("warming", "encoder-error")).toBe("recovering");
+    expect(transition("bridged", "encoder-error")).toBe("recovering");
+    expect(transition("recovering", "disable")).toBe("disabled");
+  });
+
+  it("closes the live encoder for an export from every state that holds it (the game is paused)", () => {
+    for (const from of ["buffering", "suspended", "resting", "recording"] as const) {
+      expect(transition(from, "export"), from).toBe("exporting");
+    }
+    expect(transition("exporting", "export-done")).toBe("buffering");
+    expect(transition("warming", "export")).toBeNull();
+    expect(transition("idle", "export")).toBeNull();
+  });
+
+  it("has no edge that the diagram and the implied edges do not draw", () => {
     const allowed = new Set(DIAGRAM.map(([from, event]) => `${from}|${event}`));
     allowed.add("recording|stop");
-    allowed.add("idle|breaker");
+    for (const [from, event] of IMPLIED_EDGES) allowed.add(`${from}|${event}`);
     for (const state of ALL_STATES) {
       for (const event of ALL_EVENTS) {
         const key = `${state}|${event}`;

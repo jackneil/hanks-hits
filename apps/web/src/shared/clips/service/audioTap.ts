@@ -18,6 +18,12 @@
  *   The page bus is in the page realm, so timeOriginOffsetMs is 0.
  * - The tap exists only while capture runs (the engine attaches it after arm
  *   and detaches it at disarm), so clips-off pages pay nothing.
+ * - suspend() (the game went away and its ring is kept, engine park()): the
+ *   worklet posts its part batch, and the node leaves the audio graph, so it
+ *   renders nothing and no game sound goes to the encode worker. The node and
+ *   its port stay. resume() puts the node back and starts the anchors again.
+ *   The next batch has the stream clock of that moment, so the mixer sees the
+ *   gap and starts over (it never places old samples at a new time).
  * - The port is transferred to the worklet, so one attach feeds one context.
  *   If the browser closes the bus context and the bus makes a new one, the
  *   old stream is marked closed and clips have no game sound until the next
@@ -100,6 +106,8 @@ export class AudioTap {
   private generation = 0;
   /** The port of this attach went to a worklet (it cannot be used again). */
   private portGiven = false;
+  /** suspend(): the node is out of the graph until resume(). */
+  private suspended = false;
 
   constructor(deps: AudioTapDeps = {}) {
     this.bus = deps.bus ?? defaultBus;
@@ -113,7 +121,7 @@ export class AudioTap {
 
   /** True while the worklet feeds the encode worker. */
   get live(): boolean {
-    return this.node !== null;
+    return this.node !== null && !this.suspended;
   }
 
   /** Start: PCM goes on `port` (to the encode worker), anchors go to `sink`. */
@@ -137,6 +145,33 @@ export class AudioTap {
     this.port = null;
     this.sink = null;
     this.portGiven = false;
+    this.suspended = false;
+  }
+
+  /** Pause the tap: no rendering and no PCM until resume(). The node and its port stay (see the file comment). */
+  suspend(): void {
+    if (this.suspended) return;
+    this.suspended = true;
+    this.stopAnchors();
+    const node = this.node;
+    if (!node) return;
+    try {
+      // The part batch goes now, with its own first frame, before the gap.
+      node.port.postMessage({ t: "flush" });
+    } catch {
+      // The worklet is gone with its context.
+    }
+    this.disconnectGraph(node);
+  }
+
+  /** Start the tap again after suspend(). */
+  resume(): void {
+    if (!this.suspended) return;
+    this.suspended = false;
+    const node = this.node;
+    if (!node) return;
+    if (!this.connectGraph(node)) return;
+    this.startAnchors();
   }
 
   private async connect(bus: Pick<GameAudio, "context" | "onStateChange">, generation: number): Promise<void> {
@@ -177,29 +212,80 @@ export class AudioTap {
       node = this.createNode(context);
       const zero = context.createGain();
       zero.gain.value = 0;
-      node.connect(zero);
-      zero.connect(context.destination);
-      tap.connect(node as unknown as AudioNode);
       this.zero = zero;
     } catch (error) {
       this.log(`[clips] the audio tap could not start (${(error as { name?: string } | null)?.name ?? "Error"})`);
       this.context = null;
       return;
     }
-    this.node = node;
     this.tap = tap;
+    // A suspended tap gets its node now, but joins the graph only at resume().
+    if (!this.suspended && !this.connectGraph(node)) {
+      this.tap = null;
+      this.zero = null;
+      this.context = null;
+      return;
+    }
+    this.node = node;
     this.portGiven = true;
     node.port.postMessage({ t: "port", port, streamId: PAGE_STREAM_ID }, [port]);
+    this.unsubscribeState = bus.onStateChange(() => this.postAnchor());
+    if (!this.suspended) this.startAnchors();
+  }
+
+  /** Puts the node in the graph: the tap point feeds it, and it feeds the speakers through a gain of 0. */
+  private connectGraph(node: TapNode): boolean {
+    const zero = this.zero;
+    const tap = this.tap;
+    const context = this.context;
+    if (!zero || !tap || !context) return false;
+    try {
+      node.connect(zero);
+      zero.connect(context.destination);
+      tap.connect(node as unknown as AudioNode);
+      return true;
+    } catch (error) {
+      this.log(`[clips] the audio tap could not start (${(error as { name?: string } | null)?.name ?? "Error"})`);
+      this.disconnectGraph(node);
+      return false;
+    }
+  }
+
+  /** Takes the node out of the graph, so the audio thread renders nothing for it. */
+  private disconnectGraph(node: TapNode): void {
+    try {
+      this.tap?.disconnect(node as unknown as AudioNode);
+    } catch {
+      // Already disconnected.
+    }
+    try {
+      node.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+    try {
+      this.zero?.disconnect();
+    } catch {
+      // Already disconnected.
+    }
+  }
+
+  private startAnchors(): void {
+    this.stopAnchors();
     this.postAnchor();
     this.timer = this.setTimer(() => this.postAnchor(), ANCHOR_INTERVAL_MS);
-    this.unsubscribeState = bus.onStateChange(() => this.postAnchor());
+  }
+
+  private stopAnchors(): void {
+    if (this.timer !== null) this.clearTimer(this.timer);
+    this.timer = null;
   }
 
   /** Reads the two clocks one after the other, in one task, and posts the pair. */
   private postAnchor(): void {
     const context = this.context;
     const sink = this.sink;
-    if (!context || !sink || !this.node) return;
+    if (!context || !sink || !this.node || this.suspended) return;
     const perfMs = this.now();
     const ctxTimeSec = context.currentTime;
     sink.postAnchor({
@@ -213,8 +299,7 @@ export class AudioTap {
   }
 
   private teardownNode(markClosed: boolean): void {
-    if (this.timer !== null) this.clearTimer(this.timer);
-    this.timer = null;
+    this.stopAnchors();
     this.unsubscribeState?.();
     this.unsubscribeState = null;
     const node = this.node;
@@ -234,21 +319,13 @@ export class AudioTap {
       } catch {
         // The worklet is gone with its context.
       }
+      this.disconnectGraph(node);
+    } else {
       try {
-        this.tap?.disconnect(node as unknown as AudioNode);
+        this.zero?.disconnect();
       } catch {
         // Already disconnected.
       }
-      try {
-        node.disconnect();
-      } catch {
-        // Already disconnected.
-      }
-    }
-    try {
-      this.zero?.disconnect();
-    } catch {
-      // Already disconnected.
     }
     this.node = null;
     this.zero = null;

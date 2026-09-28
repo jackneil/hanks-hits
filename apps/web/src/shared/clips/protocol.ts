@@ -168,7 +168,7 @@ export interface PcmBatch {
   /** Sample-frame index of the first sample, in the stream's own clock. */
   firstFrame: number;
   sampleRate: number;
-  /** Transferred Int16Array buffer, interleaved L,R. */
+  /** Int16 samples, interleaved L,R. The tap worklet posts a copy (it reuses its own buffer). */
   data: ArrayBuffer;
 }
 
@@ -405,12 +405,15 @@ export type IoCmd = (
   | { t: "picture"; png: ArrayBuffer; meta: ClipMeta }
   /**
    * Starts to receive a Record tee (plan 8.4) on `port`: RecordTeeMsg chunks from
-   * the encode worker. The io worker keeps the chunks of one part in memory. A
-   * part ends at a different video config (plan 6.6: one track is never written
-   * across two configs) or at the part size limit (RECORD_PART_MAX_BYTES), and is
-   * then stored as its own "record" clip, so no footage is dropped. Part 1 gets
-   * meta.id; part n gets meta.id + "-p" + n. Answer: "recording" at once, then
-   * "saved" (or "error") for each part, then "recorded" after the tee's "end".
+   * the encode worker. The io worker keeps the chunks of one part in memory, and
+   * also appends each chunk to a journal file in OPFS as it arrives, so a tab
+   * that closes or crashes loses at most the open chunk (the next startup stores
+   * the journal: the "recovered" event). A part ends at a different video config
+   * (plan 6.6: one track is never written across two configs) or at the part size
+   * limit (RECORD_PART_MAX_BYTES), and is then stored as its own "record" clip, so
+   * no footage is dropped. Part 1 gets meta.id; part n gets meta.id + "-p" + n.
+   * Answer: "recording" at once, then "saved" (or "error") for each part, then
+   * "recorded" after the tee's "end".
    */
   | { t: "record"; recordingId: string; port: MessagePort; meta: ClipMeta }
   /**
@@ -484,6 +487,13 @@ export type IoEvent = (
    * bytes the browser removed; the library tells the kid about this one time.
    */
   | { t: "reconciled"; reindexed: number; missing: number; unreadable: number }
+  /**
+   * Record crash recovery (plan 8.4), at startup, after "reconciled": the
+   * io worker stored the journaled parts of recordings that a tab left open
+   * (it closed or crashed while it recorded). No rid. The UI says "We saved
+   * your recording from last time!" to each record's owner.
+   */
+  | { t: "recovered"; records: ClipRecord[] }
   | {
       t: "error";
       /** "bad-command": the command was not valid (an unknown type or bad fields). */

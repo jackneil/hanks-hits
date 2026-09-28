@@ -12,16 +12,23 @@
  * - Clips that a save removed are always reported ("evicted"), also when the save
  *   fails after the removal. The "evicted" event then comes before the "error".
  * - A "record" command attaches the Record tee port. Its chunks run on the same
- *   queue as the commands (recorder.ts).
+ *   queue as the commands (recorder.ts). While the recording is open, the
+ *   handler holds its Web Lock, and each part is journaled in OPFS
+ *   (recordJournal.ts).
+ * - After the first library open, the journals that dead tabs left are stored
+ *   as record clips (plan 8.4 crash recovery), in their own queue task, and
+ *   one "recovered" event lists the stored rows.
  */
 
 import type { ClipMeta, ClipPackets, ClipRecord, EpochInfo, IoCmd, IoEvent, MemoryClass, PacketDTO } from "../../protocol";
 import { InvalidInputError, LibraryError, errorText } from "../../library/errors";
+import type { StorageLike } from "../../library/fsTypes";
 import { ClipLibrary, type LibraryEnv } from "../../library/opfsStore";
 import { isClipId, isOwnerKey } from "../../library/ownerKey";
 import { MoovPatchError, addAacRollGroups } from "./moovPatch";
 import { MuxError, muxClip } from "./mux";
 import { makePoster, makePosterFromImage } from "./poster";
+import { PartJournal, holdRecordingLock, recoverJournals, type JournalEnv, type JournalLocks } from "./recordJournal";
 import { RECORD_ID_MAX_LENGTH, RECORD_PART_MAX_BYTES, Recording } from "./recorder";
 
 type IoErrorEvent = Extract<IoEvent, { t: "error" }>;
@@ -42,7 +49,21 @@ export interface IoHandlerEnv {
   poster?: typeof makePoster;
   /** Poster of a picture. Default: makePosterFromImage. */
   picturePoster?: (png: Blob) => Promise<string>;
+  /**
+   * OPFS and Web Locks for the Record journal (plan 8.4). Default: the
+   * worker's navigator.storage and navigator.locks. null: no journal.
+   */
+  journal?: JournalEnv | null;
   now?: () => number;
+}
+
+/** The worker's own OPFS and Web Locks, or null where there are none. */
+function defaultJournalEnv(): JournalEnv | null {
+  const nav = (globalThis as unknown as { navigator?: { storage?: StorageLike; locks?: JournalLocks } }).navigator;
+  const storage = nav?.storage && typeof nav.storage.getDirectory === "function" ? nav.storage : null;
+  if (!storage) return null;
+  const locks = nav?.locks && typeof nav.locks.request === "function" && typeof nav.locks.query === "function" ? nav.locks : null;
+  return { storage, locks, log: (message) => console.warn(message) };
 }
 
 export interface IoHandler {
@@ -100,6 +121,8 @@ function isPort(value: unknown): value is PortLike {
 interface OpenRecording {
   recording: Recording;
   port: PortLike;
+  /** The recording's Web Lock (recordJournal.ts), or null with no journal. */
+  lock: Promise<{ release(): void }> | null;
 }
 
 export function createIoHandler(env: IoHandlerEnv): IoHandler {
@@ -112,6 +135,8 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
   let memoryClass: MemoryClass | null = null;
   let queue: Promise<void> = Promise.resolve();
   const recordings = new Map<string, OpenRecording>();
+  const journalEnv = env.journal === undefined ? defaultJournalEnv() : env.journal;
+  let recoveryQueued = false;
 
   const getLibrary = (): Promise<IoLibrary> => {
     if (!library) {
@@ -123,6 +148,12 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
           env.post({ t: "reconciled", reindexed: result.reindexed, missing: result.missing, unreadable: result.unreadable });
         } catch (error) {
           env.post(errorEvent("opfs-unavailable", `startup check failed: ${errorText(error)}`));
+        }
+        // Record crash recovery runs once, as its own queue task after this one
+        // (it stores clips, which needs this library to be open).
+        if (!recoveryQueued && journalEnv) {
+          recoveryQueued = true;
+          void enqueue(recoverRecordings);
         }
         return lib;
       })();
@@ -251,16 +282,24 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
       post(errorEvent("bad-command", `recording "${cmd.recordingId}" is already open`, cmd.meta.id));
       return;
     }
+    // The recording's lock marks its journals as live (never recovered by another tab).
+    const lock = journalEnv ? holdRecordingLock(journalEnv.locks, cmd.recordingId) : null;
     const recording = new Recording(
       {
         storePart: (packets, meta, partPost) => muxAndStore(packets, meta, partPost),
         maxPartBytes: () => RECORD_PART_MAX_BYTES[memoryClass ?? "low"],
+        openJournal: async (journalMeta) => {
+          if (!journalEnv || !lock) return null;
+          // The lock is held before the journal file exists.
+          await lock;
+          return PartJournal.open(journalEnv, journalMeta);
+        },
       },
       cmd.recordingId,
       { ...cmd.meta, kind: "record" },
       post,
     );
-    const open: OpenRecording = { recording, port };
+    const open: OpenRecording = { recording, port, lock };
     recordings.set(cmd.recordingId, open);
     port.onmessage = (event) => {
       void enqueue(() => feedRecording(open, event.data));
@@ -268,14 +307,23 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
     post({ t: "recording", recordingId: cmd.recordingId });
   };
 
-  /** Hands one tee message to a recording, and lets go of its port when it is finished. */
+  /** Hands one tee message to a recording, and lets go of its port (and its lock) when it is finished. */
   const feedRecording = async (open: OpenRecording, message: unknown): Promise<void> => {
     await open.recording.handle(message);
     if (open.recording.finished && recordings.get(open.recording.recordingId) === open) {
       recordings.delete(open.recording.recordingId);
       open.port.onmessage = null;
       open.port.close?.();
+      // Every part is stored and its journal removed: the lock can go.
+      void open.lock?.then((held) => held.release());
     }
+  };
+
+  /** Stores the journals that closed or crashed tabs left (plan 8.4), then tells the main thread. */
+  const recoverRecordings = async (): Promise<void> => {
+    if (!journalEnv) return;
+    const records = await recoverJournals(journalEnv, ({ packets, meta }) => muxAndStore(packets, meta, env.post));
+    if (records.length > 0) env.post({ t: "recovered", records });
   };
 
   const run = async (cmd: IoCmd): Promise<void> => {

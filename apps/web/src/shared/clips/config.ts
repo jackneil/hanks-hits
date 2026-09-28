@@ -14,7 +14,15 @@
  *   expiry. The verdict route checks the signature, the expiry and that the
  *   id is still in the list, so removing an id from the list turns clips off
  *   for that browser at its next page load.
- * - The client reads the verdict once per tab session (sessionStorage).
+ * - The client asks the verdict route once per page load (the answer is kept
+ *   in memory for that document only), so CLIPS_MODE=off and a removed
+ *   dogfood id take effect at the next page load, also in a tab that the
+ *   browser restored. joinClipsDogfood() and leaveClipsDogfood() forget the
+ *   answer at once, so the tab asks again.
+ * - Offline (plan 4.1: the last verdict is kept for 7 days): each good answer
+ *   is also stored in localStorage with its time. Only a failed request uses
+ *   that copy, and only while it is less than VERDICT_CACHE_TTL_MS old.
+ *   Otherwise a failed request means off.
  * - The kill switch stops capture only. It never hides the kid's library:
  *   My Clips uses the library client, which does not read this flag.
  *
@@ -34,8 +42,10 @@ export const CLIPS_DOGFOOD_PATH = "/api/clips-config/dogfood";
 export const DOGFOOD_COOKIE = "hh_clips_dogfood";
 /** 30 days, the same as the sign-in session. */
 export const DOGFOOD_COOKIE_MAX_AGE_SEC = 30 * 24 * 60 * 60;
-/** The sessionStorage item that holds this tab's verdict. */
-export const VERDICT_SESSION_ITEM = "hh-clips-verdict.v1";
+/** The localStorage item that holds the last good verdict and its time, for offline use only. */
+export const VERDICT_CACHE_ITEM = "hh-clips-verdict.v2";
+/** How long the offline copy of the verdict is good for (plan 4.1: 7 days). */
+export const VERDICT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const VERDICT_OFF: ClipsVerdict = Object.freeze({ mode: "off", capture: false }) as ClipsVerdict;
 
@@ -153,44 +163,55 @@ export async function clipsVerdictFor(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Client: the verdict, read once per tab session
+// Client: the verdict, asked once per page load
 // ---------------------------------------------------------------------------
 
+/** The answer of this document (a page load). Never kept across page loads. */
 let pending: Promise<ClipsVerdict> | null = null;
+/** Counts the requests, so an old failed request never clears a newer one. */
+let asked = 0;
 
 function isVerdict(value: unknown): value is ClipsVerdict {
   const v = value as { mode?: unknown; capture?: unknown } | null;
   return !!v && typeof v.capture === "boolean" && typeof v.mode === "string" && MODES.has(v.mode);
 }
 
-function sessionStore(): Pick<Storage, "getItem" | "setItem"> | null {
+function localStore(): Pick<Storage, "getItem" | "setItem" | "removeItem"> | null {
   try {
-    return typeof sessionStorage === "undefined" ? null : sessionStorage;
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** The offline copy, when it is younger than VERDICT_CACHE_TTL_MS; else null. */
+function offlineCopy(nowMs: number): ClipsVerdict | null {
+  try {
+    const raw = localStore()?.getItem(VERDICT_CACHE_ITEM);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { verdict?: unknown; atMs?: unknown } | null;
+    const atMs = parsed?.atMs;
+    if (!parsed || !isVerdict(parsed.verdict) || typeof atMs !== "number" || !Number.isFinite(atMs)) return null;
+    const age = nowMs - atMs;
+    if (age < 0 || age >= VERDICT_CACHE_TTL_MS) return null;
+    return { mode: parsed.verdict.mode, capture: parsed.verdict.capture };
   } catch {
     return null;
   }
 }
 
 /**
- * The verdict for this tab: from sessionStorage when this tab already read it,
- * else from the verdict route (no-store). A failed read gives VERDICT_OFF and is
- * not stored, so the next page load asks again. On the server it is VERDICT_OFF.
+ * The verdict for this page load: the verdict route (no-store), asked once
+ * per document. When the request fails, the offline copy (at most
+ * VERDICT_CACHE_TTL_MS old) or VERDICT_OFF; a failed request is not kept, so
+ * the next call asks again. On the server it is VERDICT_OFF.
  */
-export function loadClipsVerdict(fetchImpl?: typeof fetch): Promise<ClipsVerdict> {
+export function loadClipsVerdict(fetchImpl?: typeof fetch, now: () => number = () => Date.now()): Promise<ClipsVerdict> {
   if (typeof window === "undefined") return Promise.resolve(VERDICT_OFF);
   if (pending) return pending;
-  const store = sessionStore();
-  try {
-    const cached = store?.getItem(VERDICT_SESSION_ITEM);
-    if (cached) {
-      const parsed: unknown = JSON.parse(cached);
-      if (isVerdict(parsed)) return (pending = Promise.resolve({ mode: parsed.mode, capture: parsed.capture }));
-    }
-  } catch {
-    // A bad stored value: ask the server.
-  }
   const doFetch = fetchImpl ?? fetch;
-  pending = (async () => {
+  const ask = ++asked;
+  const request = (async () => {
     try {
       const response = await doFetch(CLIPS_CONFIG_PATH, { cache: "no-store", credentials: "same-origin" });
       if (!response.ok) throw new Error(`status ${response.status}`);
@@ -198,27 +219,56 @@ export function loadClipsVerdict(fetchImpl?: typeof fetch): Promise<ClipsVerdict
       if (!isVerdict(body)) throw new Error("bad verdict");
       const verdict: ClipsVerdict = { mode: body.mode, capture: body.capture };
       try {
-        store?.setItem(VERDICT_SESSION_ITEM, JSON.stringify(verdict));
+        localStore()?.setItem(VERDICT_CACHE_ITEM, JSON.stringify({ verdict, atMs: now() }));
       } catch {
-        // Storage full or blocked: the verdict still holds for this page.
+        // Storage full or blocked: only the offline copy is lost.
       }
       return verdict;
     } catch (error) {
+      const copy = offlineCopy(now());
       // Values-free: the error type only.
-      console.warn(`[clips] could not read the clips flag (${(error as { name?: string } | null)?.name ?? "error"}); clips are off for now.`);
-      pending = null;
-      return VERDICT_OFF;
+      console.warn(
+        `[clips] could not read the clips flag (${(error as { name?: string } | null)?.name ?? "error"}); ${copy ? "using the last answer" : "clips are off for now"}.`,
+      );
+      // Not kept: the next call asks again (unless a newer request took over).
+      if (ask === asked) pending = null;
+      return copy ?? VERDICT_OFF;
     }
   })();
-  return pending;
+  pending = request;
+  return request;
 }
 
-/** Forget the memorized verdict (tests; also after the dogfood cookie changes). */
+/** Forget this page's verdict, so the next call asks the route again (tests, and after a dogfood change). */
 export function resetClipsVerdict(): void {
   pending = null;
+  asked++;
+}
+
+async function changeDogfood(method: "POST" | "DELETE", fetchImpl?: typeof fetch): Promise<boolean> {
+  if (typeof window === "undefined") return false;
   try {
-    (sessionStore() as Storage | null)?.removeItem?.(VERDICT_SESSION_ITEM);
-  } catch {
-    // Nothing to remove.
+    const response = await (fetchImpl ?? fetch)(CLIPS_DOGFOOD_PATH, { method, cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) {
+      // Values-free: the status only.
+      console.warn(`[clips] the dogfood change was refused (status ${response.status})`);
+      return false;
+    }
+    // The cookie changed: this tab asks for its verdict again.
+    resetClipsVerdict();
+    return true;
+  } catch (error) {
+    console.warn(`[clips] the dogfood change failed (${(error as { name?: string } | null)?.name ?? "error"})`);
+    return false;
   }
+}
+
+/** Turns clips on for this browser in dogfood mode (a listed, signed-in user). True when the cookie was set. */
+export function joinClipsDogfood(fetchImpl?: typeof fetch): Promise<boolean> {
+  return changeDogfood("POST", fetchImpl);
+}
+
+/** Turns dogfood clips off again for this browser. True when the cookie was cleared. */
+export function leaveClipsDogfood(fetchImpl?: typeof fetch): Promise<boolean> {
+  return changeDogfood("DELETE", fetchImpl);
 }

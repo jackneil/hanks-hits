@@ -22,6 +22,9 @@ export class FakeEngine implements CaptureEngine {
   purges = 0;
   disarms = 0;
   wakes = 0;
+  parks = 0;
+  /** Like the real engine: a disarm stops it until the next setGame() or source. */
+  halted = false;
   startLevel = 0;
   game: EngineGame | null = null;
   mediaEnd = 0;
@@ -49,9 +52,11 @@ export class FakeEngine implements CaptureEngine {
       this.purge();
       this.disarm();
     }
+    this.halted = false;
   }
 
   registerCanvas(canvas: HTMLCanvasElement): () => void {
+    this.halted = false;
     this.canvases.add(canvas);
     this.emit({ t: "source", present: true });
     return () => {
@@ -123,8 +128,13 @@ export class FakeEngine implements CaptureEngine {
 
   disarm(): void {
     this.disarms++;
+    this.halted = true;
     this.mediaEnd = 0;
     this.emit({ t: "reset" });
+  }
+
+  park(): void {
+    this.parks++;
   }
 
   dispose(): void {

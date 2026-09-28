@@ -193,6 +193,51 @@ describe("audio tap", () => {
     expect(h.nodes).toHaveLength(2);
   });
 
+  it("suspends: the part batch goes, the node leaves the graph, anchors stop; resume puts it back on the same port", async () => {
+    const h = harness();
+    h.tap.attach(h.port, sink(h));
+    getGameAudio();
+    await settle();
+    const ctx = mock.lastContext();
+    const node = h.nodes[0];
+    const tapPoint = getGameAudioTapPoint() as unknown as FakeAudioNode;
+    h.tap.suspend();
+    expect(node.messages.at(-1)).toEqual({ message: { t: "flush" }, transfer: undefined });
+    // Out of the graph: the audio thread renders nothing for it, and no game sound goes out.
+    expect(pathExists(tapPoint, node)).toBe(false);
+    expect(pathExists(node, ctx.destination)).toBe(false);
+    expect(h.timers.size).toBe(0);
+    expect(h.tap.live).toBe(false);
+    const anchors = h.anchors.length;
+    ctx.interrupt();
+    expect(h.anchors).toHaveLength(anchors);
+    // Resume: the same node and port (a port that went to the worklet cannot be given again).
+    h.now.value = 9000;
+    h.tap.resume();
+    expect(h.nodes).toHaveLength(1);
+    expect(pathExists(tapPoint, node)).toBe(true);
+    expect(pathExists(node, ctx.destination)).toBe(true);
+    expect(h.anchors.at(-1)).toMatchObject({ perfMs: 9000 });
+    expect(h.timers.size).toBe(1);
+    expect(h.tap.live).toBe(true);
+    expect(node.messages.filter((m) => (m.message as { t: string }).t === "port")).toHaveLength(1);
+  });
+
+  it("suspended before the bus exists: the node is made but joins the graph only at resume", async () => {
+    const h = harness();
+    h.tap.attach(h.port, sink(h));
+    h.tap.suspend();
+    getGameAudio();
+    await settle();
+    const node = h.nodes[0];
+    const tapPoint = getGameAudioTapPoint() as unknown as FakeAudioNode;
+    expect(pathExists(tapPoint, node)).toBe(false);
+    expect(h.anchors).toHaveLength(0);
+    h.tap.resume();
+    expect(pathExists(tapPoint, node)).toBe(true);
+    expect(h.anchors).toHaveLength(1);
+  });
+
   it("maps a WebKit-only state name and unknown states", async () => {
     const h = harness();
     h.tap.attach(h.port, sink(h));

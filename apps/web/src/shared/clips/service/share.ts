@@ -8,8 +8,11 @@
  *     resolved            -> "shared"
  *     AbortError          -> "cancelled"  (the kid closed the sheet)
  *     NotAllowedError     -> "retry"      (no activation: "Tap Share one more time.")
- *     the same file gets NotAllowedError again -> "blocked" (Screen Time,
- *                            Family Link or a policy: a kid-word reason, never silence)
+ *     the same clip gets NotAllowedError again within REFUSAL_MEMORY_MS
+ *                         -> "blocked"    (Screen Time, Family Link or a policy:
+ *                            a kid-word reason, never silence). "The same clip"
+ *                            is its file name, size, type and lastModified, not
+ *                            the File object: the library makes a new File each time.
  *     InvalidStateError   -> "ignored"    (a double tap: a share is open)
  *     canShare false, TypeError, DataError -> "fallback-save"
  *     no navigator.share  -> "unsupported"
@@ -35,6 +38,8 @@ export interface ShareEnv {
   document?: Pick<Document, "createElement"> & { body: { appendChild(node: Node): unknown } | null };
   URL?: Pick<typeof URL, "createObjectURL" | "revokeObjectURL">;
   setTimeout?: (fn: () => void, ms: number) => unknown;
+  /** Wall-clock milliseconds, for the refusal memory. Default Date.now. */
+  now?: () => number;
   log?: (message: string) => void;
 }
 
@@ -61,8 +66,30 @@ function errorName(error: unknown): string {
   return typeof name === "string" && /^[A-Za-z]{1,64}$/.test(name) ? name : "Error";
 }
 
-/** Files that got NotAllowedError once. A second one on the same file means a block. */
-const refusedOnce = new WeakSet<File>();
+/** How long a first refusal is remembered. A second refusal of the same clip in this time means a block. */
+export const REFUSAL_MEMORY_MS = 5 * 60 * 1000;
+
+/**
+ * Clips that got NotAllowedError once, by stable facts of the file (name,
+ * size, type, lastModified), with the time. The library makes a new File
+ * object at each file() call (the same bytes under the plan 12 name), so the
+ * key must never be the File object itself.
+ */
+const refusedOnce = new Map<string, number>();
+
+function refusalKey(file: File): string {
+  return `${file.name}\u0000${file.size}\u0000${file.type}\u0000${file.lastModified}`;
+}
+
+function refusedRecently(file: File, nowMs: number): boolean {
+  for (const [key, at] of refusedOnce) if (nowMs - at >= REFUSAL_MEMORY_MS || nowMs < at) refusedOnce.delete(key);
+  return refusedOnce.has(refusalKey(file));
+}
+
+/** Forgets every refusal (tests). */
+export function resetShareRefusalsForTests(): void {
+  refusedOnce.clear();
+}
 
 /**
  * Opens the share sheet for one file. Call it synchronously inside the tap:
@@ -85,36 +112,39 @@ export function shareFile(file: File, env: ShareEnv = defaultEnv()): Promise<Sha
     log(`[clips] share: canShare failed (${errorName(error)})`);
     return Promise.resolve({ kind: "fallback-save" });
   }
+  const now = env.now ?? (() => Date.now());
   let started: Promise<void>;
   try {
     started = nav.share(data);
   } catch (error) {
-    return Promise.resolve(outcomeFor(file, error, log));
+    return Promise.resolve(outcomeFor(file, error, log, now));
   }
   return Promise.resolve(started).then(
     (): ShareOutcome => {
-      refusedOnce.delete(file);
+      refusedOnce.delete(refusalKey(file));
       return { kind: "shared" };
     },
-    (error: unknown) => outcomeFor(file, error, log),
+    (error: unknown) => outcomeFor(file, error, log, now),
   );
 }
 
-function outcomeFor(file: File, error: unknown, log: (message: string) => void): ShareOutcome {
+function outcomeFor(file: File, error: unknown, log: (message: string) => void, now: () => number): ShareOutcome {
   const name = errorName(error);
   switch (name) {
     case "AbortError":
       return { kind: "cancelled" };
     case "InvalidStateError":
       return { kind: "ignored" };
-    case "NotAllowedError":
-      if (refusedOnce.has(file)) {
+    case "NotAllowedError": {
+      const at = now();
+      if (refusedRecently(file, at)) {
         log("[clips] share: refused twice (a block or a policy)");
         return { kind: "blocked" };
       }
-      refusedOnce.add(file);
+      refusedOnce.set(refusalKey(file), at);
       log("[clips] share: refused (no user activation)");
       return { kind: "retry" };
+    }
     default:
       log(`[clips] share: failed (${name})`);
       return { kind: "fallback-save" };

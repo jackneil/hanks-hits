@@ -1,6 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SAVE_URL_LIFETIME_MS, fileNameFor, renameFile, saveFile, shareFile, type ShareEnv } from "../share";
+import {
+  REFUSAL_MEMORY_MS,
+  SAVE_URL_LIFETIME_MS,
+  fileNameFor,
+  renameFile,
+  resetShareRefusalsForTests,
+  saveFile,
+  shareFile,
+  type ShareEnv,
+} from "../share";
+
+beforeEach(() => {
+  resetShareRefusalsForTests();
+});
 
 function domError(name: string): Error {
   return new DOMException("x", name);
@@ -50,9 +63,43 @@ describe("shareFile", () => {
     const file = clip();
     expect(await shareFile(file, env)).toEqual({ kind: "retry" });
     expect(await shareFile(file, env)).toEqual({ kind: "blocked" });
-    // Another file starts with a retry again.
-    expect(await shareFile(clip(), env)).toEqual({ kind: "retry" });
+    // Another clip starts with a retry again.
+    expect(await shareFile(clip("b.mp4"), env)).toEqual({ kind: "retry" });
     for (const [message] of log.mock.calls) expect(String(message)).not.toMatch(/a\.mp4/);
+  });
+
+  it("says blocked for the same clip also when the library hands out a new File object for the second tap", async () => {
+    const { env } = shareEnv(async () => {
+      throw domError("NotAllowedError");
+    });
+    const record = { gameId: "snake", createdAt: new Date(2026, 8, 28, 9, 7).getTime(), mime: "video/mp4" as const };
+    // library.file() renames the stored file each time: a new File, the same bytes and name.
+    const first = renameFile(clip("stored.mp4"), record, "hankshits.com");
+    const second = renameFile(clip("stored.mp4"), record, "hankshits.com");
+    expect(second).not.toBe(first);
+    expect(await shareFile(first, env)).toEqual({ kind: "retry" });
+    expect(await shareFile(second, env)).toEqual({ kind: "blocked" });
+    // A clip made in the same minute has the same name, but another time stamp: it is not blocked.
+    const sameMinute = renameFile(clip("other.mp4"), { ...record, createdAt: record.createdAt + 1 }, "hankshits.com");
+    expect(sameMinute.name).toBe(first.name);
+    expect(await shareFile(sameMinute, env)).toEqual({ kind: "retry" });
+  });
+
+  it("forgets a first refusal after REFUSAL_MEMORY_MS, and after a share that worked", async () => {
+    let now = 1_000_000;
+    let refuse = true;
+    const { env } = shareEnv(async () => {
+      if (refuse) throw domError("NotAllowedError");
+    });
+    env.now = () => now;
+    const file = clip("c.mp4");
+    expect(await shareFile(file, env)).toEqual({ kind: "retry" });
+    now += REFUSAL_MEMORY_MS;
+    expect(await shareFile(file, env)).toEqual({ kind: "retry" });
+    refuse = false;
+    expect(await shareFile(file, env)).toEqual({ kind: "shared" });
+    refuse = true;
+    expect(await shareFile(file, env)).toEqual({ kind: "retry" });
   });
 
   it("falls back to save when canShare refuses the type, and is unsupported with no share sheet", async () => {

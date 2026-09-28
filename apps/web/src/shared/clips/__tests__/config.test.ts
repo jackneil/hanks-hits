@@ -2,9 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CLIPS_CONFIG_PATH,
+  CLIPS_DOGFOOD_PATH,
+  VERDICT_CACHE_ITEM,
+  VERDICT_CACHE_TTL_MS,
   VERDICT_OFF,
-  VERDICT_SESSION_ITEM,
   clipsVerdictFor,
+  joinClipsDogfood,
+  leaveClipsDogfood,
   loadClipsVerdict,
   parseDogfoodIds,
   resetClipsVerdict,
@@ -89,46 +93,129 @@ describe("signed dogfood cookie", () => {
 describe("loadClipsVerdict", () => {
   beforeEach(() => {
     resetClipsVerdict();
+    localStorage.clear();
     sessionStorage.clear();
   });
   afterEach(() => {
     resetClipsVerdict();
+    vi.restoreAllMocks();
   });
 
   function okFetch(body: unknown) {
     return vi.fn(async () => new Response(JSON.stringify(body), { status: 200 }));
   }
 
-  it("asks the route once, no-store, and keeps the answer for the tab session", async () => {
+  function failingFetch() {
+    return vi.fn(async (): Promise<Response> => {
+      throw new TypeError("offline");
+    });
+  }
+
+  /** A new page load: the module (and its memory) starts again; localStorage and sessionStorage stay. */
+  async function freshModule() {
+    vi.resetModules();
+    return import("../config");
+  }
+
+  it("asks the route once per page load, no-store, and keeps the answer in memory for that page", async () => {
     const fetchImpl = okFetch({ mode: "on", capture: true });
     expect(await loadClipsVerdict(fetchImpl as unknown as typeof fetch)).toEqual({ mode: "on", capture: true });
     expect(await loadClipsVerdict(fetchImpl as unknown as typeof fetch)).toEqual({ mode: "on", capture: true });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledWith(CLIPS_CONFIG_PATH, expect.objectContaining({ cache: "no-store" }));
-    expect(JSON.parse(sessionStorage.getItem(VERDICT_SESSION_ITEM)!)).toEqual({ mode: "on", capture: true });
+    // Nothing in sessionStorage: a restored tab never reuses an old answer.
+    expect(sessionStorage.length).toBe(0);
   });
 
-  it("reads a verdict this tab stored before, with no request", async () => {
-    sessionStorage.setItem(VERDICT_SESSION_ITEM, JSON.stringify({ mode: "dogfood", capture: true }));
-    const fetchImpl = okFetch({ mode: "off", capture: false });
-    expect(await loadClipsVerdict(fetchImpl as unknown as typeof fetch)).toEqual({ mode: "dogfood", capture: true });
-    expect(fetchImpl).not.toHaveBeenCalled();
+  it("asks the server again at the next page load, so the kill switch reaches a tab that stays open", async () => {
+    const first = await freshModule();
+    const on = okFetch({ mode: "on", capture: true });
+    expect(await first.loadClipsVerdict(on as unknown as typeof fetch)).toEqual({ mode: "on", capture: true });
+    // CLIPS_MODE=off on the server, then a reload (the same localStorage and sessionStorage).
+    const second = await freshModule();
+    const off = okFetch({ mode: "off", capture: false });
+    expect(await second.loadClipsVerdict(off as unknown as typeof fetch)).toEqual({ mode: "off", capture: false });
+    expect(off).toHaveBeenCalledTimes(1);
   });
 
-  it("is off after a failed read, stores nothing, and asks again next time", async () => {
+  it("uses the last answer offline for 7 days, and off after that", async () => {
+    const t0 = Date.UTC(2026, 8, 1);
+    const ok = okFetch({ mode: "dogfood", capture: true });
+    expect(await loadClipsVerdict(ok as unknown as typeof fetch, () => t0)).toEqual({ mode: "dogfood", capture: true });
+    expect(JSON.parse(localStorage.getItem(VERDICT_CACHE_ITEM)!)).toEqual({ verdict: { mode: "dogfood", capture: true }, atMs: t0 });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const offline = await freshModule();
+    const failing = failingFetch();
+    const f = failing as unknown as typeof fetch;
+    expect(await offline.loadClipsVerdict(f, () => t0 + VERDICT_CACHE_TTL_MS - 1)).toEqual({ mode: "dogfood", capture: true });
+    // A failed request is not kept: the next call asks again.
+    expect(await offline.loadClipsVerdict(f, () => t0 + VERDICT_CACHE_TTL_MS)).toEqual(VERDICT_OFF);
+    expect(failing).toHaveBeenCalledTimes(2);
+  });
+
+  it("is off after a failed read with no copy, logs no values, and asks again next time", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const failing = vi.fn(async () => new Response("nope", { status: 500 }));
+    const failing = vi.fn(async () => new Response("secret-body", { status: 500 }));
     expect(await loadClipsVerdict(failing as unknown as typeof fetch)).toEqual(VERDICT_OFF);
-    expect(sessionStorage.getItem(VERDICT_SESSION_ITEM)).toBeNull();
+    expect(localStorage.getItem(VERDICT_CACHE_ITEM)).toBeNull();
     const fetchImpl = okFetch({ mode: "on", capture: true });
     expect(await loadClipsVerdict(fetchImpl as unknown as typeof fetch)).toEqual({ mode: "on", capture: true });
-    warn.mockRestore();
+    for (const call of warn.mock.calls) expect(String(call[0])).not.toContain("secret-body");
   });
 
-  it("refuses a malformed answer", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const fetchImpl = okFetch({ mode: "sure", capture: "yes" });
-    expect(await loadClipsVerdict(fetchImpl as unknown as typeof fetch)).toEqual(VERDICT_OFF);
-    warn.mockRestore();
+  it("refuses a malformed answer, and a malformed or future offline copy", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await loadClipsVerdict(okFetch({ mode: "sure", capture: "yes" }) as unknown as typeof fetch)).toEqual(VERDICT_OFF);
+    const bad = ["{", JSON.stringify({ verdict: { mode: "on", capture: true } }), JSON.stringify({ verdict: { mode: "on", capture: true }, atMs: Date.now() + 60_000 })];
+    for (const value of bad) {
+      localStorage.setItem(VERDICT_CACHE_ITEM, value);
+      resetClipsVerdict();
+      expect(await loadClipsVerdict(failingFetch() as unknown as typeof fetch)).toEqual(VERDICT_OFF);
+    }
   });
 });
+
+describe("dogfood join and leave (client)", () => {
+  beforeEach(() => {
+    resetClipsVerdict();
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("joins with a same-origin POST, then asks for the verdict again (no stale capture:false)", async () => {
+    const verdicts = [
+      { mode: "dogfood", capture: false },
+      { mode: "dogfood", capture: true },
+    ];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === CLIPS_DOGFOOD_PATH) return new Response(JSON.stringify({ dogfood: init?.method === "POST" }), { status: 200 });
+      return new Response(JSON.stringify(verdicts.shift()), { status: 200 });
+    });
+    const f = fetchImpl as unknown as typeof fetch;
+    expect(await loadClipsVerdict(f)).toEqual({ mode: "dogfood", capture: false });
+    expect(await joinClipsDogfood(f)).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledWith(CLIPS_DOGFOOD_PATH, expect.objectContaining({ method: "POST", credentials: "same-origin" }));
+    expect(await loadClipsVerdict(f)).toEqual({ mode: "dogfood", capture: true });
+  });
+
+  it("keeps the verdict when the route refuses, and leaves with DELETE", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === CLIPS_DOGFOOD_PATH) return new Response("{}", { status: init?.method === "POST" ? 403 : 200 });
+      return new Response(JSON.stringify({ mode: "dogfood", capture: false }), { status: 200 });
+    });
+    const f = fetchImpl as unknown as typeof fetch;
+    const verdictCalls = () => fetchImpl.mock.calls.filter(([url]) => url === CLIPS_CONFIG_PATH).length;
+    await loadClipsVerdict(f);
+    expect(await joinClipsDogfood(f)).toBe(false);
+    await loadClipsVerdict(f);
+    expect(verdictCalls()).toBe(1);
+    expect(await leaveClipsDogfood(f)).toBe(true);
+    expect(fetchImpl).toHaveBeenLastCalledWith(CLIPS_DOGFOOD_PATH, expect.objectContaining({ method: "DELETE" }));
+    await loadClipsVerdict(f);
+    expect(verdictCalls()).toBe(2);
+  });
+});
+

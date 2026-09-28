@@ -17,12 +17,18 @@
  * videos. No chunk is ever dropped: every part is stored or reported as failed.
  *
  * All work runs on the io worker's command queue, so a part never races a
- * command. The session timeline journal in OPFS (plan 8.3, a later phase)
- * replaces the in-memory part.
+ * command.
+ *
+ * Crash safety (plan 8.4): each chunk also goes to the part's journal in OPFS
+ * (recordJournal.ts) as it arrives. A tab that closes or crashes during Record
+ * loses at most the open GOP: the next startup stores the journaled part. The
+ * journal of a part is removed when the part is stored. The session timeline
+ * journal in OPFS (plan 8.3, a later phase) replaces the in-memory part.
  */
 
 import type { ClipMeta, ClipPackets, ClipRecord, EpochInfo, IoEvent, MemoryClass, PacketDTO, RecordTeeMsg } from "../../protocol";
 import { sameVideoConfig } from "./mux";
+import type { JournalMeta } from "./recordJournal";
 
 const MIB = 1024 * 1024;
 
@@ -43,14 +49,25 @@ export interface RecordedPart {
   endUs: number;
 }
 
+/** The journal of one part (recordJournal.ts PartJournal). */
+export interface PartJournalLike {
+  append(packets: ClipPackets): Promise<void>;
+  remove(): Promise<void>;
+}
+
 export interface RecorderHost {
   /** Muxes and stores one part. It posts the part's "saved", "evicted" and "error" events. Null on failure. */
   storePart(packets: ClipPackets, meta: ClipMeta, post: (event: IoEvent) => void): Promise<ClipRecord | null>;
   /** The part limit now (it follows the "configure" command). */
   maxPartBytes(): number;
+  /** Opens the journal of a new part (plan 8.4). null (or no method): the part is kept in memory only. */
+  openJournal?(meta: JournalMeta): Promise<PartJournalLike | null>;
 }
 
 interface Part {
+  /** The part's row: its own id and createdAt. */
+  meta: ClipMeta;
+  journal: PartJournalLike | null;
   video: PacketDTO[];
   audio: PacketDTO[];
   epochs: Map<number, EpochInfo>;
@@ -135,7 +152,17 @@ export class Recording {
     }
     this.firstStartUs ??= packets.startUs;
     if (!this.part) {
+      const offsetMs = Math.max(0, Math.round((packets.startUs - this.firstStartUs) / 1000));
+      const meta: ClipMeta = {
+        ...this.meta,
+        id: partId(this.meta.id, this.partIndex),
+        // Later parts sort after earlier ones: each part is dated at its start in the recording.
+        createdAt: this.meta.createdAt + offsetMs,
+        kind: "record",
+      };
       const fresh: Part = {
+        meta,
+        journal: null,
         video: [],
         audio: [],
         epochs: new Map(),
@@ -147,6 +174,7 @@ export class Recording {
         bytes: 0,
       };
       this.part = fresh;
+      fresh.journal = (await this.host.openJournal?.({ t: "meta", v: 1, recordingId: this.recordingId, meta })) ?? null;
     }
     const open = this.part;
     for (const p of packets.video) open.video.push(p);
@@ -157,13 +185,15 @@ export class Recording {
     open.primingSamples = packets.primingSamples;
     open.endUs = Math.max(open.endUs, packets.endUs);
     open.bytes += bytes;
+    // Durable at once: a tab that dies now keeps this chunk (plan 8.4).
+    await open.journal?.append(packets);
   }
 
   private async closePart(): Promise<void> {
     const part = this.part;
     this.part = null;
     if (!part) return;
-    const index = this.partIndex++;
+    this.partIndex++;
     const packets: ClipPackets = {
       requestId: this.recordingId,
       video: part.video,
@@ -176,18 +206,12 @@ export class Recording {
       cutToNewestEpoch: false,
       coveredSec: Math.max(0, (part.endUs - part.startUs) / 1e6),
     };
-    const offsetMs = Math.max(0, Math.round((part.startUs - (this.firstStartUs ?? part.startUs)) / 1000));
-    const meta: ClipMeta = {
-      ...this.meta,
-      id: partId(this.meta.id, index),
-      // Later parts sort after earlier ones: each part is dated at its start in the recording.
-      createdAt: this.meta.createdAt + offsetMs,
-      durationMs: Math.round(packets.coveredSec * 1000),
-      kind: "record",
-    };
+    const meta: ClipMeta = { ...part.meta, durationMs: Math.round(packets.coveredSec * 1000) };
     const record = await this.host.storePart(packets, meta, this.post);
     if (record) this.parts.push({ record, startUs: part.startUs, endUs: part.endUs });
     else this.failed++;
+    // Stored, or failed and reported: the journal is not needed any more.
+    await part.journal?.remove();
   }
 
   private async end(): Promise<void> {

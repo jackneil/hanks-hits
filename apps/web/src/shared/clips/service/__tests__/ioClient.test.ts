@@ -12,7 +12,9 @@ import { PNG_3X2_HEX, hexBytes, makeClipPackets } from "../../engine/io/__tests_
 import type { StorageLike } from "../../library/fsTypes";
 import { ClipLibrary } from "../../library/opfsStore";
 import type { ClipMeta, IoCmd, IoEvent, RecordTeeMsg } from "../../protocol";
-import { IoClient, getClipLibrary, type ChannelLike, type IoWorkerLike } from "../ioClient";
+import { OWNER_MEMORY_ITEM, IoClient, getClipLibrary, type ChannelLike, type IoWorkerLike, type SessionBusLike } from "../ioClient";
+import { ownerKeyFor } from "../../library/ownerKey";
+import { isClearedOnSignOut } from "@/lib/storage-keys";
 
 const libraries: ClipLibrary[] = [];
 const clients: IoClient[] = [];
@@ -53,7 +55,34 @@ class FakeChannel implements ChannelLike {
   }
 }
 
-function setup(options: { userId?: string | null } = {}) {
+/** The session bus (registry.ts) as a test double. */
+class FakeBus implements SessionBusLike {
+  latest: { userId: string | null } | null = null;
+  readonly listeners = new Set<(userId: string | null) => void>();
+  current() {
+    return this.latest;
+  }
+  subscribe(listener: (userId: string | null) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  publish(userId: string | null) {
+    this.latest = { userId };
+    for (const l of [...this.listeners]) l(userId);
+  }
+}
+
+class MemoryStorage {
+  readonly items = new Map<string, string>();
+  getItem(key: string): string | null {
+    return this.items.get(key) ?? null;
+  }
+  setItem(key: string, value: string): void {
+    this.items.set(key, value);
+  }
+}
+
+function setup(options: { userId?: string | null; bus?: FakeBus; memory?: MemoryStorage } = {}) {
   const opfs = createOpfsMock();
   const factory = new IDBFactory();
   const openLibrary = async () => {
@@ -63,7 +92,10 @@ function setup(options: { userId?: string | null } = {}) {
   };
   const workers: InProcessWorker[] = [];
   const channels: FakeChannel[] = [];
-  const readUserId = vi.fn(async () => options.userId ?? null);
+  const session = { userId: options.userId ?? null };
+  const readUserId = vi.fn(async () => session.userId);
+  const bus = options.bus ?? new FakeBus();
+  const memory = options.memory ?? new MemoryStorage();
   const client = new IoClient({
     createWorker: async () => {
       const w = new InProcessWorker(openLibrary);
@@ -77,10 +109,12 @@ function setup(options: { userId?: string | null } = {}) {
       return c;
     },
     readUserId,
+    sessionBus: bus,
+    ownerMemory: memory,
     log: () => undefined,
   });
   clients.push(client);
-  return { client, workers, channels, readUserId, opfs };
+  return { client, workers, channels, readUserId, opfs, bus, memory, session };
 }
 
 function meta(id: string, extra: Partial<ClipMeta> = {}): ClipMeta {
@@ -163,10 +197,84 @@ describe("io client", () => {
     expect((await client.libraryApi().list()).map((r) => r.id)).toEqual(["guests"]);
   });
 
-  it("falls back to the guest partition when the session cannot be read", async () => {
-    const { client, readUserId } = setup();
-    readUserId.mockRejectedValueOnce(new Error("offline"));
-    expect(await client.ownerKey()).toBe("guest");
+  it("never keeps a failed session read: guest with nothing remembered, then the real owner at the next call", async () => {
+    const { client, readUserId, memory } = setup({ userId: "user-1" });
+    readUserId.mockRejectedValueOnce(new TypeError("offline"));
+    expect(await client.resolveOwner()).toEqual({ key: "guest", confirmed: false });
+    // The guess is not kept, and not remembered.
+    expect(memory.getItem(OWNER_MEMORY_ITEM)).toBeNull();
+    const key = await ownerKeyFor("user-1");
+    expect(await client.resolveOwner()).toEqual({ key, confirmed: true });
+    expect(memory.getItem(OWNER_MEMORY_ITEM)).toBe(key);
+    expect(readUserId).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens the last confirmed player's clips offline (plan 8.1: My Clips works offline)", async () => {
+    const online = setup({ userId: "user-1" });
+    const key = await online.client.ownerKey();
+    await online.client.mux(makeClipPackets({ seconds: 1 }), meta("mine", { ownerKey: key }));
+    await online.client.mux(makeClipPackets({ seconds: 1 }), meta("guests"));
+    // A new page, offline: the same device (worker, library and localStorage), and the session read fails.
+    const offlineRead = vi.fn(async (): Promise<string | null> => {
+      throw new TypeError("offline");
+    });
+    const page = new IoClient({
+      createWorker: async () => online.workers[0],
+      readUserId: offlineRead,
+      sessionBus: null,
+      ownerMemory: online.memory,
+      log: () => undefined,
+    });
+    clients.push(page);
+    expect(await page.resolveOwner()).toEqual({ key, confirmed: false });
+    expect((await page.libraryApi().list()).map((r) => r.id)).toEqual(["mine"]);
+  });
+
+  it("keeps the remembered player under a key that sign-out clears, so an offline read never opens a signed-out player's clips", () => {
+    expect(isClearedOnSignOut(OWNER_MEMORY_ITEM)).toBe(true);
+  });
+
+  it("follows a client-side sign-in on the session bus, with no game mounted (plan 8.1 partitions)", async () => {
+    const { client, bus, session } = setup();
+    const heard = vi.fn();
+    client.subscribe(heard);
+    await client.mux(makeClipPackets({ seconds: 1 }), meta("guest-clip"));
+    const userKey = await ownerKeyFor("user-1");
+    await client.mux(makeClipPackets({ seconds: 1 }), meta("user-clip", { ownerKey: userKey }));
+    expect((await client.libraryApi().list()).map((r) => r.id)).toEqual(["guest-clip"]);
+    heard.mockClear();
+    // The /login page signs in (router.push, the same page): next-auth's session changes.
+    session.userId = "user-1";
+    bus.publish("user-1");
+    await vi.waitFor(() => expect(heard).toHaveBeenCalled());
+    expect((await client.libraryApi().list()).map((r) => r.id)).toEqual(["user-clip"]);
+    // Sign-out: null means "read again", and the read says guest.
+    session.userId = null;
+    bus.publish(null);
+    expect((await client.libraryApi().list()).map((r) => r.id)).toEqual(["guest-clip"]);
+  });
+
+  it("never hands out another player's clip file", async () => {
+    const { client } = setup();
+    const otherKey = await ownerKeyFor("someone-else");
+    await client.mux(makeClipPackets({ seconds: 1 }), meta("theirs", { ownerKey: otherKey }));
+    await client.mux(makeClipPackets({ seconds: 1 }), meta("mine"));
+    await expect(client.libraryApi().file("theirs")).rejects.toMatchObject({ name: "IoError", code: "not-found" });
+    expect((await client.libraryApi().file("mine")).size).toBeGreaterThan(0);
+  });
+
+  it("keeps recovered recordings for their owner and hands each out once", async () => {
+    const { client, workers } = setup();
+    const heard = vi.fn();
+    client.subscribe(heard);
+    await client.list("guest");
+    const record = await client.mux(makeClipPackets({ seconds: 1 }), meta("rec-old", { kind: "record" }));
+    const theirs = { ...record, id: "rec-theirs", ownerKey: await ownerKeyFor("other") };
+    workers[0].onmessage?.({ data: { t: "recovered", records: [record, theirs] } } as MessageEvent<IoEvent>);
+    expect(heard).toHaveBeenCalled();
+    const api = client.libraryApi();
+    expect((await api.takeRecovered!()).map((r) => r.id)).toEqual(["rec-old"]);
+    expect(await api.takeRecovered!()).toEqual([]);
   });
 
   it("tells subscribers about local changes and other tabs, and closes the channel after the last one leaves", async () => {
@@ -208,6 +316,8 @@ describe("io client", () => {
         throw new DOMException("blocked", "SecurityError");
       },
       readUserId: async () => null,
+      sessionBus: null,
+      ownerMemory: null,
       log: () => undefined,
     });
     clients.push(client);

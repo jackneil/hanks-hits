@@ -5,6 +5,7 @@ import { CrashBreaker, TAB_LOCK_PREFIX } from "../breaker";
 import {
   ClipService,
   FAILURES_TO_DISABLE,
+  OWNER_RETRY_MS,
   RESULT_POST_ROLL_MS,
   RING_KEEP_MS,
   getClipService,
@@ -24,10 +25,16 @@ import {
   type PressOutcome,
 } from "../contract";
 import { EngineFailure } from "../engine";
-import { CAPTURE_LOCK, Lifecycle, RESUME_GRACE_MS, type LifecycleEnv } from "../lifecycle";
+import type { SessionBusLike } from "../ioClient";
+import { CAPTURE_LOCK, GUEST_KEEP_MS, Lifecycle, RESUME_GRACE_MS, type LifecycleEnv } from "../lifecycle";
 import { ERROR_MS, MADE_MS, RECOVERING_QUIET_MS, SOURCE_LOST_GRACE_MS } from "../machine";
 import { FakeLockManager } from "./fakeLocks";
-import { FakeEngine } from "./fakeEngine";
+import { FakeEngine, recordFor } from "./fakeEngine";
+
+/** A stored record part of a recording (the id and the kind change). */
+function recordOf(meta: Parameters<typeof recordFor>[0], id: string): ClipRecord {
+  return recordFor({ ...meta, id, kind: "record" });
+}
 
 /** A fast owner key (the real one hashes with SubtleCrypto, which fake timers cannot drive). */
 async function keyOf(userId: string | null): Promise<string> {
@@ -50,17 +57,37 @@ class MemoryStorage {
   }
 }
 
+/** The session bus (registry.ts) as a test double. */
+class FakeBus implements SessionBusLike {
+  latest: { userId: string | null } | null = null;
+  readonly listeners = new Set<(userId: string | null) => void>();
+  current() {
+    return this.latest;
+  }
+  subscribe(listener: (userId: string | null) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  publish(userId: string | null) {
+    this.latest = { userId };
+    for (const l of [...this.listeners]) l(userId);
+  }
+}
+
 interface World {
   service: ClipService;
   engine: FakeEngine;
   rows: Map<string, ClipRecord>;
   library: ClipLibraryApi & { markWatched: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
-  io: ServiceIo & { update: ReturnType<typeof vi.fn>; setOwnerKey: ReturnType<typeof vi.fn> };
+  io: ServiceIo & { update: ReturnType<typeof vi.fn>; setOwnerKey: ReturnType<typeof vi.fn>; resolveOwner: ReturnType<typeof vi.fn> };
   locks: FakeLockManager;
   storage: MemoryStorage;
   doc: EventTarget & { visibilityState: DocumentVisibilityState; focused: boolean; hasFocus(): boolean };
   win: EventTarget;
   userId: { value: string | null };
+  /** Set to make the session read fail (offline). */
+  offline: { value: boolean };
+  bus: FakeBus;
   shared: File[];
   paused: number;
 }
@@ -89,7 +116,7 @@ function makeWorld(options: { closesOnHide?: boolean; tab?: string } = {}): Worl
   };
   const io = {
     libraryApi: () => library,
-    ownerKey: async () => "guest",
+    resolveOwner: vi.fn(async () => ({ key: "guest", confirmed: true })),
     setOwnerKey: vi.fn(),
     update: vi.fn(async (id: string, patch: Partial<ClipRecord>) => ({ ...(rows.get(id) as ClipRecord), ...patch })),
   };
@@ -113,6 +140,8 @@ function makeWorld(options: { closesOnHide?: boolean; tab?: string } = {}): Worl
   });
   const breaker = new CrashBreaker({ storage, locks: locks.client(tab), now, tabLock: `${TAB_LOCK_PREFIX}${tab}` });
   const userId = { value: null as string | null };
+  const offline = { value: false };
+  const bus = new FakeBus();
   const shared: File[] = [];
   const world = { paused: 0 } as World;
   const service = new ClipService({
@@ -123,8 +152,12 @@ function makeWorld(options: { closesOnHide?: boolean; tab?: string } = {}): Worl
     now,
     wallNow: now,
     host: () => "hankshits.com",
-    readUserId: async () => userId.value,
+    readUserId: async () => {
+      if (offline.value) throw new TypeError("offline");
+      return userId.value;
+    },
     ownerKeyFor: keyOf,
+    sessionBus: bus,
     closesEncoderWhenHidden: options.closesOnHide ?? false,
     shareEnv: {
       navigator: {
@@ -137,7 +170,7 @@ function makeWorld(options: { closesOnHide?: boolean; tab?: string } = {}): Worl
     },
     log: () => undefined,
   });
-  Object.assign(world, { service, engine, rows, library, io, locks, storage, doc, win, userId, shared });
+  Object.assign(world, { service, engine, rows, library, io, locks, storage, doc, win, userId, offline, bus, shared });
   services.push(service);
   return world;
 }
@@ -228,7 +261,8 @@ describe("attach and tiers", () => {
   it("shows Warming while the engine loads, then follows the engine", async () => {
     const w = makeWorld();
     w.service.attach(gameAttachment(w));
-    expect(w.service.getSnapshot()).toMatchObject({ button: "warming", reason: "warming", appId: "breakout", atBreak: true });
+    // A game plays until a break source (start card, pause menu, its own isPlaying) says otherwise.
+    expect(w.service.getSnapshot()).toMatchObject({ button: "warming", reason: "warming", appId: "breakout", atBreak: false });
     await flush();
     expect(w.service.getSnapshot()).toMatchObject({ button: "warming", engine: "idle", tier: "W" });
     expect(w.engine.game?.appId).toBe("breakout");
@@ -676,12 +710,26 @@ describe("tap semantics (plan 11.1)", () => {
     expect(press(w, 900, { moved: true }).kind).toBe("clip");
   });
 
-  it("a cancelled press commits nothing", async () => {
+  it("a short press that the browser cancelled is still a tap: it clips from the frozen ring end", async () => {
     const w = makeWorld();
     await ready(w);
-    expect(press(w, 100, { cancelled: true })).toEqual({ kind: "ignored", reason: "cancelled" });
+    w.engine.play(10);
+    const token = w.service.beginPress()!;
+    w.engine.play(1);
+    vi.advanceTimersByTime(200);
+    const outcome = w.service.endPress(token, { upAtMs: Date.now(), moved: false, cancelled: true });
+    expect(outcome.kind).toBe("clip");
+    expect(await resultOf(outcome)).toMatchObject({ ok: true, action: "clip" });
+    expect(w.engine.clipRequests[0]).toMatchObject({ endAtUs: token.endAtUs });
+  });
+
+  it("a long press that the browser cancelled commits nothing", async () => {
+    const w = makeWorld();
+    await ready(w);
+    expect(press(w, HOLD_FOR_MENU_MS, { cancelled: true })).toEqual({ kind: "ignored", reason: "cancelled" });
     await flush();
     expect(w.engine.clipRequests).toHaveLength(0);
+    expect(w.rows.size).toBe(0);
   });
 
   it("tap, tap within 5 s, then tap after 6 s gives two library rows", async () => {
@@ -937,6 +985,388 @@ describe("owners (plan 7.1)", () => {
   });
 });
 
+describe("breaks and runs", () => {
+  it("captures for a game that only registers its canvas (no break source ever speaks)", async () => {
+    const w = makeWorld();
+    const game = w.service.attach(gameAttachment(w));
+    await flush();
+    game.registerCanvas(document.createElement("canvas"));
+    w.engine.emit({ t: "output" });
+    w.engine.play(5);
+    expect(w.service.getSnapshot()).toMatchObject({ engine: "buffering", button: "ready", atBreak: false });
+    expect(w.engine.paused.has("break")).toBe(false);
+  });
+
+  it("parks the engine at detach: no live encoder or audio tap while the ring is kept", async () => {
+    const w = makeWorld();
+    const game = await ready(w);
+    game.detach();
+    expect(w.engine.parks).toBe(1);
+    // The ring is still there for the same game (no purge, no disarm yet).
+    expect(w.engine.purges).toBe(0);
+    expect(w.engine.disarms).toBe(0);
+  });
+});
+
+describe("failures before the first output (plan 7: 4 in 60 s)", () => {
+  async function warming(w: World): Promise<AttachedGame> {
+    const game = w.service.attach(gameAttachment(w));
+    await flush();
+    game.registerCanvas(document.createElement("canvas"));
+    expect(w.service.getSnapshot().engine).toBe("warming");
+    vi.advanceTimersByTime(RESUME_GRACE_MS);
+    return game;
+  }
+
+  it("goes WARMING -> RECOVERING on a failure, and on to BUFFERING at the first output", async () => {
+    const w = makeWorld();
+    await warming(w);
+    w.engine.emit({ t: "encoder-error", fatal: true });
+    expect(w.service.getSnapshot().engine).toBe("recovering");
+    w.engine.emit({ t: "output" });
+    expect(w.service.getSnapshot().engine).toBe("buffering");
+  });
+
+  it("reaches DISABLED after 4 fatal failures with no output, stops the engine and lets every source go", async () => {
+    const w = makeWorld();
+    const game = await warming(w);
+    for (let i = 0; i < FAILURES_TO_DISABLE; i++) {
+      w.engine.emit({ t: "encoder-error", fatal: true });
+      w.engine.emit({ t: "reset" });
+      vi.advanceTimersByTime(2000);
+    }
+    expect(w.service.getSnapshot()).toMatchObject({ engine: "disabled", button: "disabled", reason: "encoder-error" });
+    // The engine is off for good: it never arms again for this game.
+    expect(w.engine.disarms).toBe(1);
+    expect(w.engine.halted).toBe(true);
+    expect(w.engine.canvases.size).toBe(0);
+    // A new canvas of the same game (a restart) never reaches the engine.
+    game.registerCanvas(document.createElement("canvas"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(w.engine.canvases.size).toBe(0);
+    expect(w.engine.halted).toBe(true);
+    expect(w.service.getSnapshot().engine).toBe("disabled");
+  });
+
+  it("writes 'not capturing' to the breaker marker once capture is disabled", async () => {
+    const w = makeWorld();
+    await ready(w);
+    vi.advanceTimersByTime(RESUME_GRACE_MS);
+    const key = [...w.storage.items.keys()].find((k) => k.includes("breakout"))!;
+    expect(JSON.parse(w.storage.getItem(key)!).open[0].capturing).toBe(true);
+    for (let i = 0; i < FAILURES_TO_DISABLE; i++) {
+      w.engine.emit({ t: "encoder-error", fatal: false });
+      w.engine.emit({ t: "recovered" });
+    }
+    expect(w.service.getSnapshot().engine).toBe("disabled");
+    // A later death of the tab (an iOS kill in the background) is not a capture crash.
+    expect(JSON.parse(w.storage.getItem(key)!).open[0].capturing).toBe(false);
+  });
+
+  it("hides the button (no-tier) when the engine finds no encoder for the game's picture", async () => {
+    const w = makeWorld();
+    await warming(w);
+    w.engine.emit({ t: "unavailable", reason: "no-encoder" });
+    expect(w.service.getSnapshot()).toMatchObject({ button: "hidden", reason: "no-tier" });
+  });
+
+  it("disables capture when the engine gave up after failed arms in a row", async () => {
+    const w = makeWorld();
+    await warming(w);
+    w.engine.emit({ t: "unavailable", reason: "failing" });
+    expect(w.service.getSnapshot()).toMatchObject({ engine: "disabled", button: "disabled", reason: "encoder-error" });
+  });
+});
+
+describe("export while the game is paused (plan 7)", () => {
+  it("closes the live encoder from SUSPENDED (the game is at a break), then goes back to the break", async () => {
+    const w = makeWorld();
+    const game = await ready(w);
+    game.setAtBreak(true);
+    expect(w.service.getSnapshot().engine).toBe("suspended");
+    let during = "";
+    await w.service.runExport(async () => {
+      during = w.service.getSnapshot().engine;
+    });
+    expect(during).toBe("exporting");
+    expect(w.engine.closed).toEqual(["export"]);
+    expect(w.service.getSnapshot().engine).toBe("suspended");
+    expect(w.engine.paused.has("export")).toBe(false);
+  });
+
+  it("closes it from RESTING too, and from a recording", async () => {
+    const w = makeWorld();
+    await ready(w);
+    w.engine.emit({ t: "governor", level: { kind: "resting", k: 0, fps: 0, scale: 0.5, keepSeconds: null }, resting: true });
+    await w.service.runExport(async () => expect(w.service.getSnapshot().engine).toBe("exporting"));
+    expect(w.service.getSnapshot().engine).toBe("resting");
+    w.engine.emit({ t: "governor", level: { kind: "rung", k: 2, fps: 30, scale: 1, keepSeconds: null }, resting: false });
+    await w.service.startRecording();
+    await w.service.runExport(async () => expect(w.service.getSnapshot().engine).toBe("exporting"));
+    expect(w.service.getSnapshot().engine).toBe("recording");
+    expect(w.engine.closed).toEqual(["export", "export"]);
+  });
+
+  it("runs the task with nothing to close before capture started", async () => {
+    const w = makeWorld();
+    w.service.attach(gameAttachment(w));
+    await flush();
+    await w.service.runExport(async () => expect(w.service.getSnapshot().engine).toBe("idle"));
+    expect(w.engine.closed).toEqual([]);
+  });
+});
+
+describe("Record from a break (pause menu, result chip)", () => {
+  it("enters RECORDING when play resumes, and Stop goes back to BUFFERING", async () => {
+    const w = makeWorld();
+    const game = await ready(w);
+    game.setAtBreak(true);
+    expect(await w.service.startRecording()).toBeNull();
+    expect(w.service.getSnapshot()).toMatchObject({ engine: "suspended", button: "recording" });
+    game.setAtBreak(false);
+    expect(w.service.getSnapshot()).toMatchObject({ engine: "recording", button: "recording" });
+    await w.service.stopRecording();
+    expect(w.service.getSnapshot().engine).toBe("buffering");
+  });
+
+  it("reports every part of a long recording (never silent), with the failed count", async () => {
+    const w = makeWorld();
+    await ready(w);
+    await w.service.startRecording();
+    w.engine.play(200);
+    const entry = w.engine.recordings[0];
+    const part = (id: string, startUs: number, endUs: number) => ({ record: recordOf(entry.meta, id), startUs, endUs });
+    entry.parts = [part(entry.meta.id, 5e6, 90e6), part(`${entry.meta.id}-p2`, 90e6, 170e6), part(`${entry.meta.id}-p3`, 170e6, 205e6)];
+    const result = await w.service.stopRecording();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.record.id).toBe(entry.meta.id);
+    expect(result.parts?.map((r) => r.id)).toEqual([entry.meta.id, `${entry.meta.id}-p2`, `${entry.meta.id}-p3`]);
+    expect(result.failedParts).toBe(0);
+    expect(w.service.getSnapshot().lastResult).toBe(result);
+  });
+});
+
+describe("extend only replaces a clip it holds all of (plan 11.1)", () => {
+  /** An engine clip that the ring bounds: a 30 s ring (every iPad), like the real clip assembler. */
+  function ringOf(w: World, ringSec: number) {
+    const base = w.engine.clipResult;
+    w.engine.clipResult = async (request) => {
+      const made = await base(request);
+      const ringStartUs = Math.max(0, w.engine.mediaEnd - ringSec * 1e6);
+      if (made.startUs >= ringStartUs) return made;
+      const record = { ...made.record, durationMs: Math.round((made.endUs - ringStartUs) / 1000) };
+      w.rows.set(record.id, record);
+      return { ...made, record, startUs: ringStartUs };
+    };
+  }
+
+  it("keeps both clips when a 30 s ring cannot reach the first clip's start", async () => {
+    const w = makeWorld();
+    await ready(w);
+    ringOf(w, 30);
+    w.engine.play(41.3);
+    // The first clip: the last 30 s ([16.3, 46.3]).
+    const first = await resultOf(press(w, 100));
+    vi.advanceTimersByTime(4000);
+    w.engine.play(4);
+    const second = press(w, 100);
+    expect(second.kind).toBe("extend");
+    const result = await resultOf(second);
+    // The ring starts at 20.3 s now: the longer clip would lose 4 s of the first one.
+    expect(result).toMatchObject({ ok: true, action: "clip" });
+    expect(w.library.remove).not.toHaveBeenCalled();
+    expect(w.rows.size).toBe(2);
+    expect(first.ok && w.rows.has(first.record.id)).toBe(true);
+    expect(w.service.getSnapshot().unwatchedClipId).toBe(result.ok ? result.record.id : null);
+  });
+
+  it("keeps both clips when an encoder recovery cut the new clip to its newest epoch", async () => {
+    const w = makeWorld();
+    await ready(w);
+    w.engine.play(40);
+    const first = await resultOf(press(w, 100));
+    vi.advanceTimersByTime(2000);
+    w.engine.play(2);
+    const base = w.engine.clipResult;
+    w.engine.clipResult = async (request) => {
+      const made = await base(request);
+      // The clip assembler starts the clip after a different-avcC epoch (cutToNewestEpoch).
+      return { ...made, startUs: made.endUs - 3e6 };
+    };
+    const result = await resultOf(press(w, 100));
+    expect(result).toMatchObject({ ok: true, action: "clip" });
+    expect(w.library.remove).not.toHaveBeenCalled();
+    expect(first.ok && w.rows.has(first.record.id)).toBe(true);
+  });
+
+  it("still replaces the first clip when the ring holds all of it (60 s ring)", async () => {
+    const w = makeWorld();
+    await ready(w);
+    ringOf(w, 60);
+    w.engine.play(41.3);
+    const first = await resultOf(press(w, 100));
+    vi.advanceTimersByTime(4000);
+    w.engine.play(4);
+    expect(await resultOf(press(w, 100))).toMatchObject({ ok: true, action: "extend" });
+    expect(w.library.remove).toHaveBeenCalledWith(first.ok ? first.record.id : "");
+    expect(w.rows.size).toBe(1);
+  });
+});
+
+describe("owner changes never leak a clip to the next player (plan 7.1, 8.1)", () => {
+  it("a purge clears the last result, the chip and the made mark", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    await ready(w);
+    await resultOf(press(w, 100));
+    expect(w.service.getSnapshot()).toMatchObject({ button: "made" });
+    expect(w.service.getSnapshot().lastResult).not.toBeNull();
+    await w.service.setSessionUser("kid-2");
+    const snap = w.service.getSnapshot();
+    expect(snap.lastResult).toBeNull();
+    expect(snap.unwatchedClipId).toBeNull();
+    expect(snap.button).not.toBe("made");
+  });
+
+  it("a clip that finishes after the owner changed is kept for its maker and never shown to the new owner", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    await ready(w);
+    let release: () => void = () => undefined;
+    const base = w.engine.clipResult;
+    w.engine.clipResult = async (req) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return base(req);
+    };
+    const outcome = press(w, 100);
+    await w.service.setSessionUser("kid-2");
+    release();
+    const result = await resultOf(outcome);
+    expect(result).toMatchObject({ ok: false, reason: "hidden" });
+    // Stored under kid-1 (the meta was made at the press).
+    const stored = [...w.rows.values()][0];
+    expect(stored.ownerKey).toBe(await keyOf("kid-1"));
+    const snap = w.service.getSnapshot();
+    expect(snap.lastResult).toBeNull();
+    expect(snap.unwatchedClipId).toBeNull();
+    expect(snap.button).not.toBe("error");
+  });
+
+  it("a recording that stops because of the owner change is kept, and not shown to the new owner", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    await ready(w);
+    await w.service.startRecording();
+    w.engine.play(3);
+    await w.service.setSessionUser("kid-2");
+    await flush();
+    expect(w.engine.recordings[0].stopped).toBe(true);
+    const snap = w.service.getSnapshot();
+    expect(snap.lastResult).toBeNull();
+    expect(snap.unwatchedClipId).toBeNull();
+  });
+
+  it("refuses clip, Record and picture while the owner is read again after a bfcache restore", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    await ready(w);
+    w.offline.value = true;
+    const show = new Event("pageshow") as Event & { persisted: boolean };
+    Object.defineProperty(show, "persisted", { value: true });
+    w.win.dispatchEvent(show);
+    await flush();
+    expect(w.engine.paused.has("owner")).toBe(true);
+    expect(press(w, 100)).toEqual({ kind: "ignored", reason: "hidden" });
+    expect(await w.service.clipLast()).toMatchObject({ ok: false, reason: "hidden" });
+    expect(await w.service.startRecording()).toMatchObject({ ok: false, action: "record", reason: "hidden" });
+    expect(await w.service.takePicture()).toMatchObject({ ok: false, action: "picture", reason: "hidden" });
+    expect(w.engine.clipRequests).toHaveLength(0);
+    expect(w.engine.recordings).toHaveLength(0);
+  });
+
+  it("after an offline bfcache restore it purges once, keeps capture paused, and retries until the owner is read", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    await ready(w);
+    w.offline.value = true;
+    const show = new Event("pageshow") as Event & { persisted: boolean };
+    Object.defineProperty(show, "persisted", { value: true });
+    w.win.dispatchEvent(show);
+    await flush();
+    expect(w.engine.purges).toBe(1);
+    await vi.advanceTimersByTimeAsync(OWNER_RETRY_MS);
+    await vi.advanceTimersByTimeAsync(OWNER_RETRY_MS * 2);
+    expect(w.engine.purges).toBe(1);
+    expect(w.engine.paused.has("owner")).toBe(true);
+    // Back online: the retry runs at once, and capture resumes for the same owner.
+    w.offline.value = false;
+    w.userId.value = "kid-1";
+    w.win.dispatchEvent(new Event("online"));
+    await flush();
+    expect(w.engine.paused.has("owner")).toBe(false);
+    expect(w.service.getSnapshot().engine).toBe("buffering");
+  });
+
+  it("keeps a known owner when next-auth says 'no session' only because it is offline", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    await ready(w);
+    w.io.setOwnerKey.mockClear();
+    w.offline.value = true;
+    w.bus.publish(null);
+    await flush();
+    expect(w.engine.purges).toBe(0);
+    expect(w.io.setOwnerKey).not.toHaveBeenCalled();
+    // Online, and really signed out: a purge (user to guest).
+    w.offline.value = false;
+    w.userId.value = null;
+    w.bus.publish("kid-1");
+    w.bus.publish(null);
+    await flush();
+    expect(w.engine.purges).toBe(1);
+  });
+});
+
+describe("the guest-keep rule across the /login page (plan 7.1)", () => {
+  it("keeps the guest ring when sign-in on /login completes within 60 s of the run's end, with the game detached", async () => {
+    const w = makeWorld();
+    w.bus.publish(null);
+    await flush();
+    const game = await ready(w);
+    game.runPhase("end");
+    // The kid taps Sign In: the game page unmounts.
+    game.detach();
+    vi.advanceTimersByTime(30_000);
+    // The /login page signs in (client side): the session bus hears it, no game is mounted.
+    w.userId.value = "kid-1";
+    w.bus.publish("kid-1");
+    await flush();
+    expect(w.engine.purges).toBe(0);
+    // Back to the game 2 minutes later (the ring is kept 5 min): still the same ring.
+    vi.advanceTimersByTime(120_000);
+    w.service.attach(gameAttachment(w));
+    await flush();
+    expect(w.engine.purges).toBe(0);
+  });
+
+  it("purges the guest ring when the sign-in comes later than 60 s after the run's end", async () => {
+    const w = makeWorld();
+    w.bus.publish(null);
+    await flush();
+    const game = await ready(w);
+    game.runPhase("end");
+    game.detach();
+    vi.advanceTimersByTime(GUEST_KEEP_MS + 1000);
+    w.userId.value = "kid-1";
+    w.bus.publish("kid-1");
+    await flush();
+    expect(w.engine.purges).toBe(1);
+  });
+});
+
 describe("the tab singleton", () => {
   it("is null until started, the same object after, and null again after a reset", () => {
     expect(getClipService()).toBeNull();
@@ -946,10 +1376,11 @@ describe("the tab singleton", () => {
       loadEngine: async () => new FakeEngine(),
       io: {
         libraryApi: () => ({}) as ClipLibraryApi,
-        ownerKey: async () => "guest",
+        resolveOwner: async () => ({ key: "guest", confirmed: true }),
         setOwnerKey: () => undefined,
         update: async () => ({}) as ClipRecord,
       } as unknown as ServiceIo,
+      sessionBus: null,
     });
     expect(started).not.toBeNull();
     expect(getClipService()).toBe(started);

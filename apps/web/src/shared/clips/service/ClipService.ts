@@ -7,12 +7,30 @@
  *   events, the page lifecycle (lifecycle.ts), the owner and the crash
  *   breaker (breaker.ts);
  * - the plan 11.1 tap rules: pointerdown freezes the ring end; a release
- *   under HOLD_FOR_MENU_MS commits a clip; a still hold of HOLD_FOR_MENU_MS
- *   or more opens the Capture menu and commits nothing; a tap within
- *   EXTEND_WINDOW_MS of the last clip makes that clip longer (the longer clip
- *   replaces it, so the library keeps one row);
+ *   under HOLD_FOR_MENU_MS commits a clip (also when the browser cancelled
+ *   the press); a still hold of HOLD_FOR_MENU_MS or more opens the Capture
+ *   menu and commits nothing; a tap within EXTEND_WINDOW_MS of the last clip
+ *   makes that clip longer. The longer clip replaces the last clip only when
+ *   it contains all of it. When the ring cannot reach back that far (a 30 s
+ *   ring, or an encoder recovery cut the clip to its newest epoch), both
+ *   clips stay and the new one is a plain clip, so no footage is lost;
  * - the clip button (plan 11.3), with "made" for 1.2 s and "error" for 3 s;
  * - immutable snapshots that change identity only when a field changes.
+ *
+ * Breaks: an attached game plays until something says it is at a break
+ * (setAtBreak: the start card, the pause menu, a game's own isPlaying).
+ *
+ * Owners (plan 7.1): the session bus (registry.ts) tells the service when
+ * the signed-in player changes, on any page. The end of the ring's last run
+ * is kept on the service (not on one game mount), so a sign-in from the
+ * /login page within 60 s of the run's end keeps the guest ring. Every
+ * action result, the new-clip chip and the last result belong to one owner:
+ * a purge clears them, and an action that ends after an owner change never
+ * shows its clip to the new owner.
+ *
+ * Failures: 4 encoder failures in 60 s (FAILURES_TO_DISABLE) turn capture
+ * off for the tab in every capturing state, also before the first output.
+ * DISABLED stops the engine for good (no re-arm) and lets every source go.
  *
  * The capture engine is loaded with a dynamic import when a clip-enabled game
  * attaches, so nothing heavy reaches a page that has clips off.
@@ -42,7 +60,7 @@ import {
   type ShareOutcome,
 } from "./contract";
 import { EngineFailure, type CaptureEngine, type EngineEvent, type MadeClip, type RecordingHandle } from "./engine";
-import { getIoClient, type IoClient } from "./ioClient";
+import { getIoClient, type IoClient, type SessionBusLike } from "./ioClient";
 import {
   Lifecycle,
   browserLifecycleEnv,
@@ -61,7 +79,7 @@ import {
   type MachineEvent,
   type TransitionContext,
 } from "./machine";
-import { setClipService } from "./registry";
+import { currentSessionUser, onSessionUser, setClipService } from "./registry";
 import { fileNameFor, saveFile, shareFile, type ShareEnv } from "./share";
 import { browserLocks, randomId } from "./webLocks";
 
@@ -80,9 +98,13 @@ export const RESULT_POST_ROLL_MS = 3000;
 export const RECORD_TICK_MS = 1000;
 /** Moments older than this behind the newest frame can no longer be in a clip (a ring holds at most 60 s). */
 export const MOMENT_KEEP_US = 120_000_000;
+/** First wait before the owner is read again after a failed read at a bfcache restore. It doubles each time. */
+export const OWNER_RETRY_MS = 2000;
+/** The longest wait between two owner reads. */
+export const OWNER_RETRY_MAX_MS = 60_000;
 
 /** The parts of the library client that the service uses. */
-export type ServiceIo = Pick<IoClient, "libraryApi" | "ownerKey" | "setOwnerKey" | "update">;
+export type ServiceIo = Pick<IoClient, "libraryApi" | "resolveOwner" | "setOwnerKey" | "update">;
 
 export interface ClipServiceDeps {
   loadEngine?: () => Promise<CaptureEngine>;
@@ -104,7 +126,18 @@ export interface ClipServiceDeps {
   /** iOS: a hidden page closes its encoders at once (plan 7.1). */
   closesEncoderWhenHidden?: boolean;
   shareEnv?: ShareEnv;
+  /** The session bus (registry.ts). null: none (tests). */
+  sessionBus?: SessionBusLike | null;
   log?: (message: string) => void;
+}
+
+/** The ring's last run, kept across detach (plan 7.1 guest-keep rule). */
+interface RingRun {
+  appId: string;
+  /** Page time of the last runPhase("end"), or null. */
+  lastRunEndAtMs: number | null;
+  /** A run started after the last end. */
+  runActive: boolean;
 }
 
 interface SourceReg {
@@ -131,6 +164,8 @@ interface Recording {
   restedAtStart: boolean;
   stars: Array<{ atUs: number; mark: MomentMark }>;
   stopping: Promise<ClipActionResult> | null;
+  /** The owner epoch at the start: the video belongs to that owner. */
+  epoch: number;
 }
 
 type Action = ClipActionResult["action"];
@@ -179,7 +214,12 @@ function safeLocalStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem">
 
 class Attachment implements AttachedGame {
   readonly sources = new Set<SourceReg>();
-  atBreak = true;
+  /**
+   * The game plays until something says it is at a break (the start card and
+   * the pause menu through ClipProvider, or the game's own isPlaying). A game
+   * that only registers its canvas therefore captures.
+   */
+  atBreak = false;
   runActive = false;
   lastRunEndAtMs: number | null = null;
   moments: Array<{ atUs: number; mark: MomentMark }> = [];
@@ -258,13 +298,23 @@ export class ClipService implements ClipServiceApi {
   private lostSource = false;
   private disabledReason: "breaker" | "encoder-error" | null = null;
   private failures: number[] = [];
+  /** FAILURES_TO_DISABLE reached (or the engine gave up): the machine goes to DISABLED from RECOVERING. */
+  private failureLimit = false;
   private held: ClipButtonState | null = null;
   private preRest = false;
 
   // Owner.
   private ownerKey: string | null = null;
+  /** Capture may use ownerKey now. False while the owner is read again (bfcache restore). */
   private ownerConfirmed = false;
   private ownerCheck = 0;
+  /** Bumps at every owner purge: an action that started for an older owner never shows its result. */
+  private ownerEpoch = 0;
+  /** The owner read after a bfcache restore failed: tries so far (see readOwnerAfterRestore). */
+  private ownerRetries: number | null = null;
+  /** The ring's last run, kept across detach (plan 7.1 guest-keep rule). */
+  private ringRun: RingRun | null = null;
+  private readonly stopSession: () => void;
 
   // Actions.
   private saving = 0;
@@ -308,13 +358,21 @@ export class ClipService implements ClipServiceApi {
       pageHide: (persisted) => this.onPageHide(persisted),
       pageShow: () => this.onPageShow(),
       election: () => this.applyPauses(),
+      online: () => this.retryOwnerNow(),
     };
     this.lifecycle.start(listener);
-    // The first owner: the library client reads the session once.
-    const check = ++this.ownerCheck;
-    void this.io.ownerKey().then((key) => {
-      if (check === this.ownerCheck && this.ownerKey === null) this.acceptOwner(key, false);
-    });
+    const bus = deps.sessionBus === undefined ? { current: currentSessionUser, subscribe: onSessionUser } : deps.sessionBus;
+    this.stopSession = bus ? bus.subscribe((userId) => void this.setSessionUser(userId)) : () => undefined;
+    const known = bus?.current();
+    if (known) {
+      void this.setSessionUser(known.userId);
+    } else {
+      // The first owner: the library client reads the session (or, offline, uses the last known player).
+      const check = ++this.ownerCheck;
+      void this.io.resolveOwner().then((owner) => {
+        if (check === this.ownerCheck && this.ownerKey === null) this.acceptOwner(owner.key, false, owner.confirmed);
+      });
+    }
   }
 
   // ---- store (useSyncExternalStore) ---------------------------------------------
@@ -338,6 +396,8 @@ export class ClipService implements ClipServiceApi {
     this.attached = attachment;
     this.clearNamedTimer("ring-keep");
     this.lostSource = false;
+    // A different game gets an empty ring (the engine purges it), so its run starts over.
+    if (this.ringRun?.appId !== game.appId) this.ringRun = { appId: game.appId, lastRunEndAtMs: null, runActive: false };
     this.lifecycle.wantCapture(true);
     this.publish();
     void this.startGame(attachment);
@@ -450,13 +510,18 @@ export class ClipService implements ClipServiceApi {
     if (this.disabledReason === "breaker") this.disabledReason = null;
     this.state = this.disabledReason === "encoder-error" ? "disabled" : "idle";
     this.held = null;
-    // The engine keeps its ring for RING_KEEP_MS in case the same game comes back.
+    // The ring is kept for RING_KEEP_MS in case the same game comes back. No
+    // codec session and no game sound stay live meanwhile: the engine flushes
+    // and closes its encoders and suspends the audio tap (the source pause
+    // above reached it first). The next registered source wakes it.
+    this.engine?.park();
     this.setNamedTimer("ring-keep", RING_KEEP_MS, () => {
       if (this.attached) return;
       this.engine?.purge();
       this.engine?.disarm();
       this.outputOk = false;
       this.bufferedSec = 0;
+      this.ringRun = null;
     });
     this.publish();
   }
@@ -464,12 +529,18 @@ export class ClipService implements ClipServiceApi {
   /** @internal Attachment API. */
   runPhase(attachment: Attachment, phase: RunPhase): void {
     if (attachment.detached) return;
+    const run = this.ringRun?.appId === attachment.game.appId ? this.ringRun : null;
     if (phase === "start") {
       attachment.runActive = true;
+      if (run) run.runActive = true;
       this.clearNamedTimer("post-roll");
     } else {
       attachment.runActive = false;
       attachment.lastRunEndAtMs = this.now();
+      if (run) {
+        run.runActive = false;
+        run.lastRunEndAtMs = attachment.lastRunEndAtMs;
+      }
     }
     this.applyPauses();
   }
@@ -505,10 +576,16 @@ export class ClipService implements ClipServiceApi {
   endPress(token: PressToken, info: { upAtMs: number; moved: boolean; cancelled?: boolean }): PressOutcome {
     const snap = this.snapshot;
     if (!this.attached || snap.button === "hidden") return { kind: "ignored", reason: snap.reason ?? "flag-off" };
-    if (info.cancelled) return { kind: "ignored", reason: "cancelled" };
+    // While the owner is read again (a bfcache restore), the ring can hold another player's footage.
+    if (!this.ownerConfirmed) return { kind: "ignored", reason: "hidden" };
+    const heldMs = info.upAtMs - token.downAtMs;
+    // Plan 11.1: a tap always means "clip". A browser cancel of a short press
+    // (a pan or a system gesture that took the touch) is still that tap, and
+    // the token froze the ring end. Only a cancelled long press commits nothing.
+    if (info.cancelled && heldMs >= HOLD_FOR_MENU_MS) return { kind: "ignored", reason: "cancelled" };
     const button = snap.button;
     if (button === "recording" || button === "saving" || button === "exporting") return { kind: "ignored", reason: "busy" };
-    if (info.upAtMs - token.downAtMs >= HOLD_FOR_MENU_MS && !info.moved) return { kind: "menu" };
+    if (heldMs >= HOLD_FOR_MENU_MS && !info.moved) return { kind: "menu" };
     switch (button) {
       case "resting":
       case "record-only":
@@ -530,10 +607,19 @@ export class ClipService implements ClipServiceApi {
   }
 
   clipLast(seconds: number = DEFAULT_CLIP_SECONDS, token?: PressToken): Promise<ClipActionResult> {
+    if (!this.ownerConfirmed) return Promise.resolve(this.refuse("clip"));
     if (!this.attached || !this.engine || !this.canClipIn(this.snapshot.button)) {
       return Promise.resolve(this.fail("clip", this.snapshot.reason ?? "warming"));
     }
     return this.commitClip(seconds, token);
+  }
+
+  /**
+   * An action that cannot run while the owner is read again. It fails with
+   * "hidden" (the button shows Suspended then) and changes no snapshot field.
+   */
+  private refuse(action: Action): ClipActionResult {
+    return { ok: false, action, reason: "hidden", atMs: this.now() };
   }
 
   /** States with footage to clip: ready, made, suspended (pre-pause) and resting (pre-rest). */
@@ -588,7 +674,13 @@ export class ClipService implements ClipServiceApi {
       settle = resolve;
     });
     this.lastClip = { committedAtMs: token.downAtMs, ownerKey: previous.ownerKey, made };
+    const epoch = this.ownerEpoch;
     return previous.made.then((shorter) => {
+      // The owner changed while the shorter clip saved: this tap belongs to the previous owner.
+      if (epoch !== this.ownerEpoch) {
+        settle(null);
+        return this.refuse("extend");
+      }
       const job = shorter
         ? this.makeClip(Math.max(DEFAULT_CLIP_SECONDS, (token.endAtUs - shorter.startUs) / 1e6), token, "extend", shorter)
         : this.makeClip(DEFAULT_CLIP_SECONDS, token, "clip", null);
@@ -611,6 +703,7 @@ export class ClipService implements ClipServiceApi {
     });
     this.beginSaving();
     const attachment = this.attached;
+    const epoch = this.ownerEpoch;
     const result = (async (): Promise<ClipActionResult> => {
       try {
         const clip = await engine.clip({
@@ -619,20 +712,31 @@ export class ClipService implements ClipServiceApi {
           meta: this.meta("clip", "c"),
           moments: this.momentsFor(attachment),
           onProgress: (fraction) => {
+            if (epoch !== this.ownerEpoch) return;
             this.savingProgress = Math.max(this.savingProgress ?? 0, Math.min(1, fraction));
             this.publish();
           },
         });
-        // The longer clip is stored: the shorter one goes, so the library keeps one row.
-        if (replaces) await this.library.remove(replaces.record.id).catch(() => undefined);
+        // The longer clip replaces the shorter one only when it holds all of
+        // it. A ring that cannot reach back that far (a 30 s ring, a byte
+        // trim) or an encoder recovery (the clip starts at the newest epoch)
+        // gives a clip that misses the start of the shorter one: both stay,
+        // and this is a plain new clip.
+        const contains = !!replaces && clip.startUs <= replaces.startUs && clip.endUs >= replaces.endUs;
+        if (replaces && contains) await this.library.remove(replaces.record.id).catch(() => undefined);
+        const done: "clip" | "extend" = action === "extend" && contains ? "extend" : "clip";
         settle(clip);
-        if (this.unwatchedClipId === null || this.unwatchedClipId === replaces?.record.id || action === "clip") {
+        // The owner changed while the clip saved: it is stored under the owner who
+        // made it, and the new owner never sees it (no chip, no result).
+        if (epoch !== this.ownerEpoch) return this.refuse(done);
+        if (this.unwatchedClipId === null || this.unwatchedClipId === replaces?.record.id || done === "clip") {
           this.unwatchedClipId = clip.record.id;
         }
-        return this.succeed(action, clip.record);
+        return this.succeed(done, clip.record);
       } catch (error) {
         // A failed extend keeps the shorter clip as the last clip.
         settle(replaces);
+        if (epoch !== this.ownerEpoch) return this.refuse(action);
         return this.fail(action, reasonOf(error));
       } finally {
         this.endSaving();
@@ -653,8 +757,10 @@ export class ClipService implements ClipServiceApi {
     this.publish();
   }
 
-  private succeed(action: Action, record: ClipRecord): ClipActionResult {
-    const result: ClipActionResult = { ok: true, action, record, atMs: this.now() };
+  private succeed(action: Action, record: ClipRecord, recording?: { parts: ClipRecord[]; failedParts: number }): ClipActionResult {
+    const result: ClipActionResult = recording
+      ? { ok: true, action, record, atMs: this.now(), parts: Object.freeze(recording.parts), failedParts: recording.failedParts }
+      : { ok: true, action, record, atMs: this.now() };
     this.lastResult = result;
     this.errorUntilMs = 0;
     this.errorReason = null;
@@ -687,6 +793,7 @@ export class ClipService implements ClipServiceApi {
   async startRecording(): Promise<ClipActionResult | null> {
     const engine = this.engine;
     if (this.recording) return null;
+    if (!this.ownerConfirmed) return this.refuse("record");
     if (!this.attached || !engine || !this.canClipIn(this.snapshot.button)) {
       return this.fail("record", this.snapshot.reason ?? "warming");
     }
@@ -699,6 +806,7 @@ export class ClipService implements ClipServiceApi {
       restedAtStart: this.state === "resting",
       stars: [],
       stopping: null,
+      epoch: this.ownerEpoch,
     };
     this.recording = rec;
     this.elapsedSec = 0;
@@ -707,6 +815,7 @@ export class ClipService implements ClipServiceApi {
       handle = await engine.startRecording(meta);
     } catch (error) {
       if (this.recording === rec) this.recording = null;
+      if (rec.epoch !== this.ownerEpoch) return this.refuse("record");
       return this.fail("record", reasonOf(error));
     }
     rec.handle = handle;
@@ -715,6 +824,8 @@ export class ClipService implements ClipServiceApi {
       void handle.stop().catch(() => undefined);
       return null;
     }
+    // From BUFFERING or RESTING. A Record started at a break (the pause menu,
+    // the result chip) enters RECORDING when play resumes (pending()).
     this.fire("record");
     this.recordTicker = this.setRepeat(() => this.tickRecording(), RECORD_TICK_MS);
     this.settle();
@@ -752,16 +863,21 @@ export class ClipService implements ClipServiceApi {
     this.publish();
     rec.stopping = (async (): Promise<ClipActionResult> => {
       // A recording that never got its tee (it failed to start) has nothing to keep.
-      if (!rec.handle) return this.fail("record", "encoder-error");
+      if (!rec.handle) return rec.epoch === this.ownerEpoch ? this.fail("record", "encoder-error") : this.refuse("record");
       this.beginSaving();
       try {
         const result = await rec.handle.stop();
         const first = result.parts[0];
+        // The stars go into the stored parts (they belong to the owner who recorded).
+        if (first) await this.placeStars(rec, result.parts);
+        // The owner changed meanwhile: the video is kept under its owner, and the new owner never sees it.
+        if (rec.epoch !== this.ownerEpoch) return this.refuse("record");
         if (!first) return this.fail("record", "mux-failed");
-        await this.placeStars(rec, result.parts);
         this.unwatchedClipId = first.record.id;
-        return this.succeed("record", first.record);
+        // Every part, so the kid hears how many videos the recording made (never silent).
+        return this.succeed("record", first.record, { parts: result.parts.map((p) => p.record), failedParts: result.failed });
       } catch (error) {
+        if (rec.epoch !== this.ownerEpoch) return this.refuse("record");
         return this.fail("record", reasonOf(error));
       } finally {
         this.endSaving();
@@ -791,13 +907,18 @@ export class ClipService implements ClipServiceApi {
   async takePicture(): Promise<ClipActionResult> {
     const engine = this.engine;
     const button = this.snapshot.button;
+    if (!this.ownerConfirmed) return this.refuse("picture");
     if (!this.attached || !engine || button === "hidden" || button === "disabled") {
       return this.fail("picture", this.snapshot.reason ?? "source-lost");
     }
+    const epoch = this.ownerEpoch;
     this.beginSaving();
     try {
-      return this.succeed("picture", await engine.picture(this.meta("picture", "p")));
+      const record = await engine.picture(this.meta("picture", "p"));
+      if (epoch !== this.ownerEpoch) return this.refuse("picture");
+      return this.succeed("picture", record);
     } catch (error) {
+      if (epoch !== this.ownerEpoch) return this.refuse("picture");
       return this.fail("picture", reasonOf(error));
     } finally {
       this.endSaving();
@@ -822,14 +943,16 @@ export class ClipService implements ClipServiceApi {
   /**
    * An export session (plan 7: the editor, "Make it longer"). The live encoder
    * is flushed and closed first, so a phone never needs three codec sessions.
-   * Play resumes on a new epoch.
+   * The game is paused for an export, so the service is usually SUSPENDED
+   * then; every state that holds a live encoder (BUFFERING, SUSPENDED,
+   * RESTING, RECORDING) closes it. Play resumes on a new epoch, and the pause,
+   * the rest or the recording comes back (settle()).
    */
   async runExport<T>(task: () => Promise<T>): Promise<T> {
     const engine = this.engine;
-    if (!engine || this.state !== "buffering") return task();
+    if (!engine || !this.fire("export")) return task();
     engine.setPaused("export", true);
     engine.closeEncoder("export");
-    this.fire("export");
     this.publish();
     try {
       return await task();
@@ -867,26 +990,61 @@ export class ClipService implements ClipServiceApi {
 
   // ---- owner (plan 7.1) -----------------------------------------------------------------------
 
-  /** The signed-in user from the React session (ClipProvider). null: a guest. */
+  /**
+   * The signed-in user from the session bus (every page) or a caller. A user
+   * id comes from a successful session read. null can also mean that
+   * next-auth's own read failed (offline), so the service reads the session
+   * itself: a guest is confirmed only by a successful read. When that read
+   * fails too, a known owner stays, and an unknown one falls back like the
+   * library client (the last confirmed player, or guest) outside a bfcache
+   * restore, where capture waits for a real read instead.
+   */
   async setSessionUser(userId: string | null): Promise<void> {
     const check = ++this.ownerCheck;
-    const key = await this.keyFor(userId);
-    if (check === this.ownerCheck) this.acceptOwner(key, false);
+    let id = userId;
+    if (id === null) {
+      try {
+        id = await this.readUserId();
+      } catch {
+        if (check !== this.ownerCheck) return;
+        if (this.ownerKey !== null && this.ownerConfirmed) return;
+        if (this.ownerRetries !== null) {
+          // A bfcache restore waits for a real read. This call took over its
+          // check, so the restore read starts again (and keeps retrying).
+          this.readOwnerAfterRestore();
+          return;
+        }
+        const owner = await this.io.resolveOwner();
+        if (check === this.ownerCheck) this.acceptOwner(owner.key, false, owner.confirmed);
+        return;
+      }
+    }
+    const key = await this.keyFor(id);
+    if (check === this.ownerCheck) this.acceptOwner(key, this.ownerRetries !== null);
   }
 
-  private acceptOwner(key: string, bfcacheRestore: boolean): void {
+  /**
+   * confirmed: the key came from a session read (the library client keeps it
+   * for the tab). A fallback key is used for capture but not given to the
+   * library client, which reads again at its next call.
+   */
+  private acceptOwner(key: string, bfcacheRestore: boolean, confirmed = true): void {
     const from = this.ownerKey;
     this.ownerKey = key;
     this.ownerConfirmed = true;
-    this.io.setOwnerKey(key);
+    this.ownerRetries = null;
+    this.clearNamedTimer("owner-retry");
+    if (confirmed) this.io.setOwnerKey(key);
     if (from !== null && from !== key) {
-      const attachment = this.attached;
+      // The ring's last run, kept across detach: a sign-in on the /login page
+      // (the game is not mounted then) still keeps a guest run of 60 s ago.
+      const run = this.ringRun;
       const action = ownerChangeAction({
         from,
         to: key,
         nowMs: this.now(),
-        lastRunEndAtMs: attachment?.lastRunEndAtMs ?? null,
-        runActive: attachment?.runActive ?? false,
+        lastRunEndAtMs: run?.lastRunEndAtMs ?? null,
+        runActive: run?.runActive ?? false,
         bfcacheRestore,
       });
       if (action === "purge") this.purgeForOwner();
@@ -894,14 +1052,28 @@ export class ClipService implements ClipServiceApi {
     this.applyPauses();
   }
 
+  /**
+   * Nothing of the previous owner stays: the ring, the moments, the last clip
+   * (no extend), the new-clip chip, the last result (a picture of their
+   * gameplay) and its "made" or "error" mark. An action still running ends
+   * without a result for the new owner (ownerEpoch).
+   */
   private purgeForOwner(): void {
     // A recording belongs to the owner who started it: it is kept, under that owner.
     if (this.recording) void this.finishRecording("stop");
+    this.ownerEpoch++;
     this.engine?.purge();
     this.warmStartUs = this.engine?.mediaEndUs() ?? 0;
     this.lastClip = null;
     this.unwatchedClipId = null;
+    this.lastResult = null;
+    this.madeUntilMs = 0;
+    this.errorUntilMs = 0;
+    this.errorReason = null;
+    this.clearNamedTimer("made");
+    this.clearNamedTimer("error");
     if (this.attached) this.attached.moments = [];
+    if (this.ringRun) this.ringRun = { appId: this.ringRun.appId, lastRunEndAtMs: null, runActive: false };
     this.fire("owner-change");
   }
 
@@ -913,6 +1085,7 @@ export class ClipService implements ClipServiceApi {
     // Plan 7.1: on iOS a hidden page flushes and closes its encoders at once
     // (after the pause above, so the timeline pause reaches the worker first).
     if (!visible && this.closesOnHide && this.engine) this.engine.closeEncoder("hidden");
+    if (visible) this.retryOwnerNow();
   }
 
   private onPageHide(persisted: boolean): void {
@@ -929,7 +1102,19 @@ export class ClipService implements ClipServiceApi {
     // Another person may have signed in while the page was in the bfcache:
     // capture waits until the owner is read again.
     this.ownerConfirmed = false;
+    this.ownerRetries = 0;
     this.applyPauses();
+    this.readOwnerAfterRestore();
+  }
+
+  /**
+   * Reads the owner after a bfcache restore. While the read fails (offline),
+   * the ring is purged once and capture stays paused, and the read runs again
+   * on a back-off timer (OWNER_RETRY_MS doubled, at most OWNER_RETRY_MAX_MS),
+   * at "online" and when the page is visible again.
+   */
+  private readOwnerAfterRestore(): void {
+    this.clearNamedTimer("owner-retry");
     const check = ++this.ownerCheck;
     void (async () => {
       let key: string | null = null;
@@ -938,17 +1123,28 @@ export class ClipService implements ClipServiceApi {
       } catch {
         key = null;
       }
-      if (check !== this.ownerCheck) return;
+      if (check !== this.ownerCheck || this.ownerRetries === null) return;
       if (key === null) {
-        // The owner cannot be read: the ring is never reused, and capture stays paused.
-        this.log("[clips] the signed-in user could not be read after a back navigation");
-        this.purgeForOwner();
-        this.publish();
+        if (this.ownerRetries === 0) {
+          // The owner cannot be read: the ring is never reused, and capture stays paused.
+          this.log("[clips] the signed-in user could not be read after a back navigation; trying again");
+          this.purgeForOwner();
+          this.publish();
+        }
+        this.ownerRetries++;
+        const wait = Math.min(OWNER_RETRY_MAX_MS, OWNER_RETRY_MS * 2 ** (this.ownerRetries - 1));
+        this.setNamedTimer("owner-retry", wait, () => this.readOwnerAfterRestore());
         return;
       }
       if (this.attached) void this.breaker.begin(this.attached.game.appId).catch(() => undefined);
       this.acceptOwner(key, true);
     })();
+  }
+
+  /** The owner read after a restore is waiting: try it now (online again, or visible again). */
+  private retryOwnerNow(): void {
+    if (this.ownerRetries === null || this.ownerRetries === 0) return;
+    this.readOwnerAfterRestore();
   }
 
   /** True while the game is at a break that capture should skip (plan 11.1; the result post-roll is kept). */
@@ -981,11 +1177,17 @@ export class ClipService implements ClipServiceApi {
     this.publish();
   }
 
+  /**
+   * Writes the truth to the crash-breaker marker every time: capturing only
+   * while frames flow. A disabled or unsupported game is never "capturing",
+   * so a later death of the tab is never counted as a capture crash.
+   */
   private markCapturing(): void {
     const attachment = this.attached;
-    if (!attachment || !this.supported || this.disabledReason !== null) return;
+    if (!attachment) return;
     const flowing = this.state === "warming" || this.state === "bridged" || this.state === "buffering" || this.state === "recording";
-    this.breaker.setCapturing(attachment.game.appId, flowing && !this.suspendedNow());
+    const capturing = this.supported && this.disabledReason === null && flowing && !this.suspendedNow();
+    this.breaker.setCapturing(attachment.game.appId, capturing);
   }
 
   // ---- engine events --------------------------------------------------------------------------------
@@ -1041,12 +1243,29 @@ export class ClipService implements ClipServiceApi {
         this.lastClip = null;
         if (this.attached) this.attached.moments = [];
         break;
+      case "unavailable":
+        if (event.reason === "no-encoder") {
+          // A fresh probe found no encoder for this game's picture: no clip button (no-tier).
+          this.log("[clips] this device cannot encode this game's picture");
+          this.supported = false;
+        } else {
+          // The engine stopped after failed arms in a row: capture turns off for the tab.
+          this.recovering = true;
+          this.failureLimit = true;
+        }
+        break;
     }
     this.settle();
     this.markCapturing();
     this.publish();
   }
 
+  /**
+   * A video failure. Every capturing state counts it (also WARMING and
+   * BRIDGED, before the first output), except in the resume grace (plan 7.1).
+   * FAILURES_TO_DISABLE in FAILURE_WINDOW_MS turn capture off for the tab:
+   * the machine goes on to DISABLED from RECOVERING (pending()).
+   */
   private onEncoderError(fatal: boolean): void {
     if (fatal) this.outputOk = false;
     this.recovering = true;
@@ -1055,13 +1274,25 @@ export class ClipService implements ClipServiceApi {
       this.failures = this.failures.filter((at) => now - at < FAILURE_WINDOW_MS);
       this.failures.push(now);
     }
+    if (this.failures.length >= FAILURES_TO_DISABLE) this.failureLimit = true;
+    // A recording closes its part (RECORDING -> RECOVERING). The other
+    // capturing states take the encoder-error edge in settle().
     if (this.recording) void this.finishRecording("encoder-error");
-    else this.fire("encoder-error");
-    if (this.failures.length >= FAILURES_TO_DISABLE && this.state === "recovering") {
-      this.disabledReason = "encoder-error";
-      this.fire("disable");
-      this.engine?.disarm();
+  }
+
+  /**
+   * DISABLED: capture is off (the breaker, or FAILURES_TO_DISABLE). The
+   * engine stops for good (disarm: no re-arm timer, no forced probe) and every
+   * source the service gave it goes, so nothing can arm it again.
+   */
+  private stopForDisabled(): void {
+    if (this.disabledReason === null) this.disabledReason = "encoder-error";
+    for (const reg of this.attached?.sources ?? []) {
+      const dispose = reg.dispose;
+      reg.dispose = null;
+      dispose?.();
     }
+    this.engine?.disarm();
   }
 
   // ---- the machine ---------------------------------------------------------------------------------------
@@ -1095,6 +1326,7 @@ export class ClipService implements ClipServiceApi {
       if (previous === "recovering") this.clearNamedTimer("recovering-quiet");
     }
     this.state = next;
+    if (next === "disabled") this.stopForDisabled();
   }
 
   /** Level facts that must hold in the current state, applied as plan 7 edges only. */
@@ -1111,13 +1343,18 @@ export class ClipService implements ClipServiceApi {
       case "idle":
         return canCapture && this.sourcePresent ? "source-registered" : null;
       case "warming":
+        // A failure before the first output counts too (it can reach DISABLED).
+        if (this.recovering) return "encoder-error";
         return this.outputOk ? "output-ok" : null;
       case "bridged":
+        if (this.recovering) return "encoder-error";
         return this.outputOk ? "hardware-ready" : null;
       case "buffering":
         if (!this.sourcePresent) return "canvas-gone";
         if (this.recovering) return "encoder-error";
         if (this.governorResting) return "governor-severe";
+        // A Record started at a break (pause menu, result chip) records from here.
+        if (this.recording?.handle) return "record";
         return this.suspendedNow() ? "suspend" : null;
       case "recording":
         if (!this.sourcePresent) return "canvas-gone";
@@ -1130,6 +1367,7 @@ export class ClipService implements ClipServiceApi {
       case "source-lost":
         return this.sourcePresent ? "re-registered" : null;
       case "recovering":
+        if (this.failureLimit) return "disable";
         return !this.recovering && this.outputOk ? "recreated" : null;
       default:
         return null;
@@ -1196,6 +1434,7 @@ export class ClipService implements ClipServiceApi {
 
   private setNamedTimer(name: string, ms: number, fn: () => void): void {
     this.clearNamedTimer(name);
+    if (this.disposed) return;
     const handle = this.setTimer(() => {
       if (this.timers.get(name) === handle) this.timers.delete(name);
       fn();
@@ -1217,6 +1456,7 @@ export class ClipService implements ClipServiceApi {
     this.disposed = true;
     for (const name of [...this.timers.keys()]) this.clearNamedTimer(name);
     if (this.recordTicker !== null) this.clearRepeat(this.recordTicker);
+    this.stopSession();
     this.lifecycle.stop();
     this.engine?.dispose();
     this.listeners.clear();

@@ -9,7 +9,8 @@
  * - pagehide / pageshow (bfcache): "persisted" pagehide means the page may
  *   come back from the back/forward cache. At pageshow with persisted true the
  *   service reads the signed-in user again, because another person may have
- *   signed in meanwhile.
+ *   signed in meanwhile. When that read fails (offline), the service tries
+ *   again at "online", at the next visible, and on a back-off timer.
  * - Web Locks election: only the focused tab captures. A tab that wants to
  *   capture takes the lock "hh-clips-capture" with steal when it is visible
  *   and focused; the tab it took the lock from stops ("other-tab"). A hidden
@@ -17,7 +18,9 @@
  * - Owner changes (ownerChangeAction): the ring of a guest run is kept only
  *   when sign-in completes within 60 s of that run's end, in this tab, with no
  *   new run. Every other change purges the ring: user to other user, user to
- *   guest, and a bfcache restore with a different owner.
+ *   guest, and a bfcache restore with a different owner. The service keeps
+ *   the run's end for the ring (not for one game mount), and hears a sign-in
+ *   on the session bus when it happens, also on the /login page.
  *
  * Nothing touches window, document or navigator at import time.
  */
@@ -109,6 +112,8 @@ export interface LifecycleListener {
   pageShow(persisted: boolean): void;
   /** This tab won (true) or lost (false) the capture election. */
   election(owns: boolean): void;
+  /** The browser is online again (a read that failed offline can be tried again). */
+  online?(): void;
 }
 
 export function browserLifecycleEnv(locks: WebLocksLike | null): LifecycleEnv {
@@ -179,6 +184,7 @@ export class Lifecycle {
       this.listener?.pageShow(true);
       this.elect();
     });
+    on(this.env.win, "online", () => this.listener?.online?.());
   }
 
   stop(): void {

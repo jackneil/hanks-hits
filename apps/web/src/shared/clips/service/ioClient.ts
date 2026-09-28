@@ -15,14 +15,39 @@
  *   { updated: id } on the "hh-clips" BroadcastChannel. Eviction reads those
  *   flags, so a clip that the kid has not watched is never evicted.
  * - Files from file() carry the plan 12 name, from this deployment's host.
+ *   file() gives only a clip of the current owner (plan 8.1 partitions).
+ *
+ * The owner (plan 8.1 owner partitions):
+ * - A successful session read, a session user from the session bus
+ *   (registry.ts), or setOwnerKey() from the clip service CONFIRMS the owner
+ *   for this tab. A confirmed owner is kept until the session bus says the
+ *   session changed; then the next call reads the session again. So a
+ *   client-side sign-in (the /login page, then router.push) changes the
+ *   partition on My Clips too, where no game is mounted.
+ * - A failed read (offline, or the endpoint is down) is NEVER kept. The call
+ *   uses the last owner this browser confirmed (OWNER_MEMORY_ITEM), so a
+ *   signed-in kid who opens My Clips offline sees their own clips (plan 8.1:
+ *   My Clips works offline). With no remembered owner it uses the guest
+ *   partition, which every player on the device can see anyway. The next
+ *   call reads again.
+ * - OWNER_MEMORY_ITEM ends in "-storage", so signOutAndClear() removes it
+ *   (lib/storage-keys.ts). After a sign-out, an offline read therefore never
+ *   opens the partition of the player who signed out.
  */
 
 import type { ClipKind, ClipMeta, ClipPackets, ClipRecord, IoCmd, IoEvent, MemoryClass } from "../protocol";
-import { GUEST_OWNER_KEY, ownerKeyFor } from "../library/ownerKey";
+import { GUEST_OWNER_KEY, isOwnerKey, ownerKeyFor } from "../library/ownerKey";
 import { LIBRARY_CHANNEL } from "../library/shared";
 import type { ClipLibraryApi } from "./contract";
 import { readSessionUserId } from "./lifecycle";
+import { currentSessionUser, onSessionUser } from "./registry";
 import { renameFile } from "./share";
+
+/**
+ * The last owner key this browser confirmed (a salted hash or "guest", never a
+ * user id). The "-storage" suffix makes signOutAndClear() remove it.
+ */
+export const OWNER_MEMORY_ITEM = "hh-clips-owner-storage";
 
 type IoErrorCode = Extract<IoEvent, { t: "error" }>["code"] | "worker-failed";
 
@@ -57,9 +82,29 @@ export interface IoClientOptions {
   host?: () => string;
   /** The "hh-clips" channel. Default: a BroadcastChannel, or null where there is none. */
   openChannel?: () => ChannelLike | null;
-  /** The signed-in user id, read when the owner is first needed. Default: /api/auth/session. */
+  /** The signed-in user id, read when the owner is needed. Default: /api/auth/session. */
   readUserId?: () => Promise<string | null>;
+  /** The session bus (registry.ts). null: no bus (tests). */
+  sessionBus?: SessionBusLike | null;
+  /** Where the last confirmed owner is kept. Default: localStorage. null: nowhere. */
+  ownerMemory?: Pick<Storage, "getItem" | "setItem"> | null;
   log?: (message: string) => void;
+}
+
+/** The session bus that the client listens to (registry.ts). */
+export interface SessionBusLike {
+  current(): { userId: string | null } | null;
+  subscribe(listener: (userId: string | null) => void): () => void;
+}
+
+const defaultSessionBus: SessionBusLike = { current: currentSessionUser, subscribe: onSessionUser };
+
+function safeLocalStorage(): Pick<Storage, "getItem" | "setItem"> | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
 }
 
 interface Pending {
@@ -97,12 +142,21 @@ export class IoClient {
   private readonly pending = new Map<number, Pending>();
   private readonly listeners = new Set<() => void>();
   private channel: ChannelLike | null = null;
-  private owner: Promise<string> | null = null;
+  /** The owner confirmed in this tab (see the file comment), or null when it must be read. */
+  private owner: string | null = null;
+  /** A session read in flight, shared by the calls that wait for it. */
+  private ownerRead: Promise<{ key: string; confirmed: boolean }> | null = null;
+  /** Bumps at each owner change, so an older read never overrides a newer owner. */
+  private ownerVersion = 0;
   private memoryClass: MemoryClass | null = null;
+  /** Record videos saved from a tab that closed or crashed while it recorded, not yet taken by the UI. */
+  private recovered: ClipRecord[] = [];
   private readonly createWorker: () => Promise<IoWorkerLike>;
   private readonly host: () => string;
   private readonly openChannel: () => ChannelLike | null;
   private readonly readUserId: () => Promise<string | null>;
+  private readonly ownerMemory: Pick<Storage, "getItem" | "setItem"> | null;
+  private readonly stopSession: () => void;
   private readonly log: (message: string) => void;
 
   constructor(options: IoClientOptions = {}) {
@@ -110,25 +164,94 @@ export class IoClient {
     this.host = options.host ?? (() => (typeof location !== "undefined" ? location.host : ""));
     this.openChannel = options.openChannel ?? defaultChannel;
     this.readUserId = options.readUserId ?? (() => readSessionUserId());
+    this.ownerMemory = options.ownerMemory === undefined ? safeLocalStorage() : options.ownerMemory;
     this.log = options.log ?? ((m) => console.warn(m));
+    const bus = options.sessionBus === undefined ? defaultSessionBus : options.sessionBus;
+    this.stopSession = bus ? bus.subscribe((userId) => this.sessionChanged(userId)) : () => undefined;
+    const known = bus?.current();
+    if (known && known.userId !== null) this.sessionChanged(known.userId);
   }
 
   // ---- owner ---------------------------------------------------------------
 
-  /** The owner key of the library now. The first call reads the signed-in user. */
+  /** The owner key of the library now (see the file comment). */
   ownerKey(): Promise<string> {
-    if (!this.owner) {
-      this.owner = this.readUserId()
-        .then((id) => ownerKeyFor(id))
-        .catch(() => GUEST_OWNER_KEY);
-    }
-    return this.owner;
+    return this.resolveOwner().then((owner) => owner.key);
   }
 
-  /** The signed-in user changed (or was read by the caller). */
+  /**
+   * The owner now, and whether it is confirmed (a session read or the session
+   * bus) or only the offline fallback (the last confirmed owner, or guest).
+   */
+  resolveOwner(): Promise<{ key: string; confirmed: boolean }> {
+    if (this.owner !== null) return Promise.resolve({ key: this.owner, confirmed: true });
+    if (this.ownerRead) return this.ownerRead;
+    const version = this.ownerVersion;
+    const read = this.readOwner(version).finally(() => {
+      if (this.ownerRead === read) this.ownerRead = null;
+    });
+    this.ownerRead = read;
+    return read;
+  }
+
+  private async readOwner(version: number): Promise<{ key: string; confirmed: boolean }> {
+    try {
+      const key = await ownerKeyFor(await this.readUserId());
+      if (version === this.ownerVersion) this.confirmOwner(key);
+      return { key: this.owner ?? key, confirmed: true };
+    } catch (error) {
+      // Values-free: the error type only. Not kept: the next call reads again.
+      this.log(`[clips] the signed-in player could not be read (${(error as { name?: string } | null)?.name ?? "Error"}); using the last known player`);
+      if (this.owner !== null) return { key: this.owner, confirmed: true };
+      return { key: this.rememberedOwner() ?? GUEST_OWNER_KEY, confirmed: false };
+    }
+  }
+
+  /** The clip service confirmed the owner (it read the session, or the session bus told it). */
   setOwnerKey(ownerKey: string): void {
-    this.owner = Promise.resolve(ownerKey);
+    const changed = this.owner !== ownerKey;
+    this.ownerVersion++;
+    this.ownerRead = null;
+    this.confirmOwner(ownerKey);
+    if (changed) this.notify();
+  }
+
+  /** The session changed: a user id confirms that user; null makes the next call read again. */
+  private sessionChanged(userId: string | null): void {
+    const version = ++this.ownerVersion;
+    this.owner = null;
+    this.ownerRead = null;
+    if (userId !== null) {
+      // A user id from next-auth comes from a successful session read.
+      void ownerKeyFor(userId).then(
+        (key) => {
+          if (version === this.ownerVersion) this.confirmOwner(key);
+          this.notify();
+        },
+        () => this.notify(),
+      );
+      return;
+    }
     this.notify();
+  }
+
+  private confirmOwner(key: string): void {
+    this.owner = key;
+    try {
+      this.ownerMemory?.setItem(OWNER_MEMORY_ITEM, key);
+    } catch {
+      // Storage full or blocked: only the offline fallback loses it.
+    }
+  }
+
+  /** The last owner this browser confirmed, or null. */
+  private rememberedOwner(): string | null {
+    try {
+      const value = this.ownerMemory?.getItem(OWNER_MEMORY_ITEM) ?? null;
+      return isOwnerKey(value) ? value : null;
+    } catch {
+      return null;
+    }
   }
 
   // ---- commands ------------------------------------------------------------
@@ -260,8 +383,16 @@ export class IoClient {
         );
       },
       file: async (id) => {
-        const { file, record } = await this.read(id);
+        const [{ file, record }, owner] = await Promise.all([this.read(id), this.ownerKey()]);
+        // Another player's clip is never handed out (plan 8.1 owner partitions).
+        if (record.ownerKey !== owner) throw new IoError("not-found", "the clip is not in this player's library");
         return renameFile(file, record, this.host());
+      },
+      takeRecovered: async () => {
+        const owner = await this.ownerKey();
+        const mine = this.recovered.filter((r) => r.ownerKey === owner);
+        this.recovered = this.recovered.filter((r) => r.ownerKey !== owner);
+        return mine;
       },
       setKept: async (id, kept) => {
         await this.update(id, { kept });
@@ -277,6 +408,7 @@ export class IoClient {
 
   /** Stops the worker (tests). */
   dispose(): void {
+    this.stopSession();
     const worker = this.worker;
     this.worker = null;
     void worker?.then((w) => w.terminate()).catch(() => undefined);
@@ -389,6 +521,12 @@ export class IoClient {
       return;
     }
     if (event?.t === "reconciled") {
+      this.notify();
+      return;
+    }
+    if (event?.t === "recovered") {
+      // Record videos that a closed or crashed tab left (plan 8.4). The UI takes them once, per owner.
+      this.recovered.push(...event.records);
       this.notify();
       return;
     }

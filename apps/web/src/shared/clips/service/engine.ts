@@ -52,7 +52,15 @@ export type EngineEvent =
    * starts a new capture timeline at 0. Footage and timeline positions from
    * before (the last clip, moments) are no longer valid.
    */
-  | { t: "reset" };
+  | { t: "reset" }
+  /**
+   * The engine stopped trying to capture on this device for this game:
+   * - "no-encoder": a fresh probe found no encoder for the source (the
+   *   device refused the settings that the first probe accepted);
+   * - "failing": ARM_FAILURE_LIMIT arms in a row failed before any output.
+   * The engine arms again only after the next setGame() or a new source.
+   */
+  | { t: "unavailable"; reason: "no-encoder" | "failing" };
 
 export interface ClipRequest {
   seconds: number;
@@ -104,11 +112,24 @@ export interface CaptureEngine {
   startRecording(meta: ClipMeta): Promise<RecordingHandle>;
   /** Drops the rings (owner change, a different game). */
   purge(): void;
+  /**
+   * The game went away, but its ring is kept for a while (plan 7: the same
+   * game can come back). Flushes and closes the encoders and suspends the
+   * audio tap, so no codec session and no game sound stay live. The next
+   * registered source wakes the engine: the video encoder opens again on a
+   * new epoch and the audio tap starts again.
+   */
+  park(): void;
   /** Leaves resting (the kid's "turn the clip button back on"). False when a power gate still holds. */
   wake(): boolean;
   /** The governor level to start at (the crash breaker starts one rung lower). */
   setStartLevel(level: number): void;
-  /** Closes the encoder session and frees the rings, but keeps the workers. */
+  /**
+   * Closes the encoder session and frees the rings, but keeps the workers.
+   * The engine then stays off: it does not arm again (no re-arm timer, no
+   * arm for a source that is still registered) until the next setGame(),
+   * registerCanvas() or autoDiscover().
+   */
   disarm(): void;
   /** Everything off: workers, taps, sources. */
   dispose(): void;

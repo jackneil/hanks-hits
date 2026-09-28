@@ -2,11 +2,21 @@
  * The clip engine state machine (plan 7 diagram) and the clip button
  * derivation (plan 11.3). Pure: no timers, no browser APIs.
  *
- * transition() allows exactly the edges of the plan 7 diagram, plus one entry
- * edge that the diagram implies: IDLE -> DISABLED when the crash breaker
- * already says "disabled" as a game attaches (the diagram draws the breaker
- * only from RECOVERING). Every other event in a state returns null: the
- * service ignores it.
+ * transition() allows exactly the edges of the plan 7 diagram, plus the edges
+ * that the diagram and the plan 7 text imply (IMPLIED_EDGES):
+ * - IDLE -> DISABLED when the crash breaker already says "disabled" as a game
+ *   attaches (the diagram draws the breaker only from RECOVERING).
+ * - WARMING and BRIDGED -> RECOVERING on an encoder error. An encoder that
+ *   fails before its first output (a config the device refuses, a worker
+ *   that does not load) must count toward "4 failures in 60 s", so it
+ *   reaches DISABLED and stops the re-arm loop.
+ * - SUSPENDED, RESTING and RECORDING -> EXPORTING on export. Plan 7: the
+ *   editor and "Make it longer" export while the game is paused, and a
+ *   paused game is SUSPENDED. The live encoder must close first in every
+ *   state that holds it, so a phone never needs three codec sessions.
+ *   EXPORTING -> BUFFERING follows, and the service then applies the pause,
+ *   the rest or the recording again.
+ * Every other event in a state returns null: the service ignores it.
  */
 
 import type { ClipButtonState, ClipReasonCode, EngineState } from "./contract";
@@ -23,12 +33,12 @@ export type MachineEvent =
   | "suspend" // BUFFERING -> SUSPENDED (hidden, paused, start card)
   | "hidden" // RECORDING -> SUSPENDED (the recording is finalized)
   | "resume" // SUSPENDED -> BUFFERING (visible and playing)
-  | "export" // BUFFERING -> EXPORTING (the encoder is closed)
+  | "export" // BUFFERING, SUSPENDED, RESTING, RECORDING -> EXPORTING (the encoder is closed)
   | "export-done" // EXPORTING -> BUFFERING (new epoch)
   | "canvas-gone" // BUFFERING -> SOURCE_LOST; RECORDING -> SOURCE_LOST (the recording is finalized)
   | "re-registered" // SOURCE_LOST -> BUFFERING (within 1.5 s)
   | "grace-over" // SOURCE_LOST -> IDLE (the ring is kept 5 min, then purged)
-  | "encoder-error" // BUFFERING -> RECOVERING; RECORDING -> RECOVERING (the recording is closed)
+  | "encoder-error" // BUFFERING, WARMING, BRIDGED -> RECOVERING; RECORDING -> RECOVERING (the recording is closed)
   | "recreated" // RECOVERING -> BUFFERING (new epoch)
   | "disable" // RECOVERING -> DISABLED (4 failures in 60 s, or the breaker)
   | "breaker" // IDLE -> DISABLED (the breaker said "disabled" at attach)
@@ -45,8 +55,8 @@ type Edge = EngineState | ((ctx: TransitionContext) => EngineState);
 /** The plan 7 diagram, edge by edge. */
 export const TRANSITIONS: Readonly<Record<EngineState, Partial<Record<MachineEvent, Edge>>>> = Object.freeze({
   idle: { "source-registered": "warming", "device-fallback": "record-only", breaker: "disabled" },
-  warming: { "output-ok": "buffering", "no-output": "bridged" },
-  bridged: { "hardware-ready": "buffering" },
+  warming: { "output-ok": "buffering", "no-output": "bridged", "encoder-error": "recovering" },
+  bridged: { "hardware-ready": "buffering", "encoder-error": "recovering" },
   buffering: {
     record: "recording",
     "governor-severe": "resting",
@@ -62,15 +72,26 @@ export const TRANSITIONS: Readonly<Record<EngineState, Partial<Record<MachineEve
     hidden: "suspended",
     "encoder-error": "recovering",
     "canvas-gone": "source-lost",
+    export: "exporting",
   },
-  resting: { record: "recording", "probe-passes": "buffering" },
-  suspended: { resume: "buffering" },
+  resting: { record: "recording", "probe-passes": "buffering", export: "exporting" },
+  suspended: { resume: "buffering", export: "exporting" },
   exporting: { "export-done": "buffering" },
   "source-lost": { "re-registered": "buffering", "grace-over": "idle" },
   recovering: { recreated: "buffering", disable: "disabled" },
   "record-only": {},
   disabled: {},
 });
+
+/** The edges that the plan implies but the diagram does not draw (see the file comment). */
+export const IMPLIED_EDGES: ReadonlyArray<readonly [EngineState, MachineEvent]> = Object.freeze([
+  ["idle", "breaker"],
+  ["warming", "encoder-error"],
+  ["bridged", "encoder-error"],
+  ["suspended", "export"],
+  ["resting", "export"],
+  ["recording", "export"],
+] as const);
 
 /** The next state, or null when the event is not an edge of the current state. */
 export function transition(state: EngineState, event: MachineEvent, ctx: TransitionContext = {}): EngineState | null {

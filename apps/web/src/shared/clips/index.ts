@@ -8,7 +8,16 @@
  * with dynamic imports, when a clip-enabled game mounts and the flag says on.
  */
 
-export { ClipProvider, clipsEnabledFor, useClipSource, type ClipProviderProps, type ClipSourceOptions } from "./service/ClipProvider";
+export {
+  ClipProvider,
+  ClipShellScope,
+  clipsEnabledFor,
+  useClipSource,
+  type ClipProviderProps,
+  type ClipShellScopeProps,
+  type ClipSourceOptions,
+} from "./service/ClipProvider";
+export { ClipSessionWatcher } from "./service/ClipSessionWatcher";
 export { AttachedGameContext, ClipServiceContext, useAttachedGame, useClipService, useClipSnapshot } from "./service/context";
 export {
   DEFAULT_CLIP_SECONDS,
@@ -33,5 +42,5 @@ export {
 export { getClipService } from "./service/registry";
 export { getClipLibrary } from "./service/ioClient";
 export { fileNameFor } from "./service/share";
-export { loadClipsVerdict, type ClipsMode, type ClipsVerdict } from "./config";
+export { joinClipsDogfood, leaveClipsDogfood, loadClipsVerdict, type ClipsMode, type ClipsVerdict } from "./config";
 export type { ClipKind, ClipRecord, MomentMark, RunPhase, Tier } from "./protocol";

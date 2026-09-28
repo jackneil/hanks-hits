@@ -188,6 +188,17 @@ describe("capture election (Web Locks)", () => {
     expect(a.events).toEqual(["owns:true"]);
     expect(locks.holderOf(CAPTURE_LOCK)).toBeNull();
   });
+
+  it("tells the listener when the browser is online again, and stops at stop()", () => {
+    const a = new FakeTab(null, "a");
+    const online = vi.fn();
+    a.lifecycle.start({ visibility: () => undefined, pageHide: () => undefined, pageShow: () => undefined, election: () => undefined, online });
+    a.win.dispatchEvent(new Event("online"));
+    expect(online).toHaveBeenCalledTimes(1);
+    a.lifecycle.stop();
+    a.win.dispatchEvent(new Event("online"));
+    expect(online).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("resume grace (plan 7.1)", () => {

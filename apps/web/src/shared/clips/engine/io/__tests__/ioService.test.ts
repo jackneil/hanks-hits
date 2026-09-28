@@ -7,7 +7,9 @@
 import { BufferSource, Input, MP4 } from "mediabunny";
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createOpfsMock } from "../../../../../__tests__/opfs-mock";
+import { createOpfsMock, type OpfsMock } from "../../../../../__tests__/opfs-mock";
+import { FakeLockManager, settleLocks } from "../../../service/__tests__/fakeLocks";
+import { RECORD_LOCK_PREFIX } from "../recordJournal";
 import type { ClipMeta, ClipPackets, IoCmd, IoEvent, RecordTeeMsg } from "../../../protocol";
 import type { StorageLike } from "../../../library/fsTypes";
 import { isClipId } from "../../../library/ownerKey";
@@ -369,5 +371,145 @@ describe("Recording part limit", () => {
     for (const bytes of Object.values(RECORD_PART_MAX_BYTES)) expect(bytes).toBeLessThan(50 * 1024 * 1024);
     expect(RECORD_PART_MAX_BYTES.low * 2).toBeLessThanOrEqual(60 * 1000 * 1000);
     expect(RECORD_PART_MAX_BYTES.mid * 2).toBeLessThanOrEqual(120 * 1000 * 1000);
+  });
+});
+
+describe("Record crash recovery (plan 8.4)", () => {
+  const LOCK = (id: string) => `${RECORD_LOCK_PREFIX}${id}`;
+
+  /** A tab's io worker: its own OPFS view (open handles are per tab), the shared IndexedDB and lock manager. */
+  function tab(locks: FakeLockManager, clientId: string, shared: { factory: IDBFactory; mock?: OpfsMock }) {
+    const mock = shared.mock ?? createOpfsMock();
+    const events: IoEvent[] = [];
+    const handler = createIoHandler({
+      post: (event) => events.push(event),
+      openLibrary: async () => {
+        const lib = await ClipLibrary.open({
+          storage: mock.storage as unknown as StorageLike,
+          indexedDB: shared.factory,
+          keyRange: IDBKeyRange,
+          locks: null,
+          channel: null,
+        });
+        libraries.push(lib);
+        return lib;
+      },
+      journal: { storage: mock.storage as unknown as StorageLike, locks: locks.client(clientId), log: () => undefined },
+    });
+    return { mock, events, handler };
+  }
+
+  /** The files of a tab that died: they stay on disk, and no handle of it is open any more. */
+  function afterCrash(from: OpfsMock): OpfsMock {
+    const to = createOpfsMock();
+    for (const path of from.listFiles()) to.writeFile(path, from.readFile(path)!);
+    return to;
+  }
+
+  it("journals each chunk as it arrives under the recording's lock, and removes the journal when the part is stored", async () => {
+    const locks = new FakeLockManager();
+    const a = tab(locks, "tab-a", { factory: new IDBFactory() });
+    const port = new FakePort();
+    await a.handler.handle({ t: "record", recordingId: "recA", port: port as unknown as MessagePort, meta: meta("recA") });
+    const whole = makeClipPackets({ seconds: 3, baseUs: 0 });
+    const chunks = teeChunks(whole, "recA");
+    port.deliver(chunks[0]);
+    port.deliver(chunks[1]);
+    await a.handler.idle();
+    expect(a.mock.listFiles()).toContain("rec/recA.journal");
+    expect(locks.holderOf(LOCK("recA"))).toBe("tab-a");
+    port.deliver(chunks[2]);
+    port.deliver({ t: "end", recordingId: "recA", endUs: whole.endUs });
+    await a.handler.idle();
+    await settleLocks();
+    expect(a.events.filter((e) => e.t === "saved")).toHaveLength(1);
+    expect(a.mock.listFiles().filter((p) => p.startsWith("rec/"))).toEqual([]);
+    expect(a.mock.openSyncHandles()).toBe(0);
+    expect(locks.holderOf(LOCK("recA"))).toBeNull();
+  });
+
+  it("stores the open part of a tab that died during Record at the next startup, and says so once", async () => {
+    const locks = new FakeLockManager();
+    const factory = new IDBFactory();
+    const a = tab(locks, "tab-a", { factory });
+    const port = new FakePort();
+    await a.handler.handle({ t: "record", recordingId: "recB", port: port as unknown as MessagePort, meta: meta("recB") });
+    const whole = makeClipPackets({ seconds: 3, baseUs: 1_000_000 });
+    for (const chunk of teeChunks(whole, "recB")) port.deliver(chunk);
+    await a.handler.idle();
+    // The tab dies (a crash, or iOS kills the hidden page): no "end", no stored part.
+    expect(a.events.some((e) => e.t === "saved")).toBe(false);
+    locks.crash("tab-a");
+    const b = tab(locks, "tab-b", { factory, mock: afterCrash(a.mock) });
+    await b.handler.start();
+    await b.handler.idle();
+    const recovered = b.events.find((e) => e.t === "recovered") as Extract<IoEvent, { t: "recovered" }>;
+    expect(recovered.records.map((r) => [r.id, r.kind])).toEqual([["recB", "record"]]);
+    expect(recovered).not.toHaveProperty("rid");
+    expect(b.mock.listFiles().filter((p) => p.startsWith("rec/"))).toEqual([]);
+    await b.handler.handle({ t: "read", id: "recB" });
+    const file = (b.events.at(-1) as Extract<IoEvent, { t: "file" }>).file;
+    expect(await durationOf(file)).toBeCloseTo(3, 1);
+    // The next startup finds nothing more.
+    const c = tab(locks, "tab-c", { factory, mock: b.mock });
+    await c.handler.start();
+    await c.handler.idle();
+    expect(c.events.some((e) => e.t === "recovered")).toBe(false);
+  });
+
+  it("never takes a live tab's recording", async () => {
+    const locks = new FakeLockManager();
+    const factory = new IDBFactory();
+    const a = tab(locks, "tab-a", { factory });
+    const port = new FakePort();
+    await a.handler.handle({ t: "record", recordingId: "recC", port: port as unknown as MessagePort, meta: meta("recC") });
+    for (const chunk of teeChunks(makeClipPackets({ seconds: 2, baseUs: 0 }), "recC")) port.deliver(chunk);
+    await a.handler.idle();
+    // Another tab starts while tab A still records (its lock is held).
+    const b = tab(locks, "tab-b", { factory, mock: afterCrash(a.mock) });
+    await b.handler.start();
+    await b.handler.idle();
+    expect(b.events.some((e) => e.t === "recovered")).toBe(false);
+    expect(b.mock.listFiles()).toContain("rec/recC.journal");
+  });
+
+  it("stores the whole chunks before a torn last write", async () => {
+    const locks = new FakeLockManager();
+    const factory = new IDBFactory();
+    const a = tab(locks, "tab-a", { factory });
+    const port = new FakePort();
+    await a.handler.handle({ t: "record", recordingId: "recD", port: port as unknown as MessagePort, meta: meta("recD") });
+    for (const chunk of teeChunks(makeClipPackets({ seconds: 3, baseUs: 0 }), "recD")) port.deliver(chunk);
+    await a.handler.idle();
+    locks.crash("tab-a");
+    const disk = afterCrash(a.mock);
+    const journal = disk.readFile("rec/recD.journal")!;
+    disk.writeFile("rec/recD.journal", journal.subarray(0, journal.length - 40));
+    const b = tab(locks, "tab-b", { factory, mock: disk });
+    await b.handler.start();
+    await b.handler.idle();
+    const recovered = b.events.find((e) => e.t === "recovered") as Extract<IoEvent, { t: "recovered" }>;
+    expect(recovered.records.map((r) => r.id)).toEqual(["recD"]);
+    await b.handler.handle({ t: "read", id: "recD" });
+    const file = (b.events.at(-1) as Extract<IoEvent, { t: "file" }>).file;
+    expect(await durationOf(file)).toBeCloseTo(2, 1);
+  });
+
+  it("keeps a recording in memory when its journal cannot be written", async () => {
+    const locks = new FakeLockManager();
+    const a = tab(locks, "tab-a", { factory: new IDBFactory() });
+    a.mock.failAlways("createSyncAccessHandle", new DOMException("busy", "NoModificationAllowedError"));
+    const port = new FakePort();
+    await a.handler.handle({ t: "record", recordingId: "recE", port: port as unknown as MessagePort, meta: meta("recE") });
+    const whole = makeClipPackets({ seconds: 2, baseUs: 0 });
+    for (const chunk of teeChunks(whole, "recE")) port.deliver(chunk);
+    // The library's own writes need sync handles again before the part is stored.
+    await a.handler.idle();
+    a.mock.failAlways("createSyncAccessHandle", null);
+    port.deliver({ t: "end", recordingId: "recE", endUs: whole.endUs });
+    await a.handler.idle();
+    expect(a.events.filter((e) => e.t === "saved")).toHaveLength(1);
+    expect(a.events.at(-1)).toMatchObject({ t: "recorded", failed: 0 });
+    expect(a.mock.listFiles().filter((p) => p.startsWith("rec/"))).toEqual([]);
   });
 });

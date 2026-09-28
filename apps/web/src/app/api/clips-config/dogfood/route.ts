@@ -16,16 +16,35 @@ import {
  * CLIPS_DOGFOOD_USER_IDS. Anyone else gets 401 or 403, and any old cookie is
  * removed. The cookie is HttpOnly, SameSite=Lax and (in production) Secure.
  * A request from another origin is refused, in addition to SameSite.
+ *
+ * The origin check never uses request.nextUrl: the standalone server builds
+ * it from its own bind address (HOSTNAME=0.0.0.0 and PORT in the Dockerfile),
+ * not from the host the browser used. So the check reads what the browser
+ * sent: Sec-Fetch-Site (every supported browser sends it) must be
+ * "same-origin"; without it, the Origin host must equal the host the browser
+ * asked for (X-Forwarded-Host from the proxy, else Host).
  */
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
+/** The host the browser asked for: the first X-Forwarded-Host entry (the edge proxy), else Host. */
+function requestedHost(request: NextRequest): string | null {
+  const forwarded = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  return forwarded || request.headers.get("host");
+}
+
 function sameOrigin(request: NextRequest): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (site) return site === "same-origin";
   const origin = request.headers.get("origin");
+  // No Origin and no Sec-Fetch-Site: not a browser cross-site request. The
+  // session and the SameSite=Lax cookie still guard it.
   if (!origin) return true;
+  const host = requestedHost(request);
+  if (!host) return false;
   try {
-    return new URL(origin).host === request.nextUrl.host;
+    return new URL(origin).host.toLowerCase() === host.toLowerCase();
   } catch {
     return false;
   }
