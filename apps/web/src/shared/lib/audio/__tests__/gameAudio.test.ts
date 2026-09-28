@@ -13,12 +13,18 @@ import {
 
 import {
   __unsafeResetGameAudioForTests,
+  baseAppIdOf,
   getGameAudio,
   getGameAudioTapPoint,
+  isGameSpeakerEnabled,
   LIMITER_SETTINGS,
+  onGameAudioCreated,
+  setGameSpeakerEnabled,
   unlockGameAudio,
   UNLOCK_EVENTS,
+  wantGameAudio,
   type GameAudio,
+  type GameAudioChannel,
 } from "../gameAudio";
 
 /** Make navigator.userActivation say whether a gesture is running now. */
@@ -46,17 +52,24 @@ function fake(bus: GameAudio): FakeAudioContext {
   return bus.context as unknown as FakeAudioContext;
 }
 
-/** The nodes of the hub graph, found by walking from the destination. */
+function node(value: unknown): FakeGainNode {
+  return value as FakeGainNode;
+}
+
+/** The shared nodes of the hub graph, found by walking the fake graph. */
 function graphOf(bus: GameAudio) {
   const context = fake(bus);
   const limiter = [...context.destination.inputs][0] as FakeDynamicsCompressorNode;
-  const tap = getGameAudioTapPoint() as unknown as FakeGainNode;
-  const channel = bus.channel("graph-probe");
-  const input = channel.input as unknown as FakeGainNode;
-  const master = [...input.outputs][0] as FakeGainNode;
-  const speaker = [...tap.outputs][0] as FakeGainNode;
-  channel.dispose();
-  return { context, limiter, tap, master, speaker };
+  const tap = node(getGameAudioTapPoint());
+  const master = [...tap.inputs][0] as FakeGainNode;
+  return { context, limiter, tap, master };
+}
+
+/** The speaker gain that a channel feeds: its output that is not master. */
+function speakerOf(channel: GameAudioChannel, master: FakeGainNode): FakeGainNode {
+  const outputs = [...node(channel.input).outputs].filter((target) => target !== master);
+  expect(outputs).toHaveLength(1);
+  return outputs[0] as FakeGainNode;
 }
 
 beforeEach(() => {
@@ -155,28 +168,36 @@ describe("getGameAudio: creation", () => {
 });
 
 describe("the graph", () => {
-  it("routes channels -> master -> tap point -> speaker -> limiter -> speakers", () => {
+  it("sends each channel to the tap point (through master) and to the speakers (through its app's speaker gain)", () => {
     installAudioMock();
     const bus = busOutsideGesture();
-    const { context, limiter, tap, master, speaker } = graphOf(bus);
+    const { context, limiter, tap, master } = graphOf(bus);
 
     const channel = bus.channel("breakout");
-    const input = channel.input as unknown as FakeGainNode;
+    const input = node(channel.input);
+    const speaker = speakerOf(channel, master);
+
+    // The recording branch: every game sound, before any switch.
     expect(isConnected(input, master)).toBe(true);
     expect(isConnected(master, tap)).toBe(true);
-    expect(isConnected(tap, speaker)).toBe(true);
+    // The speaker branch: the app's switch, then the limiter.
+    expect(isConnected(input, speaker)).toBe(true);
     expect(isConnected(speaker, limiter)).toBe(true);
     expect(isConnected(limiter, context.destination)).toBe(true);
     expect(limiter).toBeInstanceOf(FakeDynamicsCompressorNode);
     expect(pathExists(input, tap)).toBe(true);
     expect(pathExists(input, context.destination)).toBe(true);
+    // Nothing pulls the tap branch until a recorder attaches (no cost, and
+    // no second copy of the sound in the speakers).
+    expect(tap.outputs.size).toBe(0);
+    expect(pathExists(master, context.destination)).toBe(false);
   });
 
   it("sends UI sounds to the limiter and never through the tap point", () => {
     installAudioMock();
     const bus = busOutsideGesture();
     const { context, limiter, tap } = graphOf(bus);
-    const ui = bus.uiOutput as unknown as FakeGainNode;
+    const ui = node(bus.uiOutput);
 
     expect(isConnected(ui, limiter)).toBe(true);
     expect(pathExists(ui, context.destination)).toBe(true);
@@ -193,14 +214,22 @@ describe("the graph", () => {
     expect(limiter.release.value).toBe(LIMITER_SETTINGS.release);
   });
 
-  it("gives each channel() call its own input", () => {
+  it("gives each channel() call its own input, and each sub-mix of one app shares that app's speaker gain", () => {
     installAudioMock();
     const bus = busOutsideGesture();
-    const engine = bus.channel("monster-truck");
-    const music = bus.channel("monster-truck");
+    const { master } = graphOf(bus);
+    const engine = bus.channel("monster-truck:engine");
+    const music = bus.channel("monster-truck:music");
+    const plain = bus.channel("monster-truck");
+    const other = bus.channel("breakout");
+
     expect(engine.input).not.toBe(music.input);
-    expect(engine.appId).toBe("monster-truck");
+    expect(engine.appId).toBe("monster-truck:engine");
+    expect(engine.baseAppId).toBe("monster-truck");
     expect(engine.context).toBe(bus.context);
+    expect(speakerOf(engine, master)).toBe(speakerOf(music, master));
+    expect(speakerOf(plain, master)).toBe(speakerOf(engine, master));
+    expect(speakerOf(other, master)).not.toBe(speakerOf(engine, master));
   });
 
   it("rejects an empty app id", () => {
@@ -208,7 +237,16 @@ describe("the graph", () => {
     const bus = busOutsideGesture();
     expect(() => bus.channel("")).toThrow(TypeError);
     expect(() => bus.channel("   ")).toThrow(TypeError);
+    expect(() => bus.channel(":sfx")).toThrow(TypeError);
     expect(() => bus.setSpeakerEnabled("", true)).toThrow(TypeError);
+    expect(() => setGameSpeakerEnabled(" :music", true)).toThrow(TypeError);
+    expect(() => isGameSpeakerEnabled("")).toThrow(TypeError);
+  });
+
+  it("names the app of a sub-mix id", () => {
+    expect(baseAppIdOf("monster-truck:engine")).toBe("monster-truck");
+    expect(baseAppIdOf("four-wheeler-3d:music")).toBe("four-wheeler-3d");
+    expect(baseAppIdOf(" breakout ")).toBe("breakout");
   });
 });
 
@@ -218,11 +256,13 @@ describe("channel.dispose()", () => {
     const bus = busOutsideGesture();
     const { master } = graphOf(bus);
     const channel = bus.channel("snake");
-    const input = channel.input as unknown as FakeGainNode;
+    const speaker = speakerOf(channel, master);
+    const input = node(channel.input);
 
     channel.dispose();
     expect(channel.disposed).toBe(true);
     expect(isConnected(input, master)).toBe(false);
+    expect(isConnected(input, speaker)).toBe(false);
     expect(() => channel.dispose()).not.toThrow();
     expect(input.disconnect).toHaveBeenCalledTimes(1);
   });
@@ -235,7 +275,7 @@ describe("channel.dispose()", () => {
 
     vi.useFakeTimers();
     const channel = bus.channel("snake");
-    const input = channel.input as unknown as FakeGainNode;
+    const input = node(channel.input);
     channel.dispose();
 
     expect(input.gain.setTargetAtTime).toHaveBeenCalledWith(0, 0, expect.any(Number));
@@ -243,68 +283,127 @@ describe("channel.dispose()", () => {
     vi.advanceTimersByTime(100);
     expect(isConnected(input, master)).toBe(false);
   });
+
+  it("marks a kept channel disposed when the browser closes the context", async () => {
+    const mock = installAudioMock();
+    const bus = busOutsideGesture();
+    // A game kept this channel in a module-level variable.
+    const kept = bus.channel("breakout");
+    await fake(bus).close();
+    await mock.flush();
+
+    expect(kept.disposed).toBe(true);
+    expect(() => kept.dispose()).not.toThrow();
+    // The game asks again and gets a live channel on a new bus.
+    const fresh = getGameAudio()?.channel("breakout");
+    expect(fresh?.disposed).toBe(false);
+    expect(fresh?.context).not.toBe(bus.context);
+  });
 });
 
 describe("the speaker switch", () => {
-  it("mutes the speakers for the app on screen, and clips keep the sound", () => {
-    installAudioMock();
+  it("fades only that app's speakers while sound plays, and clips keep the sound", () => {
+    installAudioMock({ initialState: "running" });
     const bus = busOutsideGesture();
-    const { tap, speaker } = graphOf(bus);
+    const { master, tap } = graphOf(bus);
     const channel = bus.channel("breakout");
+    const speaker = speakerOf(channel, master);
 
-    bus.setSpeakerEnabled("breakout", false);
-    expect(bus.speakerEnabled).toBe(false);
+    setGameSpeakerEnabled("breakout", false);
+    expect(isGameSpeakerEnabled("breakout")).toBe(false);
+    expect(bus.isSpeakerEnabled("breakout")).toBe(false);
     expect(speaker.gain.value).toBe(0);
-    // A kid's switch fades, so it never clicks.
+    // A kid's switch fades while sound plays, so it never clicks.
     expect(speaker.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 0, expect.any(Number));
     // The sound still reaches the tap point, so a clip still hears it.
-    expect(pathExists(channel.input as unknown as FakeGainNode, tap)).toBe(true);
+    expect(pathExists(node(channel.input), tap)).toBe(true);
 
     bus.setSpeakerEnabled("breakout", true);
-    expect(bus.speakerEnabled).toBe(true);
+    expect(isGameSpeakerEnabled("breakout")).toBe(true);
     expect(speaker.gain.value).toBe(1);
   });
 
-  it("never lets one game's mute leak into the next game", () => {
+  it("jumps (no fade) while the sound is stopped, so the first sound after resume() cannot leak", () => {
     installAudioMock();
     const bus = busOutsideGesture();
-    const { speaker } = graphOf(bus);
+    const { master } = graphOf(bus);
+    const speaker = speakerOf(bus.channel("breakout"), master);
 
-    const breakout = bus.channel("breakout");
-    bus.setSpeakerEnabled("breakout", false);
+    setGameSpeakerEnabled("breakout", false);
     expect(speaker.gain.value).toBe(0);
-
-    // The kid goes to Asteroids. Its channel is newest, and it is not muted.
-    const asteroids = bus.channel("asteroids");
-    expect(bus.speakerEnabled).toBe(true);
-    expect(speaker.gain.value).toBe(1);
-
-    // Back to Breakout (Asteroids unmounts): Breakout's own switch applies,
-    // with a fade, because Breakout may be playing a sound right now.
-    asteroids.dispose();
-    expect(bus.speakerEnabled).toBe(false);
-    expect(speaker.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 0, expect.any(Number));
-
-    // Nothing on screen: the speakers are on.
-    breakout.dispose();
-    expect(bus.speakerEnabled).toBe(true);
-    expect(speaker.gain.value).toBe(1);
-  });
-
-  it("applies a saved mute before the game's first sound, with no fade", () => {
-    installAudioMock();
-    const bus = busOutsideGesture();
-    const { speaker } = graphOf(bus);
-
-    // The game reads its saved switch before it makes a channel.
-    bus.setSpeakerEnabled("dino-runner", false);
-    expect(bus.speakerEnabled).toBe(true);
-
-    speaker.gain.setTargetAtTime.mockClear();
-    bus.channel("dino-runner");
-    expect(bus.speakerEnabled).toBe(false);
     expect(speaker.gain.setValueAtTime).toHaveBeenLastCalledWith(0, 0);
     expect(speaker.gain.setTargetAtTime).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the switch does not change", () => {
+    installAudioMock({ initialState: "running" });
+    const bus = busOutsideGesture();
+    const { master } = graphOf(bus);
+    const speaker = speakerOf(bus.channel("breakout"), master);
+
+    setGameSpeakerEnabled("breakout", true);
+    expect(speaker.gain.cancelScheduledValues).not.toHaveBeenCalled();
+  });
+
+  it("mutes every sub-mix of an app, from any of its ids", () => {
+    installAudioMock({ initialState: "running" });
+    const bus = busOutsideGesture();
+    const { master, tap } = graphOf(bus);
+    const engine = bus.channel("monster-truck:engine");
+    const music = bus.channel("monster-truck:music");
+    const speaker = speakerOf(engine, master);
+
+    setGameSpeakerEnabled("monster-truck", false);
+    expect(speaker.gain.value).toBe(0);
+    expect(speakerOf(music, master).gain.value).toBe(0);
+    expect(isGameSpeakerEnabled("monster-truck:sfx")).toBe(false);
+    expect(pathExists(node(engine.input), tap)).toBe(true);
+
+    // A sub-mix id works the same as the app id.
+    setGameSpeakerEnabled("monster-truck:music", true);
+    expect(speaker.gain.value).toBe(1);
+    expect(isGameSpeakerEnabled("monster-truck")).toBe(true);
+  });
+
+  it("never lets one game's mute reach another game, even when a game keeps its channel", () => {
+    installAudioMock({ initialState: "running" });
+    const bus = busOutsideGesture();
+    const { master } = graphOf(bus);
+
+    // The kid plays Breakout. Its sound module keeps the channel for the
+    // whole page and never disposes it.
+    const breakout = bus.channel("breakout");
+    // Then Asteroids (also kept), then Breakout again.
+    const asteroids = bus.channel("asteroids");
+    const breakoutAgain = bus.channel("breakout");
+
+    setGameSpeakerEnabled("breakout", false);
+    expect(speakerOf(breakout, master).gain.value).toBe(0);
+    expect(speakerOf(breakoutAgain, master).gain.value).toBe(0);
+    expect(speakerOf(asteroids, master).gain.value).toBe(1);
+
+    // Asteroids' own switch touches only Asteroids.
+    setGameSpeakerEnabled("asteroids", false);
+    setGameSpeakerEnabled("breakout", true);
+    expect(speakerOf(asteroids, master).gain.value).toBe(0);
+    expect(speakerOf(breakout, master).gain.value).toBe(1);
+  });
+
+  it("records a saved mute before the bus exists, makes no AudioContext, and holds it from the first sound", () => {
+    const mock = installAudioMock();
+
+    // The game loads its saved switch on page load, before any tap.
+    setGameSpeakerEnabled("dino-runner", false);
+    expect(mock.contexts).toHaveLength(0);
+    expect(isGameSpeakerEnabled("dino-runner")).toBe(false);
+
+    const bus = busOutsideGesture();
+    const { master } = graphOf(bus);
+    const speaker = speakerOf(bus.channel("dino-runner"), master);
+    // Silent from the start: no automation that could let a sound through.
+    expect(speaker.gain.value).toBe(0);
+    expect(speaker.gain.setTargetAtTime).not.toHaveBeenCalled();
+    expect(speaker.gain.setValueAtTime).not.toHaveBeenCalled();
   });
 });
 
@@ -320,7 +419,7 @@ describe("unlock", () => {
     const primer = context.createBufferSource.mock.results[0].value as FakeAudioBufferSourceNode;
     expect(primer.start).toHaveBeenCalledTimes(1);
     // The primer plays on the UI path, so it never reaches a clip.
-    expect(isConnected(primer, bus.uiOutput as unknown as FakeGainNode)).toBe(true);
+    expect(isConnected(primer, node(bus.uiOutput))).toBe(true);
     primer.end();
     expect(primer.outputs.size).toBe(0);
 
@@ -391,6 +490,7 @@ describe("the document unlock listener", () => {
 
   it("never makes an AudioContext on a page with no game sound", () => {
     const mock = installAudioMock();
+    setUserActivation(true);
     document.dispatchEvent(new Event("pointerdown"));
     document.dispatchEvent(new Event("keydown"));
     expect(mock.contexts).toHaveLength(0);
@@ -434,6 +534,62 @@ describe("the document unlock listener", () => {
   });
 });
 
+describe("wantGameAudio: a game with no start card", () => {
+  it("makes the bus inside the first tap and starts it", async () => {
+    const mock = installAudioMock();
+    // The game mounts (useEffect(() => wantGameAudio(), [])). No context yet.
+    const release = wantGameAudio();
+    expect(mock.contexts).toHaveLength(0);
+
+    setUserActivation(true);
+    document.dispatchEvent(new Event("pointerup"));
+    expect(mock.contexts).toHaveLength(1);
+    expect(mock.lastContext().resume).toHaveBeenCalledTimes(1);
+    await mock.flush();
+    expect(mock.lastContext().state).toBe("running");
+
+    // The game makes its first channel later, from a timer: it plays at once.
+    const channel = getGameAudio()?.channel("drum-machine");
+    expect(channel?.context.state).toBe("running");
+    expect(mock.contexts).toHaveLength(1);
+    release();
+  });
+
+  it("waits for a tap that can start sound (a touch pointerdown cannot)", () => {
+    const mock = installAudioMock();
+    wantGameAudio();
+
+    setUserActivation(false);
+    document.dispatchEvent(new Event("pointerdown"));
+    expect(mock.contexts).toHaveLength(0);
+
+    setUserActivation(true);
+    document.dispatchEvent(new Event("touchend"));
+    expect(mock.contexts).toHaveLength(1);
+    expect(mock.lastContext().resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets go when the game unmounts, and counts each mounted game", () => {
+    const mock = installAudioMock();
+    setUserActivation(true);
+    const first = wantGameAudio();
+    const second = wantGameAudio();
+
+    first();
+    first(); // A second call does nothing: the other game still wants sound.
+    document.dispatchEvent(new Event("click"));
+    expect(mock.contexts).toHaveLength(1);
+    second();
+
+    // A fresh page: the only game mounts and unmounts before any tap.
+    const fresh = installAudioMock();
+    const release = wantGameAudio();
+    release();
+    document.dispatchEvent(new Event("click"));
+    expect(fresh.contexts).toHaveLength(0);
+  });
+});
+
 describe("state and onStateChange", () => {
   it("reports each state change until the caller stops listening", async () => {
     const mock = installAudioMock();
@@ -467,14 +623,70 @@ describe("state and onStateChange", () => {
 });
 
 describe("getGameAudioTapPoint", () => {
-  it("returns the node every game channel reaches, before the speaker switch", () => {
+  it("returns the node every game channel reaches, before any sound switch", () => {
     installAudioMock();
     const bus = busOutsideGesture();
-    const tap = getGameAudioTapPoint() as unknown as FakeGainNode;
+    const tap = node(getGameAudioTapPoint());
     const channel = bus.channel("flappy-bird");
-    bus.setSpeakerEnabled("flappy-bird", false);
+    setGameSpeakerEnabled("flappy-bird", false);
     expect(tap).toBeInstanceOf(FakeGainNode);
-    expect(pathExists(channel.input as unknown as FakeGainNode, tap)).toBe(true);
-    expect(pathExists(bus.uiOutput as unknown as FakeGainNode, tap)).toBe(false);
+    expect(pathExists(node(channel.input), tap)).toBe(true);
+    expect(pathExists(node(bus.uiOutput), tap)).toBe(false);
+  });
+
+  it("never makes an AudioContext (a game with no sound stays silent)", () => {
+    const mock = installAudioMock();
+    expect(getGameAudioTapPoint()).toBeNull();
+    expect(mock.contexts).toHaveLength(0);
+  });
+
+  it("returns null after the browser closes the context, until a new bus exists", async () => {
+    const mock = installAudioMock();
+    const bus = busOutsideGesture();
+    const oldTap = getGameAudioTapPoint();
+    await fake(bus).close();
+    await mock.flush();
+    expect(getGameAudioTapPoint()).toBeNull();
+    getGameAudio();
+    expect(getGameAudioTapPoint()).not.toBeNull();
+    expect(getGameAudioTapPoint()).not.toBe(oldTap);
+  });
+});
+
+describe("onGameAudioCreated", () => {
+  it("reports the bus that exists now and each new one, and never makes a context", async () => {
+    const mock = installAudioMock();
+    const seen: GameAudio[] = [];
+    const stop = onGameAudioCreated((bus) => seen.push(bus));
+    expect(mock.contexts).toHaveLength(0);
+    expect(seen).toHaveLength(0);
+
+    const first = busOutsideGesture();
+    expect(seen).toEqual([first]);
+
+    // A late subscriber gets the live bus at once.
+    const late: GameAudio[] = [];
+    onGameAudioCreated((bus) => late.push(bus));
+    expect(late).toEqual([first]);
+
+    // The browser closes the context; the next bus is reported too.
+    await fake(first).close();
+    await mock.flush();
+    const second = getGameAudio();
+    expect(seen).toEqual([first, second]);
+
+    stop();
+    await fake(second as GameAudio).close();
+    await mock.flush();
+    getGameAudio();
+    expect(seen).toHaveLength(2);
+  });
+
+  it("still returns the bus when a listener throws", () => {
+    installAudioMock();
+    onGameAudioCreated(() => {
+      throw new Error("bad listener");
+    });
+    expect(busOutsideGesture()).not.toBeNull();
   });
 });

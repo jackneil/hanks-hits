@@ -2,9 +2,14 @@
 // so clips can hear it. See design/ARCHITECTURE.md, section "Audio".
 
 export {
+  baseAppIdOf,
   getGameAudio,
   getGameAudioTapPoint,
+  isGameSpeakerEnabled,
+  onGameAudioCreated,
+  setGameSpeakerEnabled,
   unlockGameAudio,
+  wantGameAudio,
   LIMITER_SETTINGS,
   UNLOCK_EVENTS,
 } from "./gameAudio";

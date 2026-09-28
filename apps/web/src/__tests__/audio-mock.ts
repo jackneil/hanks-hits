@@ -1,5 +1,7 @@
 import { vi } from "vitest";
 
+import { __unsafeResetGameAudioForTests } from "@/shared/lib/audio/gameAudio";
+
 /**
  * Shared Web Audio API test double.
  *
@@ -508,8 +510,16 @@ export type InstallAudioMockOptions = {
   constructorThrows?: boolean;
 };
 
-/** Install the fake Web Audio API on window. Returns the mock. */
+/**
+ * Install the fake Web Audio API on window. Returns the mock.
+ *
+ * It also resets the shared game-audio bus (getGameAudio), so each test
+ * starts as a fresh page load: no bus, no recorded sound switch. Without
+ * this, the second test in a file gets the bus of the first test, and its
+ * `contexts` stays empty.
+ */
 export function installAudioMock(options: InstallAudioMockOptions = {}): AudioMock {
+  __unsafeResetGameAudioForTests();
   const contexts: FakeAudioContext[] = [];
   let resumeAllowed = options.resumeAllowed ?? true;
   const initialState = options.initialState ?? "suspended";
@@ -551,8 +561,13 @@ export function installAudioMock(options: InstallAudioMockOptions = {}): AudioMo
   };
 }
 
-/** Remove the fake API, so the browser looks like one with no Web Audio. */
+/**
+ * Remove the fake API, so the browser looks like one with no Web Audio.
+ * It also resets the shared game-audio bus, so no fake context outlives
+ * the test.
+ */
 export function removeAudioMock(): void {
+  __unsafeResetGameAudioForTests();
   // @ts-expect-error - removing the fake API to simulate a browser without it
   delete window.AudioContext;
   // @ts-expect-error - removing the fake API to simulate an old browser

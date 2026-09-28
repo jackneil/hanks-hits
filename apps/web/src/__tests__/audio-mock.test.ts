@@ -9,6 +9,11 @@ import {
   pathExists,
   removeAudioMock,
 } from "./audio-mock";
+import {
+  getGameAudio,
+  isGameSpeakerEnabled,
+  setGameSpeakerEnabled,
+} from "@/shared/lib/audio";
 
 /**
  * The shared Web Audio double must behave like a browser where a bug could
@@ -186,5 +191,24 @@ describe("installAudioMock", () => {
   it("throws a clear error when a test asks for a context nobody made", () => {
     const mock = installAudioMock({ initialState: "running" });
     expect(() => mock.lastContext()).toThrow(/no AudioContext was created/);
+  });
+
+  it("resets the shared game-audio bus, so the next test starts on a fresh page", () => {
+    // Test 1 of a game's test file: it makes the bus and mutes the game.
+    const first = installAudioMock();
+    const firstBus = getGameAudio();
+    setGameSpeakerEnabled("snake", false);
+    expect(first.contexts).toHaveLength(1);
+
+    // Test 2 of the same file: installAudioMock() alone gives it a new bus.
+    const second = installAudioMock();
+    const secondBus = getGameAudio();
+    expect(second.contexts).toHaveLength(1);
+    expect(secondBus).not.toBe(firstBus);
+    expect(isGameSpeakerEnabled("snake")).toBe(true);
+
+    // removeAudioMock() also forgets the bus.
+    removeAudioMock();
+    expect(getGameAudio()).toBeNull();
   });
 });

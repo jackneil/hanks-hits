@@ -6,7 +6,7 @@ import {
   AUDIO_BUS_LINT_FILES,
   AUDIO_BUS_RESTRICTED_SYNTAX,
   AUDIO_BUS_TEST_IGNORES,
-  LEGACY_AUDIO_SITES,
+  LEGACY_AUDIO_SITE_PATHS,
 } from "./src/shared/lib/audio/audioBusRule.mjs";
 
 const eslintConfig = defineConfig([
@@ -15,9 +15,10 @@ const eslintConfig = defineConfig([
   {
     // Game sound goes through the shared game-audio bus (getGameAudio() in
     // src/shared/lib/audio), so clips can hear it and the game's sound
-    // switch can mute it. This bans new AudioContext, window.AudioContext,
-    // webkitAudioContext, .destination, new Audio(), and <audio> in every
-    // game and app. See design/ARCHITECTURE.md, section "Audio".
+    // switch can mute it. This bans new AudioContext, x.AudioContext,
+    // webkitAudioContext, .destination, new Audio(), <audio>, and three.js
+    // or drei audio in every game and app. See design/ARCHITECTURE.md,
+    // section "Audio".
     name: "hanks-hits/game-audio-bus",
     files: [...AUDIO_BUS_LINT_FILES],
     ignores: [
@@ -25,8 +26,9 @@ const eslintConfig = defineConfig([
       // LEGACY ignore list: the files that break this rule today. Each
       // migration PR removes its own files from LEGACY_AUDIO_SITES (in
       // src/shared/lib/audio/audioBusRule.mjs). Never add a file to it. The
-      // source-scan test shares the same list and fails on a stale entry.
-      ...LEGACY_AUDIO_SITES,
+      // source-scan test shares the same list: it fails on a stale entry,
+      // and on a listed file that gets more bypasses than its ceiling.
+      ...LEGACY_AUDIO_SITE_PATHS,
     ],
     rules: {
       "no-restricted-syntax": ["error", ...AUDIO_BUS_RESTRICTED_SYNTAX],

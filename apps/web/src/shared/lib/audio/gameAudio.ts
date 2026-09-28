@@ -10,37 +10,55 @@
  * The graph:
  *
  *   channel.input (one per channel() call)
- *     -> master
- *     -> tap point   (a clip recorder listens here, in a later PR)
- *     -> speaker     (the game's sound switch turns this on and off)
- *     -> limiter     (a DynamicsCompressor that stops harsh clipping)
- *     -> destination (the speakers)
+ *     |-> master -> tap point   (the recording branch: every game sound,
+ *     |                          before any mute; a clip recorder
+ *     |                          connects here, in a later PR)
+ *     |-> app speaker           (one GainNode per app; that game's sound
+ *           |                    switch turns it on and off)
+ *           -> limiter          (a DynamicsCompressor that stops clipping)
+ *           -> destination      (the speakers)
  *
  *   uiOutput -> limiter  (site sounds; never reach the tap point, so they
  *                         never land in a clip)
  *
- * The speaker gain sits AFTER the tap point. A kid who plays with the
- * sound off still gets a clip with the game's sound in it.
+ * The speaker switch is AFTER the split to the tap point, so a kid who
+ * plays with the sound off still gets a clip with the game's sound in it.
+ * Each app has its own speaker gain, keyed by the app id before any ":"
+ * ("monster-truck:engine" and "monster-truck:music" share the
+ * "monster-truck" switch). A mute in one game can therefore never reach
+ * another game, even when a game keeps its channel for the whole page.
+ *
+ * The tap point connects to nothing yet. Nothing pulls it, so it costs
+ * nothing until a recorder attaches. A recorder must be a node that the
+ * browser pulls (an AudioWorkletNode or a MediaStreamAudioDestinationNode),
+ * or it must connect on to the destination through a zero gain.
  *
  * Unlock: browsers keep a new AudioContext silent until a user gesture
  * calls resume(). This module adds one capture-phase listener set on the
  * document when it is first imported (pointerdown, pointerup, touchend,
- * keydown, click). The listener calls unlock() on the bus, so a game with
- * no start card also gets sound on the first tap. The listener comes off
- * when the context runs, and goes back on when the context stops running
- * (an iOS interruption, for example). GameStartOverlay also calls unlock()
- * inside the Play tap, so a game that starts its sound later (in an
- * effect, not in the tap) is not silent on an iPhone.
+ * keydown, click). On a gesture, the listener unlocks the bus. When no bus
+ * exists yet, it makes one (inside the gesture) only if a mounted game
+ * called wantGameAudio(), so a page with no game sound never gets an
+ * AudioContext. The listener comes off when the context runs, and goes
+ * back on when the context stops running (an iOS interruption, for
+ * example). GameStartOverlay also calls unlock() inside the Play tap.
  *
  * Rules for callers:
+ * - Get a channel when the game plays its first sound, not on page load:
+ *   a context made before a gesture makes the browser log a warning.
+ *   Call useEffect(() => wantGameAudio(), []) so the first tap makes and
+ *   starts the bus.
  * - Never close the context. It is typed BaseAudioContext, which has no
  *   close(). Call channel.dispose() when the game unmounts.
  * - Do not keep the GameAudio object in a long-lived variable. Call
  *   getGameAudio() when you need it. It is cheap, and it replaces a bus
- *   whose context the browser closed.
+ *   whose context the browser closed. A kept channel reads
+ *   `disposed === true` after that, so get a new one.
  * - getGameAudio() returns null on the server, in a browser with no Web
  *   Audio, and in jsdom tests without the audio mock. Make every sound a
  *   no-op when it returns null.
+ * - Record the sound switch with setGameSpeakerEnabled(). It makes no
+ *   AudioContext, so it is safe on page load.
  *
  * SSR: importing this module never creates an AudioContext, and the
  * document listener is installed only when `document` exists.
@@ -51,13 +69,18 @@ export type GameAudioState = AudioContextState;
 
 /** One game's (or one sub-mix's) way into the bus. */
 export interface GameAudioChannel {
-  /** The app id given to channel(), for example "breakout". */
+  /** The id given to channel(), for example "breakout" or "monster-truck:engine". */
   readonly appId: string;
+  /** The app the channel belongs to: the id before any ":", for example "monster-truck". */
+  readonly baseAppId: string;
   /** Connect every sound of this channel here, never to ctx.destination. */
   readonly input: GainNode;
   /** The shared context, for making nodes. Never close it. */
   readonly context: BaseAudioContext;
-  /** True after dispose(). */
+  /**
+   * True after dispose(), and after the browser closed the shared context.
+   * A disposed channel makes no sound: get a new one from getGameAudio().
+   */
   readonly disposed: boolean;
   /**
    * Take this channel off the bus: a short fade, then a disconnect.
@@ -78,20 +101,17 @@ export interface GameAudio {
    * skips the tap point, so these sounds never land in a clip.
    */
   readonly uiOutput: AudioNode;
-  /** True when game sound reaches the speakers right now. */
-  readonly speakerEnabled: boolean;
   /**
    * Make a new channel for `appId`. Each call makes a new GainNode, so a
-   * game can make one channel per sub-mix (engine, music, effects).
+   * game can make one channel per sub-mix: "monster-truck:engine",
+   * "monster-truck:music". Every sub-mix obeys the switch of its app
+   * (the id before the ":").
    */
   channel(appId: string): GameAudioChannel;
-  /**
-   * The game's sound switch. It turns the speakers on or off for `appId`
-   * only. The newest live channel decides which app is on screen, so a
-   * mute in one game never leaks into the next game. Clips still record
-   * the sound.
-   */
+  /** The same as setGameSpeakerEnabled(appId, enabled). */
   setSpeakerEnabled(appId: string, enabled: boolean): void;
+  /** The same as isGameSpeakerEnabled(appId). */
+  isSpeakerEnabled(appId: string): boolean;
   /**
    * Start the sound. Call it synchronously inside a user gesture handler
    * (a tap or a key press), never from an effect or a timer.
@@ -176,11 +196,33 @@ function errorTypeName(error: unknown): string {
   return typeof name === "string" && /^[A-Za-z]{1,64}$/.test(name) ? name : "unknown error";
 }
 
-function assertAppId(appId: unknown): asserts appId is string {
-  if (typeof appId !== "string" || appId.trim() === "") {
+/**
+ * The app that owns `appId`: the text before the first ":", trimmed.
+ * "monster-truck:engine" -> "monster-truck". Throws on an empty id.
+ */
+export function baseAppIdOf(appId: string): string {
+  if (typeof appId !== "string") {
     throw new TypeError("getGameAudio(): the app id must be a non-empty string.");
   }
+  const colon = appId.indexOf(":");
+  const base = (colon === -1 ? appId : appId.slice(0, colon)).trim();
+  if (base === "") {
+    throw new TypeError("getGameAudio(): the app id must be a non-empty string.");
+  }
+  return base;
 }
+
+// ---------------------------------------------------------------------------
+// Page-level state. It lives outside the bus, so a game can record its saved
+// sound switch, and say that it wants sound, before any AudioContext exists.
+// ---------------------------------------------------------------------------
+
+/** Base app ids whose sound switch is off. */
+const mutedApps = new Set<string>();
+/** How many mounted games called wantGameAudio() and have not let go. */
+let wantCount = 0;
+type GameAudioCreatedListener = (bus: GameAudio) => void;
+const createdListeners = new Set<GameAudioCreatedListener>();
 
 class Channel implements GameAudioChannel {
   private isDisposed = false;
@@ -188,6 +230,7 @@ class Channel implements GameAudioChannel {
   constructor(
     private readonly hub: GameAudioHub,
     readonly appId: string,
+    readonly baseAppId: string,
     readonly input: GainNode
   ) {}
 
@@ -204,27 +247,33 @@ class Channel implements GameAudioChannel {
     this.isDisposed = true;
     this.hub.releaseChannel(this);
   }
+
+  /** The browser closed the context: the nodes are dead, so only mark it. */
+  markClosed(): void {
+    this.isDisposed = true;
+  }
 }
 
 class GameAudioHub implements GameAudio {
   private readonly audioContext: AudioContext;
   private readonly master: GainNode;
   private readonly tap: GainNode;
-  private readonly speaker: GainNode;
   private readonly limiter: DynamicsCompressorNode;
   private readonly ui: GainNode;
-  /** Live channels, oldest first. The newest one decides the active app. */
-  private readonly channels: Channel[] = [];
-  private readonly mutedApps = new Set<string>();
+  /**
+   * One speaker gain per base app id, made with the app's first channel.
+   * A page has a small, fixed set of apps, so these stay for the life of
+   * the context. An idle gain with no input costs almost nothing.
+   */
+  private readonly appSpeakers = new Map<string, GainNode>();
+  private readonly channels = new Set<Channel>();
   private readonly stateListeners = new Set<GameAudioStateListener>();
-  private speakerOn = true;
   private primed = false;
 
   constructor(audioContext: AudioContext) {
     this.audioContext = audioContext;
     this.master = audioContext.createGain();
     this.tap = audioContext.createGain();
-    this.speaker = audioContext.createGain();
     this.limiter = audioContext.createDynamicsCompressor();
     this.ui = audioContext.createGain();
 
@@ -234,9 +283,8 @@ class GameAudioHub implements GameAudio {
     this.limiter.attack.value = LIMITER_SETTINGS.attack;
     this.limiter.release.value = LIMITER_SETTINGS.release;
 
+    // The recording branch ends at the tap point (see the file comment).
     this.master.connect(this.tap);
-    this.tap.connect(this.speaker);
-    this.speaker.connect(this.limiter);
     this.limiter.connect(audioContext.destination);
     this.ui.connect(this.limiter);
 
@@ -255,31 +303,27 @@ class GameAudioHub implements GameAudio {
     return this.ui;
   }
 
-  get speakerEnabled(): boolean {
-    return this.speakerOn;
-  }
-
   /** The node a clip recorder connects to. Internal: see getGameAudioTapPoint(). */
   get tapPoint(): AudioNode {
     return this.tap;
   }
 
   channel(appId: string): GameAudioChannel {
-    assertAppId(appId);
+    const base = baseAppIdOf(appId);
     const input = this.audioContext.createGain();
     input.connect(this.master);
-    const channel = new Channel(this, appId, input);
-    this.channels.push(channel);
-    // A new game is on screen: apply its switch before its first sound.
-    this.applySpeaker(false);
+    input.connect(this.speakerFor(base));
+    const channel = new Channel(this, appId, base, input);
+    this.channels.add(channel);
     return channel;
   }
 
   setSpeakerEnabled(appId: string, enabled: boolean): void {
-    assertAppId(appId);
-    if (enabled) this.mutedApps.delete(appId);
-    else this.mutedApps.add(appId);
-    this.applySpeaker(true);
+    setGameSpeakerEnabled(appId, enabled);
+  }
+
+  isSpeakerEnabled(appId: string): boolean {
+    return isGameSpeakerEnabled(appId);
   }
 
   unlock(): void {
@@ -301,11 +345,7 @@ class GameAudioHub implements GameAudio {
 
   /** Called by Channel.dispose(). */
   releaseChannel(channel: Channel): void {
-    const index = this.channels.indexOf(channel);
-    if (index !== -1) this.channels.splice(index, 1);
-    // An older channel may be playing now, so fade (a jump can click).
-    this.applySpeaker(true);
-
+    this.channels.delete(channel);
     const { input } = channel;
     const disconnect = () => {
       try {
@@ -330,22 +370,35 @@ class GameAudioHub implements GameAudio {
   }
 
   /**
-   * Speaker on or off. The newest live channel names the app on screen;
-   * with no live channel, the speaker is on. `fade` is true for a kid's
-   * switch and for a disposed channel (no click), and false when a new
-   * channel appears (its first sound must not leak through a fade).
+   * Apply the recorded switch of `base` to its speaker gain, if the app has
+   * one yet. While sound plays, fade (a jump clicks). While the context is
+   * not running, jump: nothing plays, and a fade would let the first
+   * sound after resume() leak through.
    */
-  private applySpeaker(fade: boolean): void {
-    const active = this.channels[this.channels.length - 1];
-    const on = active === undefined || !this.mutedApps.has(active.appId);
-    if (on === this.speakerOn) return;
-    this.speakerOn = on;
-    const gain = this.speaker.gain;
+  applySpeaker(base: string): void {
+    const speaker = this.appSpeakers.get(base);
+    if (!speaker) return;
+    const target = mutedApps.has(base) ? 0 : 1;
+    const gain = speaker.gain;
     const now = this.audioContext.currentTime;
-    const target = on ? 1 : 0;
     gain.cancelScheduledValues(now);
-    if (fade) gain.setTargetAtTime(target, now, SPEAKER_FADE_TIME_CONSTANT);
-    else gain.setValueAtTime(target, now);
+    if (this.audioContext.state === "running") {
+      gain.setTargetAtTime(target, now, SPEAKER_FADE_TIME_CONSTANT);
+    } else {
+      gain.setValueAtTime(target, now);
+    }
+  }
+
+  /** The speaker gain of `base`. A new one starts at the recorded switch. */
+  private speakerFor(base: string): GainNode {
+    const existing = this.appSpeakers.get(base);
+    if (existing) return existing;
+    const speaker = this.audioContext.createGain();
+    // Set before any sound, so a saved mute holds from the first sound.
+    speaker.gain.value = mutedApps.has(base) ? 0 : 1;
+    speaker.connect(this.limiter);
+    this.appSpeakers.set(base, speaker);
+    return speaker;
   }
 
   /**
@@ -374,8 +427,14 @@ class GameAudioHub implements GameAudio {
   private readonly handleStateChange = (): void => {
     const state = this.audioContext.state;
     if (state === "running") removeUnlockListeners();
-    else if (state !== "closed") installUnlockListeners();
-    if (state === "closed" && hub === this) hub = null;
+    else installUnlockListeners();
+    if (state === "closed") {
+      // Every node of a closed context is dead. Mark each kept channel, so
+      // a game that keeps one knows to get a new channel.
+      for (const channel of this.channels) channel.markClosed();
+      this.channels.clear();
+      if (hub === this) hub = null;
+    }
     for (const listener of [...this.stateListeners]) {
       try {
         listener(state);
@@ -392,10 +451,16 @@ let creationFailed = false;
 let unlockListenersInstalled = false;
 
 function onUnlockGesture(): void {
-  // Only unlock a bus that exists. A page that imports this module but
+  if (hub) {
+    hub.unlock();
+    return;
+  }
+  // No bus yet. Make one only when a mounted game wants sound, and only
+  // while the gesture can start it. A page that imports this module but
   // plays no game sound (the home page, through a shared barrel) never
-  // gets an AudioContext from a stray tap.
-  hub?.unlock();
+  // gets an AudioContext from a stray tap. getGameAudio() starts a bus
+  // that it makes inside a gesture.
+  if (wantCount > 0 && inUserGesture()) getGameAudio();
 }
 
 function installUnlockListeners(): void {
@@ -427,9 +492,10 @@ export function getGameAudio(): GameAudio | null {
   if (!AudioContextClass) return null;
 
   let context: AudioContext | null = null;
+  let created: GameAudioHub;
   try {
     context = new AudioContextClass();
-    hub = new GameAudioHub(context);
+    created = new GameAudioHub(context);
   } catch (error) {
     creationFailed = true;
     hub = null;
@@ -444,14 +510,22 @@ export function getGameAudio(): GameAudio | null {
     );
     return null;
   }
+  hub = created;
 
-  if (hub.state === "running") removeUnlockListeners();
+  if (created.state === "running") removeUnlockListeners();
   else installUnlockListeners();
   // Made inside a tap (a drum pad, for example)? Start it now, in the same
   // gesture, because the document listener already ran before the tap's
   // own handler made the context.
-  if (inUserGesture()) hub.unlock();
-  return hub;
+  if (inUserGesture()) created.unlock();
+  for (const listener of [...createdListeners]) {
+    try {
+      listener(created);
+    } catch {
+      // One bad listener must not stop the others, or the game.
+    }
+  }
+  return created;
 }
 
 /**
@@ -467,23 +541,93 @@ export function unlockGameAudio(): void {
 }
 
 /**
- * The tap point: the node a clip recorder connects to. It carries every
- * game channel and no UI sound, before the speaker switch. For the clip
- * service only; a game must never connect to it or read from it.
+ * Say that this page plays game sound. Call it when the game mounts:
+ *
+ *   useEffect(() => wantGameAudio(), []);
+ *
+ * It makes no AudioContext. The next tap anywhere on the page makes the
+ * bus and starts it inside that tap, so a game with no start card (or one
+ * that makes its first channel later, in an effect or a timer) is not
+ * silent at the first tap. Returns the function that lets go (the effect
+ * cleanup). It is safe to call that function more than once.
  */
-export function getGameAudioTapPoint(): AudioNode | null {
-  const bus = getGameAudio();
-  return bus instanceof GameAudioHub ? bus.tapPoint : null;
+export function wantGameAudio(): () => void {
+  wantCount += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    wantCount = Math.max(0, wantCount - 1);
+  };
 }
 
 /**
- * Test-only escape hatch: forget the bus and put the document listener
- * back, as on a fresh page load. Never call in app code.
+ * The game's sound switch. It turns the speakers on or off for one app:
+ * the id before any ":" ("monster-truck:engine" -> "monster-truck").
+ * Clips still record the sound. It makes no AudioContext, so call it on
+ * page load with the saved setting, and again on each tap of the switch.
+ * A mute in one game never reaches another game.
+ */
+export function setGameSpeakerEnabled(appId: string, enabled: boolean): void {
+  const base = baseAppIdOf(appId);
+  const wasMuted = mutedApps.has(base);
+  if (enabled) mutedApps.delete(base);
+  else mutedApps.add(base);
+  if (wasMuted === !enabled) return;
+  if (hub && hub.state !== "closed") hub.applySpeaker(base);
+}
+
+/** True when the sound switch of `appId`'s app is on (the default). */
+export function isGameSpeakerEnabled(appId: string): boolean {
+  return !mutedApps.has(baseAppIdOf(appId));
+}
+
+/**
+ * The tap point: the node a clip recorder connects to. It carries every
+ * game channel and no UI sound, before any sound switch. For the clip
+ * service only; a game must never connect to it or read from it.
+ *
+ * It never makes an AudioContext: it returns null until a game makes the
+ * bus. Use onGameAudioCreated() to learn when the bus appears.
+ */
+export function getGameAudioTapPoint(): AudioNode | null {
+  return hub && hub.state !== "closed" ? hub.tapPoint : null;
+}
+
+/**
+ * Call `listener` with each new bus: now, if a bus exists, and again each
+ * time getGameAudio() makes one (also after the browser closed the old
+ * context). It never makes an AudioContext. For the clip service, which
+ * attaches its recorder to getGameAudioTapPoint(). Returns a function that
+ * stops listening.
+ */
+export function onGameAudioCreated(listener: (bus: GameAudio) => void): () => void {
+  createdListeners.add(listener);
+  if (hub && hub.state !== "closed") {
+    try {
+      listener(hub);
+    } catch {
+      // Same rule as a later call: a bad listener must not break the caller.
+    }
+  }
+  return () => {
+    createdListeners.delete(listener);
+  };
+}
+
+/**
+ * Test-only escape hatch: forget the bus, every sound switch, every
+ * wantGameAudio() and every onGameAudioCreated() listener, and put the
+ * document listener back, as on a fresh page load. installAudioMock()
+ * calls it. Never call in app code.
  */
 export function __unsafeResetGameAudioForTests(): void {
   removeUnlockListeners();
   hub = null;
   creationFailed = false;
+  mutedApps.clear();
+  wantCount = 0;
+  createdListeners.clear();
   installUnlockListeners();
 }
 

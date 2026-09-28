@@ -9,12 +9,11 @@ import { installAudioMock, removeAudioMock } from "@/__tests__/audio-mock";
 
 import { GameStartOverlay, GameStartOverlayButton } from "../GameStartOverlay";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
-import { __unsafeResetGameAudioForTests } from "@/shared/lib/audio/gameAudio";
 
 afterEach(() => {
   resetPointerMock();
+  // Also resets the shared game-audio bus, so no test sees another test's bus.
   removeAudioMock();
-  __unsafeResetGameAudioForTests();
 });
 
 describe("GameStartOverlay", () => {

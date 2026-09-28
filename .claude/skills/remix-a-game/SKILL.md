@@ -32,7 +32,7 @@ The copy still says the old id all over. **Every load-bearing reference must bec
 
 After re-id-ing, **grep to be sure**: `grep -rn "<src>" apps/web/src/games/<new> apps/web/src/app/games/<new>` should return nothing referencing the old id.
 
-**Sound:** the copy's sounds MUST come from `getGameAudio()` in `@/shared/lib/audio`, on its own channel: `getGameAudio()?.channel("<new>")` and `setSpeakerEnabled("<new>", …)`. If the source is on `LEGACY_AUDIO_SITES` (`apps/web/src/shared/lib/audio/audioBusRule.mjs`), its sound code makes its own AudioContext. Lint fails on that code in the copy, so rewrite the copy's sound onto the bus (see make-a-game, "Sound"). Never add the copy to the legacy list.
+**Sound:** the copy's sounds MUST come from `getGameAudio()` in `@/shared/lib/audio`, on its own channel: `getGameAudio()?.channel("<new>")` and `setGameSpeakerEnabled("<new>", …)`. If the source is on `LEGACY_AUDIO_SITES` (`apps/web/src/shared/lib/audio/audioBusRule.mjs`), its sound code makes its own AudioContext. Lint fails on that code in the copy, so rewrite the copy's sound onto the bus (see make-a-game, "Sound"). Never add the copy to the legacy list.
 
 ## Step 4 — Register the new id (same as make-a-game ①②③)
 - `packages/db/src/schema/app-progress.ts` → add `"<new>"` to `VALID_APP_IDS` (do this so `Game.tsx` typechecks).

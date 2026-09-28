@@ -66,13 +66,13 @@ vi.mock("next-auth/react", () => ({ useSession: () => ({ data: null, status: "un
 Big buttons (44px+), bright colors, touch AND keyboard, celebrations on score/win, forgiving, instant restart. **Sound:** if you add a `soundEnabled` flag, you MUST wire real sounds to it — a flag that plays nothing is a stub; wire it or delete it.
 
 **Sound MUST come from `getGameAudio()` in `@/shared/lib/audio`** (so clips can hear the game):
-- Get a channel: `const channel = getGameAudio()?.channel("my-game")`. Make every sound with `channel.context` and connect it to `channel.input`, never to `ctx.destination`.
+- Get a channel: `const channel = getGameAudio()?.channel("my-game")`. Make every sound with `channel.context` and connect it to `channel.input`, never to `ctx.destination`. A sub-mix can have its own channel, for example `channel("my-game:music")`. It obeys the switch of `my-game`.
 - `getGameAudio()` returns `null` on the server and in tests. Make each sound a no-op on `null`.
-- Call `channel.dispose()` when the game unmounts. Never close the context.
-- Wire the sound switch to `getGameAudio()?.setSpeakerEnabled("my-game", soundEnabled)`, on the tap AND after the saved setting loads.
-- The start card's Play button starts the audio for you. No extra unlock code is needed.
-- In tests, use `installAudioMock()` from `src/__tests__/audio-mock.ts`. Do not write a new fake.
-- ESLint blocks `new AudioContext()`, `ctx.destination`, `new Audio()`, and `<audio>` in games and apps.
+- Get the channel when the game plays its first sound, not on page load (an AudioContext made before a tap makes the browser log a warning). Keep it in a ref, and get a new one when `channel.disposed` is `true`. Call `channel.dispose()` when the game unmounts. Never close the context.
+- Add `useEffect(() => wantGameAudio(), [])` to the game's main component. Then the first tap anywhere starts the sound, also in a game or app with no start card. (The start card's Play button also starts it.)
+- Wire the sound switch to `setGameSpeakerEnabled("my-game", soundEnabled)` from `@/shared/lib/audio`: once after the saved setting loads, and on each tap of the switch. It makes no AudioContext, so it is safe on page load. It mutes only this game, and clips still get the sound.
+- In tests, use `installAudioMock()` from `src/__tests__/audio-mock.ts`. It gives each test a fresh bus. Do not write a new fake. Prove each sound gets to the bus with `pathExists(soundNode, channel.input)`, and prove the switch with `isGameSpeakerEnabled("my-game")`.
+- ESLint blocks `new AudioContext()`, `ctx.destination`, `new Audio()`, `<audio>`, and three.js or drei audio (`AudioListener`, `PositionalAudio`) in games and apps.
 
 ## Step 5 — Prove it works (three gates, in order)
 1. `cd apps/web && pnpm test` — runs vitest. (If `node_modules` is missing, run `pnpm install` first.) **A green run proves little on its own** — most games have no tests.
@@ -104,7 +104,7 @@ Big buttons (44px+), bright colors, touch AND keyboard, celebrations on score/wi
 | "I'll just ask the kid which safe version they want." (for an unsafe ask) | Don't stall on a question — pivot to a concrete safe game and start building. |
 | "A `soundEnabled` flag is fine even if nothing plays yet." | A dead flag is a stub. Wire it or delete it. |
 | "The sibling's `new AudioContext()` sound code works, I'll copy it." | Clips can't hear it, the sound switch can't mute it, and lint fails outside the legacy list. Use `getGameAudio()`. |
-| "Lint blocks my sound file, I'll add it to `LEGACY_AUDIO_SITES`." | Never. That list only shrinks. Move the sound onto `getGameAudio()`. |
+| "Lint blocks my sound file, I'll add it to `LEGACY_AUDIO_SITES`." | Never. That list only shrinks, and its ceilings only go down. Move the sound onto `getGameAudio()`. |
 | "The game compiles and shows on the home grid — done." | Without `madeByKid: true` it never reaches the My Games shelf or Games I Made, and nothing goes red to tell you. Check the shelf, not just the grid. |
 
 ## Red flags — you're about to ship a known failure
