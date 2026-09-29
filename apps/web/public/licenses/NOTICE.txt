@@ -1,9 +1,10 @@
 Hank's Hits: notice for third-party software
-Last updated: 2026-09-28
+Last updated: 2026-09-29
 
-The clip maker on this site uses the open-source software below. This file
-tells you what each part is, its license, and where to get its source code.
-The page /licenses on this site has the same information.
+The clip maker and Retro Arcade on this site use the open-source software
+below. This file tells you what each part is, its license, and where to get
+its source code. The page /licenses on this site has the same information.
+Parts 1 to 5 are in the clip maker. Parts 6 and 7 are in Retro Arcade.
 
 
 1. FFmpeg (libavcodec and libavutil), version 8.1.3
@@ -116,3 +117,112 @@ What it does here: parts of musl give the AAC module basic C functions, for
 example math and memory functions.
 
 Source code: https://github.com/emscripten-core/emscripten/tree/6.0.10/system/lib/libc/musl
+
+
+6. EmulatorJS, version 4.2.3 (Retro Arcade)
+-------------------------------------------
+
+License: GNU General Public License, version 3 (GPL-3.0).
+         Full text: /emulator/ejs/4.2.3/licenses/GPL-3.0.txt
+Copyright: the EmulatorJS contributors. The file docs/contributors.md in the
+source code names them.
+
+What it does here: EmulatorJS is the game player of Retro Arcade. It loads
+the emulator cores, shows the game and reads the controls.
+
+Shipped files: the folder /emulator/ejs/4.2.3/ (loader.js, emulator.min.js,
+  emulator.min.css, localization/ and compression/). We did not change the
+  files. Each file is the same as the file in the official EmulatorJS 4.2.3
+  release (SHA-256 of the release file:
+  07d451bc06fa3ad04ab30d9b94eb63ac34ad0babee52d60357b002bde8f3850b).
+  /emulator/ejs/4.2.3/manifest.json gives the size and the SHA-256 of each
+  file.
+
+Source code:
+  /emulator/ejs/4.2.3/source/EmulatorJS-4.2.3-e150dc0491ae.tar.gz (0.6 MB)
+  /emulator/ejs/4.2.3/source/EmulatorJS-4.2.3-package-lock.json (0.1 MB)
+  /emulator/ejs/4.2.3/source/libunrar-js-294e36269104.tar.gz (0.4 MB)
+
+Other parts in these files:
+  emulator.min.js contains nipplejs 0.10.2 (MIT License,
+  /emulator/ejs/4.2.3/licenses/nipplejs-0.10.2-LICENSE.txt), the Socket.IO
+  client 4.8.1 (MIT License,
+  /emulator/ejs/4.2.3/licenses/socket.io-client-4.8.1-LICENSE.txt) and icons
+  from Font Awesome Free 6.5.1 (CC BY 4.0,
+  /emulator/ejs/4.2.3/licenses/CC-BY-4.0.txt and
+  /emulator/ejs/4.2.3/licenses/FontAwesome-Free-6.5.1-LICENSE.txt).
+  compression/libunrar.js and compression/libunrar.wasm are libunrar (the
+  UnRAR license, /emulator/ejs/4.2.3/licenses/UnRAR-5.9.2-license.txt).
+
+Full notice: /emulator/ejs/4.2.3/NOTICE.txt. It tells how to make
+emulator.min.js from the source code. It also tells about extract7z.js and
+extractzip.js in compression/: EmulatorJS does not publish their source
+code.
+
+
+7. The Retro Arcade emulator cores, with RetroArch
+--------------------------------------------------
+
+What they do here: the cores play the games of the old game consoles in
+Retro Arcade. Each core file (/emulator/ejs/4.2.3/cores/*.data) holds
+RetroArch, one emulator core and the Emscripten 4.0.8 runtime, compiled
+together. EmulatorJS built the core files on 14 June 2025 with its build
+scripts. We did not change the core files.
+
+Each part has its own license. The license texts are in
+/emulator/ejs/4.2.3/licenses/:
+  RetroArch (the EmulatorJS fork): GPL-3.0-or-later. GPL-3.0.txt
+  The core build scripts: GPL-3.0. GPL-3.0.txt
+  FCEUmm (NES): GPL-2.0-or-later. cores/fceumm.txt
+  Genesis Plus GX (Sega Genesis): the Genesis Plus GX license, for
+    non-commercial use only. cores/genesis_plus_gx.txt and LGPL-2.1.txt
+  mGBA (Game Boy and Game Boy Advance): MPL-2.0. cores/mgba.txt and
+    MPL-2.0.txt
+  Mupen64Plus-Next (Nintendo 64): GPL-2.0. cores/mupen64plus_next.txt
+  Nestopia UE (NES): GPL-2.0-or-later. cores/nestopia.txt
+  ParaLLEl N64 (Nintendo 64): GPL-2.0. cores/parallel_n64.txt and
+    GPL-2.0.txt
+  PicoDrive (Sega Genesis): the PicoDrive license, for non-commercial use
+    only. cores/picodrive.txt
+  Snes9x (Super NES): the Snes9x license, for non-commercial use only.
+    cores/snes9x.txt
+  Stella 2014 (Atari 2600): GPL-2.0. cores/stella2014.txt
+  The Emscripten runtime and musl: MIT. Emscripten-4.0.8-LICENSE.txt and
+    musl-COPYRIGHT.txt
+
+Copyright: RetroArch: Copyright (C) 2010-2014 Hans-Kristian Arntzen,
+Copyright (C) 2011-2021 Daniel De Matteis, and the other RetroArch
+contributors. Each core has its own authors. /emulator/ejs/4.2.3/NOTICE.txt
+names them.
+
+Source code (each file is an unchanged copy of the archive that GitHub makes
+for the git commit that the core file names):
+  /emulator/ejs/4.2.3/source/RetroArch-EmulatorJS-6dd4353937ef.tar.gz (71.0 MB)
+  /emulator/ejs/4.2.3/source/EmulatorJS-build-b24e5b535034.tar.gz (less than 0.1 MB)
+  /emulator/ejs/4.2.3/source/libretro-fceumm-d9d7e141274d.tar.gz (0.8 MB)
+  /emulator/ejs/4.2.3/source/Genesis-Plus-GX-594cdf3a6665.tar.gz (14.4 MB)
+  /emulator/ejs/4.2.3/source/mgba-1d9dbb1dc8d5.tar.gz (15.1 MB)
+  /emulator/ejs/4.2.3/source/mupen64plus-libretro-nx-c35e55e87cba.tar.gz (15.0 MB)
+  /emulator/ejs/4.2.3/source/nestopia-6b08ec9148bd.tar.gz (1.2 MB)
+  /emulator/ejs/4.2.3/source/parallel-n64-56f4daf8ec9b.tar.gz (5.1 MB)
+  /emulator/ejs/4.2.3/source/picodrive-3cf1e2617958.tar.gz (2.0 MB)
+  /emulator/ejs/4.2.3/source/picodrive-libpicofe-86a086ed64aa.tar.gz (0.1 MB)
+  /emulator/ejs/4.2.3/source/picodrive-cyclone68000-3ac7cf1bdeec.tar.gz (0.1 MB)
+  /emulator/ejs/4.2.3/source/picodrive-emu2413-a2dfc20ff507.tar.gz (less than 0.1 MB)
+  /emulator/ejs/4.2.3/source/picodrive-libchdr-e62ac5995b1c.tar.gz (4.2 MB)
+  /emulator/ejs/4.2.3/source/picodrive-dr_libs-dd762b861eca.tar.gz (0.5 MB)
+  /emulator/ejs/4.2.3/source/snes9x-6ca2343e5f3b.tar.gz (5.2 MB)
+  /emulator/ejs/4.2.3/source/stella2014-libretro-1f578c36382b.tar.gz (0.7 MB)
+  The Emscripten 4.0.8 source (with musl):
+  https://github.com/emscripten-core/emscripten/tree/4.0.8
+
+A known license problem: the licenses of four cores do not agree with the
+GPL-3.0 of RetroArch. Stella 2014 has the GPL-2.0 license only. Snes9x,
+Genesis Plus GX and PicoDrive allow non-commercial use only. EmulatorJS made
+these core files. Part D of /emulator/ejs/4.2.3/NOTICE.txt tells more.
+
+Genesis Plus GX, PicoDrive and Snes9x allow non-commercial use only. This
+site is free. It has no ads and no payments.
+
+Your rights: the GPL and the MPL let you get the source code, change it and
+share it. Read the license texts for the conditions.

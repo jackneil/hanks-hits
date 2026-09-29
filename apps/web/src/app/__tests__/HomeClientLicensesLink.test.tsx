@@ -8,9 +8,10 @@ vi.mock("@/shared/components/Header", () => ({
 }));
 
 /**
- * The home page footer links the licenses page. The licenses of the clip
- * maker's open-source parts (FFmpeg LGPL-2.1, Mediabunny MPL-2.0) ask for a
- * notice that a person can find.
+ * The home page footer links the licenses page. The licenses of the
+ * open-source parts of the clip maker (FFmpeg LGPL-2.1, Mediabunny MPL-2.0)
+ * and of Retro Arcade (EmulatorJS and its cores, GPL) ask for a notice that
+ * a person can find.
  */
 describe("HomeClient footer: licenses link", () => {
   it("links /licenses with a clear label and a 44 px touch target", () => {

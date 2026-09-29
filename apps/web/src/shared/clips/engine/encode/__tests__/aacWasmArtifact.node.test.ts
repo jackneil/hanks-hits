@@ -21,7 +21,11 @@
  * - the configure flags could change the license (GPL, nonfree, version 3);
  * - BUILD-INFO.txt or NOTICE.txt record a build or link command that is not
  *   the command that container-build.sh runs;
- * - NOTICE.txt or the /licenses page data do not match the build.
+ * - NOTICE.txt or the /licenses page data do not match the build;
+ * - a link on the /licenses page goes to a file that the site does not
+ *   serve. An EmulatorJS source code file is not in git: its link must name
+ *   a manifest entry, and the Docker build must copy the checked files to
+ *   the linked folder.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -311,17 +315,39 @@ describe("the license files", () => {
     expect(licenses.FFMPEG_TARBALL_MB).toBe(`${mb.toFixed(1)} MB`);
   });
 
-  it("every site link on the licenses page points at a file that exists", () => {
+  it("every site link on the licenses page points at a file that the site serves", () => {
     const hrefs = [
       licenses.NOTICE_PATH,
       licenses.FFMPEG_TARBALL_PATH,
       licenses.AAC_MODULE_PATH,
+      licenses.EMULATORJS_NOTICE_PATH,
+      licenses.EMULATORJS_MANIFEST_PATH,
       ...licenses.AAC_BUILD_FILES.map((f) => licenses.aacBuildFileHref(f.file)),
-      ...licenses.THIRD_PARTY_COMPONENTS.flatMap((c) => [c.licenseText, ...c.source])
+      ...licenses.THIRD_PARTY_COMPONENTS.flatMap((c) => [c.licenseText, ...(c.moreLicenseTexts ?? []), ...c.source])
         .filter((l) => !l.external)
         .map((l) => l.href),
     ];
-    for (const href of hrefs) {
+    // Git does not hold the EmulatorJS source code files: the Docker build
+    // downloads each file that the manifest lists, checks its SHA-256 and
+    // copies it to this folder. So a link there must name a manifest entry,
+    // and the build must copy the files to the folder that the links use.
+    // A local copy (pnpm --filter web emulator:sources) changes nothing here.
+    const sourceDir = `${licenses.EMULATORJS_SOURCE_DIR}/`;
+    const manifestFile = path.join(PUBLIC, ...licenses.EMULATORJS_MANIFEST_PATH.split("/").filter(Boolean));
+    const manifest = JSON.parse(text(manifestFile)) as { sources: { path: string }[] };
+    const manifestSources = new Set(manifest.sources.map((s) => `${licenses.EMULATORJS_DIR}/${s.path}`));
+    const built = hrefs.filter((href) => href.startsWith(sourceDir));
+    expect(built.length, "the licenses page links no EmulatorJS source code file").toBeGreaterThan(0);
+    for (const href of built) expect(manifestSources.has(href), `${href} is not a source entry of the manifest`).toBe(true);
+    const dockerfile = text(path.join(REPO_ROOT, "Dockerfile"));
+    const manifestRel = path.relative(REPO_ROOT, manifestFile);
+    expect(dockerfile, "the emulator-sources stage does not read this manifest").toContain(`COPY ${manifestRel} ./manifest.json`);
+    expect(dockerfile).toMatch(/emulatorjs-sources\.mjs \S+ --fetch --sources --manifest manifest\.json --out \/out\n/);
+    expect(dockerfile, "the image does not put the source code files where the links point").toContain(
+      `COPY --from=emulator-sources --chown=nextjs:nodejs /out/source ./apps/web/public${licenses.EMULATORJS_SOURCE_DIR}\n`,
+    );
+
+    for (const href of hrefs.filter((h) => !h.startsWith(sourceDir))) {
       expect(href.startsWith("/"), href).toBe(true);
       expect(existsSync(path.join(PUBLIC, ...href.split("/").filter(Boolean))), href).toBe(true);
     }

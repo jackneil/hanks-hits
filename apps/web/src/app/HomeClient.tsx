@@ -448,8 +448,9 @@ export function HomeClient({ categories }: HomeClientProps) {
             Made for {SITE.owner} with ❤️
           </p>
         </div>
-        {/* The notices for the open-source software in the clip maker
-            (FFmpeg LGPL-2.1 and Mediabunny MPL-2.0 ask for them). */}
+        {/* The notices for the open-source software in the clip maker and
+            Retro Arcade (FFmpeg LGPL-2.1, Mediabunny MPL-2.0, and EmulatorJS
+            and its cores under the GPL ask for them). */}
         <nav aria-label="Site information" className="max-w-6xl mx-auto mt-2 flex justify-center">
           <Link
             href="/licenses"

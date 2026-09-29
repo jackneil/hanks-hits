@@ -1,14 +1,21 @@
 /**
- * The third-party software that the clip maker ships, for the /licenses page.
+ * The third-party software that the site ships (the clip maker and Retro
+ * Arcade), for the /licenses page.
  *
- * Every value here must agree with the build pins in scripts/clips/aac-wasm
- * and with apps/web/public/licenses/NOTICE.txt. Two test files compare them:
+ * Every value here must agree with the build pins in scripts/clips/aac-wasm,
+ * with the EmulatorJS manifest (public/emulator/ejs/<version>/manifest.json)
+ * and with apps/web/public/licenses/NOTICE.txt. Three test files compare them:
  * - src/shared/clips/engine/encode/__tests__/aacWasmArtifact.node.test.ts
- *   compares this data with the pins, the build and the files on the disk;
+ *   compares this data with the pins, the build and the files on the disk,
+ *   and checks that every link on the page goes to a file that the site
+ *   serves;
+ * - src/apps/licenses/__tests__/emulatorLicenses.node.test.ts compares the
+ *   Retro Arcade entries with the EmulatorJS manifest and NOTICE.txt;
  * - src/apps/licenses/__tests__/LicensesPage.test.tsx compares the page with
  *   this data.
  * When you rebuild the AAC module or change a version, update this file,
- * NOTICE.txt, notice.js and the pins together.
+ * NOTICE.txt, notice.js and the pins together. When you change the EmulatorJS
+ * version, update the Retro Arcade entries from the new manifest.json.
  */
 
 /** FFmpeg release in the AAC module (scripts/clips/aac-wasm/pins.sh). */
@@ -29,7 +36,25 @@ export const AAC_MODULE_SHA256 = "e2ee0d697dabd45903649b0971d4335bebacf25e53d41b
 /** The notice file with the same information as the page. */
 export const NOTICE_PATH = "/licenses/NOTICE.txt";
 /** The date of the last change to this list. */
-export const LICENSES_UPDATED = "2026-09-28";
+export const LICENSES_UPDATED = "2026-09-29";
+
+/** The EmulatorJS release that Retro Arcade loads (public/emulator/ejs/<version>/). */
+export const EMULATORJS_VERSION = "4.2.3";
+/** The folder on the site with the EmulatorJS files, the cores, their license texts and their source code. */
+export const EMULATORJS_DIR = `/emulator/ejs/${EMULATORJS_VERSION}`;
+/** The full notice of the Retro Arcade emulator: each part, its license and its source code. */
+export const EMULATORJS_NOTICE_PATH = `${EMULATORJS_DIR}/NOTICE.txt`;
+/** The size and the SHA-256 of each file, source code file and license text in the folder. */
+export const EMULATORJS_MANIFEST_PATH = `${EMULATORJS_DIR}/manifest.json`;
+/** SHA-256 of the official EmulatorJS release file that all the files come from. */
+export const EMULATORJS_RELEASE_SHA256 = "07d451bc06fa3ad04ab30d9b94eb63ac34ad0babee52d60357b002bde8f3850b";
+/**
+ * The folder with the source code files of EmulatorJS and the cores. Git
+ * does not hold them. The Docker build downloads each file that
+ * manifest.json lists, checks its SHA-256 and puts it here (stage
+ * emulator-sources of the Dockerfile).
+ */
+export const EMULATORJS_SOURCE_DIR = `${EMULATORJS_DIR}/source`;
 
 export interface LicenseLink {
   label: string;
@@ -47,6 +72,8 @@ export interface ThirdPartyComponent {
   /** The full license name. */
   license: string;
   licenseText: LicenseLink;
+  /** The license texts of the other parts of this component, when it has more than one part. */
+  moreLicenseTexts?: readonly LicenseLink[];
   /** Where to get the source code. */
   source: readonly LicenseLink[];
   copyright: string;
@@ -73,6 +100,28 @@ export const AAC_BUILD_FILES: readonly { file: string; about: string }[] = [
 ];
 
 export const aacBuildFileHref = (file: string) => `/licenses/aac-wasm/${file}`;
+
+/** A license text in the EmulatorJS folder (git holds these files). */
+const emulatorLicense = (label: string, file: string): LicenseLink => ({
+  label,
+  href: `${EMULATORJS_DIR}/licenses/${file}`,
+});
+
+/**
+ * A source code file in EMULATORJS_SOURCE_DIR. The size is the "bytes" of
+ * its manifest.json entry in MB, with one decimal ("less than 0.1 MB" below
+ * 0.05 MB). The tests compute it from the manifest.
+ */
+const emulatorSource = (label: string, file: string, size: string): LicenseLink => ({
+  label: `${label} (${size})`,
+  href: `${EMULATORJS_SOURCE_DIR}/${file}`,
+});
+
+/** The link to the full notice of the Retro Arcade emulator. */
+const EMULATORJS_NOTICE_LINK: LicenseLink = {
+  label: "Retro Arcade emulator notice (NOTICE.txt): each part, its license and its source code",
+  href: EMULATORJS_NOTICE_PATH,
+};
 
 export const THIRD_PARTY_COMPONENTS: readonly ThirdPartyComponent[] = [
   {
@@ -157,6 +206,110 @@ export const THIRD_PARTY_COMPONENTS: readonly ThirdPartyComponent[] = [
     copyright: "Copyright (c) 2005-2020 Rich Felker, et al.",
     notes: [],
   },
+  {
+    id: "emulatorjs",
+    name: "EmulatorJS",
+    version: EMULATORJS_VERSION,
+    purpose:
+      "EmulatorJS is the game player of Retro Arcade. It loads the emulator cores, shows the game and reads the controls.",
+    license: "GNU General Public License, version 3 (GPL-3.0)",
+    licenseText: emulatorLicense("GPL 3.0 license text", "GPL-3.0.txt"),
+    moreLicenseTexts: [
+      emulatorLicense("nipplejs 0.10.2 license text (MIT)", "nipplejs-0.10.2-LICENSE.txt"),
+      emulatorLicense("Socket.IO client 4.8.1 license text (MIT)", "socket.io-client-4.8.1-LICENSE.txt"),
+      emulatorLicense("Font Awesome Free 6.5.1 license text", "FontAwesome-Free-6.5.1-LICENSE.txt"),
+      emulatorLicense("CC BY 4.0 license text (Font Awesome icons)", "CC-BY-4.0.txt"),
+      emulatorLicense("UnRAR 5.9.2 license text (libunrar)", "UnRAR-5.9.2-license.txt"),
+    ],
+    source: [
+      emulatorSource(`EmulatorJS ${EMULATORJS_VERSION} source code`, "EmulatorJS-4.2.3-e150dc0491ae.tar.gz", "0.6 MB"),
+      emulatorSource(
+        `EmulatorJS ${EMULATORJS_VERSION} package-lock.json (the versions of the build tools)`,
+        "EmulatorJS-4.2.3-package-lock.json",
+        "0.1 MB",
+      ),
+      emulatorSource("libunrar-js source code, with UnRAR 5.9.2", "libunrar-js-294e36269104.tar.gz", "0.4 MB"),
+      {
+        label: "nipplejs 0.10.2 source code on GitHub",
+        href: "https://github.com/yoannmoinet/nipplejs/tree/v0.10.2",
+        external: true,
+      },
+      {
+        label: "Socket.IO client 4.8.1 source code on GitHub",
+        href: "https://github.com/socketio/socket.io/tree/socket.io-client%404.8.1/packages/socket.io-client",
+        external: true,
+      },
+      EMULATORJS_NOTICE_LINK,
+    ],
+    copyright: "Copyright the EmulatorJS contributors. The file docs/contributors.md in the source code names them.",
+    notes: [
+      `Retro Arcade loads EmulatorJS only from this site, from the folder ${EMULATORJS_DIR}/. The site does not load it from the EmulatorJS servers.`,
+      `We did not change the files. Each file is the same as the file in the official EmulatorJS ${EMULATORJS_VERSION} release. The file manifest.json in the folder gives the size and the SHA-256 of each file.`,
+      "The file emulator.min.js also contains nipplejs 0.10.2 (the on-screen joystick, MIT License), the Socket.IO client 4.8.1 (MIT License) and icons from Font Awesome Free 6.5.1 (CC BY 4.0).",
+      "The folder also has libunrar, which opens RAR game files. It has the UnRAR license.",
+      "The Retro Arcade emulator notice tells how to make emulator.min.js from the source code. It also tells about two small helper files, extract7z.js and extractzip.js. EmulatorJS does not publish their source code.",
+    ],
+  },
+  {
+    id: "retro-arcade-cores",
+    name: "Retro Arcade emulator cores, with RetroArch",
+    version: `The cores of EmulatorJS ${EMULATORJS_VERSION}, built on 14 June 2025`,
+    purpose:
+      "The cores play the games of the old game consoles in Retro Arcade. Each core file holds RetroArch, one emulator core and the Emscripten runtime, compiled together.",
+    license:
+      "Each part has its own license. RetroArch: GPL-3.0-or-later. The core build scripts: GPL-3.0. FCEUmm and Nestopia UE: GPL-2.0-or-later. Mupen64Plus-Next, ParaLLEl N64 and Stella 2014: GPL-2.0. mGBA: MPL-2.0. Genesis Plus GX, PicoDrive and Snes9x: their own licenses, for non-commercial use only. The Emscripten runtime and musl: MIT.",
+    licenseText: emulatorLicense("GPL 3.0 license text (RetroArch and the build scripts)", "GPL-3.0.txt"),
+    moreLicenseTexts: [
+      emulatorLicense("GPL 2.0 license text", "GPL-2.0.txt"),
+      emulatorLicense("MPL 2.0 license text", "MPL-2.0.txt"),
+      emulatorLicense("FCEUmm license text", "cores/fceumm.txt"),
+      emulatorLicense("Genesis Plus GX license text", "cores/genesis_plus_gx.txt"),
+      emulatorLicense("mGBA license text", "cores/mgba.txt"),
+      emulatorLicense("Mupen64Plus-Next license text", "cores/mupen64plus_next.txt"),
+      emulatorLicense("Nestopia UE license text", "cores/nestopia.txt"),
+      emulatorLicense("ParaLLEl N64 license text", "cores/parallel_n64.txt"),
+      emulatorLicense("PicoDrive license text", "cores/picodrive.txt"),
+      emulatorLicense("Snes9x license text", "cores/snes9x.txt"),
+      emulatorLicense("Stella 2014 license text", "cores/stella2014.txt"),
+      emulatorLicense("LGPL 2.1 license text (parts of Genesis Plus GX)", "LGPL-2.1.txt"),
+      emulatorLicense("Emscripten 4.0.8 license text", "Emscripten-4.0.8-LICENSE.txt"),
+      emulatorLicense("musl license text", "musl-COPYRIGHT.txt"),
+    ],
+    source: [
+      emulatorSource("RetroArch (the EmulatorJS fork) source code", "RetroArch-EmulatorJS-6dd4353937ef.tar.gz", "71.0 MB"),
+      emulatorSource("Core build scripts source code", "EmulatorJS-build-b24e5b535034.tar.gz", "less than 0.1 MB"),
+      emulatorSource("FCEUmm (NES) source code", "libretro-fceumm-d9d7e141274d.tar.gz", "0.8 MB"),
+      emulatorSource("Genesis Plus GX (Sega Genesis) source code", "Genesis-Plus-GX-594cdf3a6665.tar.gz", "14.4 MB"),
+      emulatorSource("mGBA (Game Boy and Game Boy Advance) source code", "mgba-1d9dbb1dc8d5.tar.gz", "15.1 MB"),
+      emulatorSource("Mupen64Plus-Next (Nintendo 64) source code", "mupen64plus-libretro-nx-c35e55e87cba.tar.gz", "15.0 MB"),
+      emulatorSource("Nestopia UE (NES) source code", "nestopia-6b08ec9148bd.tar.gz", "1.2 MB"),
+      emulatorSource("ParaLLEl N64 (Nintendo 64) source code", "parallel-n64-56f4daf8ec9b.tar.gz", "5.1 MB"),
+      emulatorSource("PicoDrive (Sega Genesis) source code", "picodrive-3cf1e2617958.tar.gz", "2.0 MB"),
+      emulatorSource("PicoDrive part libpicofe source code", "picodrive-libpicofe-86a086ed64aa.tar.gz", "0.1 MB"),
+      emulatorSource("PicoDrive part cyclone68000 source code", "picodrive-cyclone68000-3ac7cf1bdeec.tar.gz", "0.1 MB"),
+      emulatorSource("PicoDrive part emu2413 source code", "picodrive-emu2413-a2dfc20ff507.tar.gz", "less than 0.1 MB"),
+      emulatorSource("PicoDrive part libchdr source code", "picodrive-libchdr-e62ac5995b1c.tar.gz", "4.2 MB"),
+      emulatorSource("PicoDrive part dr_libs source code", "picodrive-dr_libs-dd762b861eca.tar.gz", "0.5 MB"),
+      emulatorSource("Snes9x (Super NES) source code", "snes9x-6ca2343e5f3b.tar.gz", "5.2 MB"),
+      emulatorSource("Stella 2014 (Atari 2600) source code", "stella2014-libretro-1f578c36382b.tar.gz", "0.7 MB"),
+      {
+        label: "Emscripten 4.0.8 source code on GitHub (with musl)",
+        href: "https://github.com/emscripten-core/emscripten/tree/4.0.8",
+        external: true,
+      },
+      EMULATORJS_NOTICE_LINK,
+    ],
+    copyright:
+      "RetroArch: Copyright (C) 2010-2014 Hans-Kristian Arntzen, Copyright (C) 2011-2021 Daniel De Matteis, and the other RetroArch contributors. Each core has its own authors. The Retro Arcade emulator notice names them.",
+    notes: [
+      "We did not change the core files. EmulatorJS built them with its build scripts and Emscripten 4.0.8.",
+      "Each source code file is an unchanged copy of the archive that GitHub makes for one git commit. It is the commit that the core file names.",
+      "PicoDrive uses parts from other projects (git submodules). A GitHub archive does not hold them, so each part has its own source code file.",
+      "Genesis Plus GX, PicoDrive and Snes9x allow non-commercial use only. This site is free. It has no ads and no payments.",
+      "The licenses of four cores do not agree with the GPL-3.0 of RetroArch: Stella 2014 (GPL-2.0 only), and Snes9x, Genesis Plus GX and PicoDrive (non-commercial use only). EmulatorJS made these core files. Part D of the Retro Arcade emulator notice tells more.",
+      "The GPL and the MPL let you get the source code, change it and share it. Read the license texts for the conditions.",
+    ],
+  },
 ];
 
 /** What the LGPL lets a person do with the FFmpeg part, in plain words. */
@@ -168,4 +321,4 @@ export const LGPL_RIGHTS: readonly string[] = [
 
 /** The short note for kids at the top of the page. */
 export const KID_NOTE =
-  "This page is for grown-ups. It lists the free tools that help make game clips on this site, and the rules for using them.";
+  "This page is for grown-ups. It lists the free tools that make game clips and Retro Arcade work on this site, and the rules for using them.";

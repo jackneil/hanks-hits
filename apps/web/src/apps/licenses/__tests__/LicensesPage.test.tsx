@@ -8,6 +8,10 @@ import { LicensesPage } from "../components/LicensesPage";
 import {
   AAC_BUILD_FILES,
   AAC_MODULE_SHA256,
+  EMULATORJS_MANIFEST_PATH,
+  EMULATORJS_NOTICE_PATH,
+  EMULATORJS_RELEASE_SHA256,
+  EMULATORJS_SOURCE_DIR,
   FFMPEG_SHA256,
   FFMPEG_TARBALL_PATH,
   KID_NOTE,
@@ -57,6 +61,9 @@ describe("LicensesPage", () => {
         "href",
         c.licenseText.href,
       );
+      for (const text of c.moreLicenseTexts ?? []) {
+        expect(within(row(el, "License")).getByRole("link", { name: text.label })).toHaveAttribute("href", text.href);
+      }
       for (const s of c.source) {
         expect(within(row(el, "Source code")).getByRole("link", { name: new RegExp(`^${escape(s.label)}`) })).toHaveAttribute(
           "href",
@@ -98,6 +105,47 @@ describe("LicensesPage", () => {
     for (const right of LGPL_RIGHTS) expect(rights).toHaveTextContent(right);
     expect(within(rights).getByRole("link", { name: FFMPEG_TARBALL_PATH })).toHaveAttribute("href", FFMPEG_TARBALL_PATH);
     expect(screen.getByRole("link", { name: "NOTICE.txt" })).toHaveAttribute("href", NOTICE_PATH);
+  });
+
+  it("names EmulatorJS and the Retro Arcade cores, and links their source code on this site", () => {
+    render(<LicensesPage />);
+    const ejs = card("emulatorjs");
+    expect(row(ejs, "Version")).toHaveTextContent("4.2.3");
+    expect(row(ejs, "License")).toHaveTextContent("GPL-3.0");
+    expect(within(ejs).getByRole("link", { name: /^EmulatorJS 4\.2\.3 source code \(0\.6 MB\)$/ })).toHaveAttribute(
+      "href",
+      "/emulator/ejs/4.2.3/source/EmulatorJS-4.2.3-e150dc0491ae.tar.gz",
+    );
+    const cores = card("retro-arcade-cores");
+    expect(within(cores).getByRole("link", { name: /^Snes9x \(Super NES\) source code/ })).toHaveAttribute(
+      "href",
+      "/emulator/ejs/4.2.3/source/snes9x-6ca2343e5f3b.tar.gz",
+    );
+    expect(within(row(cores, "License")).getByRole("link", { name: "Stella 2014 license text" })).toHaveAttribute(
+      "href",
+      "/emulator/ejs/4.2.3/licenses/cores/stella2014.txt",
+    );
+    expect(cores).toHaveTextContent("non-commercial use only");
+    for (const el of [ejs, cores]) {
+      expect(within(el).getAllByRole("link", { name: /^Retro Arcade emulator notice/ })[0]).toHaveAttribute(
+        "href",
+        EMULATORJS_NOTICE_PATH,
+      );
+    }
+  });
+
+  it("tells where the Retro Arcade source code is, with the notice, the manifest and the release hash", () => {
+    render(<LicensesPage />);
+    const section = screen.getByRole("region", { name: "The Retro Arcade source code" });
+    expect(section).toHaveTextContent(`${EMULATORJS_SOURCE_DIR}/`);
+    expect(within(section).getByRole("link", { name: EMULATORJS_NOTICE_PATH })).toHaveAttribute("href", EMULATORJS_NOTICE_PATH);
+    expect(within(section).getByRole("link", { name: EMULATORJS_MANIFEST_PATH })).toHaveAttribute(
+      "href",
+      EMULATORJS_MANIFEST_PATH,
+    );
+    expect(section).toHaveTextContent(EMULATORJS_RELEASE_SHA256);
+    // Grown-ups words: the page says what it covers.
+    expect(screen.getByRole("heading", { level: 2, name: "For grown-ups: open-source software on this site" })).toBeInTheDocument();
   });
 
   it("opens other websites in a new tab, safely, and says so to screen readers", () => {
