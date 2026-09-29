@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { useLayoutEffect } from "react";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -79,6 +80,64 @@ describe("IOSInstallPrompt", () => {
 
     expect(screen.getByTestId("ios-install-sheet")).toBeInTheDocument();
     expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
+  });
+
+  it("a start card counts before paint, so the sheet never paints over it for one frame", () => {
+    // Live, on /apps/trivia: the sheet and the start card mounted in the
+    // same commit, and the card counted itself in a passive effect, after
+    // paint. For about 4 ms one frame showed the sheet over the card. A
+    // layout effect of a later sibling runs after the card's layout
+    // effects and before paint: by then the card must be counted, so the
+    // sheet leaves in the sync render before paint (as the GameShell
+    // count does).
+    const countsBeforePaint: number[] = [];
+    function PaintProbe() {
+      useLayoutEffect(() => {
+        countsBeforePaint.push(useStartOverlayPresence.getState().count);
+      }, []);
+      return null;
+    }
+
+    render(
+      <>
+        <GameStartOverlay title="Trivia" onStart={() => {}} />
+        <IOSInstallPrompt />
+        <PaintProbe />
+      </>
+    );
+
+    expect(countsBeforePaint).toEqual([1]);
+    expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+  });
+
+  it("is not in the page in the commit where a start card mounts beside it", () => {
+    // The store hook subscribes after paint, so the prompt did not see the
+    // count that the card set in its layout effect: the first commit held
+    // the sheet, and it left only after paint. The prompt now decides in a
+    // second render before paint, when the counts are set.
+    const sheetInFirstCommit: boolean[] = [];
+    function FirstCommitProbe() {
+      useLayoutEffect(() => {
+        sheetInFirstCommit.push(!!document.querySelector('[data-testid="ios-install-sheet"]'));
+      }, []);
+      return null;
+    }
+
+    render(
+      <>
+        <IOSInstallPrompt />
+        <GameStartOverlay title="Trivia" onStart={() => {}} />
+        <FirstCommitProbe />
+      </>
+    );
+
+    expect(sheetInFirstCommit).toEqual([false]);
+    expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+  });
+
+  it("still shows the sheet before paint on a page with no start card", () => {
+    render(<IOSInstallPrompt />);
+    expect(screen.getByTestId("ios-install-sheet")).toBeInTheDocument();
   });
 
   it("shows on iPhone browsers when not dismissed", () => {
@@ -464,6 +523,101 @@ describe("IOSInstallPrompt", () => {
       fireEvent.click(screen.getByRole("button", { name: "Install app for fullscreen" }));
 
       expect(screen.getByTestId("ios-install-sheet").parentElement).toBe(document.body);
+    });
+  });
+
+  // A phone held sideways is about 320 to 430 px tall. The full sheet was
+  // 200 px tall there: over half of the screen. On a short screen (the
+  // short: variant) the sheet is one row. jsdom has no layout, so these
+  // cases pin the class contract and the order; e2e/install-sheet measures
+  // the real row on 844x390, 667x375, 568x320 and 932x430.
+  describe("sideways (short screen): one short row", () => {
+    const readCss = () =>
+      readFileSync(path.resolve(__dirname, "../../../app/globals.css"), "utf8");
+
+    function renderSheet() {
+      installSpeechMock();
+      render(<IOSInstallPrompt />);
+      const sheet = screen.getByTestId("ios-install-sheet");
+      const card = sheet.querySelector<HTMLElement>(":scope > div")!;
+      return { sheet, card };
+    }
+
+    it("the short: variant covers every phone held sideways and no phone held upright", () => {
+      const variant = readCss().match(/@custom-variant short \(@media \(max-height: (\d+)px\)\);/);
+      expect(variant).not.toBeNull();
+      const maxHeight = Number(variant![1]);
+      // iPhone SE (1st) 320, SE 375, 13 390, Pro Max 430 tall when sideways.
+      for (const sideways of [320, 375, 390, 430]) expect(sideways).toBeLessThanOrEqual(maxHeight);
+      // The shortest upright iPhone is 568 tall: it keeps the full sheet.
+      expect(568).toBeGreaterThan(maxHeight);
+    });
+
+    it("lays the card out as one row on a short screen", () => {
+      const { card } = renderSheet();
+      expect(card).toHaveClass("short:flex", "short:items-center", "short:p-2");
+      // Upright it stays the full card.
+      expect(card).toHaveClass("p-4");
+    });
+
+    it("keeps the icon, the steps, Read it to me, Don't show this again and Close, in that order", async () => {
+      const { card } = renderSheet();
+      const icon = within(card).getByText("📲");
+      const steps = within(card).getByText("Add to Home Screen").parentElement!;
+      const readAloud = await within(card).findByTestId("read-aloud-button");
+      const dontShow = within(card).getByRole("button", { name: "Don't show this again" });
+      const close = within(card).getByRole("button", { name: "Close" });
+
+      const row = [icon, steps, readAloud, dontShow, close];
+      for (let i = 1; i < row.length; i++) {
+        // Each part comes after the one before it, so the row reads (and
+        // tabs) from left to right.
+        expect(
+          row[i - 1].compareDocumentPosition(row[i]) & Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy();
+      }
+    });
+
+    it("drops the title and the second line, and keeps the steps in the row", () => {
+      const { card } = renderSheet();
+      const title = within(card).getByText("Play Fullscreen!");
+      expect(title.parentElement).toHaveClass("short:hidden");
+      expect(title.parentElement).toContainElement(
+        within(card).getByText("Add this game to your Home Screen:")
+      );
+      // The steps take the free width of the row, and wrap inside it
+      // before they push the buttons off the row.
+      const steps = within(card).getByText("Add to Home Screen").parentElement!;
+      expect(steps).toHaveClass("short:mb-0", "short:flex-1", "short:min-w-40");
+      // The label of the button does not break over two lines.
+      expect(within(card).getByRole("button", { name: "Don't show this again" })).toHaveClass(
+        "short:whitespace-nowrap"
+      );
+    });
+
+    it("puts Close at the end of the row, still a 44 px target", () => {
+      const { card } = renderSheet();
+      const close = within(card).getByRole("button", { name: "Close" });
+      // Upright it sits in the corner; sideways it joins the row.
+      expect(close).toHaveClass("absolute", "short:static", "short:shrink-0", "w-11", "h-11");
+      expect(card.lastElementChild).toBe(close);
+    });
+
+    it("keeps clear of the side safe areas (the notch when the phone is sideways)", () => {
+      const { sheet } = renderSheet();
+      expect(sheet).toHaveClass(
+        "pl-[max(0.5rem,env(safe-area-inset-left))]",
+        "pr-[max(0.5rem,env(safe-area-inset-right))]",
+        "pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+      );
+    });
+
+    it("the tip inside a break surface keeps its own layout", () => {
+      renderGameWithPrompt();
+      fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
+      const tip = screen.getByTestId("ios-install-tip");
+      expect(tip.className).not.toMatch(/short:/);
+      expect(within(tip).getByText("Add to Home Screen").parentElement).toHaveClass("mb-3");
     });
   });
 

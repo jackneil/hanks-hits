@@ -175,10 +175,14 @@ export function GameStartOverlay({
   }, [isClient]);
 
   // Tell bottom sheets (the iOS install banner) that a start card is up,
-  // so they stay hidden until the kid has pressed Play.
+  // so they stay hidden until the kid has pressed Play. A layout effect
+  // runs before paint: a sheet rendered in the same commit leaves in the
+  // sync render before paint, so it never flashes over the card for one
+  // frame (it did on /apps/trivia with a passive effect). GameShell counts
+  // itself the same way.
   const enter = useStartOverlayPresence((s) => s.enter);
   const leave = useStartOverlayPresence((s) => s.leave);
-  useEffect(() => {
+  useLayoutEffect(() => {
     enter();
     return leave;
   }, [enter, leave]);
