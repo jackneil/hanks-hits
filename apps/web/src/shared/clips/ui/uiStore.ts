@@ -29,6 +29,7 @@ import {
   type ClipSnapshot,
   type EngineState,
   type PressToken,
+  type RunClipPart,
 } from "../service/contract";
 import type { ClipRecord } from "../protocol";
 import { deferredMenuText, reasonText, recoveredReplyText, TOAST_COPY, type SavePlatform } from "./copy";
@@ -64,11 +65,11 @@ export interface ReplyToast {
 /**
  * The end of the run that the result chip shows (plan 11.4). The press
  * token freezes the capture-timeline end at the moment the chip appeared,
- * so "Watch" and "Make the whole run a video" clip the run and not the time
- * the kid spent on the result screen. Capture can go on after the run
- * (a post-roll, or a service that captures between runs), so the mark also
- * counts how long capture ran since then: that much of the ring's start is
- * gone.
+ * and it carries the run's own span (PressToken.run), so the chip's clip
+ * actions clip the run and not the time the kid spent on the result screen
+ * or an earlier run. Capture can go on after the run (a post-roll, or a
+ * service that captures between runs), so the mark also counts how long
+ * capture ran since then: that much of the ring's start is gone.
  */
 export interface ResultMark {
   token: PressToken | null;
@@ -363,10 +364,12 @@ export interface ClipUiController {
   tickResultMark(): void;
   /** The snapshot's engine state changed: keep the result mark's capture count. */
   noteEngine(engine: EngineState): void;
-  watch(): void;
-  wholeRunVideo(seconds: number): void;
-  recordFromChip(): void;
-  pictureFromChip(): void;
+  /**
+   * A result chip clip action (plan 11.4, decision D1): clip the run of the
+   * frozen end ("whole" or its "end") and open the clip. A second tap while
+   * the first clip saves does nothing.
+   */
+  clipRun(part: RunClipPart): void;
 
   /** Alt+R: start a video, or stop the one that records. */
   toggleRecord(): void;
@@ -484,6 +487,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
   };
 
   const resultToken = (): PressToken | undefined => store.getState().resultMark?.token ?? undefined;
+  /** A result chip run clip is being made: a second tap must not make a second clip. */
+  let runClipBusy = false;
 
   const controller: ClipUiController = {
     store,
@@ -689,32 +694,15 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       }
     },
 
-    watch() {
+    clipRun(part) {
       const service = deps.service();
-      if (!service) return;
-      const newest = deps.snapshot().unwatchedClipId;
-      if (newest) {
-        controller.openViewer({ kind: "clip", id: newest });
-        return;
-      }
-      void settle("clip", service.clipLast(DEFAULT_CLIP_SECONDS, resultToken())).then(openResultAtBreak);
-    },
-
-    wholeRunVideo(seconds) {
-      const service = deps.service();
-      if (!service) return;
-      void settle("clip", service.clipLast(Math.max(1, Math.ceil(seconds)), resultToken())).then(openResultAtBreak);
-    },
-
-    recordFromChip() {
-      if (deps.snapshot().recording !== null) return;
-      controller.toggleRecord();
-    },
-
-    pictureFromChip() {
-      const service = deps.service();
-      if (!service) return;
-      void settle("picture", service.takePicture()).then(openResultAtBreak);
+      const token = resultToken();
+      if (!service || !token || runClipBusy) return;
+      runClipBusy = true;
+      void settle("clip", service.clipRun(token, part)).then((result) => {
+        runClipBusy = false;
+        openResultAtBreak(result);
+      });
     },
 
     toggleRecord() {

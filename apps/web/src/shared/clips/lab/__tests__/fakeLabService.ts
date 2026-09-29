@@ -107,6 +107,8 @@ export class FakeLabService implements ClipServiceApi {
     void seconds;
     return this.clipResult;
   });
+  /** The lab has no result chip: a run clip is the same answer as clipLast. */
+  clipRun = vi.fn(async () => this.clipResult);
   startRecording = vi.fn(async () => {
     if (this.startResult) return this.startResult;
     this.set({ recording: { recordingId: "r-1", startedAtMs: 1, elapsedSec: 0, stars: 0 }, button: "recording", engine: "recording" });

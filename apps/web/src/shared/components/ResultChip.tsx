@@ -60,11 +60,14 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *   held sideways), like the read-aloud button on the start card. Below
  *   480 px wide the buttons sit in two columns, 44 px or more, so the chip
  *   leaves the game's result card in view (buttonStyles.ts).
- * - Clips (plan 11.4): in a clip-enabled game with clips on, the bar also
- *   shows the clip buttons (Watch, "Make the whole run a video", Record a
- *   video, Take a picture) after the children. The game adds no code for
- *   them; give `runSeconds` to offer the whole run. The voice reads them
- *   too, in screen order.
+ * - Clips (plan 11.4, decision D1): in a clip-enabled game with clips on,
+ *   the bar also shows the clip buttons after the children. A run of 30
+ *   seconds or less gets "Watch the whole run (m:ss)"; a longer run gets
+ *   "Watch the end" and "Make the whole run a video (m:ss)". Each clip
+ *   holds this run only: its bounds come from the game's runPhase("start")
+ *   and runPhase("end") on the clip timeline. The game adds no other code
+ *   for them. The voice reads them too, in screen order, with each length
+ *   in words.
  */
 
 /** The stacking level of the result chip (plan 11.4). */
@@ -96,11 +99,6 @@ export interface ResultChipProps {
   spokenExtras?: string[];
   /** The lockout after the bar appears, in ms. Default 600. */
   graceMs?: number;
-  /**
-   * The length of the run that just ended, in seconds. With clips on, it
-   * offers "Make the whole run a video" when the clip ring still holds the run.
-   */
-  runSeconds?: number;
 }
 
 /** Nothing on the page can change "are we in the browser", so no subscription. */
@@ -117,12 +115,18 @@ const INTERACTIVE = 'button, a[href], [role="button"], [role="link"]';
 // Emoji are pictures for kids who cannot read. The voice says the word.
 const PICTOGRAPHS = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu;
 
-/** The spoken labels of the visible controls inside a container, in DOM order. */
+/**
+ * The spoken labels of the visible controls inside a container, in DOM
+ * order. A control's data-spoken words win over its visible label (a clip
+ * length is "16 seconds" for the voice, "0:16" on the screen).
+ */
 function spokenLabelsIn(container: HTMLElement | null): string[] {
   if (!container) return [];
   return Array.from(container.querySelectorAll(INTERACTIVE))
     .filter((el) => !el.closest('[aria-hidden="true"], [hidden]'))
     .map((el) => {
+      const spoken = el.getAttribute("data-spoken")?.trim();
+      if (spoken) return spoken;
       const visible = (el.textContent ?? "").replace(PICTOGRAPHS, " ").replace(/\s+/g, " ").trim();
       return visible || el.getAttribute("aria-label")?.trim() || "";
     })
@@ -141,7 +145,6 @@ export function ResultChip({
   children,
   spokenExtras = [],
   graceMs = DEFAULT_RESTART_GRACE_MS,
-  runSeconds,
 }: ResultChipProps) {
   // The clip UI parts of a clip-enabled game with clips on, or null.
   const clip = useClipShellUi();
@@ -322,7 +325,7 @@ export function ResultChip({
         {/* display: contents keeps the clip buttons in the button row */}
         {clip && (
           <div ref={clipActionsRef} data-testid="result-chip-clip-actions" className="contents">
-            <clip.ResultChipClipActions runSeconds={runSeconds} />
+            <clip.ResultChipClipActions />
           </div>
         )}
 

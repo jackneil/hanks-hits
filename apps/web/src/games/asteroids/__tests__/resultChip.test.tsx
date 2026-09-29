@@ -111,26 +111,6 @@ describe("the Asteroids result chip (plan 11.4)", () => {
     expect(useAsteroidsStore.getState().status).toBe("playing");
   });
 
-  it("gives the whole run's play time to the chip: pauses and wave cards do not count", () => {
-    act(() => useAsteroidsStore.getState().startGame());
-    clock += 10_000;
-    act(() => useAsteroidsStore.getState().pauseGame());
-    clock += 60_000; // the pause menu: no capture, not part of the run's footage
-    act(() => useAsteroidsStore.getState().resumeGame());
-    clock += 5_000;
-    act(() => useAsteroidsStore.setState({ asteroids: [] }));
-    act(() => useAsteroidsStore.getState().update()); // the wave is clear: the wave card
-    expect(useAsteroidsStore.getState().status).toBe("waveComplete");
-    clock += 30_000;
-    act(() => useAsteroidsStore.getState().nextWave());
-    clock += 7_000;
-    act(() => useAsteroidsStore.getState().gameOver());
-    expect(useAsteroidsStore.getState().runPlayMs).toBe(22_000);
-    // A new run starts from zero.
-    act(() => useAsteroidsStore.getState().startGame());
-    expect(useAsteroidsStore.getState().runPlayMs).toBe(0);
-  });
-
   it("draws NEW BEST! on the card for a new best, and no play-again line", () => {
     const texts: string[] = [];
     const ctx = new Proxy(

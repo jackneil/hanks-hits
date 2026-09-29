@@ -418,16 +418,46 @@ export function saveReply(
 
 export const PAUSE_ENTRY_LABEL = "Clips";
 
+/**
+ * The clip actions of the result chip (decision D1). A run of 30 seconds or
+ * less has one: "Watch the whole run (0:16)". A longer run has "Watch the
+ * end" (its last 30 seconds) and "Make the whole run a video (1:42)".
+ * Record a video and Take a picture stay in the Capture menu.
+ */
 export const RESULT_ACTION_COPY = {
-  watch: "Watch",
+  watchRun: "Watch the whole run",
+  watchEnd: "Watch the end",
   wholeRun: "Make the whole run a video",
-  record: "Record a video",
-  picture: "Take a picture",
 } as const;
+
+/** "Watch the whole run (0:16)". */
+export function watchRunLabel(length: string): string {
+  return `${RESULT_ACTION_COPY.watchRun} (${length})`;
+}
 
 /** "Make the whole run a video (0:42)". */
 export function wholeRunLabel(length: string): string {
   return `${RESULT_ACTION_COPY.wholeRun} (${length})`;
+}
+
+/**
+ * A length for the voice: "16 seconds", "1 minute", "1 minute and 42
+ * seconds". The voice would say "0:16" as numbers with no unit.
+ */
+export function spokenLength(seconds: number): string {
+  const whole = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+  const minutes = Math.floor(whole / 60);
+  const rest = whole % 60;
+  const minuteWords = minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  const secondWords = rest === 1 ? "1 second" : `${rest} seconds`;
+  if (minutes === 0) return secondWords;
+  if (rest === 0) return minuteWords;
+  return `${minuteWords} and ${secondWords}`;
+}
+
+/** What the voice says for a clip action with a length: "Watch the whole run, 16 seconds". */
+export function spokenWithLength(action: string, seconds: number): string {
+  return `${action}, ${spokenLength(seconds)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +525,8 @@ export function allCopyStrings(): string[] {
     out.push(saveReply({ kind: "failed", reason: "blocked" }, save), saveTip(save));
     out.push(saveReply({ kind: "failed", reason: "unknown" }, save));
   }
-  out.push(PAUSE_ENTRY_LABEL, ...Object.values(RESULT_ACTION_COPY), wholeRunLabel("0:42"));
+  out.push(PAUSE_ENTRY_LABEL, ...Object.values(RESULT_ACTION_COPY), watchRunLabel("0:16"), wholeRunLabel("0:42"));
+  out.push(spokenWithLength(RESULT_ACTION_COPY.watchRun, 16), spokenWithLength(RESULT_ACTION_COPY.wholeRun, 102), spokenLength(60));
   out.push(...Object.values(SETTINGS_COPY), storageLine(0, "0 MB"), storageLine(1, "3 MB"), storageLine(12, "40 MB"));
   return out;
 }

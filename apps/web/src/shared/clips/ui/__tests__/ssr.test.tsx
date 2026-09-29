@@ -41,7 +41,7 @@ describe("clip UI on the server", () => {
           <parts.InPlayConfirm />
           <parts.ToastSlot />
           <parts.ClipsPauseEntry />
-          <parts.ResultChipClipActions runSeconds={20} />
+          <parts.ResultChipClipActions />
         </ClipUiContext.Provider>
       </ClipServiceContext.Provider>,
     );

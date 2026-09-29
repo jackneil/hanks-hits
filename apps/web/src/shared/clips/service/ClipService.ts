@@ -56,6 +56,8 @@ import {
   type GameAttachment,
   type PressOutcome,
   type PressToken,
+  type RunClipPart,
+  type RunSpan,
   type SaveOutcome,
   type ShareOutcome,
 } from "./contract";
@@ -225,6 +227,8 @@ class Attachment implements AttachedGame {
   atBreak = false;
   runActive = false;
   lastRunEndAtMs: number | null = null;
+  /** The latest run on the capture timeline (PressToken.run), or null. */
+  run: RunSpan | null = null;
   moments: Array<{ atUs: number; mark: MomentMark }> = [];
   detached = false;
   /** The engine knows this game and the breaker let it capture: registrations go to the engine. */
@@ -537,12 +541,17 @@ export class ClipService implements ClipServiceApi {
   runPhase(attachment: Attachment, phase: RunPhase): void {
     if (attachment.detached) return;
     const run = this.ringRun?.appId === attachment.game.appId ? this.ringRun : null;
+    // The run's span on the capture timeline. With no engine yet, the
+    // engine's first timeline starts at 0 during this run.
+    const atUs = this.engine?.mediaEndUs() ?? 0;
     if (phase === "start") {
       attachment.runActive = true;
+      attachment.run = { startUs: atUs, endUs: null };
       if (run) run.runActive = true;
       this.clearNamedTimer("post-roll");
     } else {
       attachment.runActive = false;
+      if (attachment.run && attachment.run.endUs === null) attachment.run = { startUs: attachment.run.startUs, endUs: Math.max(attachment.run.startUs, atUs) };
       attachment.lastRunEndAtMs = this.now();
       if (run) {
         run.runActive = false;
@@ -577,7 +586,13 @@ export class ClipService implements ClipServiceApi {
 
   beginPress(): PressToken | null {
     if (!this.attached || this.snapshot.button === "hidden") return null;
-    return { pressId: randomId(), downAtMs: this.now(), endAtUs: this.engine?.mediaEndUs() ?? 0 };
+    const run = this.attached.run;
+    return {
+      pressId: randomId(),
+      downAtMs: this.now(),
+      endAtUs: this.engine?.mediaEndUs() ?? 0,
+      run: run ? { startUs: run.startUs, endUs: run.endUs } : null,
+    };
   }
 
   endPress(token: PressToken, info: { upAtMs: number; moved: boolean; cancelled?: boolean }): PressOutcome {
@@ -622,6 +637,21 @@ export class ClipService implements ClipServiceApi {
       return Promise.resolve(this.fail("clip", this.snapshot.reason ?? "warming"));
     }
     return this.commitClip(seconds, token);
+  }
+
+  clipRun(token: PressToken, part: RunClipPart): Promise<ClipActionResult> {
+    if (!this.ownerConfirmed) return Promise.resolve(this.refuse("clip"));
+    if (!this.attached || !this.engine || !this.canClipIn(this.snapshot.button)) {
+      return Promise.resolve(this.fail("clip", this.snapshot.reason ?? "warming"));
+    }
+    const run = token.run;
+    if (!run) return Promise.resolve(this.fail("clip", "warming"));
+    const endAtUs = run.endUs === null ? token.endAtUs : Math.min(token.endAtUs, run.endUs);
+    const runSec = Math.max(0, (endAtUs - run.startUs) / 1e6);
+    const seconds = part === "whole" ? runSec : Math.min(DEFAULT_CLIP_SECONDS, runSec);
+    // Not the last clip: a clip button tap after it makes a new clip, never
+    // an extend that would replace this run with the last 30 seconds.
+    return this.makeClip(seconds, { ...token, endAtUs }, "clip", null, run.startUs).result;
   }
 
   /**
@@ -706,6 +736,7 @@ export class ClipService implements ClipServiceApi {
     token: PressToken | undefined,
     action: "clip" | "extend",
     replaces: MadeClip | null,
+    notBeforeUs?: number,
   ): { result: Promise<ClipActionResult>; made: Promise<MadeClip | null> } {
     const engine = this.engine;
     if (!engine) return { result: Promise.resolve(this.fail(action, "warming")), made: Promise.resolve(replaces) };
@@ -721,6 +752,7 @@ export class ClipService implements ClipServiceApi {
         const clip = await engine.clip({
           seconds,
           endAtUs: token?.endAtUs,
+          ...(notBeforeUs === undefined ? {} : { notBeforeUs }),
           meta: this.meta("clip", "c"),
           moments: this.momentsFor(attachment),
           onProgress: (fraction) => {
@@ -1286,6 +1318,9 @@ export class ClipService implements ClipServiceApi {
         this.bufferedSec = 0;
         this.warmStartUs = 0;
         this.lastClip = null;
+        // A run that goes on starts at 0 on the new timeline (all of its
+        // footage is new). An ended run's footage is gone.
+        if (this.attached?.run) this.attached.run = this.attached.run.endUs === null ? { startUs: 0, endUs: null } : null;
         // The next session (perhaps another game) measures its own granularity and TTFC.
         this.granularitySec = null;
         this.ttfcMs = null;

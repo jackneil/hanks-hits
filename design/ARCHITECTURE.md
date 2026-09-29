@@ -418,14 +418,18 @@ useClipSource(canvasRef, { isPlaying: status === "playing" });
 ```
 
 `isPlaying` is false on every break (a wave card, the game's own pause, the
-game-over card). A game can also report runs and moments through
+game-over card). A game reports runs and moments through
 `useAttachedGame()`: `runPhase("start" | "end")` and
-`markMoment({ kind, label, emoji, priority })`. At game over, mount the
-shared `ResultChip` and give it `runSeconds` (the time the run played).
-The chip then shows the clip buttons by itself. Asteroids is the first game
-with clips (`src/games/asteroids/lib/useAsteroidsClips.ts`). The clip
-records only the sound that goes through the shared audio bus (see
-"Audio").
+`markMoment({ kind, label, emoji, priority })`. Report each run: the result
+chip clips only the run between `runPhase("start")` and `runPhase("end")`,
+and it shows no clip button for a game that reports no run. At game over,
+mount the shared `ResultChip`. The chip then shows the clip buttons by
+itself: "Watch the whole run (m:ss)" for a run of 30 seconds or less, and
+"Watch the end" and "Make the whole run a video (m:ss)" for a longer run.
+Record a video and Take a picture are in the Capture menu (a hold on the
+clip button). Asteroids is the first game with clips
+(`src/games/asteroids/lib/useAsteroidsClips.ts`). The clip records only the
+sound that goes through the shared audio bus (see "Audio").
 
 A game does nothing more for the clip UI. Do not mount a clip part (the
 clip button, the toast slot, the pause-menu entry or the result-chip clip
@@ -451,9 +455,9 @@ the header, the game and the pause menu in `ClipShellScope`:
 - GameShell then puts the clip button in the header clip slot, the in-play
   confirmation in the title region, the toast slot under the header, and
   the "Clips" entry in the pause menu (the menu reads it out loud).
-  `ResultChip` shows the clip buttons (Watch, Record a video, Take a
-  picture, and "Make the whole run a video" when it gets `runSeconds`),
-  and reads them out loud.
+  `ResultChip` shows the run's clip buttons and reads them out loud (each
+  length in words). Both clip bounds come from the run's own start and end
+  on the clip timeline, so a clip never holds an earlier run.
 
 A module without `clips: true` gets no clip code, no request and no
 header slot. A clip-enabled module with the flag off reads the flag and

@@ -629,7 +629,6 @@ export function AsteroidsGame() {
           })}
           appId="asteroids"
           onRestart={store.startGame}
-          runSeconds={store.runPlayMs / 1000}
         />
       )}
     </div>

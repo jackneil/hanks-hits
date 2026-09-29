@@ -105,21 +105,29 @@ describe("result chip: take-then-release", () => {
     expect(w.service.getSnapshot().button).not.toBe("made");
   });
 
-  it("Watch then clips once, up to the frozen end", async () => {
+  it("Watch the whole run then clips once: from the run's start to the frozen end", async () => {
     const w = makeWorld();
     const game = await ready(w);
     w.engine.play(20);
+    // A restart: the run that the chip shows starts here.
+    game.runPhase("end");
+    game.runPhase("start");
+    const startUs = w.engine.mediaEnd;
+    w.engine.play(12);
     game.runPhase("end");
     game.setAtBreak(true);
     await flush();
     const { store, controller } = controllerFor(w);
     controller.beginResultMark();
     const frozen = store.getState().resultMark?.token;
+    expect(frozen?.run).toEqual({ startUs, endUs: startUs + 12e6 });
     w.engine.play(3);
-    controller.watch();
+    controller.clipRun("whole");
+    controller.clipRun("whole"); // a second tap while it is made
     await flush();
     expect(w.rows.size).toBe(1);
-    expect(w.engine.clipRequests[0]).toMatchObject({ endAtUs: frozen?.endAtUs });
+    expect(w.engine.clipRequests).toHaveLength(1);
+    expect(w.engine.clipRequests[0]).toMatchObject({ seconds: 12, endAtUs: frozen?.endAtUs, notBeforeUs: startUs });
   });
 });
 

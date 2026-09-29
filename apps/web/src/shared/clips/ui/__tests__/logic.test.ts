@@ -534,7 +534,7 @@ describe("clip UI store and controller", () => {
     controller.openMenu(null, "pointer");
     controller.openViewer({ kind: "clip", id: "x" });
     controller.openSettings();
-    controller.watch();
+    controller.clipRun("whole");
     controller.toggleRecord();
     expect(store.getState().sheet).toBeNull();
     expect(host.pauseGame).not.toHaveBeenCalled();

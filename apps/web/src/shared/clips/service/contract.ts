@@ -171,7 +171,29 @@ export interface PressToken {
   readonly downAtMs: number;
   /** Capture-timeline end of the clip if this press commits. */
   readonly endAtUs: number;
+  /**
+   * The attached game's latest run at the press, on the capture timeline
+   * (plan 11.4). null when the game reported no run with runPhase("start"),
+   * or when that run's footage is gone (a new capture timeline). The result
+   * chip reads its length and clips it (clipRun).
+   */
+  readonly run: RunSpan | null;
 }
+
+/** A run on the capture timeline: from runPhase("start") to runPhase("end"). */
+export interface RunSpan {
+  /** Capture-timeline time of the run's start. */
+  readonly startUs: number;
+  /** Capture-timeline time of the run's end, or null while the run goes on. */
+  readonly endUs: number | null;
+}
+
+/**
+ * The part of a run that the result chip clips (plan 11.4, decision D1):
+ * "whole" is the run from its start to its end, "end" is its last
+ * DEFAULT_CLIP_SECONDS.
+ */
+export type RunClipPart = "whole" | "end";
 
 export type PressOutcome =
   | { kind: "clip"; result: Promise<ClipActionResult> }
@@ -233,7 +255,11 @@ export interface AttachedGame {
   registerCanvas(canvas: HTMLCanvasElement, options?: { targetFps?: 30 | 60 }): () => void;
   /** Find the largest drawn canvas under root (and same-origin iframes) and register it. */
   autoDiscover(root: Element): () => void;
-  /** Steam Timeline run markers (plan 11.5). */
+  /**
+   * Steam Timeline run markers (plan 11.5). The service keeps the latest
+   * run's span on the capture timeline (PressToken.run), so the result
+   * chip's clips hold that run and nothing from before it (plan 11.4).
+   */
   runPhase(phase: RunPhase): void;
   /** A brag moment for highlights and filmstrip stars. */
   markMoment(mark: Omit<MomentMark, "offsetSec"> & { offsetSec?: number }): void;
@@ -294,6 +320,17 @@ export interface ClipServiceApi {
 
   /** Capture menu row "Clip the last 30 seconds" uses the press token's frozen end. */
   clipLast(seconds?: number, token?: PressToken): Promise<ClipActionResult>;
+  /**
+   * The result chip (plan 11.4, decision D1): clip the run of the token
+   * (token.run). The clip ends at the token's frozen end, or at the run's
+   * end if that is earlier. It never starts before the run's start: it
+   * starts at the first keyframe at or after it, so it holds no footage
+   * from an earlier run or the start card. "whole" asks for the run from
+   * its start, "end" for its last DEFAULT_CLIP_SECONDS. A token with no
+   * run fails with "warming". It is not a tap: a clip button tap after it
+   * does not extend it.
+   */
+  clipRun(token: PressToken, part: RunClipPart): Promise<ClipActionResult>;
   startRecording(): Promise<ClipActionResult | null>;
   stopRecording(): Promise<ClipActionResult>;
   addStar(): void;

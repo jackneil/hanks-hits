@@ -11,9 +11,10 @@
  * - Every clip action adds a library row and sets lastResult, button "made"
  *   and unwatchedClipId, and tells subscribers.
  * - A capture clock (captureUs) stands for the capture-timeline end. A press
- *   token freezes it; clipLast records the length it was asked for and the
- *   end it clips to (clipRequests), so a test can check WHICH footage a
- *   clip holds, not only that a clip was made.
+ *   token freezes it, with the latest run's span (runPhase, or playRun);
+ *   clipLast and clipRun record the length they were asked for, the end
+ *   they clip to and the run's start bound (clipRequests), so a test can
+ *   check WHICH footage a clip holds, not only that a clip was made.
  *
  * Every method is a vi.fn, so tests read calls and order. Time is
  * performance.now(), the same clock the UI uses, so fake timers move both.
@@ -34,6 +35,8 @@ import {
   type ClipSnapshot,
   type PressOutcome,
   type PressToken,
+  type RunClipPart,
+  type RunSpan,
   type SaveOutcome,
   type ShareOutcome,
 } from "../../service/contract";
@@ -97,7 +100,9 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
   let saveOutcome: SaveOutcome = { kind: "saved" };
   /** The capture-timeline end now, in microseconds. */
   let captureUs = Math.round(snapshot.bufferedSec * 1e6);
-  const clipRequests: Array<{ seconds: number; endAtUs: number; frozen: boolean }> = [];
+  /** The latest run on the capture timeline (runPhase), like the real service. */
+  let run: RunSpan | null = null;
+  const clipRequests: Array<{ seconds: number; endAtUs: number; frozen: boolean; notBeforeUs?: number }> = [];
   /** Record videos saved from a tab that closed while it recorded (plan 8.4), waiting to be taken. */
   let recovered: ClipRecord[] = [];
 
@@ -136,7 +141,11 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
   const attached: AttachedGame = {
     registerCanvas: vi.fn(() => () => {}),
     autoDiscover: vi.fn(() => () => {}),
-    runPhase: vi.fn(),
+    // The real rule (ClipService.runPhase): the span of the latest run on the capture timeline.
+    runPhase: vi.fn((phase: "start" | "end") => {
+      if (phase === "start") run = { startUs: captureUs, endUs: null };
+      else if (run && run.endUs === null) run = { startUs: run.startUs, endUs: captureUs };
+    }),
     markMoment: vi.fn(),
     setAtBreak: vi.fn((atBreak: boolean) => set({ atBreak })),
     detach: vi.fn(),
@@ -155,7 +164,7 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
     beginPress: vi.fn((): PressToken | null => {
       if (snapshot.button === "hidden") return null;
       pressSeq += 1;
-      const token: PressToken = { pressId: `press-${pressSeq}`, downAtMs: now(), endAtUs: captureUs };
+      const token: PressToken = { pressId: `press-${pressSeq}`, downAtMs: now(), endAtUs: captureUs, run: run ? { ...run } : null };
       openPresses.add(token.pressId);
       return token;
     }),
@@ -190,6 +199,20 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
 
     clipLast: vi.fn((seconds: number = DEFAULT_CLIP_SECONDS, token?: PressToken) => {
       clipRequests.push({ seconds, endAtUs: token ? token.endAtUs : captureUs, frozen: token !== undefined });
+      return act("clip", "clip", seconds);
+    }),
+    // The real rule (ClipService.clipRun): the run's own bounds, never before its start.
+    clipRun: vi.fn((token: PressToken, part: RunClipPart) => {
+      const span = token.run;
+      if (!span) {
+        const result: ClipActionResult = { ok: false, action: "clip", reason: "warming", atMs: now() };
+        set({ lastResult: result });
+        return Promise.resolve(result);
+      }
+      const endAtUs = span.endUs === null ? token.endAtUs : Math.min(token.endAtUs, span.endUs);
+      const runSec = Math.max(0, (endAtUs - span.startUs) / 1e6);
+      const seconds = part === "whole" ? runSec : Math.min(DEFAULT_CLIP_SECONDS, runSec);
+      clipRequests.push({ seconds, endAtUs, frozen: true, notBeforeUs: span.startUs });
       return act("clip", "clip", seconds);
     }),
     startRecording: vi.fn(async (): Promise<ClipActionResult | null> => {
@@ -315,7 +338,15 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
       captureUs += Math.round(seconds * 1e6);
     },
     captureUs: () => captureUs,
-    /** Every clipLast call: the length asked for and the end it clips to. */
+    /**
+     * A run that started `seconds` ago on the capture timeline and ended now,
+     * like a game's runPhase("start") and runPhase("end").
+     */
+    playRun(seconds: number) {
+      run = { startUs: captureUs - Math.round(seconds * 1e6), endUs: captureUs };
+    },
+    run: () => run,
+    /** Every clipLast and clipRun call: the length asked for, the end it clips to, and the run's start bound. */
     clipRequests,
   };
 }

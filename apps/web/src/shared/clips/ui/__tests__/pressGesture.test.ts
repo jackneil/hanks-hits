@@ -111,7 +111,7 @@ describe("clip press (plan 11.1)", () => {
       onOutcome: (outcome) => outcomes.push(outcome),
       now: () => clock,
     });
-    vi.mocked(fake.service.beginPress).mockImplementation(() => ({ pressId: "jitter", downAtMs: 1000, endAtUs: 7 }));
+    vi.mocked(fake.service.beginPress).mockImplementation(() => ({ pressId: "jitter", downAtMs: 1000, endAtUs: 7, run: null }));
     vi.mocked(fake.service.endPress).mockImplementation((token, info) => {
       if (info.cancelled) return { kind: "ignored", reason: "busy" };
       if (info.upAtMs - token.downAtMs >= HOLD_FOR_MENU_MS && !info.moved) return { kind: "menu" };
@@ -144,7 +144,7 @@ describe("clip press (plan 11.1)", () => {
     let seq = 0;
     vi.mocked(fake.service.beginPress).mockImplementation(() => {
       seq += 1;
-      return { pressId: `epoch-${seq}`, downAtMs: epoch + seq * 10_000, endAtUs: 1 };
+      return { pressId: `epoch-${seq}`, downAtMs: epoch + seq * 10_000, endAtUs: 1, run: null };
     });
     // The service applies the hold rule on ITS clock: upAtMs - downAtMs.
     vi.mocked(fake.service.endPress).mockImplementation((token, info) => {
@@ -266,7 +266,7 @@ describe("clip press (plan 11.1)", () => {
   });
 
   it("does nothing for an ignored press whose code is not a reason (busy, or cancelled from a newer service)", () => {
-    const token = { pressId: "t", downAtMs: 0, endAtUs: 0 };
+    const token = { pressId: "t", downAtMs: 0, endAtUs: 0, run: null };
     expect(outcomeForPress({ kind: "ignored", reason: "busy" }, token, "pointer")).toEqual({ kind: "none", source: "pointer" });
     const cancelled = { kind: "ignored", reason: "cancelled" } as unknown as Parameters<typeof outcomeForPress>[0];
     expect(outcomeForPress(cancelled, token, "pointer")).toEqual({ kind: "none", source: "pointer" });

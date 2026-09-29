@@ -18,8 +18,9 @@
  *   pause menu:           ClipsPauseEntry (the menu reads its label aloud)
  *   ResultChip:           ResultChipClipActions (the chip reads their labels aloud)
  *
- * A game adds only `clips: true`, useClipSource, and at game over a
- * ResultChip (give it `runSeconds` to offer the whole run).
+ * A game adds only `clips: true`, useClipSource, runPhase("start" | "end")
+ * for each run (the chip's clips hold that run only), and at game over a
+ * ResultChip.
  *
  * The runtime renders the sheets itself (Capture menu, viewer, settings), so
  * each part only asks the controller to open one. Without the runtime, every

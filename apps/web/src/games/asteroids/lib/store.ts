@@ -62,14 +62,6 @@ export type AsteroidsGameState = {
    * reads it, so a restart during a run is a new run.
    */
   runId: number;
-  /**
-   * The time this run spent playing, in ms: pauses and wave cards do not
-   * count (capture stops on those breaks, so it is the run's length on the
-   * clip timeline). Not saved.
-   */
-  runPlayMs: number;
-  /** When the run last started playing (performance.now()), or null on a break. Not saved. */
-  playingSince: number | null;
   /** True when the last run ended with a new best (a first-ever score counts). Not saved. */
   lastRunNewBest: boolean;
 
@@ -128,20 +120,6 @@ const defaultProgress: AsteroidsProgress = {
   difficulty: "normal",
   lastModified: Date.now(),
 };
-
-/** The monotonic clock of the run timer. */
-function nowMs(): number {
-  return typeof performance !== "undefined" ? performance.now() : Date.now();
-}
-
-/** The run's play time with the current stretch of play added, and the clock stopped. */
-function stopPlayClock(state: Pick<AsteroidsGameState, "runPlayMs" | "playingSince">): {
-  runPlayMs: number;
-  playingSince: null;
-} {
-  const extra = state.playingSince === null ? 0 : Math.max(0, nowMs() - state.playingSince);
-  return { runPlayMs: state.runPlayMs + extra, playingSince: null };
-}
 
 function createInitialShip(): Ship {
   return {
@@ -207,8 +185,6 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
     (set, get) => ({
       ...createInitialState() as AsteroidsGameState,
       runId: 0,
-      runPlayMs: 0,
-      playingSince: null,
       lastRunNewBest: false,
       progress: defaultProgress,
 
@@ -218,8 +194,6 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
           ...createInitialState(1),
           status: "playing",
           runId: state.runId + 1,
-          runPlayMs: 0,
-          playingSince: nowMs(),
           lastRunNewBest: false,
           progress: {
             ...state.progress,
@@ -232,13 +206,13 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
       pauseGame: () => {
         const state = get();
         if (state.status === "playing") {
-          set({ status: "paused", ...stopPlayClock(state) });
+          set({ status: "paused" });
         }
       },
 
       resumeGame: () => {
         if (get().status === "paused") {
-          set({ status: "playing", playingSince: nowMs() });
+          set({ status: "playing" });
         }
       },
 
@@ -250,7 +224,6 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
 
         set({
           status: "playing",
-          playingSince: nowMs(),
           wave: nextWaveNum,
           ship: createInitialShip(),
           bullets: [],
@@ -271,7 +244,6 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
 
         set({
           status: "gameOver",
-          ...stopPlayClock(state),
           // Strictly better than the best before this run (a cloud best
           // that arrived during the run counts). A first score counts too.
           lastRunNewBest: state.score > 0 && state.score > state.progress.highScore,
@@ -688,7 +660,6 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
         if (asteroids.length === 0) {
           set({
             status: "waveComplete",
-            ...stopPlayClock(state),
             ship,
             bullets,
             asteroids,

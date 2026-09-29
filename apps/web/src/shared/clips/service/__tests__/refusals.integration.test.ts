@@ -73,16 +73,20 @@ describe("a refused action shows nothing", () => {
     expect(w.rows.size).toBe(0);
   });
 
-  it("the menu row, Record and the result chip picture while the owner is read again", async () => {
+  it("the menu row, Record, the menu picture and the result chip clips while the owner is read again", async () => {
     const w = makeWorld();
     await w.service.setSessionUser("kid-1");
-    await ready(w);
+    const game = await ready(w);
+    w.engine.play(10);
+    game.runPhase("end");
     const { store, controller } = ui(w);
+    controller.beginResultMark();
     await restoreOffline(w);
     controller.clipLastFromMenu(null);
     controller.toggleRecord();
-    controller.pictureFromChip();
-    controller.watch();
+    controller.pictureFromMenu();
+    controller.clipRun("whole");
+    controller.clipRun("end");
     await flush();
     expect(store.getState().reply).toBeNull();
     expect(store.getState().sheet).toBeNull();

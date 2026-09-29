@@ -53,7 +53,7 @@ vi.mock("../../ui/shellParts", async (importOriginal) => {
 import { GameShell } from "@/shared/components/GameShell";
 import { ResultChip } from "@/shared/components/ResultChip";
 import { loadClipsVerdict } from "../../config";
-import { MENU_COPY, PAUSE_ENTRY_LABEL, RESULT_ACTION_COPY } from "../../ui/copy";
+import { MENU_COPY, PAUSE_ENTRY_LABEL, RESULT_ACTION_COPY, watchRunLabel } from "../../ui/copy";
 import { createFakeClipService, type FakeClipService } from "../../ui/__tests__/fakeClipService";
 import { pointer } from "../../ui/__tests__/renderClips";
 
@@ -244,7 +244,7 @@ describe("GameShell with clips on", () => {
 
   it("a ResultChip in the game shows the clip buttons after its own, and speaks them", async () => {
     const synth = installSpeechMock();
-    useFakeService();
+    const fake = useFakeService();
     function ResultGame() {
       const [over, setOver] = useState(false);
       return (
@@ -252,7 +252,7 @@ describe("GameShell with clips on", () => {
           <button type="button" onClick={() => setOver(true)}>
             end the run
           </button>
-          {over && <ResultChip resultText="Game over! You got 12 points." onRestart={vi.fn()} graceMs={0} runSeconds={20} />}
+          {over && <ResultChip resultText="Game over! You got 12 points." onRestart={vi.fn()} graceMs={0} />}
         </>
       );
     }
@@ -262,21 +262,23 @@ describe("GameShell with clips on", () => {
       </GameShell>,
     );
     await clipUiLoaded();
+    // The game reported a 20 s run (runPhase "start" and "end").
+    fake.playRun(20);
     fireEvent.click(screen.getByRole("button", { name: "end the run" }));
     await settle();
     const chip = screen.getByTestId("result-chip");
     const actions = within(chip).getByTestId("result-chip-clip-actions");
     const labels = Array.from(actions.querySelectorAll("[data-action]")).map((el) => el.textContent?.trim());
-    expect(labels).toContain(RESULT_ACTION_COPY.watch);
-    expect(labels).toContain(RESULT_ACTION_COPY.record);
-    expect(labels).toContain(RESULT_ACTION_COPY.picture);
-    // "Make the whole run a video" (20 s fits in the 45 s ring).
-    expect(actions.querySelector('[data-action="wholeRun"]')).not.toBeNull();
+    // A run of 30 s or less: one clip button (decision D1). Record and Take a picture stay in the Capture menu.
+    expect(labels).toEqual([watchRunLabel("0:20")]);
 
     fireEvent.click(within(chip).getByTestId("read-aloud-button"));
     const spoken = synth.lastUtterance().text;
     expect(spoken.startsWith("Game over! You got 12 points.")).toBe(true);
-    for (const label of labels) expect(spoken).toContain(label!);
-    expect(spoken.indexOf("Play again")).toBeLessThan(spoken.indexOf(RESULT_ACTION_COPY.watch));
+    // The voice says the length in words, after the chip's own buttons.
+    const watchSpoken = `${RESULT_ACTION_COPY.watchRun}, 20 seconds`;
+    expect(spoken).toContain(watchSpoken);
+    expect(spoken).not.toContain("0:20");
+    expect(spoken.indexOf("Play again")).toBeLessThan(spoken.indexOf(watchSpoken));
   });
 });

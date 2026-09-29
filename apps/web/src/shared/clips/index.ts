@@ -47,6 +47,8 @@ export {
   type GameAttachment,
   type PressOutcome,
   type PressToken,
+  type RunClipPart,
+  type RunSpan,
   type SaveOutcome,
   type ShareOutcome,
 } from "./service/contract";

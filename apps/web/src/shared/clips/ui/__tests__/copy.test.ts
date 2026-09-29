@@ -13,13 +13,18 @@ import {
   memoryNote,
   REASON_COPY,
   reasonText,
+  RESULT_ACTION_COPY,
   RESULT_COPY,
   SAVE_BUTTON_LABELS,
   SAVE_LABELS,
   SETTINGS_COPY,
   shareReply,
   saveReply,
+  spokenLength,
+  spokenWithLength,
   TOAST_COPY,
+  watchRunLabel,
+  wholeRunLabel,
   type SaveButton,
 } from "../copy";
 
@@ -202,6 +207,29 @@ describe("clip copy table (plan 11.6)", () => {
     for (const [state, name] of Object.entries(BUTTON_NAMES)) {
       expect(name.trim(), state).not.toBe("");
     }
+  });
+});
+
+describe("result chip clip words (decision D1)", () => {
+  it("names the run's clips, and no Record or picture action", () => {
+    expect(RESULT_ACTION_COPY).toEqual({
+      watchRun: "Watch the whole run",
+      watchEnd: "Watch the end",
+      wholeRun: "Make the whole run a video",
+    });
+    expect(watchRunLabel("0:16")).toBe("Watch the whole run (0:16)");
+    expect(wholeRunLabel("1:42")).toBe("Make the whole run a video (1:42)");
+  });
+
+  it("says a length in words for the voice", () => {
+    expect(spokenLength(16.9)).toBe("16 seconds");
+    expect(spokenLength(1)).toBe("1 second");
+    expect(spokenLength(60)).toBe("1 minute");
+    expect(spokenLength(61)).toBe("1 minute and 1 second");
+    expect(spokenLength(102)).toBe("1 minute and 42 seconds");
+    expect(spokenLength(180)).toBe("3 minutes");
+    expect(spokenLength(Number.NaN)).toBe("0 seconds");
+    expect(spokenWithLength(RESULT_ACTION_COPY.watchRun, 16)).toBe("Watch the whole run, 16 seconds");
   });
 });
 

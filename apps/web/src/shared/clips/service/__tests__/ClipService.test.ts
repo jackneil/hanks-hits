@@ -855,6 +855,113 @@ describe("breaks and runs", () => {
   });
 });
 
+describe("the run's own clips (plan 11.4, decision D1)", () => {
+  /** A first run of 40 s, a restart, and a second run of `seconds` that ended; the result chip's frozen end. */
+  async function secondRunOver(seconds: number) {
+    const w = makeWorld();
+    const game = await ready(w); // the first run starts at 0 and plays 5 s
+    w.engine.play(35);
+    game.runPhase("end");
+    w.engine.play(3); // the post-roll on the result card
+    game.runPhase("start");
+    const startUs = w.engine.mediaEnd;
+    w.engine.play(seconds);
+    game.runPhase("end");
+    const endUs = w.engine.mediaEnd;
+    game.setAtBreak(true);
+    await flush();
+    const token = w.service.beginPress()!;
+    w.service.endPress(token, { upAtMs: token.downAtMs, moved: false, cancelled: true });
+    return { w, game, token, startUs, endUs };
+  }
+
+  it("a press token carries the latest run's span on the capture timeline", async () => {
+    const w = makeWorld();
+    const game = await ready(w);
+    expect(w.service.beginPress()!.run).toEqual({ startUs: 0, endUs: null });
+    w.engine.play(10);
+    game.runPhase("end");
+    expect(w.service.beginPress()!.run).toEqual({ startUs: 0, endUs: 15e6 });
+    w.engine.play(2);
+    game.runPhase("start");
+    expect(w.service.beginPress()!.run).toEqual({ startUs: 17e6, endUs: null });
+  });
+
+  it('"whole" clips exactly the run: from its start (the bound) to its end, never the run before', async () => {
+    const { w, token, startUs, endUs } = await secondRunOver(16);
+    w.engine.play(5); // the kid stays on the result screen while capture runs on
+    const result = await w.service.clipRun(token, "whole");
+    expect(result.ok).toBe(true);
+    expect(w.engine.clipRequests).toHaveLength(1);
+    expect(w.engine.clipRequests[0]).toMatchObject({ seconds: 16, endAtUs: endUs, notBeforeUs: startUs });
+    if (result.ok) expect(result.record.durationMs).toBe(16_000);
+    expect(w.service.getSnapshot().unwatchedClipId).toBe(result.ok ? result.record.id : null);
+  });
+
+  it('"end" clips the last 30 s of a long run, and never reaches before a short run\'s start', async () => {
+    const long = await secondRunOver(75);
+    await long.w.service.clipRun(long.token, "end");
+    expect(long.w.engine.clipRequests[0]).toMatchObject({ seconds: DEFAULT_CLIP_SECONDS, endAtUs: long.endUs, notBeforeUs: long.startUs });
+    const short = await secondRunOver(16);
+    await short.w.service.clipRun(short.token, "end");
+    expect(short.w.engine.clipRequests[0]).toMatchObject({ seconds: 16, endAtUs: short.endUs, notBeforeUs: short.startUs });
+  });
+
+  it("ends at the frozen end when the run ended later than the press", async () => {
+    const w = makeWorld();
+    const game = await ready(w);
+    w.engine.play(10);
+    const token = w.service.beginPress()!; // the chip's end froze while the run still went on
+    w.engine.play(1);
+    game.runPhase("end");
+    await w.service.clipRun(token, "whole");
+    expect(w.engine.clipRequests[0]).toMatchObject({ seconds: 15, endAtUs: 15e6, notBeforeUs: 0 });
+  });
+
+  it("a run clip is not the last clip: a clip button tap after it makes a new clip, never an extend", async () => {
+    const { w, token } = await secondRunOver(16);
+    const run = await w.service.clipRun(token, "whole");
+    expect(run.ok).toBe(true);
+    const outcome = press(w, 100);
+    expect(outcome.kind).toBe("clip");
+    await resultOf(outcome);
+    expect(w.engine.clipRequests).toHaveLength(2);
+    expect(w.rows.size).toBe(2);
+  });
+
+  it("fails with warming for a token with no run, and in a state with no footage", async () => {
+    const w = makeWorld();
+    const game = w.service.attach(gameAttachment(w));
+    await flush();
+    game.registerCanvas(document.createElement("canvas"));
+    w.engine.emit({ t: "output" });
+    w.engine.play(20);
+    const token = w.service.beginPress()!;
+    expect(token.run).toBeNull();
+    expect(await w.service.clipRun(token, "whole")).toMatchObject({ ok: false, reason: "warming" });
+    expect(w.engine.clipRequests).toHaveLength(0);
+  });
+
+  it("a new capture timeline: a run that goes on starts at 0, an ended run's footage is gone", async () => {
+    const w = makeWorld();
+    const game = await ready(w);
+    w.engine.play(10);
+    expect(w.service.beginPress()!.run).toEqual({ startUs: 0, endUs: null });
+    w.engine.play(4);
+    game.runPhase("end");
+    game.runPhase("start");
+    expect(w.service.beginPress()!.run).toEqual({ startUs: 19e6, endUs: null });
+    w.engine.disarm(); // the engine reset: a new timeline at 0, an empty ring
+    await flush();
+    expect(w.service.beginPress()!.run).toEqual({ startUs: 0, endUs: null });
+    w.engine.play(6);
+    game.runPhase("end");
+    w.engine.disarm();
+    await flush();
+    expect(w.service.beginPress()!.run).toBeNull();
+  });
+});
+
 describe("failures before the first output (plan 7: 4 in 60 s)", () => {
   async function warming(w: World): Promise<AttachedGame> {
     const game = w.service.attach(gameAttachment(w));
