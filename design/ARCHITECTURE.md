@@ -423,7 +423,11 @@ the header, the game and the pause menu in `ClipShellScope`:
 - `ClipUiMount` (`src/shared/clips/shell/ClipUiMount.tsx`) loads the clip UI
   (`src/shared/clips/ui/shellParts.ts`) with a dynamic import, only when
   the service exists. It holds the UI contexts from the first render, so
-  the game does not remount when the UI arrives.
+  the game does not remount when the UI arrives. If the load fails, it
+  tries again after 2 s, 10 s and 60 s, then each time the page becomes
+  visible. There is no capture without a clip button: until the UI runs,
+  `useAttachedGame()` gives null under the mount, so the game registers no
+  canvas and the capture engine does not start.
 - GameShell then puts the clip button in the header clip slot, the in-play
   confirmation in the title region, the toast slot under the header, and
   the "Clips" entry in the pause menu (the menu reads it out loud).
