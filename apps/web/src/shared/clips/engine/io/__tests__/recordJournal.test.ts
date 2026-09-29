@@ -211,6 +211,53 @@ describe("recoverJournals", () => {
     live.release();
   });
 
+  it("two tabs that start at once after a crash store a dead journal once", async () => {
+    const opfs = createOpfsMock();
+    const locks = new FakeLockManager();
+    opfs.writeFile(`${JOURNAL_DIR}/rec-dead.journal`, concat([encodeFrame(journalMeta("rec-dead"), []), chunkFrame(makeClipPackets({ seconds: 1 }))]));
+    const stores: string[] = [];
+    // A store takes a while (the mux and the OPFS write), like the real muxAndStore.
+    const store = (tab: string) => async (part: { meta: ClipMeta }) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      stores.push(`${tab}:${part.meta.id}`);
+      return part.meta.id;
+    };
+    const [a, b] = await Promise.all([
+      recoverJournals({ storage: opfs.storage as unknown as StorageLike, locks: locks.client("tab-a") }, store("a")),
+      recoverJournals({ storage: opfs.storage as unknown as StorageLike, locks: locks.client("tab-b") }, store("b")),
+    ]);
+    expect(stores).toHaveLength(1);
+    expect([...a, ...b]).toEqual(["rec-dead"]);
+    expect(opfs.listFiles()).toEqual([]);
+    expect(locks.holderOf(`${RECORD_LOCK_PREFIX}rec-dead`)).toBeNull();
+  });
+
+  it("holds the recording lock while it stores, so a live tab that starts the same recording waits", async () => {
+    const opfs = createOpfsMock();
+    const locks = new FakeLockManager();
+    opfs.writeFile(`${JOURNAL_DIR}/rec-x.journal`, concat([encodeFrame(journalMeta("rec-x"), []), chunkFrame(makeClipPackets({ seconds: 1 }))]));
+    const holders: Array<string | null> = [];
+    await recoverJournals({ storage: opfs.storage as unknown as StorageLike, locks: locks.client("me") }, async (part) => {
+      holders.push(locks.holderOf(`${RECORD_LOCK_PREFIX}rec-x`));
+      return part.meta.id;
+    });
+    expect(holders).toEqual(["me"]);
+  });
+
+  it("leaves a journal alone when the lock request fails", async () => {
+    const opfs = createOpfsMock();
+    opfs.writeFile(`${JOURNAL_DIR}/rec-y.journal`, concat([encodeFrame(journalMeta("rec-y"), []), chunkFrame(makeClipPackets({ seconds: 1 }))]));
+    const logs: string[] = [];
+    const failing = { request: async () => Promise.reject(new DOMException("no", "SecurityError")) };
+    const stored = await recoverJournals(
+      { storage: opfs.storage as unknown as StorageLike, locks: failing, log: (m) => logs.push(m) },
+      async () => "row",
+    );
+    expect(stored).toEqual([]);
+    expect(opfs.exists(`${JOURNAL_DIR}/rec-y.journal`)).toBe(true);
+    expect(logs).toEqual([expect.stringContaining("left for later")]);
+  });
+
   it("removes a journal whose part fails to store (reported there), so it is not tried at every startup", async () => {
     const opfs = createOpfsMock();
     const locks = new FakeLockManager();

@@ -98,7 +98,7 @@ function defaultJournalEnv(): JournalEnv | null {
   const nav = (globalThis as unknown as { navigator?: { storage?: StorageLike; locks?: JournalLocks } }).navigator;
   const storage = nav?.storage && typeof nav.storage.getDirectory === "function" ? nav.storage : null;
   if (!storage) return null;
-  const locks = nav?.locks && typeof nav.locks.request === "function" && typeof nav.locks.query === "function" ? nav.locks : null;
+  const locks = nav?.locks && typeof nav.locks.request === "function" ? nav.locks : null;
   return { storage, locks, log: (message) => console.warn(message) };
 }
 

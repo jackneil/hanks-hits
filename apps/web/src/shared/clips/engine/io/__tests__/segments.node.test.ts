@@ -411,4 +411,29 @@ describe.skipIf(SKIP)("segment Record", () => {
     expect(mock.exists(file("recLive"))).toBe(true);
     live.release();
   });
+
+  it("two tabs that start at once after a crash store a dead segment journal once", async () => {
+    const oldTab = createOpfsMock();
+    const first = harness({ mock: oldTab, locks: new FakeLockManager(), clientId: "old-tab" });
+    first.soundRun("webm", 1, 302);
+    await first.handler.handle({ ...open("recTwice", { poster: JPEG(1) }) });
+    for (const [i, segment] of windows(made.webm, 2 * S, 11 * S).slice(0, 2).entries()) {
+      await first.handler.handle({ t: "segmentRecordAdd", recordingId: "recTwice", segment, poster: JPEG(30 + i) });
+    }
+    const file = `${JOURNAL_DIR}/recTwice${SEGMENT_JOURNAL_SUFFIX}`;
+    // The disk after the tab died, seen by two new tabs that start together.
+    const mock = createOpfsMock();
+    mock.writeFile(file, oldTab.readFile(file)!);
+    const locks = new FakeLockManager();
+    const a = harness({ mock, locks, clientId: "tab-a" });
+    const b = harness({ mock, locks, clientId: "tab-b" });
+    await Promise.all([a.handler.start(), b.handler.start()]);
+    await Promise.all([a.handler.idle(), b.handler.idle()]);
+    const recoveredIds = [...a.events, ...b.events]
+      .filter((e): e is Extract<IoEvent, { t: "recovered" }> => e.t === "recovered")
+      .flatMap((e) => e.records.map((r) => r.id));
+    expect(recoveredIds).toEqual(["recTwice"]);
+    expect(mock.exists(file)).toBe(false);
+    expect(locks.holderOf(`${RECORD_LOCK_PREFIX}recTwice`)).toBeNull();
+  });
 });

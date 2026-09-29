@@ -44,7 +44,14 @@ import type { ClipMeta, ClipRecord, IoEvent, RecorderSegmentRef, SegmentContaine
 import type { DirectoryHandleLike, FileHandleLike, SyncAccessHandleLike } from "../../library/fsTypes";
 import { isClipId, isOwnerKey } from "../../library/ownerKey";
 import { audioConfigKey, orderRecordSegments, planRecordParts, type SoundSource } from "./concat";
-import { JOURNAL_DIR, RECORD_LOCK_PREFIX, decodeFrames, encodeFrame, type JournalEnv } from "./recordJournal";
+import {
+  JOURNAL_DIR,
+  decodeFrames,
+  encodeFrame,
+  readJournalFile,
+  withFreeRecordingLock,
+  type JournalEnv,
+} from "./recordJournal";
 import { partId } from "./recorder";
 import { pickSound, type SoundFormat, type SoundPacket } from "./soundStore";
 
@@ -608,9 +615,12 @@ export class SegmentRecording {
 
 /**
  * Stores the segment journals that dead tabs left, and returns the stored
- * rows. A journal whose recording lock is held (a live tab) is skipped.
- * Every other journal is removed after the try, stored or not, so a broken
- * journal is not tried again at every startup.
+ * rows. Each journal is read again, stored and removed while this worker
+ * holds its recording lock (recordJournal.withFreeRecordingLock). A journal
+ * whose lock is held somewhere else is skipped: a live tab records into it,
+ * or another tab recovers it now. Every journal this worker takes is removed
+ * after the try, stored or not, so a broken journal is not tried again at
+ * every startup.
  */
 export async function recoverSegmentJournals(
   env: JournalEnv,
@@ -619,7 +629,8 @@ export async function recoverSegmentJournals(
 ): Promise<ClipRecord[]> {
   const log = env.log ?? (() => undefined);
   const records: ClipRecord[] = [];
-  if (!env.storage || !env.locks) return records;
+  const locks = env.locks;
+  if (!env.storage || !locks) return records;
   let dir: DirectoryHandleLike | null;
   try {
     dir = await journalDir(env, false);
@@ -627,50 +638,54 @@ export async function recoverSegmentJournals(
     return records;
   }
   if (!dir) return records;
-  let held: Set<string>;
-  try {
-    const snapshot = await env.locks.query();
-    held = new Set((snapshot.held ?? []).map((l) => l.name ?? ""));
-  } catch {
-    return records;
-  }
+  const journals = dir;
   const names: string[] = [];
-  for await (const [name, handle] of dir.entries()) {
+  for await (const [name, handle] of journals.entries()) {
     if (handle.kind === "file" && name.endsWith(SEGMENT_JOURNAL_SUFFIX)) names.push(name);
   }
   for (const name of names.sort()) {
-    let bytes: Uint8Array;
-    try {
-      const file = await (await dir.getFileHandle(name)).getFile();
-      bytes = new Uint8Array(await file.arrayBuffer());
-    } catch {
-      // Open for writing by a live tab, or gone.
+    // The first read only finds the recording, so its lock can be asked for.
+    const first = await readJournalFile(journals, name);
+    if (!first) continue;
+    const found = readSegmentJournal(first);
+    if (!found) {
+      // No recording frame: nothing to store and no recording to ask about.
+      await journals.removeEntry(name).catch(() => undefined);
       continue;
     }
-    const journal = readSegmentJournal(bytes);
-    if (journal && held.has(`${RECORD_LOCK_PREFIX}${journal.meta.recordingId}`)) continue;
-    if (journal && journal.segments.length > 0) {
-      try {
-        const recording = new SegmentRecording(host, {
-          recordingId: journal.meta.recordingId,
-          container: journal.meta.container,
-          meta: journal.meta.meta,
-          tapUs: journal.meta.tapUs,
-          poster: journal.poster,
-          // The recovered rows go in one "recovered" event; errors go out now.
-          post: (event) => {
-            if (event.t === "error" || event.t === "evicted") post(event);
-          },
-          sound: null,
-          seedSound: journal.sound,
-        });
-        for (const { segment, poster } of journal.segments) await recording.add(segment, poster);
-        for (const part of await recording.end()) records.push(part.record);
-      } catch (error) {
-        log(`[clips] a saved recording could not be stored (${describe(error)})`);
-      }
+    try {
+      await withFreeRecordingLock(locks, found.meta.recordingId, async () => {
+        // Read again under the lock: another tab can have stored and removed it.
+        const bytes = await readJournalFile(journals, name);
+        if (!bytes) return;
+        const journal = readSegmentJournal(bytes);
+        if (journal && journal.segments.length > 0) {
+          try {
+            const recording = new SegmentRecording(host, {
+              recordingId: journal.meta.recordingId,
+              container: journal.meta.container,
+              meta: journal.meta.meta,
+              tapUs: journal.meta.tapUs,
+              poster: journal.poster,
+              // The recovered rows go in one "recovered" event; errors go out now.
+              post: (event) => {
+                if (event.t === "error" || event.t === "evicted") post(event);
+              },
+              sound: null,
+              seedSound: journal.sound,
+            });
+            for (const { segment, poster } of journal.segments) await recording.add(segment, poster);
+            for (const part of await recording.end()) records.push(part.record);
+          } catch (error) {
+            log(`[clips] a saved recording could not be stored (${describe(error)})`);
+          }
+        }
+        await journals.removeEntry(name).catch(() => undefined);
+      });
+    } catch (error) {
+      // The lock request failed: a live tab cannot be told from a dead one.
+      log(`[clips] a saved recording was left for later (${describe(error)})`);
     }
-    await dir.removeEntry(name).catch(() => undefined);
   }
   return records;
 }

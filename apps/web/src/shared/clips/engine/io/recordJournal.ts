@@ -13,12 +13,15 @@
  * - While a recording is open, the io worker holds the Web Lock
  *   "hh-clips-rec:<recording id>". The browser lets it go when the tab dies.
  * - At startup (after the library check), a journal whose recording lock is
- *   not held belongs to a tab that is gone: its chunks are read, muxed and
- *   stored as the record part, the file is removed, and the stored rows go to
+ *   free belongs to a tab that is gone. The recovering worker takes that lock
+ *   (ifAvailable) and holds it while it reads the file again, stores its
+ *   chunks as the record part and removes the file. The stored rows go to
  *   the main thread in one "recovered" event ("We saved your recording from
- *   last time!"). A journal whose lock is held belongs to a live tab and is
- *   left alone. Without Web Locks a live tab cannot be told from a dead one,
- *   so no journal is recovered (it is never taken from a live tab).
+ *   last time!"). A journal whose lock is held is left alone: a live tab
+ *   records into it, or another tab recovers it now (two tabs that start at
+ *   once after a crash store each part once). Without Web Locks a live tab
+ *   cannot be told from a dead one, so no journal is recovered (it is never
+ *   taken from a live tab).
  *
  * File format: frames, each one (little-endian)
  *   u32 magic "HRRJ" | u32 header bytes | u32 body bytes | u32 FNV-1a of header and body
@@ -47,10 +50,9 @@ const FRAME_HEAD_BYTES = 16;
 /** A header larger than this is not ours (a torn or foreign file). */
 const MAX_HEADER_BYTES = 4 * 1024 * 1024;
 
-/** The Web Locks calls the journal uses. navigator.locks in a worker fits it. */
+/** The Web Locks call the journal uses. navigator.locks in a worker fits it. */
 export interface JournalLocks {
   request<T>(name: string, options: { mode?: "exclusive" | "shared"; ifAvailable?: boolean }, callback: (lock: unknown) => Promise<T> | T): Promise<T>;
-  query(): Promise<{ held?: Array<{ name?: string }> }>;
 }
 
 export interface JournalEnv {
@@ -466,17 +468,48 @@ export interface RecoveredPart {
   packets: ClipPackets;
 }
 
+/** The whole file, or null when it cannot be read (open for writing by a live tab, or gone). */
+export async function readJournalFile(dir: DirectoryHandleLike, name: string): Promise<Uint8Array | null> {
+  try {
+    const file = await (await dir.getFileHandle(name)).getFile();
+    return new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Runs `body` while this worker holds the recording's lock, taken with
+ * ifAvailable, and returns true. Returns false and does not run `body` when
+ * the lock is held somewhere else: a live tab records into the journal, or
+ * another tab recovers it now. The lock is held until `body` settles, so the
+ * read, the store and the remove of one journal happen in one tab only.
+ */
+export async function withFreeRecordingLock(
+  locks: JournalLocks,
+  recordingId: string,
+  body: () => Promise<void>,
+): Promise<boolean> {
+  return locks.request(`${RECORD_LOCK_PREFIX}${recordingId}`, { mode: "exclusive", ifAvailable: true }, async (lock) => {
+    if (!lock) return false;
+    await body();
+    return true;
+  });
+}
+
 /**
  * Stores the journals that dead tabs left (see the file comment) and returns
  * the stored rows. `store` muxes and saves one part and gives its row, or
  * null when it failed (the failure is reported there). Either way the
  * journal is removed, so a broken journal is never tried again at every
- * startup. A journal whose recording lock is held is skipped.
+ * startup. Each journal is read again, stored and removed while this worker
+ * holds its recording lock; a journal whose lock is held is skipped.
  */
 export async function recoverJournals<R>(env: JournalEnv, store: (part: RecoveredPart) => Promise<R | null>): Promise<R[]> {
   const log = env.log ?? (() => undefined);
   const stored: R[] = [];
-  if (!env.storage || !env.locks) return stored;
+  const locks = env.locks;
+  if (!env.storage || !locks) return stored;
   let dir: DirectoryHandleLike | null;
   try {
     dir = await journalDir(env.storage, false);
@@ -484,40 +517,43 @@ export async function recoverJournals<R>(env: JournalEnv, store: (part: Recovere
     return stored;
   }
   if (!dir) return stored;
-  let held: Set<string>;
-  try {
-    const snapshot = await env.locks.query();
-    held = new Set((snapshot.held ?? []).map((l) => l.name ?? ""));
-  } catch {
-    // The lock list cannot be read: a live tab cannot be told from a dead one.
-    return stored;
-  }
+  const journals = dir;
   const names: string[] = [];
-  for await (const [name, handle] of dir.entries()) {
+  for await (const [name, handle] of journals.entries()) {
     if (handle.kind === "file" && name.endsWith(JOURNAL_SUFFIX)) names.push(name);
   }
   for (const name of names.sort()) {
-    let bytes: Uint8Array;
-    try {
-      const file = await (await dir.getFileHandle(name)).getFile();
-      bytes = new Uint8Array(await file.arrayBuffer());
-    } catch {
-      // Open for writing by a live tab (a SyncAccessHandle is exclusive), or gone.
+    const partName = name.slice(0, -JOURNAL_SUFFIX.length);
+    // The first read only finds the recording, so its lock can be asked for.
+    const first = await readJournalFile(journals, name);
+    if (!first) continue;
+    const found = readJournal(first, partName);
+    if (!found) {
+      // No row frame: nothing to store and no recording to ask about.
+      await journals.removeEntry(name).catch(() => undefined);
       continue;
     }
-    const part = readJournal(bytes, name.slice(0, -JOURNAL_SUFFIX.length));
-    // A live tab's recording: never taken from it.
-    if (part && held.has(`${RECORD_LOCK_PREFIX}${part.meta.recordingId}`)) continue;
-    if (part?.packets) {
-      try {
-        const row = await store({ meta: part.meta.meta, packets: part.packets });
-        if (row !== null) stored.push(row);
-      } catch (error) {
-        log(`[clips] a saved recording could not be stored (${describe(error)})`);
-      }
+    try {
+      await withFreeRecordingLock(locks, found.meta.recordingId, async () => {
+        // Read again under the lock: another tab can have stored and removed it.
+        const bytes = await readJournalFile(journals, name);
+        if (!bytes) return;
+        const part = readJournal(bytes, partName);
+        if (part?.packets) {
+          try {
+            const row = await store({ meta: part.meta.meta, packets: part.packets });
+            if (row !== null) stored.push(row);
+          } catch (error) {
+            log(`[clips] a saved recording could not be stored (${describe(error)})`);
+          }
+        }
+        // Stored, failed for good (reported), or nothing in it: the journal goes.
+        await journals.removeEntry(name).catch(() => undefined);
+      });
+    } catch (error) {
+      // The lock request failed: a live tab cannot be told from a dead one.
+      log(`[clips] a saved recording was left for later (${describe(error)})`);
     }
-    // Stored, failed for good (reported), or nothing in it: the journal goes.
-    await dir.removeEntry(name).catch(() => undefined);
   }
   return stored;
 }
