@@ -484,6 +484,22 @@ describe("self-hosted EmulatorJS licenses and source code", () => {
     expect(missing).toEqual([]);
   });
 
+  it("give each source archive in NOTICE.txt the size that the manifest records", () => {
+    // MB with one decimal ("less than 0.1 MB" below that), the words that
+    // the /licenses page uses too. A size can wrap onto the next line.
+    const words = (bytes: number) => {
+      const mb = (bytes / 1e6).toFixed(1);
+      return mb === "0.0" ? "less than 0.1 MB" : `${mb} MB`;
+    };
+    const flat = notice.replace(/\s+/g, " ");
+    const wrong: string[] = [];
+    for (const source of manifest.sources) {
+      const stated = new RegExp(`${source.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(([^)]*)\\)`).exec(flat)?.[1];
+      if (stated !== words(source.bytes)) wrong.push(`${source.path}: NOTICE.txt says ${stated ?? "no size"}, manifest ${words(source.bytes)}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
   it("state the known license problem of the upstream core files", () => {
     // Each core file links the core with GPL-3.0 RetroArch. The licenses of
     // the non-commercial cores and of Stella 2014 (GPL-2.0 only) do not agree

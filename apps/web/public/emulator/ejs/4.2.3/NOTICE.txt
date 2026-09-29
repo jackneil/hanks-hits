@@ -189,7 +189,7 @@ C. The parts
        License text: licenses/cores/nestopia.txt (GPL-2.0)
        Copyright (c) 2003-2008 Martin Freij. Copyright (c) 2008-2018
        Nestopia UE Contributors.
-       Source code: source/nestopia-6b08ec9148bd.tar.gz (1.1 MB)
+       Source code: source/nestopia-6b08ec9148bd.tar.gz (1.2 MB)
          https://github.com/EmulatorJS/nestopia,
          commit 6b08ec9148bd4cedc893ed0c97bc64061d044399
          ("1.53.1 6b08ec9").
@@ -203,7 +203,7 @@ C. The parts
        license.txt.
        Copyright: the Mupen64Plus authors (see licenses/cores/parallel_n64.txt)
        and the other parallel-n64 authors.
-       Source code: source/parallel-n64-56f4daf8ec9b.tar.gz (5.0 MB)
+       Source code: source/parallel-n64-56f4daf8ec9b.tar.gz (5.1 MB)
          https://github.com/EmulatorJS/parallel-n64,
          commit 56f4daf8ec9b00d51d7db88e3c34c381294dbde0
          ("2.0-rc2 56f4daf").
