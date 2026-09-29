@@ -47,7 +47,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Vector space shooter",
     category: "arcade",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "blitz-bomber": {
     name: "Blitz Bomber",

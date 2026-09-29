@@ -7,14 +7,25 @@
  *   elapsed = contentMs - epochMs - removedPauseMs
  *   m       = round(elapsed / vsyncMs)               nearest vsync index
  *   slot    = floor((m - segmentStartM) / k)         k = capture stride
- *   tsUs    = (segmentStartM + slot * k) * vsyncUs
+ *   startM  = segmentStartM + slot * k
+ *   tsUs    = max(0, (startM - (k - 1) / 2) * vsyncUs)
  *
  * This is the plan's slot formula with the epoch put on the vsync grid: a
  * frame that the display shows on vsync n falls in the slot that starts at the
- * last multiple of k at or before n. A regular game therefore gets exact
- * timestamps, and jitter under half a vsync never moves a frame to another
- * slot. The first frame of a slot is taken; later frames in the same slot are
- * not taken, so the capture cost stays at the rung rate.
+ * last multiple of k at or before n. Jitter under half a vsync never moves a
+ * frame to another slot. The first frame of a slot is taken; later frames in
+ * the same slot are not taken, so the capture cost stays at the rung rate.
+ *
+ * Centering (A/V sync, plan 15.2): at stride k, an event that starts on one of
+ * the k - 1 vsyncs between two captures shows first in the NEXT capture, up to
+ * k - 1 vsyncs late (at 15 fps on a 60 Hz screen, 50 ms: outside the BT.1359
+ * sound-lead limit of 45 ms). The pump therefore stamps each frame at the
+ * middle of the k vsyncs whose events it first shows, (k - 1) / 2 vsyncs
+ * before its slot start. The picture error is then at most (k - 1) / 2 vsyncs
+ * early or late (about 25 ms at 15 fps on 60 Hz). At k = 1 nothing changes.
+ * Only the first frame of an epoch is clamped at media time 0, so it is up to
+ * (k - 1) / 2 vsyncs shorter than a slot. placeAfter keeps every later frame
+ * after the frames before it, also across a rung change.
  *
  * Durations: the pump holds the newest frame until the next frame arrives. The
  * held frame then goes to the sink with duration = next.ts - held.ts. So an
@@ -240,7 +251,17 @@ export class FramePump {
     const startM = this.segmentStartM + slot * this.k;
     const seq = this.nextSeq++;
     this.open.add(seq);
-    return { seq, tsUs: Math.round((startM * 1e6) / this.hz) };
+    // The middle of the k vsyncs that this frame first shows (see the file comment).
+    const centeredM = startM - (this.k - 1) / 2;
+    return { seq, tsUs: Math.max(0, Math.round((centeredM * 1e6) / this.hz)) };
+  }
+
+  /**
+   * Media microseconds of page time atMs, on the vsync grid (0 before the
+   * first frame). Paused time is removed, like for the frames.
+   */
+  mediaUsAt(atMs: number): number {
+    return this.mediaUsOnGrid(atMs);
   }
 
   /** Hand over the frame for a ticket. The pump owns the payload from now on. */

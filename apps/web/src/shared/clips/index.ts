@@ -18,6 +18,17 @@ export {
   type ClipSourceOptions,
 } from "./service/ClipProvider";
 export { ClipSessionWatcher } from "./service/ClipSessionWatcher";
+// The clip UI loads with a dynamic import (plan 4.1). These give its parts to
+// GameShell and ResultChip once it is on the page, and null before that.
+export {
+  ClipShellUiContext,
+  ClipUiMount,
+  useClipHeaderSlot,
+  useClipShellUi,
+  type ClipShellParts,
+  type ClipShellPartsLoader,
+  type ClipUiMountProps,
+} from "./shell/ClipUiMount";
 export { AttachedGameContext, ClipServiceContext, useAttachedGame, useClipService, useClipSnapshot } from "./service/context";
 export {
   DEFAULT_CLIP_SECONDS,

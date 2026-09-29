@@ -16,6 +16,9 @@ import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
 import { getOverlayCopy } from "./lib/overlayCopy";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { useAsteroidsClips } from "./lib/useAsteroidsClips";
+import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
+import { ASTEROIDS_AUDIO_ID, releaseSounds } from "./lib/sounds";
 
 // ============================================
 // CANVAS RENDERER
@@ -244,6 +247,19 @@ export function AsteroidsGame() {
   const isCoarse = useCoarsePointer();
   const render = useCanvasRenderer(canvasRef, isCoarse);
 
+  // Gameplay clips: the canvas, the run phases and the new-best moment.
+  useAsteroidsClips(canvasRef, { status: store.status, score: store.score, highScore: store.progress.highScore });
+
+  // Sound: the first tap starts the shared game-audio bus, the sound switch
+  // is this game's speaker (also after the saved setting loads), and the
+  // game's channel leaves the bus when the game unmounts.
+  useEffect(() => wantGameAudio(), []);
+  const soundEnabled = store.progress.soundEnabled;
+  useEffect(() => {
+    setGameSpeakerEnabled(ASTEROIDS_AUDIO_ID, soundEnabled);
+  }, [soundEnabled]);
+  useEffect(() => () => releaseSounds(), []);
+
   // Auth sync
   const { forceSync } = useAuthSync({
     appId: "asteroids",
@@ -261,13 +277,14 @@ export function AsteroidsGame() {
   }, [store.status, forceSync]);
 
   // Game loop
+  const update = store.update;
   useEffect(() => {
     if (store.status !== "playing") return;
 
     let animationId: number;
 
     const gameLoop = () => {
-      store.update();
+      update();
       render();
       animationId = requestAnimationFrame(gameLoop);
     };
@@ -277,7 +294,7 @@ export function AsteroidsGame() {
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [store.status, store.update, render]);
+  }, [store.status, update, render]);
 
   // Render when not playing
   useEffect(() => {

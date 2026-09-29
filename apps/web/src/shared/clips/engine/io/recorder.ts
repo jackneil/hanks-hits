@@ -19,6 +19,12 @@
  * All work runs on the io worker's command queue, so a part never races a
  * command.
  *
+ * Frame rate (plan 7): the row's fps is the capture rung weighted by media
+ * time over the part (rungTimeline.ts). The recording starts at meta.fps, and
+ * the main thread sends each rung change ("recordRung"). A rung change can
+ * reach the worker before the chunks it covers, never after the part closes
+ * for the normal flow: the tee sends a GOP's chunk only when the GOP ends.
+ *
  * Crash safety (plan 8.4): each chunk also goes to the part's journal in OPFS
  * (recordJournal.ts) as it arrives. A tab that closes or crashes during Record
  * loses at most the open GOP: the next startup stores the journaled part. The
@@ -27,6 +33,7 @@
  */
 
 import type { ClipMeta, ClipPackets, ClipRecord, EpochInfo, IoEvent, MemoryClass, PacketDTO, RecordTeeMsg } from "../../protocol";
+import { RungTimeline, rowFps } from "../../rungTimeline";
 import { sameVideoConfig } from "./mux";
 import type { JournalMeta } from "./recordJournal";
 
@@ -116,13 +123,22 @@ export class Recording {
   private readonly parts: RecordedPart[] = [];
   private failed = 0;
   private ended = false;
+  private readonly rungs: RungTimeline;
 
   constructor(
     private readonly host: RecorderHost,
     readonly recordingId: string,
     private readonly meta: ClipMeta,
     private readonly post: (event: IoEvent) => void,
-  ) {}
+  ) {
+    this.rungs = new RungTimeline(meta.fps);
+  }
+
+  /** The capture rung changed to `fps` at capture-timeline time atUs ("recordRung"). */
+  rung(atUs: number, fps: number): void {
+    if (this.ended) return;
+    this.rungs.note(atUs, fps);
+  }
 
   get finished(): boolean {
     return this.ended;
@@ -206,7 +222,9 @@ export class Recording {
       cutToNewestEpoch: false,
       coveredSec: Math.max(0, (part.endUs - part.startUs) / 1e6),
     };
-    const meta: ClipMeta = { ...part.meta, durationMs: Math.round(packets.coveredSec * 1000) };
+    // The rung that capture used over this part, weighted by time (see the file comment).
+    const fps = rowFps(this.rungs.weighted(part.startUs, part.endUs)) || part.meta.fps;
+    const meta: ClipMeta = { ...part.meta, durationMs: Math.round(packets.coveredSec * 1000), fps };
     const record = await this.host.storePart(packets, meta, this.post);
     if (record) this.parts.push({ record, startUs: part.startUs, endUs: part.endUs });
     else this.failed++;

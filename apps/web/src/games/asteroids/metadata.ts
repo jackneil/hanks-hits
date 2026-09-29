@@ -6,4 +6,5 @@ export const metadata: GameMetadata = {
   emoji: "☄️",
   category: "arcade",
   description: "Vector space shooter",
+  clips: true,
 };

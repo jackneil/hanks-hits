@@ -449,6 +449,59 @@ describe("EngineHost against the worker handlers", () => {
     env.engine.dispose();
   });
 
+  // Lab FINDING 1 (plan 7): every Record row said the encoder's top rate (60 fps)
+  // while the governor had stepped down and the file ran at 31 or 40 fps. The
+  // row now holds the rung weighted by time over the part.
+  it("gives a Record part the capture rung weighted over its span, not the encoder's top rate", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 3);
+    const handle = await env.engine.startRecording(env.meta("rec-rung", { kind: "record" }));
+    await env.play(2000);
+    env.power.listener?.({ pressure: "serious" });
+    const stepped = env.events.filter((e) => e.t === "governor").at(-1) as Extract<EngineEvent, { t: "governor" }>;
+    expect(stepped.resting).toBe(false);
+    const low = stepped.level.fps;
+    await env.play(2000);
+    const stopping = handle.stop();
+    await env.play(500);
+    await flushMicrotasks(50);
+    const result = await stopping;
+    expect(result.failed).toBe(0);
+    expect(result.parts).toHaveLength(1);
+    const part = result.parts[0];
+    // The top rung here is 30 fps (60 Hz, a 30 fps target); the step goes lower.
+    const top = 30;
+    expect(low).toBeLessThan(top);
+    const fps = part.record.fps;
+    // About 2 s (plus up to one GOP of pre-roll) at the top rung, then about 2.5 s lower.
+    const spanSec = (part.endUs - part.startUs) / 1e6;
+    const lowSec = 2.5;
+    const expected = (top * (spanSec - lowSec) + low * lowSec) / spanSec;
+    expect(fps).toBeGreaterThan(low);
+    expect(fps).toBeLessThan(top);
+    expect(Math.abs(fps - expected)).toBeLessThanOrEqual(2);
+    env.engine.dispose();
+  });
+
+  it("gives a clip the capture rung weighted over the clip, not the rung at the press", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 4);
+    env.power.listener?.({ pressure: "serious" });
+    const stepped = env.events.filter((e) => e.t === "governor").at(-1) as Extract<EngineEvent, { t: "governor" }>;
+    const low = stepped.level.fps;
+    await env.play(3000);
+    const made = await env.engine.clip({ seconds: 5, meta: env.meta("clip-rung") });
+    const top = 30;
+    const spanSec = (made.endUs - made.startUs) / 1e6;
+    const lowSec = 3;
+    const expected = (top * (spanSec - lowSec) + low * lowSec) / spanSec;
+    // The old row said the rung at the press (the low one) for 2 s of top-rung footage.
+    expect(made.record.fps).toBeGreaterThan(low + 1);
+    expect(made.record.fps).toBeLessThan(top);
+    expect(Math.abs(made.record.fps - expected)).toBeLessThanOrEqual(2);
+    env.engine.dispose();
+  });
+
   it("rests capture on a critical pressure signal, and keeps Record at the low-power rung", async () => {
     const env = setup();
     await armedAndPlaying(env, 3);

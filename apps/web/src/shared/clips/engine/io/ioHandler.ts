@@ -557,6 +557,12 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
       }
       case "segmentRecordEnd":
         return runSegmentRecordEnd(cmd, post);
+      case "recordRung": {
+        // No answer: a recording that is not open (or already ended) ignores it.
+        const open = recordings.get(cmd.recordingId);
+        if (open && typeof cmd.atUs === "number" && typeof cmd.fps === "number") open.recording.rung(cmd.atUs, cmd.fps);
+        return;
+      }
       case "recordEnd": {
         const open = recordings.get(cmd.recordingId);
         // The recording's own events (with the record command's rid) follow.

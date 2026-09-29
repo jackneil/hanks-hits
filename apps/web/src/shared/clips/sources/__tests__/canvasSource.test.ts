@@ -99,6 +99,14 @@ function videoFrames(env: Env): VideoFrameMsg[] {
 function contentOf(f: VideoFrameMsg): number {
   return (f.frame as unknown as FakeVideoFrame).content;
 }
+/**
+ * The stamp the pump gives a frame whose picture was drawn at media time
+ * contentUs: the middle of the k vsyncs of its slot, (k - 1) / 2 vsyncs
+ * earlier (framePump.ts, centering), and never before media time 0.
+ */
+function stampFor(env: Env, contentUs: number): number {
+  return Math.max(0, contentUs - ((env.pump.stride - 1) / 2) * V * 1000);
+}
 
 beforeEach(() => {
   FakeVideoFrame.made = [];
@@ -125,7 +133,7 @@ describe("registerCanvasSource: paths", () => {
     for (const f of frames) {
       const vf = f.frame as unknown as FakeVideoFrame;
       // Picture n was drawn in frame n (time 1000 + (n - 1) V); epoch is frame 1.
-      expect(Math.abs((vf.content - 1) * V * 1000 - f.tsUs)).toBeLessThanOrEqual(1);
+      expect(Math.abs(stampFor(env, (vf.content - 1) * V * 1000) - f.tsUs)).toBeLessThanOrEqual(1);
       expect(vf.init.alpha).toBe("discard");
       expect(f.hud).toEqual(HUD);
     }
@@ -143,7 +151,7 @@ describe("registerCanvasSource: paths", () => {
     expect(frames.length).toBeGreaterThan(10);
     for (const f of frames) {
       expect(contentOf(f)).not.toBe(0);
-      expect(Math.abs((contentOf(f) - 1) * V * 1000 - f.tsUs)).toBeLessThanOrEqual(1);
+      expect(Math.abs(stampFor(env, (contentOf(f) - 1) * V * 1000) - f.tsUs)).toBeLessThanOrEqual(1);
     }
     source.unregister();
   });
@@ -173,7 +181,7 @@ describe("registerCanvasSource: paths", () => {
       const rec = readbackRecord(f.data);
       expect(rec.flipped).toBe(true);
       expect(rec.frameId).not.toBe(0);
-      expect(Math.abs((rec.frameId - 1) * V * 1000 - f.tsUs)).toBeLessThanOrEqual(1);
+      expect(Math.abs(stampFor(env, (rec.frameId - 1) * V * 1000) - f.tsUs)).toBeLessThanOrEqual(1);
     }
     const gl = game.context as WebGL2Mock;
     expect(gl.violations).toEqual([]);

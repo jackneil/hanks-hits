@@ -16,7 +16,15 @@
  * (z-2500) itself.
  */
 
-export { ClipUiProvider, ClipUiContext, useClipUi, useClipUiState, type ClipUiProviderProps } from "./ClipUiProvider";
+export {
+  ClipUiProvider,
+  ClipUiRuntime,
+  ClipUiContext,
+  useClipUi,
+  useClipUiState,
+  type ClipUiProviderProps,
+  type ClipUiRuntimeProps,
+} from "./ClipUiProvider";
 export { ClipButton, type ClipButtonProps } from "./ClipButton";
 export { CaptureMenu, type CaptureMenuProps } from "./CaptureMenu";
 export { InPlayConfirm, CONFIRM_MS } from "./InPlayConfirm";

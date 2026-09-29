@@ -5,6 +5,7 @@ import type React from "react";
 import { createPortal } from "react-dom";
 
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
+import { useClipShellUi } from "@/shared/clips";
 import { getGameMetadata } from "../lib/gameMetadata.generated";
 import {
   DEFAULT_RESTART_GRACE_MS,
@@ -48,6 +49,11 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *   children slot with `spokenExtras`, in screen order.
  * - Size: every button is 56 px high, and 44 px on a short screen (a phone
  *   held sideways), like the read-aloud button on the start card.
+ * - Clips (plan 11.4): in a clip-enabled game with clips on, the bar also
+ *   shows the clip buttons (Watch, "Make the whole run a video", Record a
+ *   video, Take a picture) after the children. The game adds no code for
+ *   them; give `runSeconds` to offer the whole run. The voice reads them
+ *   too, in screen order.
  */
 
 /** The stacking level of the result chip (plan 11.4). */
@@ -79,6 +85,11 @@ export interface ResultChipProps {
   spokenExtras?: string[];
   /** The lockout after the bar appears, in ms. Default 600. */
   graceMs?: number;
+  /**
+   * The length of the run that just ended, in seconds. With clips on, it
+   * offers "Make the whole run a video" when the clip ring still holds the run.
+   */
+  runSeconds?: number;
 }
 
 /** Nothing on the page can change "are we in the browser", so no subscription. */
@@ -89,6 +100,22 @@ function subscribeToNothing(): () => void {
 /** Keeps a tap on the bar from reaching the game under it. */
 function stopAtChip(event: React.SyntheticEvent): void {
   event.stopPropagation();
+}
+
+const INTERACTIVE = 'button, a[href], [role="button"], [role="link"]';
+// Emoji are pictures for kids who cannot read. The voice says the word.
+const PICTOGRAPHS = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu;
+
+/** The spoken labels of the visible controls inside a container, in DOM order. */
+function spokenLabelsIn(container: HTMLElement | null): string[] {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll(INTERACTIVE))
+    .filter((el) => !el.closest('[aria-hidden="true"], [hidden]'))
+    .map((el) => {
+      const visible = (el.textContent ?? "").replace(PICTOGRAPHS, " ").replace(/\s+/g, " ").trim();
+      return visible || el.getAttribute("aria-label")?.trim() || "";
+    })
+    .filter((label) => label.length > 0);
 }
 
 /** 56 px buttons, 44 px on a short screen, like the start card's read-aloud button. */
@@ -103,7 +130,11 @@ export function ResultChip({
   children,
   spokenExtras = [],
   graceMs = DEFAULT_RESTART_GRACE_MS,
+  runSeconds,
 }: ResultChipProps) {
+  // The clip UI parts of a clip-enabled game with clips on, or null.
+  const clip = useClipShellUi();
+  const clipActionsRef = useRef<HTMLDivElement>(null);
   // The server has no document.body to portal into. The server snapshot is
   // false, so the server and the first client render agree.
   const isClient = useSyncExternalStore(subscribeToNothing, () => true, () => false);
@@ -113,15 +144,19 @@ export function ResultChip({
 
   const leaderboardAppId = appId && hasLeaderboardSupport(appId) ? appId : null;
 
-  // Same order as the buttons on screen: Play again, Leaderboard, extras.
-  const spokenText = [
-    resultText,
-    onRestart ? RESULT_CHIP_LABELS.playAgain : null,
-    leaderboardAppId ? RESULT_CHIP_LABELS.leaderboard : null,
-    ...spokenExtras,
-  ]
-    .filter(Boolean)
-    .join(". ");
+  // Same order as the buttons on screen: Play again, Leaderboard, extras,
+  // then the clip buttons. Built at tap time, so the clip buttons that show
+  // right now are the ones the voice says.
+  const spokenText = () =>
+    [
+      resultText,
+      onRestart ? RESULT_CHIP_LABELS.playAgain : null,
+      leaderboardAppId ? RESULT_CHIP_LABELS.leaderboard : null,
+      ...spokenExtras,
+      ...spokenLabelsIn(clipActionsRef.current),
+    ]
+      .filter(Boolean)
+      .join(". ");
 
   // During the grace, a tap or click on ANY button in the bar (the children
   // slot included) does nothing. Stopping it in the capture phase keeps it
@@ -234,6 +269,13 @@ export function ResultChip({
         )}
 
         {children}
+
+        {/* display: contents keeps the clip buttons in the button row */}
+        {clip && (
+          <div ref={clipActionsRef} data-testid="result-chip-clip-actions" className="contents">
+            <clip.ResultChipClipActions runSeconds={runSeconds} />
+          </div>
+        )}
 
         {leaderboardAppId && leaderboardInfo && (
           <LeaderboardModal

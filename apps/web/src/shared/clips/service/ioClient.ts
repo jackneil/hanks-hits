@@ -440,6 +440,11 @@ export class IoClient {
     void this.post({ t: "recordEnd", recordingId }, [], null);
   }
 
+  /** The capture rung of an open recording changed (plan 7). Each part's row weights the rungs over its span. */
+  recordRung(recordingId: string, atUs: number, fps: number): void {
+    void this.post({ t: "recordRung", recordingId, atUs, fps }, [], null);
+  }
+
   // ---- library changes -------------------------------------------------------
 
   /** Calls `listener` after any library change in this tab or another tab. */

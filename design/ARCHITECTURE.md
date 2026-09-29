@@ -249,7 +249,12 @@ same button, in the same place: under the words, above the action buttons.
 **Stacking order (z-index, low to high):** GameStartOverlay 40, game
 HUDs/touch controls <= 50 (never visible at the same time as the overlay —
 HUDs render while playing, the overlay pre-start), OrientationWarning 100
-(phone-width portrait only), GameShell header 1000, PauseMenu 2000.
+(phone-width portrait only), GameShell header 1000 (the clip confirmation
+lies in its title region at the same level), clip toast slot 1050, toast
+lane 1100, ResultChip 1200, LeaderboardModal 1500, PauseMenu 2000, clip
+sheets (Capture menu, viewer, settings) 2500, RestartConfirmationDialog
+3000. Every layer above 1000 portals to `document.body`, so no game
+container can trap it (gameplay clips plan, section 11.4).
 
 **Layout under the shell:** content is offset by the header
 (`pt-12 md:pt-14`); full-height modules size against
@@ -384,6 +389,64 @@ the kid taps in the iframe.
 **Tests.** Use `installAudioMock()` from `src/__tests__/audio-mock.ts`. It
 is the only fake Web Audio API. It resets the bus, so each test starts
 with a new bus. `removeAudioMock()` also resets the bus.
+
+---
+
+## Gameplay Clips
+
+A kid taps the clip button in the header, and the game keeps the last 30
+seconds as a video. The code is in `src/shared/clips/`. Import clip
+features only from the barrel `@/shared/clips`.
+
+**Turn clips on for a game.** Put the plain literal `clips: true` in the
+game's `metadata.ts`. Then give the game's canvas to the clip service with
+one hook call after the canvas exists:
+
+```tsx
+useClipSource(canvasRef, { isPlaying: status === "playing" });
+```
+
+`isPlaying` is false on every break (a wave card, the game's own pause, the
+game-over card). A game can also report runs and moments through
+`useAttachedGame()`: `runPhase("start" | "end")` and
+`markMoment({ kind, label, emoji, priority })`. Asteroids is the first game
+with clips (`src/games/asteroids/lib/useAsteroidsClips.ts`). The clip
+records only the sound that goes through the shared audio bus (see
+"Audio").
+
+**What GameShell does.** For a module with `clips: true`, GameShell wraps
+the header, the game and the pause menu in `ClipShellScope`:
+
+- `ClipProvider` reads the clips flag once per tab (`GET /api/clips-config`).
+  When the flag turns capture on, it loads the clip service with a dynamic
+  import and attaches the game.
+- `ClipUiMount` (`src/shared/clips/shell/ClipUiMount.tsx`) loads the clip UI
+  (`src/shared/clips/ui/shellParts.ts`) with a dynamic import, only when
+  the service exists. It holds the UI contexts from the first render, so
+  the game does not remount when the UI arrives.
+- GameShell then puts the clip button in the header clip slot, the in-play
+  confirmation in the title region, the toast slot under the header, and
+  the "Clips" entry in the pause menu (the menu reads it out loud).
+  `ResultChip` shows the clip buttons (Watch, Record a video, Take a
+  picture, and "Make the whole run a video" when it gets `runSeconds`).
+
+A module without `clips: true` gets no clip code, no request and no
+header slot. A clip-enabled module with the flag off reads the flag and
+loads nothing else. The barrel test (`src/shared/clips/__tests__/barrel.test.ts`)
+walks the static imports and fails when a page can reach the workers, the
+engine, mediabunny, WASM or the clip UI without a dynamic import.
+
+**The flag.** `CLIPS_MODE` is read on each request: `on`, `dogfood` or
+`off`. In development the default is `on`, and in production it is `off`.
+An unknown value means `off`. `dogfood` turns capture on only for the
+signed-in ids in `CLIPS_DOGFOOD_USER_IDS` that have the signed dogfood
+cookie (`POST /api/clips-config/dogfood`, signed with `AUTH_SECRET`).
+
+**The clips lab.** `/clips-lab` answers 404 unless `CLIPS_LAB=1` is set at
+run time. It plays a flash and a 1 kHz beep each second and makes clips
+with the real service. `pnpm clips:e2e` (from the repo root) drives it in
+Chrome and checks the files with ffmpeg and AVFoundation
+(`scripts/clips/analyze-sync.mjs`).
 
 ---
 

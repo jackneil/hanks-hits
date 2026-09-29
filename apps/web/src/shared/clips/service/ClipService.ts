@@ -188,6 +188,7 @@ function sameSnapshot(a: ClipSnapshot, b: Omit<ClipSnapshot, "version">): boolea
     a.savingProgress === b.savingProgress &&
     a.bufferedSec === b.bufferedSec &&
     a.replayGranularitySec === b.replayGranularitySec &&
+    a.ttfcMs === b.ttfcMs &&
     a.preRest === b.preRest &&
     sameRecording(a.recording, b.recording) &&
     a.unwatchedClipId === b.unwatchedClipId &&
@@ -296,6 +297,8 @@ export class ClipService implements ClipServiceApi {
   private governorResting = false;
   private recovering = false;
   private bufferedSec = 0;
+  /** The encoder's time to first frame (plan 15.2), once the engine measured it. */
+  private ttfcMs: number | null = null;
   /** Replay granularity from the engine (tiers M and V), or null (1 s on tiers W and W+). */
   private granularitySec: number | null = null;
   private warmStartUs = 0;
@@ -1228,6 +1231,7 @@ export class ClipService implements ClipServiceApi {
         break;
       case "buffered":
         this.bufferedSec = event.seconds;
+        if (typeof event.ttfcMs === "number" && Number.isFinite(event.ttfcMs)) this.ttfcMs = event.ttfcMs;
         break;
       case "granularity":
         this.granularitySec = event.seconds;
@@ -1253,8 +1257,9 @@ export class ClipService implements ClipServiceApi {
         this.bufferedSec = 0;
         this.warmStartUs = 0;
         this.lastClip = null;
-        // The next session (perhaps another game) measures its own granularity.
+        // The next session (perhaps another game) measures its own granularity and TTFC.
         this.granularitySec = null;
+        this.ttfcMs = null;
         if (this.attached) this.attached.moments = [];
         break;
       case "unavailable":
@@ -1423,6 +1428,7 @@ export class ClipService implements ClipServiceApi {
       savingProgress: this.saving > 0 ? this.savingProgress : null,
       bufferedSec: holdsFootage ? this.bufferedSec : 0,
       ...(this.granularitySec === null ? {} : { replayGranularitySec: this.granularitySec }),
+      ...(this.ttfcMs === null ? {} : { ttfcMs: Math.round(this.ttfcMs) }),
       preRest: this.preRest,
       recording: rec ? { recordingId: rec.recordingId, startedAtMs: rec.startedAtMs, elapsedSec: this.elapsedSec, stars: rec.stars.length } : null,
       unwatchedClipId: this.unwatchedClipId,

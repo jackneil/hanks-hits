@@ -22,7 +22,8 @@
  * clip service.
  */
 
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import type React from "react";
 
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { ClipServiceApi, ClipSnapshot } from "../service/contract";
@@ -30,44 +31,19 @@ import { CaptureMenu } from "./CaptureMenu";
 import { ClipSettingsSheet } from "./ClipSettingsSheet";
 import { ClipViewer } from "./ClipViewer";
 import { detectSavePlatform, subscribeToNothing } from "./platform";
+import { ClipUiContext, serverUiState } from "./uiContext";
 import {
   createClipUiController,
   createClipUiStore,
   RESULT_MARK_TICK_MS,
   type ClipUiController,
   type ClipUiHost,
-  type ClipUiState,
 } from "./uiStore";
 
-export const ClipUiContext = createContext<ClipUiController | null>(null);
-
-/** The clip UI controller, or null without a ClipUiProvider. */
-export function useClipUi(): ClipUiController | null {
-  return useContext(ClipUiContext);
-}
-
-const SERVER_UI_STATE: ClipUiState = Object.freeze({
-  sheet: null,
-  reply: null,
-  pendingOpenId: null,
-  pendingMenu: false,
-  resultMark: null,
-  holdTip: "none",
-  pulse: 0,
-}) as ClipUiState;
-
-const noStore = () => () => {};
-const serverUiState = () => SERVER_UI_STATE;
-
-/** The clip UI state. The server and the first client render get the empty state. */
-export function useClipUiState(): ClipUiState {
-  const ui = useClipUi();
-  return useSyncExternalStore(
-    ui ? ui.store.subscribe : noStore,
-    ui ? ui.store.getState : serverUiState,
-    serverUiState,
-  );
-}
+// The context lives in uiContext.ts (a module with type imports only), so the
+// shell mount can hold it on every page without this module. Every part
+// imports it from here or from there: it is the same object.
+export { ClipUiContext, useClipUi, useClipUiState } from "./uiContext";
 
 export interface ClipUiProviderProps extends ClipUiHost {
   children?: React.ReactNode;
@@ -79,7 +55,11 @@ interface Latest {
   host: ClipUiHost;
 }
 
-export function ClipUiProvider({ children, pauseGame, resumeGame }: ClipUiProviderProps) {
+/**
+ * The controller and the sheets of one page. ClipUiProvider and ClipUiRuntime
+ * share it, so the page behaves the same whichever of the two mounts it.
+ */
+function useClipUiRuntime({ pauseGame, resumeGame }: ClipUiHost): { controller: ClipUiController; sheets: React.ReactNode } {
   const service = useClipService();
   const snapshot = useClipSnapshot();
 
@@ -134,9 +114,8 @@ export function ClipUiProvider({ children, pauseGame, resumeGame }: ClipUiProvid
 
   const sheet = isClient && service ? state.sheet : null;
 
-  return (
-    <ClipUiContext.Provider value={controller}>
-      {children}
+  const sheets = (
+    <>
       {sheet?.kind === "menu" && <CaptureMenu token={sheet.token} />}
       {sheet?.kind === "viewer" && (
         <ClipViewer
@@ -146,6 +125,39 @@ export function ClipUiProvider({ children, pauseGame, resumeGame }: ClipUiProvid
         />
       )}
       {sheet?.kind === "settings" && <ClipSettingsSheet onClose={() => controller.closeSheet()} />}
+    </>
+  );
+  return { controller, sheets };
+}
+
+export function ClipUiProvider({ children, pauseGame, resumeGame }: ClipUiProviderProps) {
+  const { controller, sheets } = useClipUiRuntime({ pauseGame, resumeGame });
+  return (
+    <ClipUiContext.Provider value={controller}>
+      {children}
+      {sheets}
     </ClipUiContext.Provider>
   );
+}
+
+export interface ClipUiRuntimeProps extends ClipUiHost {
+  /** Gets the page's controller after mount, and null when the runtime goes away. */
+  onController: (controller: ClipUiController | null) => void;
+}
+
+/**
+ * The half of the shell mount that loads with the clip UI (shell/ClipUiMount.tsx).
+ *
+ * The shell mount wraps the game from the first render, so the game never
+ * remounts when the clip UI arrives. This part renders NEXT TO the game, not
+ * around it: it makes the controller, gives it to the mount (which puts it in
+ * ClipUiContext for the header parts and the game), and renders the sheets.
+ */
+export function ClipUiRuntime({ pauseGame, resumeGame, onController }: ClipUiRuntimeProps) {
+  const { controller, sheets } = useClipUiRuntime({ pauseGame, resumeGame });
+  useLayoutEffect(() => {
+    onController(controller);
+    return () => onController(null);
+  }, [controller, onController]);
+  return <ClipUiContext.Provider value={controller}>{sheets}</ClipUiContext.Provider>;
 }

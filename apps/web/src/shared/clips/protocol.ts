@@ -501,6 +501,14 @@ export type IoCmd = (
    */
   | { t: "recordEnd"; recordingId: string }
   /**
+   * The capture rung of an open recording changed to `fps` at capture-timeline
+   * time atUs (plan 7: the governor steps the rung, and Record keeps the
+   * low-power rung while capture rests). Each part's row gets the rung
+   * weighted by media time over the part (rungTimeline.ts), not the rung of
+   * one moment. A recording that is not open ignores it. No event answers it.
+   */
+  | { t: "recordRung"; recordingId: string; atUs: number; fps: number }
+  /**
    * Changes fields of one row: Keep, watched, stars, the challenge score, or the owner
    * ("Which of these are yours?", plan 8.1). The io worker is the only writer of
    * library rows. It applies the change under the library lock, so a change cannot

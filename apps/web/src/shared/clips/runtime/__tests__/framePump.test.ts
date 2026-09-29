@@ -92,21 +92,27 @@ describe("FramePump timing", () => {
       const videoMs = (last.tsUs + last.durUs - first.tsUs) / 1000;
       const wallMs = times[times.length - 1] - times[0];
       expect(Math.abs(videoMs - wallMs)).toBeLessThanOrEqual(pump.slotUs / 1000);
-      // Each frame is stamped at the start of the slot that holds its content
-      // time: at most k - 1 vsyncs early, plus the jitter of this frame and of
-      // the first one (0.8 ms each). A pump that
-      // counted frames instead would drift by seconds at a 60 fps target,
-      // where a third of the slots are empty.
+      // Each frame is stamped at the middle of the k vsyncs of its slot:
+      // (k - 1) / 2 vsyncs before the slot start that holds its content time.
+      // So content minus stamp is between (k - 1) / 2 and (k - 1) * 1.5
+      // vsyncs, plus the jitter of this frame and of the first one (0.8 ms
+      // each). The first frame is clamped at 0. A pump that counted frames
+      // instead would drift by seconds at a 60 fps target, where a third of
+      // the slots are empty.
       const base = (first.frame as unknown as FakeFrame).contentMs;
       const jitterUs = 1700;
-      const bound = (pump.stride - 1) * v * 1000 + jitterUs;
-      for (const f of frames) {
+      const centerUs = ((pump.stride - 1) / 2) * v * 1000;
+      const bound = (pump.stride - 1) * v * 1000 + centerUs + jitterUs;
+      expect(first.tsUs).toBe(0);
+      for (const f of frames.slice(1)) {
         const contentUs = ((f.frame as unknown as FakeFrame).contentMs - base) * 1000;
-        expect(contentUs - f.tsUs).toBeGreaterThanOrEqual(-jitterUs);
+        expect(contentUs - f.tsUs).toBeGreaterThanOrEqual(centerUs - jitterUs);
         expect(contentUs - f.tsUs).toBeLessThanOrEqual(bound);
       }
-      // Every duration is a whole number of slots.
-      for (const f of frames) {
+      // Every duration after the first is a whole number of slots. The first
+      // is (k - 1) / 2 vsyncs shorter (it starts at media time 0).
+      expect(Math.abs(first.durUs - (pump.slotUs * Math.round((first.durUs + centerUs) / pump.slotUs) - centerUs))).toBeLessThanOrEqual(1);
+      for (const f of frames.slice(1)) {
         const slots = f.durUs / pump.slotUs;
         expect(Math.abs(slots - Math.round(slots))).toBeLessThan(0.001);
         expect(Math.round(slots)).toBeGreaterThanOrEqual(1);
@@ -135,14 +141,17 @@ describe("FramePump timing", () => {
         const frames = sink.frames();
         expect(frames.length).toBeGreaterThan(10);
         expectContiguous(frames);
-        for (const f of frames) expect(Math.abs(f.durUs - pump.slotUs)).toBeLessThanOrEqual(1);
+        // The first frame starts at media time 0, (k - 1) / 2 vsyncs short of a slot.
+        const centerUs = ((pump.stride - 1) / 2) * v * 1000;
+        expect(Math.abs(frames[0].durUs - (pump.slotUs - centerUs))).toBeLessThanOrEqual(1);
+        for (const f of frames.slice(1)) expect(Math.abs(f.durUs - pump.slotUs)).toBeLessThanOrEqual(1);
         const fps = 1e6 / pump.slotUs;
         expect(fps).toBeLessThanOrEqual(target + 1e-9);
-        // Taken frames are the frames on the slot starts (no vsync offset).
+        // Taken frames are the frames on the slot starts, stamped (k - 1) / 2 vsyncs earlier.
         const base = (frames[0].frame as unknown as FakeFrame).contentMs;
-        for (const f of frames) {
+        for (const f of frames.slice(1)) {
           const content = (f.frame as unknown as FakeFrame).contentMs - base;
-          expect(Math.abs(content * 1000 - f.tsUs)).toBeLessThanOrEqual(0.4 * v * 1000 + 1);
+          expect(Math.abs(content * 1000 - centerUs - f.tsUs)).toBeLessThanOrEqual(0.4 * v * 1000 + 1);
         }
       });
     }
@@ -175,7 +184,8 @@ describe("FramePump timing", () => {
     // After the stall the cadence is the normal one: no catch-up frames.
     const taken = made.filter((f) => f.contentMs >= afterStall && f.contentMs < afterStall + 200);
     expect(taken.length).toBeLessThanOrEqual(Math.floor(200 / (1000 / 30)) + 1);
-    for (const f of frames) expect(f.durUs).toBeGreaterThanOrEqual(pump.slotUs - 1);
+    // The first frame starts at media time 0 (see the centering rule); every other frame lasts a slot or more.
+    for (const f of frames.slice(1)) expect(f.durUs).toBeGreaterThanOrEqual(pump.slotUs - 1);
   });
 
   it("holds at most 2 frames in flight, counts drops, and does not burst after a worker stall", () => {
@@ -269,8 +279,52 @@ describe("FramePump timing", () => {
     const frames = sink.frames();
     expect(frames).toHaveLength(1);
     expect(frames[0].frame).toBe(b);
-    expect(frames[0].durUs).toBe(50000);
+    // The next slot starts at vsync 3; at stride 3 it is stamped one vsync earlier (the middle of its 3 vsyncs).
+    expect(frames[0].durUs).toBe(33333);
   });
+
+  // FINDING 2 of the lab (plan 15.2): an event between two captures shows in
+  // the next capture. With the frame stamped at its slot start, the picture
+  // trailed the sound by up to k - 1 vsyncs (50 ms at 15 fps on 60 Hz, past
+  // the BT.1359 45 ms lead limit). Centered, it is off by at most (k - 1) / 2.
+  for (const hz of [60, 75, 120, 144]) {
+    for (const k of [1, 2, 3, 4, 8]) {
+      it(`an event on any vsync shows at most (k - 1) / 2 vsyncs off its time (${hz} Hz, stride ${k})`, () => {
+        const sink = new Sink();
+        const pump = new FramePump({ sink, displayHz: hz, targetFps: Math.max(1, Math.floor(hz / k)), stride: k });
+        const v = 1000 / hz;
+        const vUs = v * 1000;
+        const made: FakeFrame[] = [];
+        const vsyncs = 12 * k + 7;
+        for (let n = 0; n < vsyncs; n++) {
+          sink.consumeAll(pump);
+          captureAt(pump, 1000 + n * v, made);
+        }
+        sink.consumeAll(pump);
+        pump.flush();
+        const frames = sink.frames();
+        const contentVsync = (f: (typeof frames)[number]) => Math.round(((f.frame as unknown as FakeFrame).contentMs - 1000) / v);
+        let worstLate = -Infinity;
+        let worstEarly = Infinity;
+        // Skip the first slot: the first frame is clamped at media time 0.
+        for (let event = k; event < vsyncs - k; event++) {
+          // The event starts at vsync `event`: the first frame whose content is at or after it shows it.
+          const shown = frames.find((f) => contentVsync(f) >= event)!;
+          const errorUs = shown.tsUs - event * vUs;
+          worstLate = Math.max(worstLate, errorUs);
+          worstEarly = Math.min(worstEarly, errorUs);
+        }
+        const limitUs = ((k - 1) / 2) * vUs + 1;
+        expect(worstLate).toBeLessThanOrEqual(limitUs);
+        expect(worstEarly).toBeGreaterThanOrEqual(-limitUs);
+        // Both ends are reached: the error is centered, not shifted to one side.
+        if (k > 1) {
+          expect(worstLate).toBeGreaterThan(limitUs - vUs);
+          expect(worstEarly).toBeLessThan(-(limitUs - vUs));
+        }
+      });
+    }
+  }
 
   it("changes rung mid-stream with contiguous timestamps", () => {
     const sink = new Sink();

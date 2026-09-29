@@ -97,6 +97,13 @@ export interface ClipSnapshot {
    * (tiers W and W+ keep a keyframe every second), or not measured yet.
    */
   replayGranularitySec?: number;
+  /**
+   * Time to first encoded frame of the capture session (plan 15.2 TTFC), in
+   * milliseconds: from the first frame given to the video encoder to its
+   * first output. Absent until the encoder puts out a frame, and on engines
+   * that do not measure it (tiers M and V).
+   */
+  ttfcMs?: number;
   /** True when the newest footage is from before the governor rested capture. */
   preRest: boolean;
   recording: {

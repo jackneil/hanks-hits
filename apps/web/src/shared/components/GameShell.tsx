@@ -6,7 +6,7 @@ import { useGameShell } from "../hooks/useGameShell";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { PauseMenu } from "./PauseMenu";
 import { LeaderboardButton } from "./LeaderboardButton";
-import { ClipShellScope } from "@/shared/clips";
+import { ClipShellScope, useClipHeaderSlot, useClipShellUi } from "@/shared/clips";
 import { FullscreenButton } from "./FullscreenButton";
 import { LoginButton } from "./LoginButton";
 import { RestartConfirmationDialog } from "./RestartConfirmationDialog";
@@ -123,7 +123,6 @@ export function GameShell({
   resultChipReady = false,
 }: GameShellProps) {
   const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
-  const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const { isPaused, pause, resume, togglePause, goHome } = useGameShell({
     canPause,
     suppressEscape: isRestartConfirmationOpen,
@@ -131,6 +130,87 @@ export function GameShell({
     onResume,
     pauseOnBlur,
   });
+
+  return (
+    // Gameplay clips (plan 4.1): only a module with the metadata literal
+    // clips: true gets the clip service and, when the flag turns capture on,
+    // the clip UI. Every other game renders exactly as before.
+    <ClipShellScope appId={appId} gameName={gameName} canPause={canPause} paused={isPaused} pause={pause} resume={resume}>
+      <GameShellFrame
+        gameName={gameName}
+        appId={appId}
+        emoji={emoji}
+        canPause={canPause}
+        onRestart={onRestart}
+        restartConfirmation={restartConfirmation}
+        restartConfirmationMessage={restartConfirmationMessage}
+        onPause={onPause}
+        onResume={onResume}
+        showHomeButton={showHomeButton}
+        showPauseButton={showPauseButton}
+        showLoginButton={showLoginButton}
+        headerClassName={headerClassName}
+        pauseMenuChildren={pauseMenuChildren}
+        clipSlot={clipSlot}
+        resultChipReady={resultChipReady}
+        isPaused={isPaused}
+        resume={resume}
+        togglePause={togglePause}
+        goHome={goHome}
+        isRestartConfirmationOpen={isRestartConfirmationOpen}
+        setIsRestartConfirmationOpen={setIsRestartConfirmationOpen}
+      >
+        {children}
+      </GameShellFrame>
+    </ClipShellScope>
+  );
+}
+
+interface GameShellFrameProps
+  extends Omit<GameShellProps, "pauseOnBlur" | "restartConfirmation" | "resultChipReady"> {
+  restartConfirmation: RestartConfirmationPolicy;
+  resultChipReady: boolean;
+  isPaused: boolean;
+  resume: () => void;
+  togglePause: () => void;
+  goHome: () => void;
+  isRestartConfirmationOpen: boolean;
+  setIsRestartConfirmationOpen: (open: boolean) => void;
+}
+
+/**
+ * The header, the game and the pause menu. It renders INSIDE ClipShellScope,
+ * so it can read the clip UI parts (useClipShellUi) of a clip-enabled game.
+ */
+function GameShellFrame({
+  children,
+  gameName,
+  appId,
+  emoji,
+  canPause = true,
+  onRestart,
+  restartConfirmation,
+  restartConfirmationMessage,
+  onPause,
+  onResume,
+  showHomeButton = true,
+  showPauseButton = true,
+  showLoginButton = true,
+  headerClassName = "",
+  pauseMenuChildren,
+  clipSlot,
+  resultChipReady,
+  isPaused,
+  resume,
+  togglePause,
+  goHome,
+  isRestartConfirmationOpen,
+  setIsRestartConfirmationOpen,
+}: GameShellFrameProps) {
+  const restartTriggerRef = useRef<HTMLButtonElement>(null);
+  // The clip UI parts, or null: no clip-enabled game, clips off, or not loaded yet.
+  const clip = useClipShellUi();
+  const clipButtonShown = useClipHeaderSlot();
   const { data: session, status } = useSession();
   const fullscreen = useFullscreen();
   const viewportWidth = useViewportWidth();
@@ -158,7 +238,15 @@ export function GameShell({
   // The header budget may move controls into the pause menu only when the
   // kid can open that menu by touch, which needs the pause button.
   const hasPauseSlot = showPauseButton && canEverPause;
-  const hasClipSlot = clipSlot !== undefined && clipSlot !== null && clipSlot !== false;
+  // A game's own clipSlot wins (tests pass `true` for an empty slot). Else the
+  // clip button takes the slot while the clip UI shows one (plan 11.2).
+  const clipSlotContent: React.ReactNode =
+    clipSlot !== undefined && clipSlot !== null && clipSlot !== false
+      ? clipSlot
+      : clip && clipButtonShown
+        ? <clip.ClipButton />
+        : null;
+  const hasClipSlot = clipSlotContent !== null;
   const titleEmoji = resolveHeaderEmoji(GAME_METADATA, { emoji, appId, routeId, gameName });
   // Mirrors LoginButton: a spinner while loading, the avatar when signed
   // in (both one 44 px control), and the Sign In button for a guest.
@@ -184,9 +272,6 @@ export function GameShell({
   });
 
   return (
-    // Gameplay clips (plan 4.1): only a module with the metadata literal
-    // clips: true gets the clip service. Every other game renders as before.
-    <ClipShellScope appId={appId} gameName={gameName} canPause={canPause} paused={isPaused} pause={pause} resume={resume}>
     <div className="relative w-full h-full min-h-screen">
       {/* Header bar. A solid background: the old backdrop-blur was a
           glassmorphism tell, and a backdrop-filter also becomes the
@@ -214,15 +299,19 @@ export function GameShell({
             centered: a blind left-1/2 + max-w-[50%] title overlapped the
             three-button cluster on long names at 375px). Below 480 px it
             is the game's emoji; the full name stays the accessible name. */}
+        {/* Every title region is `relative`: the clip confirmation (plan
+            11.1, z-1000 like the header) lies over the title, never over a
+            control, and takes no taps. */}
         {layout.title === "text" && (
-          <div className="flex-1 min-w-0 px-2 text-center text-white font-bold text-lg md:text-xl truncate">
+          <div className="relative flex-1 min-w-0 px-2 text-center text-white font-bold text-lg md:text-xl truncate">
             {gameName}
+            {clip && <clip.InPlayConfirm />}
           </div>
         )}
         {(layout.title === "emoji" || layout.title === "emojiTight") && (
           <div
             data-testid="header-title"
-            className={`flex-1 min-w-0 flex items-center justify-center ${
+            className={`relative flex-1 min-w-0 flex items-center justify-center ${
               layout.title === "emoji" ? "px-2" : ""
             }`}
           >
@@ -236,11 +325,13 @@ export function GameShell({
             >
               {titleEmoji}
             </span>
+            {clip && <clip.InPlayConfirm />}
           </div>
         )}
         {layout.title === "screenReaderOnly" && (
-          <div className="flex-1 min-w-0">
+          <div className="relative flex-1 min-w-0">
             <span className="sr-only">{gameName}</span>
+            {clip && <clip.InPlayConfirm />}
           </div>
         )}
 
@@ -278,7 +369,7 @@ export function GameShell({
               data-testid="header-clip-slot"
               className="w-11 h-11 shrink-0 flex items-center justify-center"
             >
-              {clipSlot === true ? null : clipSlot}
+              {clipSlotContent === true ? null : clipSlotContent}
             </div>
           )}
 
@@ -326,6 +417,11 @@ export function GameShell({
       {/* Game content - offset by header height */}
       <div className="pt-12 md:pt-14 w-full h-full">{children}</div>
 
+      {/* The in-play toast slot (plan 11.4): the new-clip chip, the Record
+          pill and tap replies, directly under the header. It portals to
+          document.body at z-1050. */}
+      {clip && <clip.ToastSlot />}
+
       {/* Pause menu overlay */}
       {canPause && (
         <PauseMenu
@@ -337,7 +433,10 @@ export function GameShell({
           restartConfirmationMessage={restartConfirmationMessage}
           gameName={gameName}
         >
-          {/* The menu reads every button here out loud, in this order */}
+          {/* The menu reads every button here out loud, in this order
+              (PauseMenu reads the visible label of each child button, so
+              the "Clips" entry is spoken too, plan 11.4) */}
+          {clip && <clip.ClipsPauseEntry />}
           {showLeaderboard && (
             <LeaderboardButton
               appId={appId}
@@ -363,6 +462,5 @@ export function GameShell({
         }}
       />
     </div>
-    </ClipShellScope>
   );
 }

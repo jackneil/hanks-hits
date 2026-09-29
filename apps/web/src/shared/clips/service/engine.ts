@@ -42,7 +42,8 @@ export type EngineEvent =
   /** A new encoder epoch after a failure. */
   | { t: "recovered" }
   /** Seconds of footage in the ring (from the encoder stats). */
-  | { t: "buffered"; seconds: number }
+  /** Seconds in the ring, and the encoder's time to first frame (plan 15.2) once it is measured. */
+  | { t: "buffered"; seconds: number; ttfcMs?: number | null }
   /**
    * Replay granularity (plan 5): a clip starts at most this many seconds
    * before the moment the kid asked for (at the keyframe before it). Tiers M

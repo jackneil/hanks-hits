@@ -43,6 +43,11 @@ export interface LabLastClip {
   url: string;
   /** performance.now() when the lab asked for the clip, or for the end of the video (page ms). The file ends there. */
   pressedAtMs: number;
+  /**
+   * Milliseconds from the press to the service's answer: the file is made and
+   * stored (plan 15.2 "clip build"; for a Record, the last part after Stop).
+   */
+  builtMs: number;
   /** Every file of the result, oldest first; parts[0] is `record` and `file`. A clip has one part. */
   parts: LabPart[];
   /** Parts of a Record that the service could not store (0 when it does not say). */
@@ -71,6 +76,8 @@ export interface LabStatus {
   reason: ClipReasonCode | null;
   tier: Tier;
   bufferedSec: number;
+  /** The encoder's time to first frame (plan 15.2 TTFC) in ms, or null until the service measured it. */
+  ttfcMs: number | null;
   recording: boolean;
   busy: "clip" | "record" | null;
   /** Results so far (Clip it! and Record). It grows by 1 at each result. */
@@ -81,6 +88,7 @@ export interface LabStatus {
     bytes: number;
     url: string;
     pressedAtMs: number;
+    builtMs: number;
     /** The library row of each part, oldest first (parts[0] is `record`). */
     parts: ClipRecord[];
     failedParts: number;

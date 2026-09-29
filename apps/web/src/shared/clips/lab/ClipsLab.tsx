@@ -203,6 +203,8 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
    * page time of the press, where the file ends.
    */
   const takeResult = useCallback(async (action: "clip" | "record", result: ClipActionResult | null, pressedAtMs: number) => {
+    // The service answered: the file is made and stored (before the lab reads it back).
+    const builtMs = performance.now() - pressedAtMs;
     const current = live.current.service;
     if (!result) return;
     if (!result.ok) {
@@ -222,7 +224,7 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
           parts.push({ record, file: await current.library.file(record.id) });
         }
       }
-      setLastClip({ action, record: result.record, file, url: URL.createObjectURL(file), pressedAtMs, parts, failedParts: declaredFailedParts(result) });
+      setLastClip({ action, record: result.record, file, url: URL.createObjectURL(file), pressedAtMs, builtMs, parts, failedParts: declaredFailedParts(result) });
       setLastError(null);
       setMessage(action === "clip" ? LAB_COPY.clipMade : LAB_COPY.videoMade);
     } catch {
@@ -315,6 +317,7 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
         reason: snap.reason,
         tier: snap.tier,
         bufferedSec: snap.bufferedSec,
+        ttfcMs: snap.ttfcMs ?? null,
         recording: snap.recording !== null,
         busy: busyRef.current,
         results: s.results,
@@ -325,6 +328,7 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
               bytes: s.lastClip.file.size,
               url: s.lastClip.url,
               pressedAtMs: s.lastClip.pressedAtMs,
+              builtMs: s.lastClip.builtMs,
               parts: s.lastClip.parts.map((part) => part.record),
               failedParts: s.lastClip.failedParts,
             }

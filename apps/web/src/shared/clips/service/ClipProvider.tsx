@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { getGameMetadata } from "@/shared/lib/gameMetadata.generated";
 import { useStartOverlayPresence } from "@/shared/lib/startOverlayPresence";
 import { loadClipsVerdict } from "../config";
+import { ClipUiMount } from "../shell/ClipUiMount";
 import type { ClipService } from "./ClipService";
 import { AttachedGameContext, ClipServiceContext, useAttachedGame } from "./context";
 import type { AttachedGame, GameAttachment } from "./contract";
@@ -204,9 +205,10 @@ export interface ClipShellScopeProps {
 /**
  * The GameShell mount (plan 4.1). For a module whose metadata literal is
  * clips: true it wraps the whole shell (header, game and pause menu) in
- * ClipProvider, so the clip button in the header and the pause-menu entries
- * can read the service. Every other module gets its children and nothing
- * else: no hook, no effect, no request.
+ * ClipProvider and the clip UI mount (shell/ClipUiMount.tsx), so the clip
+ * button in the header and the pause-menu entries can read the service.
+ * Every other module gets its children and nothing else: no hook, no
+ * effect, no request.
  */
 export function ClipShellScope({ appId, children, ...shell }: ClipShellScopeProps) {
   if (!clipsEnabledFor(appId)) return <>{children}</>;
@@ -222,9 +224,13 @@ function ClipShellProvider({ appId, gameName, canPause, paused, pause, resume, c
     () => ({ appId, gameName, emoji: getGameMetadata(appId).icon, canPause, pause, resume }),
     [appId, gameName, canPause, pause, resume],
   );
+  // ClipUiMount holds the clip UI contexts from the first render and loads the
+  // clip UI only when the service exists (capture on). See shell/ClipUiMount.tsx.
   return (
     <ClipProvider game={game} paused={paused}>
-      {children}
+      <ClipUiMount pauseGame={pause} resumeGame={resume}>
+        {children}
+      </ClipUiMount>
     </ClipProvider>
   );
 }

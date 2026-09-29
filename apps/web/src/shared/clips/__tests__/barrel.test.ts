@@ -68,6 +68,29 @@ describe("public barrel", () => {
     expect(dynamic).toContain("service/workers.ts");
   });
 
+  it("reaches no clip UI part through static imports: the clip UI loads only when capture is on", () => {
+    const { files, dynamic } = walk(path.join(CLIPS_DIR, "index.ts"));
+    const ui = [...files].map((f) => path.relative(CLIPS_DIR, f)).filter((f) => f.startsWith(`ui${path.sep}`));
+    // Only the context module (type imports only) is shared with the lazily loaded parts.
+    expect(ui).toEqual([path.join("ui", "uiContext.ts")]);
+    expect(dynamic).toContain(path.join("ui", "shellParts.ts"));
+    // A control: the parts module reaches the heavy UI (the viewer, the button).
+    const parts = [...walk(path.join(CLIPS_DIR, "ui/shellParts.ts")).files].map((f) => path.relative(CLIPS_DIR, f));
+    expect(parts).toContain(path.join("ui", "ClipViewer.tsx"));
+    expect(parts).toContain(path.join("ui", "ClipButton.tsx"));
+  });
+
+  it("GameShell and ResultChip reach the clip UI only through the barrel's dynamic import", () => {
+    for (const component of ["GameShell.tsx", "ResultChip.tsx"]) {
+      const { files } = walk(path.join(SRC_DIR, "shared", "components", component));
+      const rel = [...files].map((f) => path.relative(CLIPS_DIR, f)).filter((f) => !f.startsWith(".."));
+      for (const file of rel) {
+        expect(file, `${component} -> ${file}`).not.toMatch(/^(engine|runtime|sources)\//);
+        if (file.startsWith(`ui${path.sep}`)) expect(file).toBe(path.join("ui", "uiContext.ts"));
+      }
+    }
+  });
+
   it("the walker sees the workers behind the capture engine (a control)", () => {
     const { dynamic, files } = walk(path.join(CLIPS_DIR, "service/engineHost.ts"));
     expect(dynamic).toContain("service/workers.ts");

@@ -75,6 +75,7 @@ import { installRafDispatcher } from "../runtime/rafDispatcher";
 import { autoDiscover as runAutoDiscover, type AutoDiscovery } from "../sources/autoDiscover";
 import { installCanvasActivity, type ActivityRealm, type CanvasActivity, type CanvasRecord, type ContextType } from "../sources/canvasActivity";
 import { registerCanvasSource, type CanvasSource } from "../sources/canvasSource";
+import { RungTimeline, rowFps } from "../rungTimeline";
 import { AudioTap } from "./audioTap";
 import {
   EngineFailure,
@@ -158,7 +159,18 @@ interface Session {
   tick: unknown;
   /** The previous stats of this session, for the per-interval encoder signal. */
   lastStats: EngineStats | null;
+  /**
+   * The capture rung over media time (plan 7). A clip's and a Record part's
+   * row fps is the rung weighted over the file's span, never the rung of one
+   * moment or the encoder's top rate (rungTimeline.ts).
+   */
+  rungs: RungTimeline;
+  /** The rung of the newest note (the rung that capture uses now). */
+  rungFps: number;
 }
+
+/** Rung history kept beyond the longest ring (60 s), so a clip at the ring's start still finds its rung. */
+const RUNG_HISTORY_US = 120_000_000;
 
 interface SourceEntry {
   kind: "canvas" | "discover";
@@ -484,7 +496,8 @@ export class EngineHost implements CaptureEngine {
       durationMs: Math.round(packets.coveredSec * 1000),
       width: s.preset.width,
       height: s.preset.height,
-      fps: s.governor.level.fps || s.plan.video.framerate,
+      // The rung that capture used over the clip, weighted by time (plan 7).
+      fps: rowFps(s.rungs.weighted(startUs, endUs)) || s.rungFps || s.plan.video.framerate,
       hasAudio: packets.audioConfig !== null && packets.audio.length > 0,
       mime: "video/mp4",
       moments: request.moments ? request.moments(packets.startUs, packets.endUs) : request.meta.moments,
@@ -531,12 +544,14 @@ export class EngineHost implements CaptureEngine {
     if (this.recording) throw new EngineFailure("encoder-error", "a recording is already running");
     const recordingId = meta.id;
     const channel = new MessageChannel();
+    // The rung that capture uses now. Each later change goes to the io worker
+    // (applyLevel), which weights the rungs over each part (plan 7).
     const io = this.io.record(recordingId, channel.port2, {
       ...meta,
       kind: "record",
       width: s.preset.width,
       height: s.preset.height,
-      fps: s.plan.video.framerate,
+      fps: s.rungFps || s.plan.video.framerate,
       mime: "video/mp4",
     });
     try {
@@ -929,6 +944,8 @@ export class EngineHost implements CaptureEngine {
       noOutputSent: false,
       tick: null,
       lastStats: null,
+      rungs: new RungTimeline(governor.level.fps),
+      rungFps: governor.level.fps,
     };
     this.session = session;
     this.parked = false;
@@ -992,11 +1009,26 @@ export class EngineHost implements CaptureEngine {
     if (resting && this.recording) level = s.governor.ladder[s.governor.ladder.length - 2];
     this.setPaused("rest", resting && !this.recording);
     if (level.k > 0) s.pump.configure({ stride: level.k });
+    this.noteRung(s, level.k > 0 ? level.fps : 0);
     const width = Math.max(2, Math.round((BASE_READBACK_WIDTH * level.scale) / 2) * 2);
     for (const entry of this.entries) {
       entry.source?.setReadbackWidth(width);
       entry.discovery?.source?.setReadbackWidth(width);
     }
+  }
+
+  /**
+   * The capture rung changed (plan 7): note it at the media time of now, and
+   * tell the io worker when a Record is open. While capture rests with no
+   * Record, the pump is paused, so the 0 rung covers no media time.
+   */
+  private noteRung(s: Session, fps: number): void {
+    if (fps === s.rungFps) return;
+    const atUs = s.pump.mediaUsAt(this.now());
+    s.rungFps = fps;
+    s.rungs.note(atUs, fps);
+    s.rungs.forgetBefore(atUs - RUNG_HISTORY_US);
+    if (this.recording) this.io.recordRung(this.recording, atUs, fps);
   }
 
   private tick(s: Session): void {
@@ -1044,7 +1076,7 @@ export class EngineHost implements CaptureEngine {
         if (!s) return;
         const now = this.now();
         const st = event.stats;
-        this.emit({ t: "buffered", seconds: st.ringSeconds });
+        this.emit({ t: "buffered", seconds: st.ringSeconds, ttfcMs: st.ttfcMs });
         // Per interval: the running totals never give the queue (see the file comment).
         const prev = s.lastStats;
         s.lastStats = st;

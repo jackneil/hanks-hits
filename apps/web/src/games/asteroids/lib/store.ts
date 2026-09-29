@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { playSound } from "./sounds";
 import { persist } from "zustand/middleware";
 import {
   type GameStatus,
@@ -7,7 +8,6 @@ import {
   type Asteroid,
   type UFO,
   type Particle,
-  type AsteroidSize,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   ROTATION_SPEED,
@@ -36,7 +36,6 @@ import {
   wrap,
   createAsteroid,
   distance,
-  clamp,
 } from "./constants";
 
 // Progress data (persisted)
@@ -173,84 +172,6 @@ function createInitialState(wave: number = 1): Partial<AsteroidsGameState> {
   };
 }
 
-// Audio
-let audioContext: AudioContext | null = null;
-
-function getAudioContext(): AudioContext {
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
-  }
-  return audioContext;
-}
-
-function playSound(type: "shoot" | "thrust" | "explode" | "ufo" | "hyperspace" | "death" | "wave", enabled: boolean) {
-  if (!enabled) return;
-
-  try {
-    const ctx = getAudioContext();
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    switch (type) {
-      case "shoot":
-        oscillator.frequency.value = 600;
-        oscillator.type = "square";
-        gainNode.gain.value = 0.08;
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.05);
-        break;
-      case "thrust":
-        oscillator.frequency.value = 80;
-        oscillator.type = "sawtooth";
-        gainNode.gain.value = 0.05;
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.1);
-        break;
-      case "explode":
-        oscillator.frequency.value = 150;
-        oscillator.type = "sawtooth";
-        gainNode.gain.value = 0.15;
-        oscillator.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.3);
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.3);
-        break;
-      case "hyperspace":
-        oscillator.frequency.value = 200;
-        oscillator.type = "sine";
-        gainNode.gain.value = 0.1;
-        oscillator.frequency.exponentialRampToValueAtTime(1000, ctx.currentTime + 0.2);
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.2);
-        break;
-      case "death":
-        oscillator.frequency.value = 400;
-        oscillator.type = "sawtooth";
-        gainNode.gain.value = 0.2;
-        oscillator.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.5);
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.5);
-        break;
-      case "wave":
-        oscillator.frequency.value = 440;
-        oscillator.type = "sine";
-        gainNode.gain.value = 0.1;
-        const now = ctx.currentTime;
-        oscillator.frequency.setValueAtTime(440, now);
-        oscillator.frequency.setValueAtTime(554, now + 0.1);
-        oscillator.frequency.setValueAtTime(659, now + 0.2);
-        oscillator.frequency.setValueAtTime(880, now + 0.3);
-        oscillator.start();
-        oscillator.stop(now + 0.5);
-        break;
-    }
-  } catch {
-    // Audio not supported
-  }
-}
-
 export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()(
   persist(
     (set, get) => ({
@@ -286,7 +207,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
         const state = get();
         const nextWaveNum = state.wave + 1;
 
-        playSound("wave", state.progress.soundEnabled);
+        playSound("wave");
 
         set({
           status: "playing",
@@ -306,7 +227,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
 
       gameOver: () => {
         const state = get();
-        playSound("death", state.progress.soundEnabled);
+        playSound("death");
 
         set({
           status: "gameOver",
@@ -322,7 +243,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
         const state = get();
         if (state.status !== "playing" || state.hyperspaceCooldown > 0) return;
 
-        playSound("hyperspace", state.progress.soundEnabled);
+        playSound("hyperspace");
 
         // Risk of death
         if (Math.random() < HYPERSPACE_RISK) {
@@ -424,7 +345,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
 
         // Shoot
         if (shooting && shootCooldown === 0 && bullets.length < MAX_BULLETS) {
-          playSound("shoot", progress.soundEnabled);
+          playSound("shoot");
 
           bullets.push({
             id: nextBulletId++,
@@ -563,7 +484,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
                 });
               }
 
-              playSound("explode", progress.soundEnabled);
+              playSound("explode");
               break;
             }
           }
@@ -596,7 +517,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
                 });
               }
 
-              playSound("explode", progress.soundEnabled);
+              playSound("explode");
               ufo = null;
               break;
             }
@@ -608,7 +529,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
           for (const asteroid of asteroids) {
             const asteroidRadius = ASTEROID_SIZES[asteroid.size].radius * 0.8; // Forgiving hitbox
             if (distance(ship.x, ship.y, asteroid.x, asteroid.y) < asteroidRadius + SHIP_SIZE * 0.6) {
-              playSound("death", progress.soundEnabled);
+              playSound("death");
               lives--;
 
               // Explosion particles
@@ -658,7 +579,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
           for (const bullet of bullets) {
             if (!bullet.isUfoBullet) continue;
             if (distance(ship.x, ship.y, bullet.x, bullet.y) < SHIP_SIZE * 0.7) {
-              playSound("death", progress.soundEnabled);
+              playSound("death");
               bulletsToRemove.push(bullet.id);
               lives--;
 

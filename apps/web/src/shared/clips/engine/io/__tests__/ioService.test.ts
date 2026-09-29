@@ -246,6 +246,34 @@ describe("io record", () => {
     expect(recorded.parts[1].record.createdAt - recorded.parts[0].record.createdAt).toBe(2000);
   });
 
+  it("gives each part the capture rung weighted over that part (recordRung, plan 7)", async () => {
+    const h = harness();
+    const port = new FakePort();
+    // The recording starts at the 60 fps rung.
+    await h.handler.handle({ t: "record", recordingId: "rec-rung", port: port as unknown as MessagePort, meta: meta("rec-rung", { fps: 60 }) });
+    // Part 1: 1..3 s; part 2 (a new video config): 3..5 s.
+    const first = makeClipPackets({ seconds: 2, baseUs: 1_000_000, epoch: epochInfo(0) });
+    const second = makeClipPackets({ seconds: 2, baseUs: 3_000_000, epoch: epochInfo(1, AVCC_64_OTHER_HEX) });
+    // The governor steps to 30 fps at 2.5 s, then to 15 fps at 4 s. The rung
+    // changes reach the worker before the chunks that they cover.
+    await h.handler.handle({ t: "recordRung", recordingId: "rec-rung", atUs: 2_500_000, fps: 30 });
+    await h.handler.handle({ t: "recordRung", recordingId: "rec-rung", atUs: 4_000_000, fps: 15 });
+    // Another recording's rung change changes nothing here.
+    await h.handler.handle({ t: "recordRung", recordingId: "other", atUs: 1_000_000, fps: 5 });
+    for (const chunk of [...teeChunks(first, "rec-rung"), ...teeChunks(second, "rec-rung")]) port.deliver(chunk);
+    port.deliver({ t: "end", recordingId: "rec-rung", endUs: second.endUs });
+    await h.handler.idle();
+
+    const recorded = h.events.at(-1) as Extract<IoEvent, { t: "recorded" }>;
+    expect(recorded.parts.map((p) => p.record.id)).toEqual(["rec-rung", "rec-rung-p2"]);
+    // Part 1: 1.5 s at 60 and 0.5 s at 30 = 52.5 fps. Part 2: 1 s at 30 and 1 s at 15 = 22.5 fps.
+    expect(recorded.parts.map((p) => p.record.fps)).toEqual([52.5, 22.5]);
+    // A rung change for a recording that is not open is ignored, with no answer.
+    const before = h.events.length;
+    await h.handler.handle({ t: "recordRung", recordingId: "rec-rung", atUs: 6_000_000, fps: 60 });
+    expect(h.events.length).toBe(before);
+  });
+
   it("ignores messages of another recording and messages after the end", async () => {
     const h = harness();
     const port = new FakePort();

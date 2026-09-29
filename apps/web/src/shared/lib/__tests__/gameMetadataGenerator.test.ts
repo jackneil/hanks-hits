@@ -58,9 +58,10 @@ describe("game metadata generator", () => {
     expect(output).toMatch(/"y": \{[^}]*clips: false,/);
   });
 
-  it("turns clips on for no game in this change", () => {
-    // PR 2.4 adds the field only. Game PRs (2.6 and later) turn it on one module at a time.
-    expect(Object.entries(GAME_METADATA).filter(([, m]) => m.clips)).toEqual([]);
+  it("turns clips on only for the modules that chose it, one at a time", () => {
+    // Asteroids is the first live proof (Wave C integration). Game PRs (2.6 and
+    // later) add modules one at a time: add each one here with its PR.
+    expect(Object.entries(GAME_METADATA).filter(([, m]) => m.clips).map(([id]) => id)).toEqual(["asteroids"]);
     expect(getGameMetadata("no-such-game").clips).toBe(false);
   });
 

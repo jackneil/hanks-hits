@@ -146,6 +146,16 @@ async function runLab(flow: Flow, baseURL: string): Promise<{ report: RowReport;
     report.check("library row type", record.mime === "video/mp4", record.mime, "video/mp4");
     report.check("library row has game sound", record.hasAudio, String(record.hasAudio), "true");
     report.info("library row", `${record.width}x${record.height}, ${record.fps} fps, ${(record.durationMs / 1000).toFixed(2)} s, ${record.bytes} bytes`);
+    // Plan 15.2: time to first encoded frame at most 1000 ms (p95, a normally launched browser).
+    const ttfc = made.status?.ttfcMs ?? null;
+    report.check("time to first encoded frame (TTFC)", ttfc !== null && ttfc <= 1000, ttfc === null ? "not measured" : `${ttfc} ms`, "<= 1000 ms (plan 15.2; one run here)");
+    // Plan 15.2: share-ready at most 2 s. The 0.5 s build limit is for a 30 s clip on the reference phone.
+    const builtMs = Math.round(last!.builtMs);
+    if (flow.action === "clip") {
+      report.check("clip ready to share (press to stored file)", builtMs <= 2000, `${builtMs} ms`, "<= 2000 ms (plan 15.2 share-ready)");
+    } else {
+      report.info("video ready (Stop to stored file)", `${builtMs} ms`, "the last part is muxed and stored after Stop");
+    }
     // The value names the changes that the governor acts on; the detail lists every change.
     const readings = watching ? await readPressure(page) : null;
     const pressure = readings ? await pressureTimeline(readings, zeroMs) : null;
