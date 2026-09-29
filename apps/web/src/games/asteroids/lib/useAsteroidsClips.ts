@@ -12,7 +12,9 @@
  *   wave, and a resume after a pause, are the same run.
  * - When the score passes the best from before the run, the game marks a
  *   featured "new best" moment once per run (markMoment). A first-ever score
- *   breaks no record, so it marks nothing.
+ *   breaks no record, so it marks nothing. A better best that cloud sync
+ *   brings during the run (the kid played on another device) raises the
+ *   score to beat (runBest.noteCloudBest).
  *
  * With clips off, every call here does nothing: useAttachedGame gives null.
  */
@@ -50,7 +52,11 @@ export function useAsteroidsClips(
   const highScoreRef = useRef(highScore);
   useEffect(() => {
     highScoreRef.current = highScore;
-  });
+    // During a run the best rises only through cloud sync (the store raises
+    // it at game over), so a higher best here is a record from another
+    // device. noteCloudBest never lowers the score to beat.
+    run.current?.best.noteCloudBest(highScore);
+  }, [highScore]);
   useEffect(() => {
     const prev = before.current;
     before.current = { status, game, runId };

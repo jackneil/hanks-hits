@@ -163,6 +163,24 @@ describe("Asteroids clips", () => {
     expect(saved.state).not.toHaveProperty("runId");
   });
 
+  it("a better best that cloud sync brings during the run raises the score to beat", () => {
+    const { game } = fakeGame();
+    const update = mount(game, at("ready", 0, 1000, 0));
+    update(at("playing", 0, 1000, 1));
+    // Another device's record (2000) arrives through cloud sync mid-run.
+    update(at("playing", 800, 2000, 1));
+    update(at("playing", 1500, 2000, 1));
+    expect(game.markMoment).not.toHaveBeenCalled();
+    update(at("playing", 2100, 2000, 1));
+    expect(game.markMoment).toHaveBeenCalledTimes(1);
+    // A lower best from sync never lowers the score to beat.
+    update(at("gameOver", 2100, 2100, 1));
+    update(at("playing", 0, 2100, 2));
+    update(at("playing", 100, 500, 2));
+    update(at("playing", 1000, 500, 2));
+    expect(game.markMoment).toHaveBeenCalledTimes(1);
+  });
+
   it("a first-ever score breaks no record: no moment", () => {
     const { game } = fakeGame();
     const update = mount(game, at("ready"));
