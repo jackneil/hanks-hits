@@ -87,7 +87,7 @@ function GameCard({
       <button
         type="button"
         onClick={onToggleFavorite}
-        className={`absolute right-2 top-2 z-10 h-8 w-8 rounded-full text-lg font-bold transition-colors ${
+        className={`absolute right-1 top-1 z-10 h-11 w-11 rounded-full text-lg font-bold transition-colors ${
           isFavorite
             ? "bg-yellow-300 text-gray-900"
             : "bg-black/30 text-white/70 hover:bg-black/50 hover:text-white"

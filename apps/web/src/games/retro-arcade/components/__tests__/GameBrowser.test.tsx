@@ -67,6 +67,15 @@ describe("GameBrowser favorites", () => {
     expect(onGameSelect).not.toHaveBeenCalled();
   });
 
+  it("makes each favorite star a 44 px touch target (h-11 w-11), like every kid control", () => {
+    renderBrowser();
+    for (const name of ["Add Alpha Mission to favorites", "Add Bravo Quest to favorites"]) {
+      const star = screen.getByRole("button", { name });
+      expect(star.className, name).toMatch(/(^|\s)h-11(\s|$)/);
+      expect(star.className, name).toMatch(/(^|\s)w-11(\s|$)/);
+    }
+  });
+
   it("filters to persisted favorite games", () => {
     renderBrowser(["snes-bravo"]);
 
