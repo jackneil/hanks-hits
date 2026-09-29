@@ -86,7 +86,17 @@ EmulatorJS provides built-in virtual gamepad support. The overlay adapts to each
 └─────────────────────────────────────────┘
 ```
 
-**Touch targets**: 60x60px minimum (kid fingers)
+**Touch targets**: 48 px minimum for each control (over the 44 px rule of
+the site). `public/emulator/index.html` changes the EmulatorJS layout:
+- No two controls overlap on a 320x568, 360x640, 390x844 or 844x390 screen,
+  on each console. The Super Nintendo X, Y, A and B diamond is 150 px. On a
+  screen under 360 px, the six Genesis buttons are 6 px apart.
+- No control has 10% or more of its area on the picture of the game.
+- In portrait, the menu opens above the bottom row, so it never covers the
+  menu button, and a second tap on the menu button closes the menu.
+
+`gamepad-layout.test.ts` lays out the gamepad of each console on these four
+screens and checks these rules.
 **Haptic feedback**: Vibrate on button press (if supported)
 **Opacity**: Semi-transparent (70%) so game is always visible
 
@@ -402,6 +412,21 @@ server money.
   The server schema drops it from a save before validation, so old clients
   can still save.
 
+### Uploaded ROMs
+
+- The page keeps an uploaded ROM as a file (`RomSource` in `lib/store.ts`).
+  It never keeps a `blob:` URL of the ROM.
+- Each start of the emulator gets a new object URL for the file.
+  `EmulatorView` makes the URL when it mounts and revokes it when it
+  unmounts. Start over mounts a new `EmulatorView`.
+- The reason: EmulatorJS 4.2.3 revokes a `blob:` game URL after it reads the
+  ROM. The emulator page is on this site, so that revoke kills the URL for
+  the site. A second start with the same URL stays on "Loading emulator..."
+  forever.
+- The file stays in memory for this visit only. "Your ROMs" plays it again
+  after Back to Games. After a page reload, the kid uploads the ROM again.
+  The name and the console go to the progress; the file never does.
+
 ---
 
 ## Legal ROM Sources
@@ -550,7 +575,7 @@ Minimal overlay - let the game shine:
 
 ### Design Principles
 
-1. **Big touch targets** - 60x60px minimum for all buttons
+1. **Big touch targets** - 48 px minimum for all controls (see Controls)
 2. **High contrast** - Text readable on any background
 3. **Simple labels** - "Play", "Save", "Exit" - not "Execute ROM"
 4. **Visual console branding** - Each system has distinct color:

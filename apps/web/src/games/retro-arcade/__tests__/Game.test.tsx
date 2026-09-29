@@ -23,7 +23,7 @@ describe("retro arcade read aloud", () => {
     // The console picker is the first screen: no console chosen, nothing playing.
     useRetroArcadeStore.setState({
       currentSystem: null,
-      currentRomUrl: null,
+      currentRom: null,
       currentRomName: null,
       isPlaying: false,
       recentlyPlayed: [],
@@ -62,7 +62,7 @@ describe("retro arcade read aloud", () => {
     installSpeechMock();
     useRetroArcadeStore.setState({
       currentSystem: "snes",
-      currentRomUrl: "blob:rom",
+      currentRom: "/api/roms/snes/test.sfc",
       currentRomName: "Test ROM",
       isPlaying: true,
     });
@@ -76,7 +76,7 @@ describe("retro arcade recently played", () => {
   beforeEach(() => {
     useRetroArcadeStore.setState({
       currentSystem: null,
-      currentRomUrl: null,
+      currentRom: null,
       currentRomName: null,
       isPlaying: false,
     });

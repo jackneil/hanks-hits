@@ -10,13 +10,28 @@ export interface RecentGame {
   lastPlayed: number; // timestamp
 }
 
-// Custom ROM metadata (actual ROM stored in IndexedDB or memory)
+/**
+ * The ROM of the game that plays: a URL on this site (a catalog game, from
+ * /api/roms) or the file that the kid uploaded.
+ *
+ * An uploaded ROM stays a File (a Blob) and never becomes a stored "blob:"
+ * URL. EmulatorJS 4.2.3 revokes a "blob:" game URL after it reads the ROM
+ * (data/src/emulator.js, downloadFile). The emulator page is on this site, so
+ * that revoke kills the link for the whole site. EmulatorView makes a new
+ * object URL each time the emulator starts and revokes that URL when that
+ * start ends, so Start over and a second start never use a dead link.
+ */
+export type RomSource = string | Blob;
+
+// An uploaded ROM. The name and the console persist; the file stays only in
+// memory for this visit (the "Your ROMs" list plays it again).
 export interface CustomRom {
   id: string;
   name: string;
   system: SystemType;
   addedAt: number;
-  blobUrl?: string; // Runtime blob URL, not persisted
+  /** The uploaded file. In memory only: never persisted, never synced. */
+  file?: Blob;
 }
 
 // User settings
@@ -45,7 +60,7 @@ export interface RetroArcadeProgress {
   [key: string]: unknown;
   favorites: string[];
   recentlyPlayed: RecentGame[];
-  customRoms: Omit<CustomRom, "blobUrl">[];
+  customRoms: Omit<CustomRom, "file">[];
   stats: PlayStats;
   settings: ArcadeSettings;
   lastModified: number;
@@ -55,7 +70,8 @@ export interface RetroArcadeProgress {
 interface RetroArcadeState {
   // UI state (not persisted)
   currentSystem: SystemType | null;
-  currentRomUrl: string | null;
+  /** The ROM that plays (see RomSource). */
+  currentRom: RomSource | null;
   currentRomName: string | null;
   isPlaying: boolean;
   isLoading: boolean;
@@ -71,7 +87,7 @@ interface RetroArcadeState {
 
   // Actions
   setCurrentSystem: (system: SystemType | null) => void;
-  startGame: (romUrl: string, romName: string, system: SystemType) => void;
+  startGame: (rom: RomSource, romName: string, system: SystemType) => void;
   stopGame: () => void;
   /** Relaunches the selected ROM without changing saved progress. */
   restartGame: () => void;
@@ -136,7 +152,7 @@ type PersistedArcade = Pick<
   "favorites" | "recentlyPlayed" | "customRoms" | "stats" | "settings" | "lastModified"
 >;
 
-function stripRuntimeBlobUrl(rom: CustomRom): Omit<CustomRom, "blobUrl"> {
+function stripRuntimeFile(rom: CustomRom): Omit<CustomRom, "file"> {
   return {
     id: rom.id,
     name: rom.name,
@@ -150,7 +166,7 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
     (set, get) => ({
       // Initial UI state
       currentSystem: null,
-      currentRomUrl: null,
+      currentRom: null,
       currentRomName: null,
       isPlaying: false,
       isLoading: false,
@@ -167,12 +183,12 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
       // UI Actions
       setCurrentSystem: (system) => set({ currentSystem: system }),
 
-      startGame: (romUrl, romName, system) => {
+      startGame: (rom, romName, system) => {
         const state = get();
         // Add to recently played
         state.addRecentlyPlayed({ gameId: `${system}-${romName}`, name: romName, system });
         set({
-          currentRomUrl: romUrl,
+          currentRom: rom,
           currentRomName: romName,
           currentSystem: system,
           isPlaying: true,
@@ -183,7 +199,7 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
 
       restartGame: () => {
         const state = get();
-        if (!state.currentRomUrl || !state.currentRomName || !state.currentSystem) return;
+        if (!state.currentRom || !state.currentRomName || !state.currentSystem) return;
         set({
           isPlaying: true,
           isLoading: false,
@@ -191,30 +207,16 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
         });
       },
 
-      stopGame: () => {
-        const state = get();
-        const currentRomUrl = state.currentRomUrl;
-
-        // Revoke blob URL if it exists to free memory
-        const customRoms = state.customRoms.map((rom) => {
-          if (currentRomUrl?.startsWith("blob:") && rom.blobUrl === currentRomUrl) {
-            return stripRuntimeBlobUrl(rom);
-          }
-          return rom;
-        });
-
-        if (currentRomUrl?.startsWith("blob:")) {
-          URL.revokeObjectURL(currentRomUrl);
-        }
-
+      // The store holds no object URL, so there is nothing to revoke here.
+      // EmulatorView revokes the URL of each start when that start ends. An
+      // uploaded file stays in customRoms, so "Your ROMs" can play it again.
+      stopGame: () =>
         set({
-          currentRomUrl: null,
+          currentRom: null,
           currentRomName: null,
           isPlaying: false,
           isLoading: false,
-          customRoms,
-        });
-      },
+        }),
 
       setLoading: (loading) => set({ isLoading: loading }),
 
@@ -265,24 +267,25 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
           };
         }),
 
-      // Custom ROMs
+      // Custom ROMs. A new upload of a name on the same console replaces the
+      // old entry: the saves of both are the same game (gameId is console +
+      // name), and the list does not grow with each upload.
       addCustomRom: (rom) =>
         set((state) => ({
-          customRoms: [rom, ...state.customRoms.filter((r) => r.id !== rom.id)],
+          customRoms: [
+            rom,
+            ...state.customRoms.filter(
+              (r) => r.id !== rom.id && !(r.system === rom.system && r.name === rom.name)
+            ),
+          ],
           lastModified: Date.now(),
         })),
 
       removeCustomRom: (romId) =>
-        set((state) => {
-          const rom = state.customRoms.find((r) => r.id === romId);
-          if (rom?.blobUrl) {
-            URL.revokeObjectURL(rom.blobUrl);
-          }
-          return {
-            customRoms: state.customRoms.filter((r) => r.id !== romId),
-            lastModified: Date.now(),
-          };
-        }),
+        set((state) => ({
+          customRoms: state.customRoms.filter((r) => r.id !== romId),
+          lastModified: Date.now(),
+        })),
 
       getCustomRomsForSystem: (system) => get().customRoms.filter((r) => r.system === system),
 
@@ -309,8 +312,8 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
         return {
           favorites: state.favorites,
           recentlyPlayed: state.recentlyPlayed,
-          // Strip blobUrl from customRoms for persistence
-          customRoms: state.customRoms.map(stripRuntimeBlobUrl),
+          // The uploaded files stay in memory; only their names sync.
+          customRoms: state.customRoms.map(stripRuntimeFile),
           stats: state.stats,
           settings: state.settings,
           lastModified: state.lastModified,
@@ -337,8 +340,8 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
       partialize: (state) => ({
         favorites: state.favorites,
         recentlyPlayed: state.recentlyPlayed,
-        // Don't persist blobUrls
-        customRoms: state.customRoms.map(stripRuntimeBlobUrl),
+        // Never persist the uploaded files
+        customRoms: state.customRoms.map(stripRuntimeFile),
         stats: state.stats,
         settings: state.settings,
         lastModified: state.lastModified,
