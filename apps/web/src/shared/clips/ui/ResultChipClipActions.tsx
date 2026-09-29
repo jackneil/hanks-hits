@@ -19,9 +19,12 @@
  * - A longer run: "Watch the end" clips the last 30 seconds of the run, and
  *   "Make the whole run a video (m:ss)" clips all of it. The whole-run
  *   button shows only when the ring still holds the run's start: the run
- *   plus any capture since the run ended must fit in the ring. (A run
- *   longer than the ring needs the session timeline, PR 5.2.) A short run
- *   whose start the ring lost gets "Watch the end" too.
+ *   plus any capture since the run ended must fit in the ring, give or take
+ *   one keyframe gap and the age of the last ring report. (A run longer
+ *   than the ring needs the session timeline, PR 5.2.) A short run whose
+ *   start the ring lost gets "Watch the end" too.
+ * - The m:ss on a button is the length of the clip that the kid gets: the
+ *   run, less any start that the ring no longer holds.
  * - No run reported, or a run too short to clip: no clip button. Record a
  *   video and Take a picture are in the Capture menu (a hold on the clip
  *   button).
@@ -86,6 +89,13 @@ export function chipRunOf(token: PressToken | null | undefined): ChipRun | null 
 }
 
 /**
+ * The ring reports its length once a second (the encode worker's stats),
+ * so bufferedSec can be up to this many seconds old. The first run of a
+ * page also starts a moment before the ring's first keyframe.
+ */
+export const RING_REPORT_SLACK_SEC = 1;
+
+/**
  * Button states where the ring has footage that a run clip can use (the
  * service's own rule), and a save that is still going (the buttons stay, so
  * the chip does not jump).
@@ -108,8 +118,15 @@ export function resultChipClipActions(
   const granularity = snapshot.replayGranularitySec ?? 1;
   if (run.seconds < MIN_CLIP_SECONDS + granularity) return [];
   const since = Number.isFinite(capturedSinceRunEnd) && capturedSinceRunEnd > 0 ? capturedSinceRunEnd : 0;
-  const holdsRun = run.spanSec + since <= snapshot.bufferedSec;
-  const length = formatDuration(run.seconds);
+  // The ring still reaches back to the run's start: within one keyframe gap
+  // (a run clip starts at the first keyframe at or after the start anyway)
+  // and the age of the last ring report.
+  const missingSec = Math.max(0, run.spanSec + since - snapshot.bufferedSec);
+  const holdsRun = missingSec <= granularity + RING_REPORT_SLACK_SEC;
+  // The length on the button is the length of the clip the kid gets: the
+  // run, less any start that the ring no longer holds.
+  const clipSec = run.seconds - missingSec;
+  const length = formatDuration(clipSec);
   const watchEnd: ResultChipClipAction = {
     id: "watchEnd",
     label: RESULT_ACTION_COPY.watchEnd,
@@ -118,12 +135,12 @@ export function resultChipClipActions(
   };
   if (run.seconds <= DEFAULT_CLIP_SECONDS) {
     if (!holdsRun) return [watchEnd];
-    return [{ id: "watchRun", label: watchRunLabel(length), spoken: actionWithLength(RESULT_ACTION_COPY.watchRun, run.seconds), part: "whole" }];
+    return [{ id: "watchRun", label: watchRunLabel(length), spoken: actionWithLength(RESULT_ACTION_COPY.watchRun, clipSec), part: "whole" }];
   }
   if (!holdsRun) return [watchEnd];
   return [
     watchEnd,
-    { id: "wholeRun", label: wholeRunLabel(length), spoken: actionWithLength(RESULT_ACTION_COPY.wholeRun, run.seconds), part: "whole" },
+    { id: "wholeRun", label: wholeRunLabel(length), spoken: actionWithLength(RESULT_ACTION_COPY.wholeRun, clipSec), part: "whole" },
   ];
 }
 

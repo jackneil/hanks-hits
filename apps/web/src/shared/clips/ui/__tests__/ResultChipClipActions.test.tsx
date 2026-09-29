@@ -5,7 +5,7 @@ import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/button
 
 import { HIDDEN_SNAPSHOT, type ClipSnapshot, type PressToken } from "../../service/contract";
 import { RESULT_ACTION_COPY, VIEWER_TITLES, watchRunLabel, wholeRunLabel } from "../copy";
-import { chipRunOf, ResultChipClipActions, resultChipClipActions, type ChipRun } from "../ResultChipClipActions";
+import { chipRunOf, RING_REPORT_SLACK_SEC, ResultChipClipActions, resultChipClipActions, type ChipRun } from "../ResultChipClipActions";
 import { createFakeClipService, makeRecord, PLAYING, type FakeClipService } from "./fakeClipService";
 import { flush, renderWithClips, stubObjectUrls } from "./renderClips";
 
@@ -70,9 +70,20 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), run(42)).map((action) => action.id)).toEqual(["watchEnd", "wholeRun"]);
     expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), run(250)).map((action) => action.id)).toEqual(["watchEnd"]);
     // Capture that ran since the run ended pushed the ring's start on by that much.
-    expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), run(42), 3).map((action) => action.id)).toContain("wholeRun");
-    expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), run(42), 3.5).map((action) => action.id)).toEqual(["watchEnd"]);
+    // The slack: one keyframe gap (1 s) and the age of the last ring report (1 s).
+    expect(RING_REPORT_SLACK_SEC).toBe(1);
+    expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), run(42), 5).map((action) => action.id)).toContain("wholeRun");
+    expect(resultChipClipActions(snapshot({ bufferedSec: 45 }), run(42), 5.5).map((action) => action.id)).toEqual(["watchEnd"]);
     expect(resultChipClipActions(snapshot({ bufferedSec: 12 }), run(20)).map((action) => action.id)).toEqual(["watchEnd"]);
+    // The first run of a page: capture started a moment after the run, and
+    // the last ring report is up to a second old. The chip still offers the
+    // whole run, with the length of the clip that the kid gets.
+    expect(resultChipClipActions(snapshot({ bufferedSec: 22.4 }), run(23.9)).map((action) => action.label)).toEqual([watchRunLabel("0:22")]);
+    expect(resultChipClipActions(snapshot({ bufferedSec: 43 }), run(44.5), 0).map((action) => action.label)).toEqual([
+      RESULT_ACTION_COPY.watchEnd,
+      wholeRunLabel("0:43"),
+    ]);
+    expect(resultChipClipActions(snapshot({ bufferedSec: 43 }), run(44.5), 0)[1].spoken).toBe("Make the whole run a video, 43 seconds");
   });
 
   it("offers nothing with no run, a run too short to clip, or a state with no footage", () => {
@@ -172,14 +183,15 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"] });
     const fake = afterRun(42, { engine: "buffering", bufferedSec: 45 });
     renderWithClips(<ResultChipClipActions />, { fake });
-    const wholeRun = () => screen.queryByRole("button", { name: wholeRunLabel("0:42") });
-    expect(wholeRun()).not.toBeNull();
+    const wholeRun = () => document.querySelector('[data-action="wholeRun"]');
+    expect(wholeRun()?.textContent).toBe(wholeRunLabel("0:42"));
     act(() => {
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(4000);
     });
-    expect(wholeRun()).not.toBeNull();
+    // 4 s of capture since the run ended: the ring lost the run's first second, and the length says so.
+    expect(wholeRun()?.textContent).toBe(wholeRunLabel("0:41"));
     act(() => {
-      vi.advanceTimersByTime(2000); // 4 s of capture since the run ended: 42 + 4 > 45
+      vi.advanceTimersByTime(2000); // 6 s of capture since the run ended: 42 + 6 > 45 + 1 + 1
     });
     expect(wholeRun()).toBeNull();
     expect(labels()).toEqual([RESULT_ACTION_COPY.watchEnd]);
