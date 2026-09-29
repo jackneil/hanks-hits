@@ -204,6 +204,71 @@ describe("ClipButton rendering", () => {
 });
 
 describe("ClipButton taps (plan 11.1)", () => {
+  /** The button's place on screen: 44 px at (300, 4), like the header clip slot. */
+  function placeButton() {
+    vi.spyOn(button(), "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 300, y: 4, width: 44, height: 44 }));
+  }
+
+  it.each([
+    ["on the button", 322, 26],
+    ["48 px right of the button", 344 + 48, 26],
+    ["48 px below the button", 322, 48 + 48],
+    ["just inside a corner of the slop", 300 - 48, 4 - 48],
+  ])("clips a press that is dragged and released %s", async (_label, x, y) => {
+    const { fake } = renderWithClips(<ClipButton />);
+    placeButton();
+    fireEvent.pointerDown(button(), pointer({ clientX: 322, clientY: 26 }));
+    fireEvent.pointerMove(button(), pointer({ clientX: x, clientY: y }));
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    fireEvent.pointerUp(button(), pointer({ clientX: x, clientY: y }));
+    await flush();
+    expect(fake.records).toHaveLength(1);
+    expect(vi.mocked(fake.service.endPress).mock.calls[0][1]).not.toHaveProperty("cancelled");
+  });
+
+  it.each([
+    ["49 px right of the button", 344 + 49, 26],
+    ["49 px left of the button", 300 - 49, 26],
+    ["49 px below the button", 322, 48 + 49],
+    ["far down on the game", 180, 600],
+  ])("commits nothing for a press that is dragged off and released %s (like a native iOS button)", async (_label, x, y) => {
+    const { fake } = renderWithClips(<ClipButton />);
+    placeButton();
+    fireEvent.pointerDown(button(), pointer({ clientX: 322, clientY: 26 }));
+    fireEvent.pointerMove(button(), pointer({ clientX: x, clientY: y }));
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    // The button keeps pointer capture, so it hears the release far away.
+    fireEvent.pointerUp(button(), pointer({ clientX: x, clientY: y }));
+    await flush();
+    expect(fake.records).toHaveLength(0);
+    expect(fake.service.endPress).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fake.service.endPress).mock.calls[0][1]).toMatchObject({ cancelled: true });
+    expect(fake.openPressCount()).toBe(0);
+    expect(menu()).toBeNull();
+    // The next tap on the button is a new clip.
+    fireEvent.pointerDown(button(), pointer({ clientX: 322, clientY: 26 }));
+    fireEvent.pointerUp(button(), pointer({ clientX: 322, clientY: 26 }));
+    await flush();
+    expect(fake.records).toHaveLength(1);
+  });
+
+  it("does not stop a video when the stop press is dragged off", async () => {
+    const { fake } = renderWithClips(<ClipButton />, { snapshot: { button: "recording", engine: "recording" } });
+    placeButton();
+    fireEvent.pointerDown(button(), pointer({ clientX: 322, clientY: 26 }));
+    fireEvent.pointerUp(button(), pointer({ clientX: 322, clientY: 200 }));
+    await flush();
+    expect(fake.service.stopRecording).not.toHaveBeenCalled();
+    fireEvent.pointerDown(button(), pointer({ clientX: 322, clientY: 26 }));
+    fireEvent.pointerUp(button(), pointer({ clientX: 322, clientY: 26 }));
+    await flush();
+    expect(fake.service.stopRecording).toHaveBeenCalledTimes(1);
+  });
+
   it("commits a 300 ms press and announces the result", async () => {
     const { fake } = renderWithClips(<ClipButton />);
     await pressFor(300);

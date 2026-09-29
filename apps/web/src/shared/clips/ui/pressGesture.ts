@@ -16,6 +16,11 @@
  *   still down. The later release does nothing. Nothing is committed.
  * - A press that must never open the menu (a game controller) reports a
  *   length under HOLD_FOR_MENU_MS, so however long it is held, it is a tap.
+ * - Drag off to cancel (like a native iOS button): a pointer press that is
+ *   released more than RELEASE_SLOP_PX outside the button commits nothing.
+ *   The button sends it as a cancel (releasedOff). A release within that
+ *   distance of the button still clips, also after a move past
+ *   PRESS_SLOP_PX (the move only stops the hold from opening the menu).
  * - While a video records, the button is the stop control: the release
  *   stops the video. There is no hold.
  * - Each press acts once. A second finger, and the compatibility click
@@ -43,6 +48,32 @@ import { nowMs } from "./platform";
  * 8-10 px.
  */
 export const PRESS_SLOP_PX = 16;
+
+/**
+ * A pointer press that is released more than this many pixels outside the
+ * button's rectangle commits nothing, like a native iOS button: a kid who
+ * slides the finger away changed their mind. A release inside the button,
+ * or within this distance of its edges, still clips (small fingers slide).
+ */
+export const RELEASE_SLOP_PX = 48;
+
+/** The edges of an element on screen (DOMRect has them). */
+export interface EdgeRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * True when a release at (x, y) is more than `slop` pixels outside `rect`
+ * on either axis: the press must end as a cancel, with no clip.
+ */
+export function releasedOff(rect: EdgeRect, x: number, y: number, slop: number = RELEASE_SLOP_PX): boolean {
+  const outsideX = Math.max(rect.left - x, x - rect.right, 0);
+  const outsideY = Math.max(rect.top - y, y - rect.bottom, 0);
+  return outsideX > slop || outsideY > slop;
+}
 
 /**
  * A click this soon after a pointer event is the browser's compatibility
@@ -89,7 +120,7 @@ export interface ClipPress {
   move(key: string, x: number, y: number): void;
   /** The press ends normally (pointerup, button released). */
   up(key: string): void;
-  /** The press ends without a tap (pointercancel, lost capture). */
+  /** The press ends without a tap (pointercancel, lost capture, a release dragged off the button). */
   cancel(key: string): void;
   /** End a held press as a deliberate clip, however long it was held (gamepad Back hold). */
   commitHeld(key: string): void;

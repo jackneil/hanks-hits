@@ -182,8 +182,10 @@ export type PressOutcome =
    * commits nothing, whatever its length. There is no timing exception: a
    * 100 ms cancel and a 700 ms cancel are the same. It only lets the token
    * go. The UI sends it for every press that must not clip: a browser
-   * pointercancel, a controller button that stays the game's own, the
-   * Capture menu opened without a hold, and the result chip's frozen end.
+   * pointercancel, a pointer released more than 48 px outside the clip
+   * button (drag off to cancel, like a native iOS button), a controller
+   * button that stays the game's own, the Capture menu opened without a
+   * hold, and the result chip's frozen end.
    * The token keeps its frozen end for clipLast(seconds, token).
    *
    * "refused": the owner is read again after a back-forward restore, so the
@@ -281,9 +283,12 @@ export interface ClipServiceApi {
   beginPress(): PressToken | null;
   /**
    * Plan 11.1: call on pointerup or cancel. moved = the pointer left the slop
-   * radius. cancelled: true lets the token go and commits nothing: the
-   * outcome is always { kind: "ignored", reason: "cancelled" }, whatever the
-   * press length. The token stays usable for clipLast(seconds, token).
+   * radius (then a hold does not open the menu, but a release still clips).
+   * cancelled: true lets the token go and commits nothing: the outcome is
+   * always { kind: "ignored", reason: "cancelled" }, whatever the press
+   * length. The UI also sends a pointer that is released more than 48 px
+   * outside the clip button as cancelled (drag off to cancel). The token
+   * stays usable for clipLast(seconds, token).
    */
   endPress(token: PressToken, info: { upAtMs: number; moved: boolean; cancelled?: boolean }): PressOutcome;
 

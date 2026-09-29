@@ -9,8 +9,10 @@
  *   per state (buttonFace.ts). Motion follows prefers-reduced-motion.
  * - Tap semantics (pressGesture.ts): pointerdown calls beginPress, the
  *   release calls endPress; a hold of 500 ms opens the Capture menu and
- *   commits nothing. Each press acts once: the compatibility click after a
- *   pointer press is ignored, and a held Enter does not repeat.
+ *   commits nothing. A release more than 48 px outside the button commits
+ *   nothing either (drag off to cancel, like a native iOS button). Each
+ *   press acts once: the compatibility click after a pointer press is
+ *   ignored, and a held Enter does not repeat.
  * - Every finger counts: a kid who holds a gas pedal with one thumb can
  *   clip with the other (the press machine refuses a second press on the
  *   button itself).
@@ -50,7 +52,7 @@ import { createGamepadPoller, NO_GAMEPAD_CLIP_APPS, type PadLike } from "./gamep
 import { CheckGlyph, ClipGlyph } from "./glyphs";
 import { hotkeyBelongsToTarget, listenOnSameOriginWindows, matchClipHotkey } from "./hotkeys";
 import { isApplePlatform, nowMs, prefersReducedMotion, subscribeToNothing, subscribeToReducedMotion } from "./platform";
-import { COMPAT_CLICK_WINDOW_MS, createClipPress, forwardPress, type ClipPress } from "./pressGesture";
+import { COMPAT_CLICK_WINDOW_MS, createClipPress, forwardPress, releasedOff, type ClipPress } from "./pressGesture";
 import type { ClipUiController } from "./uiStore";
 
 export interface ClipButtonProps {
@@ -386,8 +388,13 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
       activePointer.current = null;
       dropPointerFocus(event.currentTarget, pointer.hadFocus);
     }
-    if (how === "up") pressRef.current?.up(key);
-    else pressRef.current?.cancel(key);
+    // Drag off to cancel: a release far outside the button commits nothing.
+    // The button keeps pointer capture, so it hears that release.
+    if (how === "up" && !releasedOff(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY)) {
+      pressRef.current?.up(key);
+    } else {
+      pressRef.current?.cancel(key);
+    }
   };
   const onPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => endPointer(event, "up");
   const onPointerCancel = (event: React.PointerEvent<HTMLButtonElement>) => endPointer(event, "cancel");

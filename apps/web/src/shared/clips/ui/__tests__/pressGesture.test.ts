@@ -7,6 +7,8 @@ import {
   outcomeForPress,
   outcomeForState,
   PRESS_SLOP_PX,
+  RELEASE_SLOP_PX,
+  releasedOff,
   type TapOutcome,
 } from "../pressGesture";
 import { createFakeClipService, type FakeClipService } from "./fakeClipService";
@@ -30,6 +32,36 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("drag off to cancel (releasedOff)", () => {
+  const rect = { left: 100, top: 10, right: 144, bottom: 54 };
+
+  it("keeps a release inside the button or within RELEASE_SLOP_PX of it", () => {
+    expect(RELEASE_SLOP_PX).toBe(48);
+    for (const [x, y] of [
+      [120, 30],
+      [144 + 48, 30],
+      [100 - 48, 30],
+      [120, 54 + 48],
+      [120, 10 - 48],
+      [100 - 48, 54 + 48],
+    ]) {
+      expect(releasedOff(rect, x, y), `${x},${y}`).toBe(false);
+    }
+  });
+
+  it("cancels a release more than RELEASE_SLOP_PX outside the button on either axis", () => {
+    for (const [x, y] of [
+      [144 + 49, 30],
+      [100 - 49, 30],
+      [120, 54 + 49],
+      [120, 10 - 49],
+      [100 - 49, 54 + 49],
+    ]) {
+      expect(releasedOff(rect, x, y), `${x},${y}`).toBe(true);
+    }
+  });
 });
 
 describe("clip press (plan 11.1)", () => {
