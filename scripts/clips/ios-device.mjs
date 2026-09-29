@@ -121,6 +121,29 @@ export function chunkRanges(total, chunk = PULL_CHUNK) {
   return ranges;
 }
 
+/**
+ * How the driver reads the x and y of a "viewport" pointer move.
+ * - "viewport": as the W3C spec says, relative to the visible viewport.
+ * - "document": relative to the top of the document. Safari on iOS 27 does
+ *   this: with the page scrolled by S pixels, a tap sent at y lands at
+ *   y - S in the viewport.
+ * calibrationMode() decides from one calibration tap: the tap was sent at
+ * (sentY) while the page was scrolled by scrollY, and the page saw it at
+ * clientY. It returns null when neither reading fits (then the run stops
+ * with a FAIL row, because every later tap would miss).
+ */
+export function calibrationMode(sentY, clientY, scrollY, tolerance = 4) {
+  if (Math.abs(clientY - sentY) <= tolerance) return "viewport";
+  if (scrollY > tolerance && Math.abs(clientY - (sentY - scrollY)) <= tolerance) return "document";
+  return null;
+}
+
+/** The point to send for a tap at viewport (x, y) under the calibrated mode. */
+export function tapPoint(x, y, mode, scroll) {
+  if (mode !== "document") return { x, y };
+  return { x: x + scroll.x, y: y + scroll.y };
+}
+
 /** The W3C actions body for one touch tap at (x, y) in viewport pixels. */
 export function tapActions(x, y) {
   return {
@@ -189,6 +212,7 @@ class WebDriver {
   constructor(port) {
     this.base = `http://127.0.0.1:${port}`;
     this.session = null;
+    this.tapMode = "viewport";
   }
 
   async call(method, route, body) {
@@ -219,8 +243,40 @@ class WebDriver {
     return this.call("POST", "/execute/async", { script: `const done = arguments[arguments.length - 1]; ${body}`, args });
   }
 
+  /**
+   * Finds how this driver reads tap coordinates (see calibrationMode). It
+   * scrolls the page down, covers it with a transparent layer that only
+   * records the tap, taps the middle of the screen once, then removes the
+   * layer and scrolls back. A page too short to scroll cannot tell the two
+   * modes apart, and there the difference does not matter.
+   */
+  async calibrate() {
+    const setup = await this.execute(
+      `const max = Math.max(0, document.documentElement.scrollHeight - innerHeight);
+       window.scrollTo(0, Math.min(200, max));
+       const layer = document.createElement("div");
+       layer.id = "__hhTapCalibration";
+       layer.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:transparent;touch-action:none";
+       window.__hhTap = null;
+       layer.addEventListener("pointerdown", (e) => { window.__hhTap = e.clientY; e.preventDefault(); e.stopPropagation(); }, true);
+       document.body.appendChild(layer);
+       return { w: innerWidth, h: innerHeight, scrollY: window.scrollY };`,
+    );
+    const sentY = Math.round(setup.h / 2);
+    await this.call("POST", "/actions", tapActions(setup.w / 2, sentY));
+    await this.call("DELETE", "/actions");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const clientY = await this.execute(
+      `const y = window.__hhTap; document.getElementById("__hhTapCalibration")?.remove(); window.scrollTo(0, 0); return y;`,
+    );
+    this.tapMode = setup.scrollY > 4 ? calibrationMode(sentY, clientY ?? Number.NaN, setup.scrollY) : "viewport";
+    return { mode: this.tapMode, sentY, clientY, scrollY: setup.scrollY };
+  }
+
   async tap(x, y) {
-    await this.call("POST", "/actions", tapActions(x, y));
+    const scroll = this.tapMode === "document" ? await this.execute("return { x: window.scrollX, y: window.scrollY };") : { x: 0, y: 0 };
+    const point = tapPoint(x, y, this.tapMode, scroll);
+    await this.call("POST", "/actions", tapActions(point.x, point.y));
     await this.call("DELETE", "/actions");
   }
 
@@ -328,6 +384,7 @@ async function findButton(driver, testId) {
  * Returns true when the action started.
  */
 export async function press(driver, rows, testId, reached, fallback, waitMs = 5_000) {
+  let unreachable = false;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const point = await findButton(driver, testId);
     if (!point || point.disabled) {
@@ -337,12 +394,25 @@ export async function press(driver, rows, testId, reached, fallback, waitMs = 5_
       rows.push({ status: "FAIL", check: `${testId} tap`, value: point ? "the button is off" : "the button is not on the page", limit: "an enabled button", detail: disabledText(status) });
       return false;
     }
-    await driver.tap(point.x, point.y);
+    try {
+      await driver.tap(point.x, point.y);
+    } catch (error) {
+      // Safari on iOS reads tap coordinates as document coordinates but
+      // refuses any point outside the first screen of the document, so a
+      // button further down the page cannot be tapped at all.
+      if (error.webdriver !== "move target out of bounds") throw error;
+      unreachable = true;
+      break;
+    }
     const seen = await waitFor(driver, reached, waitMs);
     if (seen.ok) return true;
   }
-  if (!fallback) return false;
-  rows.push({ status: "INFO", check: `${testId} tap`, value: "the tap did not reach the page", limit: "-", detail: `used window.__clipsLab.${fallback}()` });
+  if (!fallback) {
+    if (unreachable) rows.push({ status: "FAIL", check: `${testId} tap`, value: "the driver cannot tap this button (below the first screen)", limit: "a tap the page sees" });
+    return false;
+  }
+  const why = unreachable ? "the driver cannot tap below the first screen" : "the tap did not reach the page";
+  rows.push({ status: "INFO", check: `${testId} tap`, value: why, limit: "-", detail: `used window.__clipsLab.${fallback}()` });
   await driver.executeAsync(`window.__clipsLab.${fallback}().then(() => done(true), (e) => done(String(e)));`);
   return true;
 }
@@ -359,6 +429,11 @@ async function runFlow(driver, options, rows) {
 
   const loaded = await waitFor(driver, (s) => s.service !== "loading" && s.picture !== "none", 120_000);
   if (!check(rows, "clip service ready and attached", loaded.status?.service === "ready" && loaded.status.attached, describe(loaded.status), "ready")) return null;
+
+  // Safari on iOS reads "viewport" tap coordinates as document coordinates;
+  // without this, every tap on a scrolled page lands one scroll height too high.
+  const calibration = await driver.calibrate();
+  if (!check(rows, "tap coordinates calibrated", calibration.mode !== null, `${calibration.mode ?? "unknown"} (sent y ${calibration.sentY}, page saw ${calibration.clientY}, scrolled ${calibration.scrollY})`, "viewport or document")) return null;
 
   // Reached = the lab runs. Never tap Start again after that: a second tap is Stop.
   const started = await press(driver, rows, "lab-start", (s) => s.running, null);

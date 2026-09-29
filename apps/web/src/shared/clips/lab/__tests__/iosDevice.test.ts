@@ -6,6 +6,7 @@ import {
   DEFAULT_PORT,
   LAB_PATH,
   PULL_CHUNK,
+  calibrationMode,
   chunkRanges,
   disabledText,
   iosCapabilities,
@@ -15,6 +16,7 @@ import {
   pickDevice,
   press,
   tapActions,
+  tapPoint,
 } from "../../../../../../../scripts/clips/ios-device.mjs";
 
 const XCTRACE = `== Devices ==
@@ -205,6 +207,32 @@ describe("press", () => {
     expect(start.executeAsync).not.toHaveBeenCalled();
   });
 
+  it("uses the lab's own action at once when the driver refuses a tap below the first screen (Safari on iOS)", async () => {
+    const driver = fakeDriver({ x: 1, y: 2, disabled: false }, [{ ...BUSY, busy: null, recording: false }]);
+    const refused = Object.assign(new Error("move target out of bounds: "), { webdriver: "move target out of bounds" });
+    driver.tap.mockRejectedValueOnce(refused);
+    const rows: Array<Record<string, unknown>> = [];
+    expect(await press(driver, rows, "lab-record-start", (s: { recording: boolean }) => s.recording, "recordStart", 0)).toBe(true);
+    expect(driver.tap).toHaveBeenCalledOnce();
+    expect(String(driver.executeAsync.mock.calls[0][0])).toContain("window.__clipsLab.recordStart()");
+    expect(rows).toEqual([{ status: "INFO", check: "lab-record-start tap", value: "the driver cannot tap below the first screen", limit: "-", detail: "used window.__clipsLab.recordStart()" }]);
+  });
+
+  it("gives a FAIL row, not a hidden fallback, when a button with no fallback is out of reach", async () => {
+    const driver = fakeDriver({ x: 1, y: 2, disabled: false }, [{ running: false }]);
+    driver.tap.mockRejectedValueOnce(Object.assign(new Error("out"), { webdriver: "move target out of bounds" }));
+    const rows: Array<Record<string, unknown>> = [];
+    expect(await press(driver, rows, "lab-start", (s: { running: boolean }) => s.running, null, 0)).toBe(false);
+    expect(driver.executeAsync).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({ status: "FAIL", check: "lab-start tap" });
+  });
+
+  it("still throws any other driver error", async () => {
+    const driver = fakeDriver({ x: 1, y: 2, disabled: false }, [{ running: false }]);
+    driver.tap.mockRejectedValueOnce(Object.assign(new Error("no such window"), { webdriver: "no such window" }));
+    await expect(press(driver, [], "lab-clip", () => false, "clip", 0)).rejects.toThrow("no such window");
+  });
+
   it("counts a late first tap that turned its own button off as reached, not as a failure", async () => {
     let call = 0;
     const driver = {
@@ -226,5 +254,32 @@ describe("press", () => {
   it("names the state of an off button", () => {
     expect(disabledText(null)).toBe("no lab on the page");
     expect(disabledText({ button: "warming", service: "ready", busy: null, reason: "warming", recording: true })).toBe("button warming, service ready, reason warming, recording yes");
+  });
+});
+
+describe("tap calibration", () => {
+  it("reads a tap that lands where it was sent as viewport coordinates", () => {
+    expect(calibrationMode(274, 274, 200)).toBe("viewport");
+    expect(calibrationMode(274, 276, 200)).toBe("viewport");
+  });
+
+  it("reads a tap that lands one scroll height too high as document coordinates (Safari on iOS 27)", () => {
+    // Measured on an iPhone SE: sent at y 274 with the page scrolled 235, the page saw y 39.
+    expect(calibrationMode(274, 39, 235)).toBe("document");
+  });
+
+  it("gives null when neither reading fits, so the run stops instead of mis-tapping", () => {
+    expect(calibrationMode(274, 120, 200)).toBeNull();
+    expect(calibrationMode(274, Number.NaN, 200)).toBeNull();
+  });
+
+  it("cannot call a page that did not scroll document mode", () => {
+    expect(calibrationMode(274, 274, 0)).toBe("viewport");
+    expect(calibrationMode(274, 272, 2)).toBe("viewport");
+  });
+
+  it("adds the scroll only in document mode", () => {
+    expect(tapPoint(76, 274, "viewport", { x: 0, y: 235 })).toEqual({ x: 76, y: 274 });
+    expect(tapPoint(76, 274, "document", { x: 3, y: 235 })).toEqual({ x: 79, y: 509 });
   });
 });
