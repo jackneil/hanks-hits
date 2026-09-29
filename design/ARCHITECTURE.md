@@ -232,7 +232,12 @@ scroll. On a short screen (a phone held sideways) the action row sits to the
 right of the body. A nudge such as the iOS install tip shows in a break slot
 outside the card (below it, or beside it on a short screen), never in the
 card. The slot shows only while the whole card still fits next to it. If it
-does not fit, the tip waits for the pause menu. The overlay renders the
+does not fit, the tip waits for the pause menu. The body shows a soft shadow
+at an edge only while there is more content past that edge (`useScrollCue`).
+The check in `e2e/start-cards` tests this contract on real screens for each
+route that the home page lists. Run it with `pnpm e2e:start-cards
+<base-url>` from the repo root, against a server that runs (it builds
+nothing and starts no server). The overlay renders the
 title once (the only in-content heading, visible only before start),
 pointer-aware controls copy (`useCoarsePointer` /
 `matchMedia("(pointer: coarse)")`: touch viewports never see keyboard-only

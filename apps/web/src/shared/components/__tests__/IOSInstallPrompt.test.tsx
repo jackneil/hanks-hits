@@ -232,19 +232,44 @@ describe("IOSInstallPrompt", () => {
       // jsdom has no layout: fake the card body's scroll box. "Overflows"
       // means the body holds more than it shows, so the kid would have to
       // scroll the card to see all of it.
+      //
+      // The ResizeObserver fake calls back only when a test calls
+      // reportSizes(), which is LATE: after the tip is already in the slot.
+      // So a test that checks the tip before reportSizes() proves that the
+      // MutationObserver (with flushSync) removed it before the browser
+      // painted. With a fake that reported on a microtask, the
+      // ResizeObserver alone removed the tip and hid a broken
+      // MutationObserver (verify finding R11).
       let bodyOverflows: () => boolean;
       const setupResizeObserver = global.ResizeObserver;
+      const setupMutationObserver = global.MutationObserver;
+      let resizeObservers: { callback: ResizeObserverCallback; connected: boolean }[];
+
+      /** The browser reports sizes: every connected ResizeObserver calls back. */
+      async function reportSizes() {
+        await act(async () => {
+          for (const observer of [...resizeObservers]) {
+            if (observer.connected) observer.callback([], {} as ResizeObserver);
+          }
+        });
+      }
 
       beforeEach(() => {
         bodyOverflows = () => false;
-        // Like a browser: a ResizeObserver reports once when it starts.
+        resizeObservers = [];
         global.ResizeObserver = class {
-          constructor(private callback: ResizeObserverCallback) {}
+          private entry: { callback: ResizeObserverCallback; connected: boolean };
+          constructor(callback: ResizeObserverCallback) {
+            this.entry = { callback, connected: false };
+            resizeObservers.push(this.entry);
+          }
           observe() {
-            queueMicrotask(() => this.callback([], this as unknown as ResizeObserver));
+            this.entry.connected = true;
           }
           unobserve() {}
-          disconnect() {}
+          disconnect() {
+            this.entry.connected = false;
+          }
         };
         Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
           configurable: true,
@@ -262,6 +287,7 @@ describe("IOSInstallPrompt", () => {
 
       afterEach(() => {
         global.ResizeObserver = setupResizeObserver;
+        global.MutationObserver = setupMutationObserver;
         // Back to jsdom's own Element.prototype getters.
         delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
         delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
@@ -276,21 +302,27 @@ describe("IOSInstallPrompt", () => {
         );
       }
 
-      it("leaves the start screen when it would make the card scroll, and waits for the pause menu", async () => {
-        // The card fits alone, but not with the tip next to it (a phone
-        // with a short screen): the body overflows only while the tip is
-        // in the slot.
-        bodyOverflows = () =>
-          !!document.querySelector(
-            '[data-testid="start-overlay-break-slot"] [data-testid="ios-install-tip"]'
-          );
+      /** The card fits alone, but not with the tip next to it (a phone with a short screen). */
+      const overflowsOnlyWithTheTip = () =>
+        !!document.querySelector(
+          '[data-testid="start-overlay-break-slot"] [data-testid="ios-install-tip"]'
+        );
+
+      it("leaves the start screen before paint when it would make the card scroll, and waits for the pause menu", async () => {
+        bodyOverflows = overflowsOnlyWithTheTip;
         renderSnakeStart();
+        // Only microtasks have run: no ResizeObserver has reported yet. The
+        // MutationObserver saw the tip arrive and removed it at once.
         await act(async () => {});
 
         expect(screen.queryByTestId("start-overlay-break-slot")).not.toBeInTheDocument();
         expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
         // It is not a sheet over Play either.
         expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+
+        // The late size report changes nothing: the tip stays away.
+        await reportSizes();
+        expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
 
         // The next break shows it.
         fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
@@ -299,11 +331,35 @@ describe("IOSInstallPrompt", () => {
         ).toBeInTheDocument();
       });
 
+      it("with no MutationObserver, the ResizeObserver still removes the tip, also on a later size change", async () => {
+        // The mirror of the test above: the ResizeObserver path on its own.
+        // @ts-expect-error: a browser with no MutationObserver
+        global.MutationObserver = undefined;
+        let bodyGrew = false;
+        bodyOverflows = () => bodyGrew && overflowsOnlyWithTheTip();
+        renderSnakeStart();
+        await act(async () => {});
+        await reportSizes();
+
+        // The card fits with the tip: the tip stays.
+        expect(
+          within(screen.getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
+        ).toBeInTheDocument();
+
+        // Later the body grows (a font loads, the phone turns), so the card
+        // no longer fits with the tip. The next size report removes it.
+        bodyGrew = true;
+        await reportSizes();
+        expect(screen.queryByTestId("start-overlay-break-slot")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+      });
+
       it("gives no slot when the card body must scroll even without the tip", async () => {
         bodyOverflows = () => true;
         // No tip on screen yet (another phone): the slot still goes.
         render(<GameStartOverlay title="Snake" onStart={() => {}} />);
-        await act(async () => {});
+        await reportSizes();
         expect(screen.queryByTestId("start-overlay-break-slot")).not.toBeInTheDocument();
         expect(useGameBreaks.getState().slots).toEqual([]);
       });
@@ -321,6 +377,7 @@ describe("IOSInstallPrompt", () => {
       it("keeps the tip on the start screen when the card fits with it", async () => {
         renderSnakeStart();
         await act(async () => {});
+        await reportSizes();
 
         expect(
           within(screen.getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")

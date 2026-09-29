@@ -1159,8 +1159,12 @@
   padding: 2px 5px;
   border-radius: 4px;
 }
-.fw-world-bubble:hover {
-  background: #344532;
+/* A mouse only: a tap on a touch screen leaves :hover on after the finger
+   lifts. */
+@media (hover: hover) and (pointer: fine) {
+  .fw-world-bubble:hover {
+    background: #344532;
+  }
 }
 .fw-world-bubble:focus-visible {
   outline: 3px solid #e8c879;

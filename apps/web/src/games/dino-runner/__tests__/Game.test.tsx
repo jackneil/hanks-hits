@@ -67,3 +67,21 @@ describe("DinoRunnerGame start overlay", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+describe("DinoRunnerGame canvas box", () => {
+  // Regression (verify finding R9): the canvas box kept min-h-[360px] to
+  // give the old in-box start card room. The card portals to document.body
+  // now, so the reservation only left about 113 px of empty space above and
+  // below the canvas on a 390 px phone during play, and pushed DUCK down.
+  it("reserves no height for the start card: the box is as tall as the canvas", () => {
+    const { container } = render(<DinoRunnerGame />);
+
+    const overlay = screen.getByTestId("game-start-overlay");
+    expect(overlay.parentElement).toBe(document.body);
+
+    const box = container.querySelector("canvas")!.parentElement!;
+    expect(box).not.toContainElement(overlay);
+    expect(box.className).not.toMatch(/(^|\s)(\w+:)*min-h-/);
+    expect(box.style.minHeight).toBe("");
+  });
+});
