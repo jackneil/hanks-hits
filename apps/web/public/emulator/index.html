@@ -301,7 +301,9 @@
        a computer without the gamepad keeps the whole box for the picture.
        RetroArch fits the picture in the size of the canvas; it puts the
        picture at the top of a canvas that is taller than it is wide.
-       Heights are for a box of 268 px (568x320 minus the 52 px bar). */
+       Every layout fits a box of 241 px or more: the box is the screen minus
+       the 52 px bar of the game, 268 px on a 568x320 screen and 259 px in
+       Safari on an iPhone SE in landscape (a 667x311 page, measured). */
     #game { --hh-side: 144px; }
     #game:has(.cs_snes),
     #game:has(.cs_n64) { --hh-side: 164px; }
@@ -335,37 +337,49 @@
       #game .ejs_virtualGamepad_right .cs_segaMD.b_y { right: 54px !important; }
       #game .ejs_virtualGamepad_right .cs_segaMD.b_c,
       #game .ejs_virtualGamepad_right .cs_segaMD.b_z { right: 0 !important; }
-      /* Nintendo 64, from the bottom of the box: the bottom row (8 to 56 px),
-         then 4 px, then B and A (60 to 110 px), then the C buttons in a
-         150 px diamond (114 to 264 px). R is in the top left corner of the
-         diamond, the menu button in its top right corner. On the left: the
-         analog stick (60 to 160 px), the d-pad stick above it (164 to
-         264 px) and L beside the d-pad stick. The sticks are 100 px circles
-         on the bottom and top edges of their container. */
+      /* Super Nintendo: R goes in the empty top left corner of the diamond
+         (next to X and Y), so the SNES needs 214 px, not 266 px, and fits
+         the 259 px box of Safari on an iPhone SE in landscape. */
+      #game .ejs_virtualGamepad_right .cs_snes.b_r {
+        left: 0 !important;
+        right: auto !important;
+        top: 0 !important;
+        width: 48px;
+      }
+      /* Nintendo 64, 212 px tall. Left strip: a column with the analog stick
+         (4 to 104 px from the bottom) and the d-pad stick above it (108 to
+         208 px), then a column with Fast (8 to 56 px), Z (60 to 108 px) and
+         L (160 to 208 px). The sticks are 100 px circles on the bottom and
+         top edges of their container. Right strip: the bottom row (Start,
+         Slow), then a 3x3 grid of 48 px buttons, 4 px apart (60 to 212 px):
+         R, CU, (empty) / CL, (empty), CR / B, CD, A. The empty top right
+         cell is under the menu button. */
       #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_left {
-        left: 8px;
+        left: 4px;
         width: 100px;
-        bottom: 102px;
+        bottom: 46px;
         height: 104px;
       }
       #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_right {
-        right: 10px;
-        width: 150px;
+        right: 8px;
+        width: 152px;
         bottom: 52px;
-        height: 204px;
+        height: 152px;
       }
       #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_top {
-        bottom: 256px;
+        bottom: 200px;
       }
-      #game .ejs_virtualGamepad_right .cs_n64.b_cu { left: 50px !important; top: 0 !important; }
-      #game .ejs_virtualGamepad_right .cs_n64.b_cl { left: 0 !important; top: 50px !important; }
-      #game .ejs_virtualGamepad_right .cs_n64.b_cr { left: 100px !important; top: 50px !important; }
-      #game .ejs_virtualGamepad_right .cs_n64.b_cd { left: 50px !important; top: 100px !important; }
-      #game .ejs_virtualGamepad_right .cs_n64.b_b { left: 44px !important; top: 154px !important; }
-      #game .ejs_virtualGamepad_right .cs_n64.b_a { left: 100px !important; top: 154px !important; }
-      #game .ejs_virtualGamepad_top .cs_n64.b_l { left: 112px !important; right: auto !important; top: 0 !important; }
-      #game .ejs_virtualGamepad_top .cs_n64.b_r { left: auto !important; right: 110px !important; top: 0 !important; }
-      #game .ejs_virtualGamepad_top .cs_n64.b_z { top: 208px !important; left: 64px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64 { width: 48px; height: 48px; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cu { left: 52px !important; top: 0 !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cl { left: 0 !important; top: 52px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cr { left: 104px !important; top: 52px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_b { left: 0 !important; top: 104px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cd { left: 52px !important; top: 104px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_a { left: 104px !important; top: 104px !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_l { left: 108px !important; right: auto !important; top: 0 !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_z { left: 108px !important; right: auto !important; top: 100px !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_r { left: auto !important; right: 112px !important; top: -4px !important; width: 48px; }
+      #game .ejs_virtualGamepad_bottom .cs_n64.b_speed_fast { left: 108px !important; right: auto !important; }
     }
   </style>
 </head>

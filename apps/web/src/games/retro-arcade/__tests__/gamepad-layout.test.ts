@@ -494,7 +494,9 @@ const overlap = (a: Rect, b: Rect) =>
 /**
  * Phone screens, as the size of the emulator box (the screen minus the 52 px
  * bar of the game). 568x320 and 667x375 are the iPhone SE (1st and 2nd/3rd
- * generation) in landscape: the shortest boxes.
+ * generation) in landscape. "667x311 Safari" is the page that Safari gives
+ * on a real iPhone SE (iOS 27) in landscape, with its tab bar: the shortest
+ * box, 259 px.
  */
 const PHONES: [string, Viewport][] = [
   ["390x844", { width: 390, height: 792 }],
@@ -503,6 +505,7 @@ const PHONES: [string, Viewport][] = [
   ["844x390", { width: 844, height: 338 }],
   ["568x320", { width: 568, height: 268 }],
   ["667x375", { width: 667, height: 323 }],
+  ["667x311 Safari", { width: 667, height: 259 }],
 ];
 
 const CASES = SYSTEM_IDS.flatMap((system) => PHONES.map(([label, vp]) => [system, label, vp] as const));
