@@ -126,17 +126,22 @@ html, body {
   }
 }
 
-/* Fun hover effects */
-.btn:hover {
-  transform: scale(1.05);
-  transition: transform 0.2s ease;
-}
+/* Fun hover effects, only where a real hover exists (a mouse or a
+   trackpad). A touch screen keeps :hover on after a tap, so on a phone a
+   tapped button stayed scaled up and pushed into its neighbors (the result
+   chip's full-width buttons ran into its padding). */
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover {
+    transform: scale(1.05);
+    transition: transform 0.2s ease;
+  }
 
-/* Card hover for game tiles */
-.card:hover {
-  transform: translateY(-4px);
-  transition: transform 0.2s ease;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+  /* Card hover for game tiles */
+  .card:hover {
+    transform: translateY(-4px);
+    transition: transform 0.2s ease;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+  }
 }
 
 /* Shake animation for invalid wall placement in Quoridor */
