@@ -12,8 +12,11 @@
  *   screens. "full" fills a phone screen and is a dialog on wider screens.
  *   Both scroll inside, so nothing is cut off on a 320x568 phone.
  * - Taps stay here: React sends portal events up the COMPONENT tree, so a
- *   tap on a sheet button could reach a game handler above the provider.
- *   Every pointer, touch and click event stops at the sheet.
+ *   tap on a sheet button could reach a game handler above the runtime.
+ *   The events of a press that starts on the sheet stop at the sheet. A
+ *   press that started on the game before the sheet opened still reaches
+ *   the game when it ends (shared/lib/input/pressOwnership.ts), so the
+ *   game lets go of its held input.
  * - Keys: Escape closes the sheet and nothing else. The sheet listens in
  *   the capture phase and stops the event, so GameShell does not also
  *   toggle the pause menu. Tab stays inside the sheet.
@@ -30,11 +33,12 @@
  *   With reduced motion it only fades.
  */
 
-import { useEffect, useId, useRef, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type React from "react";
 import { createPortal } from "react-dom";
 
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { createPressOwnership } from "@/shared/lib/input/pressOwnership";
 
 import { VIEWER_COPY } from "./copy";
 import { CloseGlyph } from "./glyphs";
@@ -82,6 +86,8 @@ export function Sheet({ title, variant, onClose, readAloudText, children, testId
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const backdropPressed = useRef(false);
+  // The presses that started on the sheet: only their events stop here.
+  const [owned] = useState(createPressOwnership);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -160,11 +166,25 @@ export function Sheet({ title, variant, onClose, readAloudText, children, testId
       data-testid={testId}
       data-clip-sheet={variant}
       className="fixed inset-0 z-[2500]"
-      onPointerDown={stopHere}
-      onPointerUp={stopHere}
-      onPointerCancel={stopHere}
-      onMouseDown={stopHere}
-      onMouseUp={stopHere}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        owned.down(event.pointerId);
+      }}
+      onPointerUp={(event) => {
+        if (owned.end(event.pointerId)) event.stopPropagation();
+      }}
+      onPointerCancel={(event) => {
+        if (owned.end(event.pointerId)) event.stopPropagation();
+      }}
+      onLostPointerCapture={(event) => owned.end(event.pointerId)}
+      onPointerLeave={(event) => owned.leave(event.pointerId, event.pointerType)}
+      onMouseDown={(event) => {
+        event.stopPropagation();
+        owned.mouseDown();
+      }}
+      onMouseUp={(event) => {
+        if (owned.mouseUp()) event.stopPropagation();
+      }}
       onTouchStart={stopHere}
       onTouchEnd={stopHere}
       onTouchCancel={stopHere}

@@ -14,9 +14,12 @@
  * - Every finger counts: a kid who holds a gas pedal with one thumb can
  *   clip with the other (the press machine refuses a second press on the
  *   button itself).
- * - The game never sees the button's taps: every pointer, touch, mouse and
- *   click event stops here (Hill Climb reads any touch on the right half of
- *   the window as gas).
+ * - The game never sees the button's taps: the events of a press that
+ *   started on the button stop here (Hill Climb reads any touch on the
+ *   right half of the window as gas). A press that started on the game
+ *   and crosses or ends over the button still reaches the game's window
+ *   listeners (shared/lib/input/pressOwnership.ts), so a paddle keeps
+ *   following the cursor and a held thrust lets go.
  * - A pointer press never leaves keyboard focus on the button. A focused
  *   button owns Space and Enter (keyBelongsToTarget), so the game's jump key
  *   would make clips instead. Keyboard focus (Tab) works as usual.
@@ -35,6 +38,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type React from "react";
+
+import { createPressOwnership } from "@/shared/lib/input/pressOwnership";
 
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { ClipButtonState, ClipServiceApi, ClipSnapshot } from "../service/contract";
@@ -328,6 +333,8 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
   const lastPointerAt = useRef(Number.NEGATIVE_INFINITY);
   /** The pointer of the press that is down, and whether the button had focus before it. */
   const activePointer = useRef<{ key: string; type: string; hadFocus: boolean } | null>(null);
+  /** The presses that started on the button: only their events stop here. */
+  const [owned] = useState(createPressOwnership);
 
   if (!visible) return null;
 
@@ -344,6 +351,7 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
 
   const onPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.stopPropagation();
+    owned.down(event.pointerId);
     lastPointerAt.current = nowMs();
     if (event.pointerType === "mouse" && event.button !== 0) return;
     // Every finger counts, the first one on the page or not. The press
@@ -360,12 +368,18 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
     }
   };
   const onPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    // A pointer that went down on the game passes over: the game still hears it.
+    if (!owned.owns(event.pointerId)) return;
     event.stopPropagation();
     pressRef.current?.move(pointerKey(event), event.clientX, event.clientY);
   };
   const endPointer = (event: React.PointerEvent<HTMLButtonElement>, how: "up" | "cancel") => {
-    event.stopPropagation();
-    lastPointerAt.current = nowMs();
+    // The release of a press that started on the game belongs to the game.
+    // (The press machine still hears it: it acts only on its own press.)
+    if (owned.end(event.pointerId)) {
+      event.stopPropagation();
+      lastPointerAt.current = nowMs();
+    }
     const key = pointerKey(event);
     const pointer = activePointer.current;
     if (pointer?.key === key) {
@@ -377,11 +391,17 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
   };
   const onPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => endPointer(event, "up");
   const onPointerCancel = (event: React.PointerEvent<HTMLButtonElement>) => endPointer(event, "cancel");
+  const onPointerLeave = (event: React.PointerEvent<HTMLButtonElement>) => owned.leave(event.pointerId, event.pointerType);
   const onMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
+    owned.mouseDown();
     // A mouse or pen press must not focus the button (see above).
     event.preventDefault();
   };
+  const onMouseUp = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (owned.mouseUp()) event.stopPropagation();
+  };
+  // A touch event always goes to the element where the touch started.
   const stopHere = (event: React.SyntheticEvent) => event.stopPropagation();
   const onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -430,8 +450,9 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
         onLostPointerCapture={onPointerCancel}
+        onPointerLeave={onPointerLeave}
         onMouseDown={onMouseDown}
-        onMouseUp={stopHere}
+        onMouseUp={onMouseUp}
         onTouchStart={stopHere}
         onTouchMove={stopHere}
         onTouchEnd={stopHere}

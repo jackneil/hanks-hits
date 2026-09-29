@@ -305,6 +305,39 @@ describe("ResultChip keeps taps away from the game", () => {
     expect(gameClick).not.toHaveBeenCalled();
   });
 
+  it("keeps its own presses from the game's window listeners, and lets a press from the game end over it", () => {
+    const heard: string[] = [];
+    const listener = (event: Event) => heard.push(event.type);
+    for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup"]) window.addEventListener(type, listener);
+    try {
+      const onRestart = vi.fn();
+      render(
+        <>
+          <div data-testid="game" />
+          <ResultChip resultText="Game over!" onRestart={onRestart} />
+        </>
+      );
+      passGrace();
+      const button = screen.getByRole("button", { name: /play again/i });
+      // A press that started on the chip stays with the chip.
+      fireEvent.pointerDown(button, { pointerId: 1, pointerType: "mouse", button: 0 });
+      fireEvent.mouseDown(button);
+      fireEvent.pointerUp(button, { pointerId: 1, pointerType: "mouse", button: 0 });
+      fireEvent.mouseUp(button);
+      expect(heard).toEqual([]);
+      // A finger that held the game's thrust when the run ended lifts over the chip.
+      fireEvent.pointerDown(screen.getByTestId("game"), { pointerId: 7, pointerType: "touch", button: 0 });
+      fireEvent.pointerUp(button, { pointerId: 7, pointerType: "touch", button: 0 });
+      // A mouse drag from the game ends over the chip.
+      fireEvent.mouseDown(screen.getByTestId("game"));
+      fireEvent.mouseUp(button);
+      expect(heard).toEqual(["pointerdown", "pointerup", "mousedown", "mouseup"]);
+      expect(onRestart).not.toHaveBeenCalled();
+    } finally {
+      for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup"]) window.removeEventListener(type, listener);
+    }
+  });
+
   it("taps blocked by the grace do not fall through to the game either", () => {
     const gameClick = vi.fn();
     render(

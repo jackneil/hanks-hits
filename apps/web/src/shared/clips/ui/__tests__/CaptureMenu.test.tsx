@@ -196,6 +196,38 @@ describe("CaptureMenu (plan 11.4)", () => {
     expect(pageTap).not.toHaveBeenCalled();
   });
 
+  it("keeps a press on the sheet from the game, and lets a press from the game end over the sheet", () => {
+    const heard: string[] = [];
+    const listener = (event: Event) => heard.push(event.type);
+    for (const type of ["pointerup", "mouseup", "pointercancel"]) window.addEventListener(type, listener);
+    try {
+      renderWithClips(
+        <>
+          <div data-testid="game" />
+          <OpenMenu />
+        </>,
+      );
+      fireEvent.click(screen.getByTestId("open-menu"));
+      const row = within(menu()).getByRole("button", { name: MENU_COPY.settings });
+      // A press on a row stays with the sheet (no click: the row does not act).
+      fireEvent.pointerDown(row, { pointerId: 2, pointerType: "touch" });
+      fireEvent.mouseDown(row);
+      fireEvent.pointerUp(row, { pointerId: 2, pointerType: "touch" });
+      fireEvent.mouseUp(row);
+      expect(heard).toEqual([]);
+      // A finger that went down on the game before the sheet opened lifts over it.
+      fireEvent.pointerDown(screen.getByTestId("game"), { pointerId: 5, pointerType: "touch" });
+      fireEvent.pointerUp(row, { pointerId: 5, pointerType: "touch" });
+      fireEvent.pointerDown(screen.getByTestId("game"), { pointerId: 6, pointerType: "touch" });
+      fireEvent.pointerCancel(row, { pointerId: 6, pointerType: "touch" });
+      fireEvent.mouseUp(row);
+      expect(heard).toEqual(["pointerup", "pointercancel", "mouseup"]);
+      expect(screen.getByTestId("capture-menu")).toBeInTheDocument();
+    } finally {
+      for (const type of ["pointerup", "mouseup", "pointercancel"]) window.removeEventListener(type, listener);
+    }
+  });
+
   it("stays open when the hold's own release lands on the backdrop", () => {
     renderWithClips(<OpenMenu />);
     fireEvent.click(screen.getByTestId("open-menu"));

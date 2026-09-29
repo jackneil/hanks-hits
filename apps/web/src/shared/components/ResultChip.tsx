@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { useClipShellUi } from "@/shared/clips";
 import { getGameMetadata } from "../lib/gameMetadata.generated";
+import { createPressOwnership } from "../lib/input/pressOwnership";
 import {
   DEFAULT_RESTART_GRACE_MS,
   useRestartGrace,
@@ -31,10 +32,12 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *   below the leaderboard (1500), the pause menu (2000), the clip sheets
  *   (2500) and the restart question (3000). Like every layer above 1000,
  *   it portals to document.body, so no game container can trap it.
- * - Taps stay here: pointer, mouse, touch and click events stop at the
- *   bar. React sends portal events up the COMPONENT tree, so without this
- *   a tap on "Play again" would also reach the game's canvas handler and
- *   restart twice (or flap the bird of the new run).
+ * - Taps stay here: the events of a press that starts on the bar stop at
+ *   the bar. React sends portal events up the COMPONENT tree, so without
+ *   this a tap on "Play again" would also reach the game's canvas handler
+ *   and restart twice (or flap the bird of the new run). A press that
+ *   started on the game and ends over the bar still reaches the game
+ *   (shared/lib/input/pressOwnership.ts), so its held input lets go.
  * - Restart grace: for the first 600 ms after the bar appears, every
  *   button in it ignores taps, and a held key never repeats a button. A
  *   press that starts inside the grace stays ignored until the finger
@@ -141,6 +144,22 @@ export function ResultChip({
   const grace = useRestartGrace(graceMs);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const resultId = useId();
+  // The presses that started on the bar: only their events stop here.
+  const [owned] = useState(createPressOwnership);
+  const ownPointerDown = (event: React.PointerEvent) => {
+    event.stopPropagation();
+    owned.down(event.pointerId);
+  };
+  const ownPointerEnd = (event: React.PointerEvent) => {
+    if (owned.end(event.pointerId)) event.stopPropagation();
+  };
+  const ownMouseDown = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    owned.mouseDown();
+  };
+  const ownMouseUp = (event: React.MouseEvent) => {
+    if (owned.mouseUp()) event.stopPropagation();
+  };
 
   const leaderboardAppId = appId && hasLeaderboardSupport(appId) ? appId : null;
 
@@ -222,11 +241,13 @@ export function ResultChip({
         onPointerDownCapture={holdPressDuringGrace}
         onPointerCancelCapture={endCancelledPress}
         onKeyDownCapture={startKeyGesture}
-        onPointerDown={stopAtChip}
-        onPointerUp={stopAtChip}
-        onPointerCancel={stopAtChip}
-        onMouseDown={stopAtChip}
-        onMouseUp={stopAtChip}
+        onPointerDown={ownPointerDown}
+        onPointerUp={ownPointerEnd}
+        onPointerCancel={ownPointerEnd}
+        onLostPointerCapture={(event) => owned.end(event.pointerId)}
+        onPointerLeave={(event) => owned.leave(event.pointerId, event.pointerType)}
+        onMouseDown={ownMouseDown}
+        onMouseUp={ownMouseUp}
         onTouchStart={stopAtChip}
         onTouchEnd={stopAtChip}
         onTouchCancel={stopAtChip}

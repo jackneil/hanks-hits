@@ -217,6 +217,82 @@ describe("in-play controls take a second finger (plan 11.3)", () => {
     expect(speech.cancel).toHaveBeenCalledTimes(1); // speak() cancels what was playing first
   });
 
+  it("lets a press that started on the game cross and end over the chip and the star: the game hears it, nothing taps", async () => {
+    // A game that holds thrust while a finger is down (window listeners).
+    let thrust = false;
+    const heard: string[] = [];
+    const onDown = () => (thrust = true);
+    const onUp = (event: Event) => {
+      thrust = false;
+      heard.push(event.type);
+    };
+    const onOther = (event: Event) => heard.push(event.type);
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointermove", onOther);
+    window.addEventListener("mouseup", onOther);
+    try {
+      const { fake } = renderWithClips(
+        <>
+          <div data-testid="game" />
+          <ToastSlot />
+        </>,
+        { records: [makeRecord({ id: "c1" })], snapshot: { ...RECORDING, unwatchedClipId: "c1" } },
+      );
+      const star = screen.getByTestId("clip-star-button");
+      const chip = screen.getByTestId("clip-new-chip");
+      // The thumb holds thrust, slides over the star and lifts on it.
+      fireEvent.pointerDown(screen.getByTestId("game"), pointer({ pointerId: 4 }));
+      fireEvent.pointerMove(star, pointer({ pointerId: 4 }));
+      fireEvent.pointerUp(star, pointer({ pointerId: 4 }));
+      expect(thrust).toBe(false);
+      // Again over the chip, with a mouse this time.
+      fireEvent.pointerDown(screen.getByTestId("game"), pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.pointerMove(chip, pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.pointerUp(chip, pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.mouseUp(chip);
+      expect(thrust).toBe(false);
+      expect(heard).toEqual(["pointermove", "pointerup", "pointermove", "pointerup", "mouseup"]);
+      await flush();
+      expect(fake.service.addStar).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointermove", onOther);
+      window.removeEventListener("mouseup", onOther);
+    }
+  });
+
+  it("forgets a mouse press that left the chip: a later release there from the game never opens the clip", async () => {
+    const heard: string[] = [];
+    const listener = (event: Event) => heard.push(event.type);
+    window.addEventListener("pointerup", listener);
+    try {
+      const { fake } = renderWithClips(
+        <>
+          <div data-testid="game" />
+          <ToastSlot />
+        </>,
+        { records: [makeRecord({ id: "c1" })], snapshot: { unwatchedClipId: "c1", gameCanPause: true, atBreak: false } },
+      );
+      const chip = screen.getByTestId("clip-new-chip");
+      // A mouse press on the chip slides off and lets go on the game: no tap.
+      fireEvent.pointerDown(chip, pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.pointerLeave(chip, pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.pointerUp(screen.getByTestId("game"), pointer({ pointerId: 1, pointerType: "mouse" }));
+      // Later, a press on the game ends over the chip.
+      fireEvent.pointerDown(screen.getByTestId("game"), pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.pointerUp(chip, pointer({ pointerId: 1, pointerType: "mouse" }));
+      await flush();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(fake.service.markWatched).not.toHaveBeenCalled();
+      expect(heard).toEqual(["pointerup", "pointerup"]);
+    } finally {
+      window.removeEventListener("pointerup", listener);
+    }
+  });
+
   it("never leaves keyboard focus on an in-play control after a pointer press", () => {
     installSpeechMock();
     renderWithClips(
@@ -396,6 +472,39 @@ describe("the one-time hold tip (plan 11.4)", () => {
     act(() => fake.set({ atBreak: false }));
     act(() => fake.set({ atBreak: true }));
     expect(screen.queryByTestId("clip-hold-tip")).toBeNull();
+  });
+
+  it("keeps a press on the tip to itself, and lets a press from the game end over it", () => {
+    const heard: string[] = [];
+    const listener = (event: Event) => heard.push(event.type);
+    window.addEventListener("pointerup", listener);
+    window.addEventListener("mouseup", listener);
+    try {
+      const { fake } = renderWithClips(
+        <>
+          <div data-testid="game" />
+          <ToastSlot />
+          <Controls />
+        </>,
+      );
+      for (let i = 0; i < HOLD_TIP_AFTER_CLIPS; i++) fireEvent.click(screen.getByTestId("note-clip"));
+      act(() => fake.set({ atBreak: true }));
+      const words = within(screen.getByTestId("clip-hold-tip")).getByText(TOAST_COPY.holdTip);
+      // A press on the tip's words stays with the tip.
+      fireEvent.pointerDown(words, pointer({ pointerId: 2 }));
+      fireEvent.mouseDown(words);
+      fireEvent.pointerUp(words, pointer({ pointerId: 2 }));
+      fireEvent.mouseUp(words);
+      expect(heard).toEqual([]);
+      // A press from the game that ends over the tip reaches the game.
+      fireEvent.pointerDown(screen.getByTestId("game"), pointer({ pointerId: 3 }));
+      fireEvent.pointerUp(words, pointer({ pointerId: 3 }));
+      fireEvent.mouseUp(words);
+      expect(heard).toEqual(["pointerup", "mouseup"]);
+    } finally {
+      window.removeEventListener("pointerup", listener);
+      window.removeEventListener("mouseup", listener);
+    }
   });
 
   it("waits for a break where the kid can see it (the pause menu covers the strip)", () => {

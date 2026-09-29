@@ -260,13 +260,14 @@ describe("ClipButton taps (plan 11.1)", () => {
 
   it("keeps its touches, pointers and clicks from the game's window listeners (Hill Climb's gas zone)", async () => {
     const seen: string[] = [];
-    const types = ["touchstart", "touchend", "pointerdown", "pointerup", "mousedown", "mouseup", "click"];
+    const types = ["touchstart", "touchend", "pointerdown", "pointermove", "pointerup", "mousedown", "mouseup", "click"];
     const listener = (event: Event) => seen.push(event.type);
     for (const type of types) window.addEventListener(type, listener);
     try {
       renderWithClips(<ClipButton />);
       fireEvent.touchStart(button());
       fireEvent.pointerDown(button(), pointer());
+      fireEvent.pointerMove(button(), pointer({ clientX: 24 }));
       fireEvent.mouseDown(button());
       fireEvent.touchEnd(button());
       fireEvent.pointerUp(button(), pointer());
@@ -276,6 +277,94 @@ describe("ClipButton taps (plan 11.1)", () => {
       expect(seen).toEqual([]);
     } finally {
       for (const type of types) window.removeEventListener(type, listener);
+    }
+  });
+
+  it("lets a press that started on the game cross and end over the button: the game still hears it", async () => {
+    // A game that holds thrust while a pointer is down (window listeners),
+    // and a paddle that follows the cursor (Breakout's window pointermove).
+    let thrust = false;
+    const moves: number[] = [];
+    const releases: string[] = [];
+    const onDown = () => (thrust = true);
+    const onUp = (event: Event) => {
+      thrust = false;
+      releases.push(event.type);
+    };
+    const onMove = (event: Event) => moves.push((event as PointerEvent).clientX);
+    const onMouseUp = (event: Event) => releases.push(event.type);
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("mouseup", onMouseUp);
+    try {
+      const { fake } = renderWithClips(
+        <>
+          <div data-testid="game" />
+          <ClipButton />
+        </>,
+      );
+      // A finger holds thrust on the game, slides over the button and lifts there.
+      fireEvent.pointerDown(screen.getByTestId("game"), pointer({ pointerId: 4 }));
+      expect(thrust).toBe(true);
+      fireEvent.pointerMove(button(), pointer({ pointerId: 4, clientX: 30 }));
+      fireEvent.pointerUp(button(), pointer({ pointerId: 4 }));
+      expect(thrust).toBe(false);
+      expect(moves).toEqual([30]);
+
+      // A mouse that only hovers across the button still moves the paddle.
+      fireEvent.pointerMove(button(), pointer({ pointerId: 1, pointerType: "mouse", clientX: 33 }));
+      expect(moves).toEqual([30, 33]);
+
+      // A mouse drag that began on the game and ends over the button.
+      fireEvent.pointerDown(screen.getByTestId("game"), pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.mouseDown(screen.getByTestId("game"));
+      fireEvent.pointerUp(button(), pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.mouseUp(button());
+      expect(releases).toEqual(["pointerup", "pointerup", "mouseup"]);
+      expect(thrust).toBe(false);
+
+      await flush();
+      // None of it touched the button.
+      expect(fake.service.beginPress).not.toHaveBeenCalled();
+      expect(fake.records).toHaveLength(0);
+    } finally {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    }
+  });
+
+  it("forgets a mouse press that left the button: a later release there from the game reaches the game", async () => {
+    const releases: string[] = [];
+    const listener = (event: Event) => releases.push(event.type);
+    window.addEventListener("pointerup", listener);
+    window.addEventListener("mouseup", listener);
+    try {
+      renderWithClips(
+        <>
+          <div data-testid="game" />
+          <ClipButton />
+        </>,
+      );
+      // A right-button press on the button (no capture) leaves it and lets go on the game.
+      fireEvent.pointerDown(button(), pointer({ pointerId: 1, pointerType: "mouse", button: 2 }));
+      fireEvent.mouseDown(button(), { button: 2 });
+      fireEvent.pointerLeave(button(), pointer({ pointerId: 1, pointerType: "mouse", button: 2 }));
+      fireEvent.pointerUp(screen.getByTestId("game"), pointer({ pointerId: 1, pointerType: "mouse", button: 2 }));
+      fireEvent.mouseUp(screen.getByTestId("game"), { button: 2 });
+      expect(releases).toEqual(["pointerup", "mouseup"]);
+      // A later press on the game, released over the button, belongs to the game.
+      fireEvent.pointerDown(screen.getByTestId("game"), pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.pointerUp(button(), pointer({ pointerId: 1, pointerType: "mouse" }));
+      fireEvent.mouseUp(button());
+      expect(releases).toEqual(["pointerup", "mouseup", "pointerup", "mouseup"]);
+    } finally {
+      window.removeEventListener("pointerup", listener);
+      window.removeEventListener("mouseup", listener);
     }
   });
 

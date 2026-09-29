@@ -1,5 +1,6 @@
-// Shared input guards for games: one action per tap, and a short lockout
-// on restart input after the game changes state.
+// Shared input guards for games: one action per tap, a short lockout on
+// restart input after the game changes state, and the presses that a
+// control over the game may keep from it.
 export {
   COMPAT_CLICK_WINDOW_MS,
   createPointerTap,
@@ -17,3 +18,5 @@ export {
   useRestartGrace,
 } from "./useRestartGrace";
 export type { GraceInput, RestartGrace } from "./useRestartGrace";
+export { createPressOwnership } from "./pressOwnership";
+export type { PressOwnership } from "./pressOwnership";

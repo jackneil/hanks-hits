@@ -18,12 +18,21 @@
  * - A pointer press never moves keyboard focus onto the control. A focused
  *   button owns Space and Enter (keyBelongsToTarget), so the game would stop
  *   hearing its jump key. Keyboard focus still works as usual.
- * - Every pointer, touch, mouse and click event stops at the control, so a
- *   game that listens on the window (Hill Climb's touch zones) never sees it.
+ * - The events of a press that started on the control stop there, so a game
+ *   that listens on the window (Hill Climb's touch zones) never sees them. A
+ *   press that started on the game and moves over or ends on the control
+ *   still reaches the game (shared/lib/input/pressOwnership.ts): a kid who
+ *   holds thrust and lifts the finger over the chip does not get a stuck
+ *   thrust.
+ * - A press that leaves the control before it comes up is not a tap, and
+ *   it is forgotten: a later release on the control from a press that began
+ *   somewhere else never acts.
  */
 
 import { useLayoutEffect, useState } from "react";
 import type React from "react";
+
+import { createPressOwnership } from "@/shared/lib/input/pressOwnership";
 
 import { nowMs } from "./platform";
 import { COMPAT_CLICK_WINDOW_MS } from "./pressGesture";
@@ -36,6 +45,8 @@ export interface InPlayTapHandlers {
   onPointerUp: (event: React.PointerEvent) => void;
   onPointerCancel: (event: React.PointerEvent) => void;
   onPointerMove: (event: React.PointerEvent) => void;
+  onPointerLeave: (event: React.PointerEvent) => void;
+  onLostPointerCapture: (event: React.PointerEvent) => void;
   onMouseDown: (event: React.MouseEvent) => void;
   onMouseUp: (event: React.MouseEvent) => void;
   onTouchStart: (event: React.TouchEvent) => void;
@@ -54,53 +65,108 @@ export interface InPlayTap {
 }
 
 /**
- * Handlers that keep a pointer press from moving focus and stop every
- * pointer, touch, mouse and click event at the element. For controls that
- * act on their own (the clip button), and for wrappers.
+ * Handlers that keep a pointer press from moving focus and keep the events
+ * of a press that started on the element from the game. For wrappers (the
+ * hold tip). Each element needs its own set: they remember its presses.
  */
-export const NO_FOCUS_NO_LEAK: InPlayTapHandlers = {
-  onPointerDown: (event) => event.stopPropagation(),
-  onPointerUp: (event) => event.stopPropagation(),
-  onPointerCancel: (event) => event.stopPropagation(),
-  onPointerMove: (event) => event.stopPropagation(),
-  onMouseDown: (event) => {
-    event.stopPropagation();
-    event.preventDefault();
-  },
-  onMouseUp: (event) => event.stopPropagation(),
-  onTouchStart: (event) => event.stopPropagation(),
-  onTouchMove: (event) => event.stopPropagation(),
-  onTouchEnd: (event) => event.stopPropagation(),
-  onTouchCancel: (event) => event.stopPropagation(),
-  onClick: (event) => event.stopPropagation(),
-  onContextMenu: (event) => event.stopPropagation(),
-};
+export function createNoFocusNoLeak(): InPlayTapHandlers {
+  const owned = createPressOwnership();
+  const stop = (event: React.SyntheticEvent) => event.stopPropagation();
+  return {
+    onPointerDown(event) {
+      event.stopPropagation();
+      owned.down(event.pointerId);
+    },
+    onPointerUp(event) {
+      if (owned.end(event.pointerId)) event.stopPropagation();
+    },
+    onPointerCancel(event) {
+      if (owned.end(event.pointerId)) event.stopPropagation();
+    },
+    onPointerMove(event) {
+      if (owned.owns(event.pointerId)) event.stopPropagation();
+    },
+    onPointerLeave(event) {
+      owned.leave(event.pointerId, event.pointerType);
+    },
+    onLostPointerCapture(event) {
+      owned.end(event.pointerId);
+    },
+    onMouseDown(event) {
+      event.stopPropagation();
+      owned.mouseDown();
+      event.preventDefault();
+    },
+    onMouseUp(event) {
+      if (owned.mouseUp()) event.stopPropagation();
+    },
+    // A touch event always goes to the element where the touch started.
+    onTouchStart: stop,
+    onTouchMove: stop,
+    onTouchEnd: stop,
+    onTouchCancel: stop,
+    onClick: stop,
+    onContextMenu: stop,
+  };
+}
+
+/** React form of createNoFocusNoLeak: one set for the life of the element. */
+export function useNoFocusNoLeak(): InPlayTapHandlers {
+  const [handlers] = useState(createNoFocusNoLeak);
+  return handlers;
+}
 
 /** The framework-free core; the hook below wraps it. */
 export function createInPlayTap(initial: (source: InPlayTapSource) => void): InPlayTap {
   let onTap = initial;
   let lastPointerAt = Number.NEGATIVE_INFINITY;
-  const down = new Set<number>();
+  const owned = createPressOwnership();
+  /** Presses that can still end in a tap: a left press that has not left the control. */
+  const armed = new Set<number>();
 
   const handlers: InPlayTapHandlers = {
-    ...NO_FOCUS_NO_LEAK,
+    ...createNoFocusNoLeak(),
     onPointerDown(event) {
       event.stopPropagation();
+      owned.down(event.pointerId);
       lastPointerAt = nowMs();
       // Right-click and the other mouse buttons are not taps.
       if (event.pointerType === "mouse" && event.button !== 0) return;
-      down.add(event.pointerId);
+      armed.add(event.pointerId);
     },
     onPointerUp(event) {
+      // A press that started on the game: its release belongs to the game.
+      if (!owned.end(event.pointerId)) return;
       event.stopPropagation();
       lastPointerAt = nowMs();
-      if (!down.delete(event.pointerId)) return;
+      if (!armed.delete(event.pointerId)) return;
       onTap("pointer");
     },
     onPointerCancel(event) {
+      armed.delete(event.pointerId);
+      if (!owned.end(event.pointerId)) return;
       event.stopPropagation();
       lastPointerAt = nowMs();
-      down.delete(event.pointerId);
+    },
+    onPointerMove(event) {
+      if (owned.owns(event.pointerId)) event.stopPropagation();
+    },
+    onPointerLeave(event) {
+      // The press ends off the control: no tap, and its release is not ours.
+      armed.delete(event.pointerId);
+      owned.leave(event.pointerId, event.pointerType);
+    },
+    onLostPointerCapture(event) {
+      armed.delete(event.pointerId);
+      owned.end(event.pointerId);
+    },
+    onMouseDown(event) {
+      event.stopPropagation();
+      owned.mouseDown();
+      event.preventDefault();
+    },
+    onMouseUp(event) {
+      if (owned.mouseUp()) event.stopPropagation();
     },
     onClick(event) {
       event.stopPropagation();

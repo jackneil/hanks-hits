@@ -23,8 +23,10 @@
  *   game under it still gets them. Only the chip, the star, the read-aloud
  *   buttons and "Got it" take taps. They act on the pointer, not on the
  *   click: a phone sends no click for a second finger, and a kid who holds
- *   the gas pedal taps the star with the other thumb (inPlayTap.ts). Their
- *   events stop there, and a pointer press never leaves focus on them.
+ *   the gas pedal taps the star with the other thumb (inPlayTap.ts). The
+ *   events of a press that started on them stop there, and a pointer press
+ *   never leaves focus on them. A press that started on the game still
+ *   reaches the game when it crosses or ends over them.
  * - Screen readers: one live region stays on the page and only its words
  *   change, so every reply is announced (a live region that arrives with
  *   its words already in it is often not read).
@@ -47,7 +49,7 @@ import { recordTimerName, TOAST_COPY } from "./copy";
 import { formatDuration } from "./format";
 import { PlayGlyph, StarGlyph } from "./glyphs";
 import { InPlayReadAloudButton } from "./InPlayReadAloudButton";
-import { NO_FOCUS_NO_LEAK, useInPlayTap } from "./inPlayTap";
+import { useInPlayTap, useNoFocusNoLeak } from "./inPlayTap";
 import { NO_INSETS, nowMs, pageHasBeenActive, readSideInsets, subscribeToNothing, type SideInsets } from "./platform";
 
 /** The stacking level of the toast slot (plan 11.4). */
@@ -226,6 +228,7 @@ function HoldTip({
     if (pageHasBeenActive()) speak(TOAST_COPY.holdTip);
   }, [state, isSupported, speak]);
   const done = useInPlayTap(onDone);
+  const noLeak = useNoFocusNoLeak();
   return (
     <div
       ref={tipRef}
@@ -233,7 +236,7 @@ function HoldTip({
       data-tip={state}
       className={`pointer-events-auto flex items-center gap-2 py-1.5 pl-4 pr-1.5 ${DARK_TOAST}`}
       style={{ maxWidth }}
-      {...NO_FOCUS_NO_LEAK}
+      {...noLeak}
     >
       <p className="min-w-0 flex-1 py-1 text-base font-semibold leading-snug">{TOAST_COPY.holdTip}</p>
       <InPlayReadAloudButton text={TOAST_COPY.holdTip} voice={voice} className="shrink-0 text-slate-900" />
