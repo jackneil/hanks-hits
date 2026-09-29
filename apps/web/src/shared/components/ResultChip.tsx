@@ -205,7 +205,15 @@ export function ResultChip({
   const holdPressDuringGrace = (event: React.PointerEvent) => {
     pressStartedHereRef.current = true;
     pressBlockedRef.current = !grace.accept();
-    if (pressBlockedRef.current) block(event);
+    if (pressBlockedRef.current) {
+      // Blocking the press also stops the bubble-phase ownPointerDown, but
+      // the press is still the bar's own: its release (pointerup, and the
+      // mouseup of a mouse) must stop at the bar too, or a game that acts
+      // on a release gets a stray one.
+      owned.down(event.pointerId);
+      if (event.pointerType === "mouse") owned.mouseDown();
+      block(event);
+    }
   };
   const endCancelledPress = () => {
     // A cancelled press sends no click, so its gesture ends here.

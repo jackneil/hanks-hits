@@ -407,6 +407,47 @@ describe("ResultChip keeps taps away from the game", () => {
     expect(gameClick).not.toHaveBeenCalled();
   });
 
+  it.each(["touch", "mouse"])("a %s press blocked by the grace sends no release to the game", (pointerType) => {
+    const heard: string[] = [];
+    const listener = (event: Event) => heard.push(event.type);
+    const types = ["pointerdown", "pointerup", "mousedown", "mouseup"];
+    for (const type of types) window.addEventListener(type, listener);
+    const gamePointerUp = vi.fn();
+    const gameMouseUp = vi.fn();
+    try {
+      const onRestart = vi.fn();
+      render(
+        // A game that acts on a release (release to swing, release to launch).
+        <div onPointerUp={gamePointerUp} onMouseUp={gameMouseUp}>
+          <ResultChip resultText="Game over!" onRestart={onRestart} />
+        </div>
+      );
+      // Inside the grace: the kid taps Play again.
+      const button = screen.getByRole("button", { name: /play again/i });
+      fireEvent.pointerDown(button, { pointerId: 5, pointerType, button: 0 });
+      if (pointerType === "mouse") fireEvent.mouseDown(button);
+      fireEvent.pointerUp(button, { pointerId: 5, pointerType, button: 0 });
+      if (pointerType === "mouse") fireEvent.mouseUp(button);
+      fireEvent.click(button, { detail: 1 });
+      expect(heard).toEqual([]);
+      expect(gamePointerUp).not.toHaveBeenCalled();
+      expect(gameMouseUp).not.toHaveBeenCalled();
+      expect(onRestart).not.toHaveBeenCalled();
+      // After the grace, the same tap restarts, and still keeps its events from the game.
+      passGrace();
+      fireEvent.pointerDown(button, { pointerId: 6, pointerType, button: 0 });
+      if (pointerType === "mouse") fireEvent.mouseDown(button);
+      fireEvent.pointerUp(button, { pointerId: 6, pointerType, button: 0 });
+      if (pointerType === "mouse") fireEvent.mouseUp(button);
+      fireEvent.click(button, { detail: 1 });
+      expect(onRestart).toHaveBeenCalledTimes(1);
+      expect(heard).toEqual([]);
+      expect(gamePointerUp).not.toHaveBeenCalled();
+    } finally {
+      for (const type of types) window.removeEventListener(type, listener);
+    }
+  });
+
   it("a tap beside the chip's surface still reaches the game", () => {
     render(<ResultChip resultText="Game over!" onRestart={vi.fn()} />);
     expect(chip().className).toContain("pointer-events-none");
