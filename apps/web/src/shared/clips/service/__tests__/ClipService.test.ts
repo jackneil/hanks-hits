@@ -1389,3 +1389,46 @@ describe("the tab singleton", () => {
     expect(getClipService()).toBeNull();
   });
 });
+
+describe("replay granularity (plan 5, tiers M and V)", () => {
+  it("is absent until the engine measures it, then the snapshot carries the newest value", async () => {
+    const w = makeWorld();
+    w.engine.prepared = { tier: "V", supported: true };
+    await ready(w);
+    expect(w.service.getSnapshot()).not.toHaveProperty("replayGranularitySec");
+    expect(w.service.getSnapshot().tier).toBe("V");
+    w.engine.emit({ t: "granularity", seconds: 5 });
+    const first = w.service.getSnapshot();
+    expect(first.replayGranularitySec).toBe(5);
+    // The same value makes no new snapshot; a new one does.
+    w.engine.emit({ t: "granularity", seconds: 5 });
+    expect(w.service.getSnapshot()).toBe(first);
+    w.engine.emit({ t: "granularity", seconds: 1 });
+    expect(w.service.getSnapshot().replayGranularitySec).toBe(1);
+    expect(w.service.getSnapshot().version).toBe(first.version + 1);
+  });
+
+  it("is gone after a reset (the next session, perhaps another game, measures its own)", async () => {
+    const w = makeWorld();
+    w.engine.prepared = { tier: "V", supported: true };
+    await ready(w);
+    w.engine.emit({ t: "granularity", seconds: 4.5 });
+    expect(w.service.getSnapshot().replayGranularitySec).toBe(4.5);
+    w.engine.emit({ t: "reset" });
+    expect(w.service.getSnapshot()).not.toHaveProperty("replayGranularitySec");
+    // The next session's first measure shows again.
+    w.engine.emit({ t: "granularity", seconds: 1 });
+    expect(w.service.getSnapshot().replayGranularitySec).toBe(1);
+  });
+
+  it("a tier change (the engine switch moved to the WebCodecs engine) shows the new tier and drops the old granularity", async () => {
+    const w = makeWorld();
+    w.engine.prepared = { tier: "M", supported: true };
+    await ready(w);
+    w.engine.emit({ t: "granularity", seconds: 4.5 });
+    w.engine.emit({ t: "tier", tier: "W" });
+    const snapshot = w.service.getSnapshot();
+    expect(snapshot.tier).toBe("W");
+    expect(snapshot).not.toHaveProperty("replayGranularitySec");
+  });
+});

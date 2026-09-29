@@ -90,6 +90,13 @@ export interface ClipSnapshot {
   savingProgress: number | null;
   /** Seconds of footage in the ring right now (0 when not buffering). */
   bufferedSec: number;
+  /**
+   * Replay granularity (plan 5): a clip can start up to this many seconds
+   * before the moment the kid asked for (it starts at a keyframe). Tiers M
+   * and V measure it on the device, and the UI can show it. Absent: 1 s
+   * (tiers W and W+ keep a keyframe every second), or not measured yet.
+   */
+  replayGranularitySec?: number;
   /** True when the newest footage is from before the governor rested capture. */
   preRest: boolean;
   recording: {

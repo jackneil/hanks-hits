@@ -124,6 +124,13 @@ export function paintableHud(hud: HudState | null | undefined): HudState {
 
 type Ctx2D = OffscreenCanvasRenderingContext2D;
 
+/**
+ * A 2D context that the band, chip and brand painters can use: the worker's
+ * OffscreenCanvas context, or a page canvas context (the MediaRecorder engine
+ * of tiers M and V paints the same band on the main thread).
+ */
+export type PaintContext2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+
 interface Surface {
   canvas: OffscreenCanvas;
   ctx: Ctx2D;
@@ -270,7 +277,7 @@ function frameFromPixels(input: Extract<FrameIn, { t: "pixels" }>): VideoFrame {
 }
 
 /** Sets the largest font from maxPx down to minPx that fits, then cuts the text with an ellipsis if needed. */
-function fitText(ctx: Ctx2D, text: string, weight: number, maxPx: number, minPx: number, maxWidth: number): { text: string; px: number } {
+function fitText(ctx: PaintContext2D, text: string, weight: number, maxPx: number, minPx: number, maxWidth: number): { text: string; px: number } {
   let px = maxPx;
   const font = (p: number) => `${weight} ${p}px ${TEXT_FAMILY}`;
   ctx.font = font(px);
@@ -284,7 +291,7 @@ function fitText(ctx: Ctx2D, text: string, weight: number, maxPx: number, minPx:
   return { text: `${chars.join("").trimEnd()}…`, px };
 }
 
-function paintBand(ctx: Ctx2D, band: Rect, hud: HudState): void {
+export function paintBand(ctx: PaintContext2D, band: Rect, hud: HudState): void {
   const pad = Math.round(band.w * 0.04);
   const mid = band.h / 2;
   ctx.fillStyle = COMPOSITOR_COLORS.band;
@@ -319,7 +326,7 @@ function paintBand(ctx: Ctx2D, band: Rect, hud: HudState): void {
 }
 
 /** Paints the corner chip and returns its width. */
-function paintChip(ctx: Ctx2D, chip: { maxW: number; h: number }, hud: HudState): number {
+export function paintChip(ctx: PaintContext2D, chip: { maxW: number; h: number }, hud: HudState): number {
   const padX = Math.round(chip.h * 0.3);
   const textPx = Math.round(chip.h * 0.5);
   const gap = Math.round(textPx * 0.4);
@@ -365,7 +372,7 @@ function paintChip(ctx: Ctx2D, chip: { maxW: number; h: number }, hud: HudState)
   return width;
 }
 
-function paintBrand(ctx: Ctx2D, box: CompositorLayout["brand"], host: string): void {
+export function paintBrand(ctx: PaintContext2D, box: CompositorLayout["brand"], host: string): void {
   ctx.clearRect(0, 0, box.w, box.h);
   ctx.textBaseline = "middle";
   const fitted = fitText(ctx, host, 600, box.px, Math.round(box.px * 0.7), box.w - box.h);
