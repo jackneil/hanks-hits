@@ -64,7 +64,7 @@ dogfood-output-*/
 settings.local.json
 .claude/goals/
 
-# EmulatorJS Corresponding Source archives (about 136 MB). They are never
+# EmulatorJS Corresponding Source archives (about 131 MB). They are never
 # committed: the Docker build downloads each archive that manifest.json lists,
 # checks its SHA-256 and serves it (see apps/web/public/emulator/ejs/README.md).
 # For a local copy, run: pnpm --filter web emulator:sources

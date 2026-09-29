@@ -139,6 +139,9 @@ C. The parts
    How we know each commit: the Makefile of each core puts the short git
    commit ID into the core (git rev-parse --short HEAD). We give the text
    that each core contains below. GitHub gives the full commit ID for it.
+   licenses/GPL-2.0.txt is the text of the GNU General Public License,
+   version 2 (GPL-2.0). FCEUmm, Mupen64Plus-Next, Nestopia UE and Stella
+   2014 (parts 4.1, 4.4, 4.5 and 4.8) have this license.
 
    4.1 FCEUmm (fceumm), for the NES
        License: GNU General Public License, version 2 or later.
@@ -194,21 +197,7 @@ C. The parts
          commit 6b08ec9148bd4cedc893ed0c97bc64061d044399
          ("1.53.1 6b08ec9").
 
-   4.6 ParaLLEl N64 (parallel_n64), for the Nintendo 64
-       License: GNU General Public License, version 2 (GPL-2.0), the license
-       of Mupen64Plus-Core. Most files also allow a later version. Some parts
-       have other licenses. Their notices are in the source archive.
-       License texts: licenses/cores/parallel_n64.txt (the Mupen64Plus-Core
-       LICENSES file) and licenses/GPL-2.0.txt. The core file has no
-       license.txt.
-       Copyright: the Mupen64Plus authors (see licenses/cores/parallel_n64.txt)
-       and the other parallel-n64 authors.
-       Source code: source/parallel-n64-56f4daf8ec9b.tar.gz (5.1 MB)
-         https://github.com/EmulatorJS/parallel-n64,
-         commit 56f4daf8ec9b00d51d7db88e3c34c381294dbde0
-         ("2.0-rc2 56f4daf").
-
-   4.7 PicoDrive (picodrive), for the Sega Genesis
+   4.6 PicoDrive (picodrive), for the Sega Genesis
        License: the PicoDrive license (the MAME license). It allows
        non-commercial use only. Redistributions must not be sold or used in
        a commercial product or activity.
@@ -239,7 +228,7 @@ C. The parts
            platform/common/dr_libs, https://github.com/mackron/dr_libs,
            commit dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb.
 
-   4.8 Snes9x (snes9x), for the Super NES
+   4.7 Snes9x (snes9x), for the Super NES
        License: the Snes9x license. It allows use, copy, change and
        distribution for non-commercial purposes only. The license
        information and the copyright notice must appear with all copies.
@@ -256,7 +245,7 @@ C. The parts
        The libretro build of Snes9x does not use the git submodules of
        this repository.
 
-   4.9 Stella 2014 (stella2014), for the Atari 2600
+   4.8 Stella 2014 (stella2014), for the Atari 2600
        License: GNU General Public License, version 2.
        License text: licenses/cores/stella2014.txt (stella/license.txt from
        the source). The core file has no license.txt.
@@ -315,9 +304,9 @@ D. A known license problem in the upstream core files
 Each core file holds RetroArch and one emulator core, compiled together
 into one program (part B). RetroArch has the GPL-3.0-or-later license. The
 licenses of four cores do not agree with the GPL-3.0:
-  - Stella 2014 (part 4.9) has the GPL-2.0 license only. Its license does
+  - Stella 2014 (part 4.8) has the GPL-2.0 license only. Its license does
     not give the option of a later version.
-  - Snes9x (part 4.8), Genesis Plus GX (part 4.2) and PicoDrive (part 4.7)
+  - Snes9x (part 4.7), Genesis Plus GX (part 4.2) and PicoDrive (part 4.6)
     allow non-commercial use only. The GPL-3.0 does not allow this
     condition on a combined program.
 

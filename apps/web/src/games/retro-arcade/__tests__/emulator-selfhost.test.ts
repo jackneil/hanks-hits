@@ -28,7 +28,7 @@ import { SYSTEMS } from "../lib/constants";
  * binary names. scripts/emulatorjs-sources.mjs gets and checks these files.
  *
  * Git holds the license texts and NOTICE.txt, so the tests always check them.
- * Git does not hold source/ (about 136 MB). The Docker build downloads each
+ * Git does not hold source/ (about 131 MB). The Docker build downloads each
  * archive and checks its SHA-256 (stage emulator-sources), and the tests
  * check that it does. The tests check a source archive only when it is on
  * disk (after pnpm --filter web emulator:sources).
@@ -208,13 +208,13 @@ function coreTable(bundle: string): Record<string, string[]> {
 /**
  * Every core that EmulatorJS can load for an EJS_core value (the same rule
  * as coresFor() in scripts/vendor-emulatorjs.mjs). A system name gives all
- * cores of the system. A core name gives the core and the cores of the first
- * system that lists it: the settings menu offers those (getCore(true)).
+ * cores of the system: the settings menu offers them. A core name gives that
+ * core only: the emulator page pins it (it hides the Core setting and forgets
+ * a stored core choice; emulator-page.test.ts checks).
  */
 function coresFor(ejsCore: string, table: Record<string, string[]>): string[] | null {
   if (table[ejsCore]) return [...table[ejsCore]];
-  const system = Object.keys(table).find((key) => table[key].includes(ejsCore));
-  return system ? [...new Set([ejsCore, ...table[system]])] : null;
+  return Object.values(table).some((cores) => cores.includes(ejsCore)) ? [ejsCore] : null;
 }
 
 describe("self-hosted EmulatorJS files", () => {
@@ -308,8 +308,8 @@ describe("self-hosted EmulatorJS files", () => {
         missing.push(`EmulatorJS has no core for ${info.ejsCore} (${system})`);
         continue;
       }
-      // Every core in the list: the kid can pick another core in the
-      // EmulatorJS settings, and iPhone Safari reverses the N64 order.
+      // Every core in the list: for a system name, the kid can pick another
+      // core in the EmulatorJS settings.
       for (const core of cores) {
         // The WebGL 2 build and the legacy (WebGL 1) build, and the report
         // that EmulatorJS reads first to pick one of them.
@@ -343,10 +343,12 @@ describe("self-hosted EmulatorJS files", () => {
   });
 
   it("find the cores of a system name and of a core name (guards coresFor)", () => {
-    const table = { gb: ["gambatte"], segaMS: ["smsplus", "picodrive"], gba: ["mgba"] };
+    const table = { gb: ["gambatte"], segaMS: ["smsplus", "picodrive"], gba: ["mgba"], n64: ["mupen64plus_next", "parallel_n64"] };
     expect(coresFor("gb", table)).toEqual(["gambatte"]);
     expect(coresFor("mgba", table)).toEqual(["mgba"]);
-    expect(coresFor("picodrive", table)).toEqual(["picodrive", "smsplus"]);
+    expect(coresFor("picodrive", table)).toEqual(["picodrive"]);
+    expect(coresFor("n64", table)).toEqual(["mupen64plus_next", "parallel_n64"]);
+    expect(coresFor("mupen64plus_next", table)).toEqual(["mupen64plus_next"]);
     expect(coresFor("psx", table)).toBeNull();
   });
 
@@ -360,6 +362,22 @@ describe("self-hosted EmulatorJS files", () => {
 });
 
 describe("self-hosted EmulatorJS licenses and source code", () => {
+  it("give each source archive in NOTICE.txt the size that the manifest records", () => {
+    // MB with one decimal ("less than 0.1 MB" below that), the words that
+    // the /licenses page uses too. A size can wrap onto the next line.
+    const words = (bytes: number) => {
+      const mb = (bytes / 1e6).toFixed(1);
+      return mb === "0.0" ? "less than 0.1 MB" : `${mb} MB`;
+    };
+    const flat = notice.replace(/\s+/g, " ");
+    const wrong: string[] = [];
+    for (const source of manifest.sources) {
+      const stated = new RegExp(`${source.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(([^)]*)\\)`).exec(flat)?.[1];
+      if (stated !== words(source.bytes)) wrong.push(`${source.path}: NOTICE.txt says ${stated ?? "no size"}, manifest ${words(source.bytes)}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
   it("serve each license text and NOTICE.txt unchanged", async () => {
     const problems: string[] = [];
     for (const entry of [...manifest.licenses, manifest.notice]) {
@@ -482,22 +500,6 @@ describe("self-hosted EmulatorJS licenses and source code", () => {
     expect(notice).toContain(manifest.release.sha256);
     expect(notice).toContain(manifest.release.asset);
     expect(missing).toEqual([]);
-  });
-
-  it("give each source archive in NOTICE.txt the size that the manifest records", () => {
-    // MB with one decimal ("less than 0.1 MB" below that), the words that
-    // the /licenses page uses too. A size can wrap onto the next line.
-    const words = (bytes: number) => {
-      const mb = (bytes / 1e6).toFixed(1);
-      return mb === "0.0" ? "less than 0.1 MB" : `${mb} MB`;
-    };
-    const flat = notice.replace(/\s+/g, " ");
-    const wrong: string[] = [];
-    for (const source of manifest.sources) {
-      const stated = new RegExp(`${source.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(([^)]*)\\)`).exec(flat)?.[1];
-      if (stated !== words(source.bytes)) wrong.push(`${source.path}: NOTICE.txt says ${stated ?? "no size"}, manifest ${words(source.bytes)}`);
-    }
-    expect(wrong).toEqual([]);
   });
 
   it("state the known license problem of the upstream core files", () => {

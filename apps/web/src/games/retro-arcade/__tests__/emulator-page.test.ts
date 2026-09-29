@@ -29,12 +29,13 @@ type PageWindow = Record<string, unknown> & {
   location: { origin: string; search: string };
 };
 
-function runPage(params: Record<string, string>) {
+function runPage(params: Record<string, string>, extra: Record<string, unknown> = {}) {
   document.body.innerHTML = BODY;
   const win: PageWindow = {
     location: { origin: ORIGIN, search: `?${new URLSearchParams(params).toString()}` },
     parent: { postMessage: vi.fn() },
     addEventListener: vi.fn(),
+    ...extra,
   };
   let error: Error | null = null;
   try {
@@ -106,6 +107,14 @@ describe("emulator page: the core of each console", () => {
     expect(page.loaderSrc).toBe("/emulator/ejs/4.2.3/loader.js");
   });
 
+  it("plays Nintendo 64 games on mupen64plus_next with the N64 buttons", () => {
+    // Not "n64": for that system name EmulatorJS 4.2.3 picks parallel_n64 on
+    // an iPhone, which stopped at boot and hung on a resume on a real iPhone.
+    const page = runPage({ core: "n64", rom: "/api/roms/n64/demo.z64" });
+    expect(page.win.EJS_core).toBe("mupen64plus_next");
+    expect(page.win.EJS_controlScheme).toBe("n64");
+  });
+
   it("plays Game Boy games on mGBA with the Game Boy buttons", () => {
     const page = runPage({ core: "gb", rom: "/api/roms/gb/demo.gb" });
     expect(page.win.EJS_core).toBe("mgba");
@@ -122,6 +131,61 @@ describe("emulator page: the core of each console", () => {
       expect(page.loaderSrc).toBeNull();
     }
   );
+});
+
+/** The system-to-cores table of getCores() in the vendored bundle. */
+const CORE_TABLE: Record<string, string[]> = (() => {
+  const bundle = readFileSync(join(WEB_ROOT, "public", "emulator", "ejs", "4.2.3", "emulator.min.js"), "utf8");
+  const match = /getCores\(\)\{let [A-Za-z_$][\w$]*=(\{[^}]*\})/.exec(bundle);
+  if (!match) throw new Error("getCores() table not found in emulator.min.js");
+  return JSON.parse(match[1].replace(/([{,])([A-Za-z_$][\w$]*):/g, '$1"$2":'));
+})();
+
+describe("emulator page: a core name pins the core", () => {
+  const settingsKey = (system: string, name: string) => `ejs-1-${system}-${name}-settings`;
+  afterEach(() => localStorage.clear());
+
+  it.each(SYSTEM_IDS)("hides the Core setting of %s exactly when its ejsCore is a core name", (id) => {
+    const page = runPage({ core: id, rom: `/api/roms/${id}/demo.bin`, name: "Demo" }, { localStorage });
+    const isSystemName = Object.prototype.hasOwnProperty.call(CORE_TABLE, SYSTEMS[id].ejsCore);
+    expect(page.win.EJS_hideSettings).toEqual(isSystemName ? undefined : ["retroarch_core"]);
+  });
+
+  it("hides the Core setting for the Nintendo 64, so the player cannot pick parallel_n64", () => {
+    const page = runPage({ core: "n64", rom: "/api/roms/n64/demo.z64", name: "Demo" }, { localStorage });
+    expect(page.win.EJS_hideSettings).toEqual(["retroarch_core"]);
+  });
+
+  it("forgets a core choice that EmulatorJS kept for this game and keeps its other settings", () => {
+    // EmulatorJS reads this key before EJS_core (getCore, preGetSetting).
+    localStorage.setItem(
+      settingsKey("n64", "Demo"),
+      JSON.stringify({ settings: { retroarch_core: "parallel_n64", shader: "crt-zfast" }, controlSettings: { 0: {} } })
+    );
+    runPage({ core: "n64", rom: "/api/roms/n64/demo.z64", name: "Demo" }, { localStorage });
+    const saved = JSON.parse(localStorage.getItem(settingsKey("n64", "Demo")) ?? "{}");
+    expect(saved.settings).toEqual({ shader: "crt-zfast" });
+    expect(saved.controlSettings).toEqual({ 0: {} });
+  });
+
+  it("leaves the settings of other games and of consoles with a system name alone", () => {
+    const other = JSON.stringify({ settings: { retroarch_core: "parallel_n64" } });
+    const nes = JSON.stringify({ settings: { retroarch_core: "nestopia" } });
+    localStorage.setItem(settingsKey("n64", "Other"), other);
+    localStorage.setItem(settingsKey("nes", "Demo"), nes);
+    runPage({ core: "n64", rom: "/api/roms/n64/demo.z64", name: "Demo" }, { localStorage });
+    runPage({ core: "nes", rom: "/api/roms/nes/demo.nes", name: "Demo" }, { localStorage });
+    expect(localStorage.getItem(settingsKey("n64", "Other"))).toBe(other);
+    // The NES player may still pick fceumm or nestopia.
+    expect(localStorage.getItem(settingsKey("nes", "Demo"))).toBe(nes);
+  });
+
+  it("starts the game when the stored settings are not JSON", () => {
+    localStorage.setItem(settingsKey("n64", "Demo"), "{not json");
+    const page = runPage({ core: "n64", rom: "/api/roms/n64/demo.z64", name: "Demo" }, { localStorage });
+    expect(page.error).toBeNull();
+    expect(page.loaderSrc).toBe("/emulator/ejs/4.2.3/loader.js");
+  });
 });
 
 /** A small stand-in for the Emscripten FS calls that the page uses. */
@@ -237,6 +301,60 @@ const pattern = (length: number) => {
   for (let i = 0; i < length; i++) bytes[i] = (i * 31 + 7) & 0xff;
   return bytes;
 };
+
+describe("emulator page: the landscape strips follow the on-screen gamepad", () => {
+  /** Starts the game with a gamepad element in the given style, as EmulatorJS makes it. */
+  function startWithGamepad(style: string) {
+    const page = runPage({ core: "snes", rom: "/api/roms/snes/demo.smc" });
+    const pad = document.createElement("div");
+    pad.className = "ejs_virtualGamepad_parent";
+    pad.setAttribute("style", style);
+    document.getElementById("game")!.appendChild(pad);
+    page.win.EJS_emulator = { on: vi.fn(), virtualGamepad: pad };
+    (page.win.EJS_onGameStart as () => void)();
+    const game = document.getElementById("game")!;
+    const parent = page.win.parent as { postMessage: ReturnType<typeof vi.fn> };
+    return { game, pad, parent };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("marks #game when the game starts with the gamepad shown (a phone)", () => {
+    const { game, parent } = startWithGamepad("");
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(true);
+    expect(parent.postMessage).toHaveBeenCalledWith({ type: "ready" }, ORIGIN);
+  });
+
+  it("does not mark #game when EmulatorJS hides the gamepad (a computer)", () => {
+    const { game } = startWithGamepad("display: none;");
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(false);
+  });
+
+  it("follows the gamepad when the player turns it off and on in Settings", async () => {
+    const { game, pad } = startWithGamepad("");
+    pad.style.display = "none";
+    await settle();
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(false);
+    pad.style.display = "";
+    await settle();
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(true);
+  });
+
+  it("ignores the 250 ms that EmulatorJS shows a hidden gamepad at opacity 0 to measure it", async () => {
+    const { game, pad } = startWithGamepad("display: none;");
+    pad.style.opacity = "0";
+    pad.style.display = "";
+    await settle();
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(false);
+  });
+
+  it("still tells the parent that the game is ready when there is no gamepad element", () => {
+    const page = runPage({ core: "nes", rom: "/api/roms/nes/demo.nes" });
+    page.win.EJS_emulator = { on: vi.fn() };
+    (page.win.EJS_onGameStart as () => void)();
+    expect((page.win.parent as { postMessage: ReturnType<typeof vi.fn> }).postMessage).toHaveBeenCalledWith({ type: "ready" }, ORIGIN);
+    expect(document.getElementById("game")!.classList.contains("hh_gamepad_shown")).toBe(false);
+  });
+});
 
 describe("emulator page: save states", () => {
   it("sends the bytes of a Save State to the parent as a transferred ArrayBuffer", () => {

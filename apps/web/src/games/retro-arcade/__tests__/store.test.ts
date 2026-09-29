@@ -111,6 +111,80 @@ describe("Retro Arcade store favorites", () => {
   });
 });
 
+describe("Retro Arcade store: a cloud pull keeps the uploaded files of this visit", () => {
+  const cloud = (customRoms: RetroArcadeProgress["customRoms"]): RetroArcadeProgress => ({
+    favorites: [],
+    recentlyPlayed: [],
+    customRoms,
+    stats: { totalPlayTime: 0, gamesPlayed: 0, favoriteSystem: "", lastPlayedAt: 0 },
+    settings: { volume: 0.5, autoSaveOnExit: true, showTouchControls: true },
+    lastModified: 1_790_000_000_000,
+  });
+
+  beforeEach(() => {
+    localStorage.clear();
+    useRetroArcadeStore.setState({ customRoms: [] });
+  });
+
+  it("keeps the file of each ROM that the cloud list names (same id)", () => {
+    const file = new Blob([new Uint8Array([1, 2, 3])]);
+    useRetroArcadeStore.getState().addCustomRom({ id: "n64-demo.n64-1", name: "demo.n64", system: "n64", addedAt: 1, file });
+
+    useRetroArcadeStore.getState().setProgress(cloud([{ id: "n64-demo.n64-1", name: "demo.n64", system: "n64", addedAt: 1 }]));
+
+    const roms = useRetroArcadeStore.getState().customRoms;
+    expect(roms).toHaveLength(1);
+    // Without the file, "Your ROMs" shows the entry as Expired.
+    expect(roms[0].file).toBe(file);
+  });
+
+  it("gives a file uploaded again in this visit to the cloud entry of the same game", () => {
+    // The cloud still has the id of an earlier upload of the same name.
+    const file = new Blob([new Uint8Array([4])]);
+    useRetroArcadeStore.getState().addCustomRom({ id: "gb-tetris.gb-2", name: "tetris.gb", system: "gb", addedAt: 2, file });
+
+    useRetroArcadeStore.getState().setProgress(cloud([{ id: "gb-tetris.gb-1", name: "tetris.gb", system: "gb", addedAt: 1 }]));
+
+    const roms = useRetroArcadeStore.getState().customRoms;
+    expect(roms.map((rom) => rom.id)).toEqual(["gb-tetris.gb-1"]);
+    expect(roms[0].file).toBe(file);
+  });
+
+  it("keeps an upload of this visit that the cloud does not list yet, and adds the cloud entries", () => {
+    const file = new Blob([new Uint8Array([5])]);
+    useRetroArcadeStore.getState().addCustomRom({ id: "nes-new.nes-3", name: "new.nes", system: "nes", addedAt: 3, file });
+
+    useRetroArcadeStore.getState().setProgress(cloud([{ id: "snes-old.sfc-1", name: "old.sfc", system: "snes", addedAt: 1 }]));
+
+    const roms = useRetroArcadeStore.getState().customRoms;
+    expect(roms.map((rom) => rom.id)).toEqual(["nes-new.nes-3", "snes-old.sfc-1"]);
+    expect(roms[0].file).toBe(file);
+    // A ROM from another device has no file here: it shows as Expired.
+    expect(roms[1].file).toBeUndefined();
+  });
+
+  it("drops an entry without a file that the cloud list does not name", () => {
+    useRetroArcadeStore.setState({ customRoms: [{ id: "gba-gone.gba-1", name: "gone.gba", system: "gba", addedAt: 1 }] });
+
+    useRetroArcadeStore.getState().setProgress(cloud([]));
+
+    expect(useRetroArcadeStore.getState().customRoms).toEqual([]);
+  });
+
+  it("still never syncs or persists a file after the merge", () => {
+    const file = new Blob([new Uint8Array([6])]);
+    useRetroArcadeStore.getState().addCustomRom({ id: "n64-demo.n64-1", name: "demo.n64", system: "n64", addedAt: 1, file });
+
+    useRetroArcadeStore.getState().setProgress(cloud([{ id: "n64-demo.n64-1", name: "demo.n64", system: "n64", addedAt: 1 }]));
+
+    expect(useRetroArcadeStore.getState().getProgress().customRoms).toEqual([
+      { id: "n64-demo.n64-1", name: "demo.n64", system: "n64", addedAt: 1 },
+    ]);
+    const persisted = JSON.parse(localStorage.getItem("retro-arcade-progress") ?? "{}");
+    expect(persisted.state.customRoms).toEqual([{ id: "n64-demo.n64-1", name: "demo.n64", system: "n64", addedAt: 1 }]);
+  });
+});
+
 describe("Retro Arcade store: save states left the progress", () => {
   const legacyProgress = {
     favorites: ["snes-Super Mario World"],

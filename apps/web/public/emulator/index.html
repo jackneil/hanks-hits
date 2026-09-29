@@ -289,6 +289,98 @@
         left: 64px !important;
       }
     }
+
+    /* Landscape with the on-screen gamepad. The picture is in the middle and
+       the controls go in a strip on each side (--hh-side wide), so no
+       control covers the picture. On a short phone (568x320, 667x375) the
+       picture fills the height and leaves strips of about 105 px only; there
+       the picture gets smaller to keep the strips free. On a wide screen
+       (844x390) the picture is already narrower than the space between the
+       strips, so it does not change. The page puts "hh_gamepad_shown" on
+       #game while EmulatorJS shows the gamepad (see trackGamepad below), so
+       a computer without the gamepad keeps the whole box for the picture.
+       RetroArch fits the picture in the size of the canvas; it puts the
+       picture at the top of a canvas that is taller than it is wide.
+       Every layout fits a box of 241 px or more: the box is the screen minus
+       the 52 px bar of the game, 268 px on a 568x320 screen and 259 px in
+       Safari on an iPhone SE in landscape (a 667x311 page, measured). */
+    #game { --hh-side: 144px; }
+    #game:has(.cs_snes),
+    #game:has(.cs_n64) { --hh-side: 164px; }
+    #game:has(.cs_segaMD) { --hh-side: 170px; }
+    @media (orientation: landscape) {
+      #game.hh_gamepad_shown .ejs_canvas_parent {
+        position: absolute;
+        top: 0;
+        left: var(--hh-side);
+        right: var(--hh-side);
+        width: auto;
+        height: 100%;
+      }
+      /* The shoulder buttons are 4 px above the d-pad and the face buttons,
+         so the SNES R stays on the screen. R is left of the menu button
+         (top right). */
+      #game .ejs_virtualGamepad_left .b_l,
+      #game .ejs_virtualGamepad_right .b_r {
+        top: -52px !important;
+      }
+      #game .ejs_virtualGamepad_right .b_r {
+        left: auto !important;
+        right: 46px !important;
+      }
+      /* Sega Genesis: the rows of three are 162 px wide (50 px buttons,
+         4 px apart), 8 px from the right edge. */
+      #game .ejs_virtualGamepad_parent:has(.cs_segaMD) .ejs_virtualGamepad_right { right: 8px; }
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_a,
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_x { right: 108px !important; }
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_b,
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_y { right: 54px !important; }
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_c,
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_z { right: 0 !important; }
+      /* Super Nintendo: R goes in the empty top left corner of the diamond
+         (next to X and Y), so the SNES needs 214 px, not 266 px, and fits
+         the 259 px box of Safari on an iPhone SE in landscape. */
+      #game .ejs_virtualGamepad_right .cs_snes.b_r {
+        left: 0 !important;
+        right: auto !important;
+        top: 0 !important;
+        width: 48px;
+      }
+      /* Nintendo 64, 212 px tall. Left strip: a column with the analog stick
+         (4 to 104 px from the bottom) and the d-pad stick above it (108 to
+         208 px), then a column with Fast (8 to 56 px), Z (60 to 108 px) and
+         L (160 to 208 px). The sticks are 100 px circles on the bottom and
+         top edges of their container. Right strip: the bottom row (Start,
+         Slow), then a 3x3 grid of 48 px buttons, 4 px apart (60 to 212 px):
+         R, CU, (empty) / CL, (empty), CR / B, CD, A. The empty top right
+         cell is under the menu button. */
+      #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_left {
+        left: 4px;
+        width: 100px;
+        bottom: 46px;
+        height: 104px;
+      }
+      #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_right {
+        right: 8px;
+        width: 152px;
+        bottom: 52px;
+        height: 152px;
+      }
+      #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_top {
+        bottom: 200px;
+      }
+      #game .ejs_virtualGamepad_right .cs_n64 { width: 48px; height: 48px; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cu { left: 52px !important; top: 0 !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cl { left: 0 !important; top: 52px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cr { left: 104px !important; top: 52px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_b { left: 0 !important; top: 104px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cd { left: 52px !important; top: 104px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_a { left: 104px !important; top: 104px !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_l { left: 108px !important; right: auto !important; top: 0 !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_z { left: 108px !important; right: auto !important; top: 100px !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_r { left: auto !important; right: 112px !important; top: -4px !important; width: 48px; }
+      #game .ejs_virtualGamepad_bottom .cs_n64.b_speed_fast { left: 108px !important; right: auto !important; }
+    }
   </style>
 </head>
 <body>
@@ -318,6 +410,8 @@
     // site hosts the cores for these consoles only. The values are the same
     // as ejsCore and ejsControlScheme in
     // src/games/retro-arcade/lib/constants.ts (emulator-page.test.ts checks).
+    // "coreSystem" marks a core name: the EmulatorJS system that lists the
+    // core. The page pins that core (see pinCore below).
     const SYSTEM_CONFIG = {
       nes: { core: 'nes' },
       snes: { core: 'snes' },
@@ -327,12 +421,17 @@
       gb: {
         core: 'mgba',
         controlScheme: 'gb',
+        coreSystem: 'gba',
         oldSaveFolder: '/data/saves/Gambatte',
         saveFolder: '/data/saves/mGBA',
       },
       gba: { core: 'gba' },
       segaMD: { core: 'segaMD' },
-      n64: { core: 'n64' },
+      // Nintendo 64 games run on mupen64plus_next on every device. For
+      // "n64", EmulatorJS picks parallel_n64 on an iPhone, and on a real
+      // iPhone that core stopped at boot and hung the tab on a resume (see
+      // constants.ts).
+      n64: { core: 'mupen64plus_next', controlScheme: 'n64', coreSystem: 'n64' },
       atari2600: { core: 'atari2600' },
     };
 
@@ -354,6 +453,32 @@
         copied.push(name);
       }
       return copied;
+    }
+
+    /**
+     * Pins the core of a console whose EJS_core is a core name: EmulatorJS
+     * loads that core only. It hides the Core setting, and it removes a core
+     * choice that EmulatorJS kept for this game, because a stored choice
+     * beats EJS_core (preGetSetting "retroarch_core"). EmulatorJS keeps the
+     * settings of a game in localStorage under "ejs-<game id>-<system>-<game
+     * name>-settings" (getLocalStorageKey); the page sets no game id, so the
+     * id is 1.
+     */
+    function pinCore(win, coreSystem, name) {
+      win.EJS_hideSettings = ['retroarch_core'];
+      const key = 'ejs-1-' + coreSystem + '-' + name + '-settings';
+      try {
+        const storage = win.localStorage;
+        const raw = storage ? storage.getItem(key) : null;
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (!saved || !saved.settings || !Object.prototype.hasOwnProperty.call(saved.settings, 'retroarch_core')) return;
+        delete saved.settings.retroarch_core;
+        storage.setItem(key, JSON.stringify(saved));
+      } catch (e) {
+        // The pinned core still loads unless the player picked another one.
+        console.warn('Could not remove the stored core choice', e);
+      }
     }
 
     function isValidRomUrl(url) {
@@ -444,6 +569,7 @@
     window.EJS_player = '#game';
     window.EJS_core = system.core;
     if (system.controlScheme) window.EJS_controlScheme = system.controlScheme;
+    if (system.coreSystem) pinCore(window, system.coreSystem, gameName);
 
     // Keep a kid's Game Boy progress after the change of core. EmulatorJS
     // mounts the saves folder, sends "saveDatabaseLoaded", and only then
@@ -511,11 +637,38 @@
     // which is not a real EmulatorJS API and risks breaking the gamepad, so it
     // is deliberately NOT set: the defaults are what we want.
 
+    /**
+     * Keeps "hh_gamepad_shown" on #game while EmulatorJS shows the on-screen
+     * gamepad (the style block uses it for the landscape strips). EmulatorJS
+     * shows the gamepad on a phone and hides it on a computer, and the
+     * player can turn it off in Settings; it sets style.display each time.
+     * When the box changes size, EmulatorJS shows a hidden gamepad for
+     * 250 ms at opacity 0 to measure it; that does not count as shown.
+     */
+    function trackGamepad() {
+      const emulator = window.EJS_emulator;
+      const pad = emulator && emulator.virtualGamepad;
+      const game = document.getElementById('game');
+      if (!pad || !game) return;
+      const update = function() {
+        const shown = pad.style.display !== 'none' && pad.style.opacity !== '0';
+        game.classList.toggle('hh_gamepad_shown', shown);
+      };
+      update();
+      new MutationObserver(update).observe(pad, { attributes: true, attributeFilter: ['style'] });
+    }
+
     // Notify parent when emulator is ready
     // SECURITY: Use specific origin instead of wildcard '*'
     window.EJS_onGameStart = function() {
       document.getElementById('loading').classList.add('hidden');
       window.parent.postMessage({ type: 'ready' }, PARENT_ORIGIN);
+      try {
+        trackGamepad();
+      } catch (e) {
+        // The game plays; the picture keeps the whole box.
+        console.warn('Could not watch the on-screen gamepad', e);
+      }
     };
 
     // Save states. The Retro Arcade page (the parent) keeps them on this

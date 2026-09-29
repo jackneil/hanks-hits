@@ -48,12 +48,13 @@ RETURN later and continue where you left off
 |---------|-----------------|-------|
 | **NES** | `nes` | 8-bit Nintendo, great homebrew scene |
 | **SNES** | `snes` | 16-bit, more complex games |
-| **Game Boy** | `gb` | Portable classic, massive homebrew library |
+| **Game Boy** | `mgba` | Portable classic, massive homebrew library. mGBA also plays Game Boy Color games. |
 | **Game Boy Advance** | `gba` | 32-bit handheld, excellent homebrew |
 | **Genesis/Mega Drive** | `segaMD` | Sega's 16-bit powerhouse |
-| **Nintendo 64** | `n64` | 3D era, limited but interesting homebrew |
+| **Nintendo 64** | `mupen64plus_next` | 3D era, limited but interesting homebrew. The core is pinned: for `n64`, EmulatorJS picks `parallel_n64` on an iPhone, and that core does not start there. |
+| **Atari 2600** | `atari2600` | Classic games from 1977 on, with a built-in catalog |
 
-### Why These Six?
+### Why These Seven?
 
 - **Best homebrew availability** - These systems have the most active homebrew communities
 - **Performance** - All run smoothly on mobile browsers (N64 is the most demanding)

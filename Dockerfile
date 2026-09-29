@@ -8,7 +8,7 @@ RUN corepack enable && corepack prepare pnpm@9.15.2 --activate
 # The site sends the EmulatorJS files and the cores to each browser, so it
 # must also give their source code from the same place (GPL-3.0 section 6(d),
 # GPL-2.0 section 3, MPL-2.0 section 3.2). Git does not hold the archives
-# (about 136 MB). This stage downloads each archive in manifest.json and
+# (about 131 MB). This stage downloads each archive in manifest.json and
 # checks its SHA-256. A failed download or a wrong SHA-256 stops the build,
 # so the site never sends the emulator without its source code. The stage
 # uses only the manifest and the script, so Docker keeps this layer until one

@@ -161,6 +161,36 @@ function stripRuntimeFile(rom: CustomRom): Omit<CustomRom, "file"> {
   };
 }
 
+/**
+ * The ROM list after a cloud pull (setProgress). The cloud list gives the
+ * names; the files stay in memory for this visit only, so the cloud never
+ * has them. Each cloud entry gets the file of the same ROM on this page: the
+ * same id, else the same console and name (the same game, see addCustomRom).
+ * An upload of this visit that the cloud does not list yet stays, with its
+ * file, before the cloud entries. An entry without a file that the cloud
+ * does not list goes. Without this merge, a pull in the middle of a visit
+ * shows every upload as "Expired".
+ */
+export function mergeCustomRoms(
+  cloudRoms: readonly Omit<CustomRom, "file">[],
+  current: readonly CustomRom[]
+): CustomRom[] {
+  const withFile = current.filter((rom) => rom.file);
+  const used = new Set<CustomRom>();
+  const take = (match: (rom: CustomRom) => boolean) => {
+    const found = withFile.find((rom) => !used.has(rom) && match(rom));
+    if (found) used.add(found);
+    return found;
+  };
+  const merged = cloudRoms.map((entry): CustomRom => {
+    const rom = stripRuntimeFile(entry);
+    const local =
+      take((r) => r.id === rom.id) ?? take((r) => r.system === rom.system && r.name === rom.name);
+    return local ? { ...rom, file: local.file } : rom;
+  });
+  return [...withFile.filter((rom) => !used.has(rom)), ...merged];
+}
+
 export const useRetroArcadeStore = create<RetroArcadeState>()(
   persist(
     (set, get) => ({
@@ -321,16 +351,17 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
       },
 
       // Reads only the known fields, so a legacy "saveStates" field in cloud
-      // progress is dropped here.
+      // progress is dropped here. The uploaded files of this visit stay
+      // (mergeCustomRoms).
       setProgress: (data) =>
-        set({
+        set((state) => ({
           favorites: data.favorites || [],
           recentlyPlayed: data.recentlyPlayed || [],
-          customRoms: data.customRoms || [],
+          customRoms: mergeCustomRoms(data.customRoms || [], state.customRoms),
           stats: data.stats || defaultStats,
           settings: data.settings || defaultSettings,
           lastModified: data.lastModified || Date.now(),
-        }),
+        })),
     }),
     {
       name: "retro-arcade-progress",

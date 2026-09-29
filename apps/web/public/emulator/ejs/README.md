@@ -6,7 +6,7 @@ tells users about each part, its license and its source code.
 
 **WARNING:** Do not commit the source archives in `<version>/source/`. Git
 ignores that folder. Each clone keeps each committed file for ever, and the
-archives are about 136 MB.
+archives are about 131 MB.
 
 ## How the site gives the source code
 
@@ -31,7 +31,7 @@ source links in `NOTICE.txt` to work.
 1. Go to the root of the repository.
 2. Run `pnpm --filter web emulator:sources`.
 
-The command downloads about 136 MB into `4.2.3/source/`. It checks the size
+The command downloads about 131 MB into `4.2.3/source/`. It checks the size
 and the SHA-256 of each file. When a correct file is already there, the
 command does not download it again.
 

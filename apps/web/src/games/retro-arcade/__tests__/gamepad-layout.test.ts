@@ -363,15 +363,21 @@ type Control = { name: string; rect: Rect };
 /**
  * Builds the gamepad DOM of EmulatorJS 4.2.3 (setVirtualGamepad and
  * createBottomMenuBar) for a console and a box size, and returns the
- * rectangle of each control, of the menu button and of the menu bar.
+ * rectangle of each control, of the menu button, of the menu bar and of the
+ * canvas. `gamepadShown` is the class that the page's trackGamepad puts on
+ * #game while EmulatorJS shows the gamepad (on a phone).
  */
-function layout(system: SystemType, vp: Viewport) {
+function layout(system: SystemType, vp: Viewport, { gamepadShown = true } = {}) {
   const scheme = SCHEME[system];
   const doc = document.implementation.createHTMLDocument("gamepad");
   const game = doc.createElement("div");
   game.id = "game";
-  game.className = `ejs_parent ${vp.width <= 575 ? "ejs_small_screen" : "ejs_big_screen"}`;
+  game.className = `ejs_parent ${vp.width <= 575 ? "ejs_small_screen" : "ejs_big_screen"}${gamepadShown ? " hh_gamepad_shown" : ""}`;
   doc.body.appendChild(game);
+  // The canvas of RetroArch fills its parent (.ejs_canvas{width:100%;height:100%}).
+  const canvasParent = doc.createElement("div");
+  canvasParent.className = "ejs_canvas_parent";
+  game.appendChild(canvasParent);
   const parent = doc.createElement("div");
   parent.className = "ejs_virtualGamepad_parent";
   game.appendChild(parent);
@@ -424,6 +430,8 @@ function layout(system: SystemType, vp: Viewport) {
   game.appendChild(menu);
 
   const box: Rect = { x: 0, y: 0, w: vp.width, h: vp.height };
+  // In normal flow the canvas parent is the whole box (width and height 100%).
+  const canvas = place(canvasParent, box, vp);
   const parentRect = place(parent, box, vp);
   const rects = new Map<Element, Rect>();
   for (const c of Object.values(containers)) rects.set(c, place(c, parentRect, vp));
@@ -450,14 +458,15 @@ function layout(system: SystemType, vp: Viewport) {
   // whole box). The big-screen menu is one row: 44 px buttons and its 15 px
   // and 10 px padding (.ejs_big_screen .ejs_menu_bar).
   const menuRect = place(menu, box, vp, vp.width <= 575 ? vp.height : 44 + 15 + 10);
-  return { controls, menuButton: openRect, menuBar: menuRect, menuCascade: cascade(menu, vp) };
+  return { controls, canvas, menuButton: openRect, menuBar: menuRect, menuCascade: cascade(menu, vp) };
 }
 
 /**
- * The picture of the game. RetroArch fits it into the canvas (the whole box)
- * at the aspect of the core. EmulatorJS puts it at the top in portrait
- * (video_top_portrait_viewport) and in the middle in landscape. The aspects
- * are the ones the live check measured for each core.
+ * The picture of the game. RetroArch fits it into the canvas at the aspect
+ * of the core. EmulatorJS puts it at the top of a canvas that is taller
+ * than it is wide (video_top_portrait_viewport) and in the middle of any
+ * other canvas. The aspects are the ones the live check measured for each
+ * core.
  */
 const ASPECT: Record<SystemType, number> = {
   atari2600: 4 / 3,
@@ -468,26 +477,35 @@ const ASPECT: Record<SystemType, number> = {
   segaMD: 64 / 49,
   n64: 4 / 3,
 };
-function picture(system: SystemType, vp: Viewport): Rect {
+function picture(system: SystemType, canvas: Rect): Rect {
   const aspect = ASPECT[system];
-  if (vp.width / aspect <= vp.height) {
-    const h = vp.width / aspect;
-    return { x: 0, y: vp.height >= vp.width ? 0 : (vp.height - h) / 2, w: vp.width, h };
+  if (canvas.w / aspect <= canvas.h) {
+    const h = canvas.w / aspect;
+    return { x: canvas.x, y: canvas.y + (canvas.h > canvas.w ? 0 : (canvas.h - h) / 2), w: canvas.w, h };
   }
-  const w = vp.height * aspect;
-  return { x: (vp.width - w) / 2, y: 0, w, h: vp.height };
+  const w = canvas.h * aspect;
+  return { x: canvas.x + (canvas.w - w) / 2, y: canvas.y, w, h: canvas.h };
 }
 
 const overlap = (a: Rect, b: Rect) =>
   Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
   Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 
-/** Phone screens, as the size of the emulator box (the screen minus the 52 px bar of the game). */
+/**
+ * Phone screens, as the size of the emulator box (the screen minus the 52 px
+ * bar of the game). 568x320 and 667x375 are the iPhone SE (1st and 2nd/3rd
+ * generation) in landscape. "667x311 Safari" is the page that Safari gives
+ * on a real iPhone SE (iOS 27) in landscape, with its tab bar: the shortest
+ * box, 259 px.
+ */
 const PHONES: [string, Viewport][] = [
   ["390x844", { width: 390, height: 792 }],
   ["320x568", { width: 320, height: 516 }],
   ["360x640", { width: 360, height: 588 }],
   ["844x390", { width: 844, height: 338 }],
+  ["568x320", { width: 568, height: 268 }],
+  ["667x375", { width: 667, height: 323 }],
+  ["667x311 Safari", { width: 667, height: 259 }],
 ];
 
 const CASES = SYSTEM_IDS.flatMap((system) => PHONES.map(([label, vp]) => [system, label, vp] as const));
@@ -536,13 +554,46 @@ describe("on-screen gamepad layout (EmulatorJS 4.2.3 defaults + index.html)", ()
   });
 
   it.each(CASES)("%s at %s: no control covers 10% or more of itself with the picture", (system, _label, vp) => {
-    const pic = picture(system, vp);
-    const { controls } = layout(system, vp);
+    const { controls, canvas } = layout(system, vp);
+    const pic = picture(system, canvas);
     const onPicture = controls
       .map((c) => ({ name: c.name, pct: (100 * overlap(c.rect, pic)) / (c.rect.w * c.rect.h) }))
       .filter((c) => c.pct >= 10)
       .map((c) => `${c.name} ${c.pct.toFixed(1)}%`);
     expect(onPicture).toEqual([]);
+  });
+});
+
+describe("the picture beside the landscape strips", () => {
+  const LANDSCAPE = PHONES.filter(([, vp]) => vp.width > vp.height);
+
+  it.each(SYSTEM_IDS.flatMap((system) => LANDSCAPE.map(([label, vp]) => [system, label, vp] as const)))(
+    "%s at %s: the picture stays between the strips and fills the height or the width between them",
+    (system, _label, vp) => {
+      const { canvas } = layout(system, vp);
+      const pic = picture(system, canvas);
+      expect(pic.x).toBeGreaterThanOrEqual(canvas.x);
+      expect(pic.x + pic.w).toBeLessThanOrEqual(canvas.x + canvas.w + 0.01);
+      // The largest picture that fits: as tall as the box, or as wide as the space between the strips.
+      expect(Math.max(pic.h / vp.height, pic.w / canvas.w)).toBeCloseTo(1, 5);
+    }
+  );
+
+  it("keeps the whole box for the picture when a wide screen does not need the strips (844x390)", () => {
+    const vp = PHONES.find(([label]) => label === "844x390")![1];
+    for (const system of SYSTEM_IDS) {
+      const { canvas } = layout(system, vp);
+      const full = picture(system, { x: 0, y: 0, w: vp.width, h: vp.height });
+      expect(picture(system, canvas)).toEqual(full);
+    }
+  });
+
+  it("keeps the whole box for the picture without the gamepad (a computer) and in portrait", () => {
+    for (const system of SYSTEM_IDS) {
+      expect(layout(system, { width: 1280, height: 748 }, { gamepadShown: false }).canvas).toEqual({ x: 0, y: 0, w: 1280, h: 748 });
+      expect(layout(system, { width: 568, height: 268 }, { gamepadShown: false }).canvas).toEqual({ x: 0, y: 0, w: 568, h: 268 });
+      expect(layout(system, PHONES[0][1]).canvas).toEqual({ x: 0, y: 0, w: 390, h: 792 });
+    }
   });
 });
 

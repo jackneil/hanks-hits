@@ -26,8 +26,8 @@
   ],
   "notice": {
     "path": "NOTICE.txt",
-    "bytes": 17311,
-    "sha256": "98d3a87bacb3150d1d0c3431a2d58168fc4efa8e55aba01c8ae9d3e1fb51d8d8"
+    "bytes": 16734,
+    "sha256": "479f96071f1822ee73e4aab5f9e25779f725b1bd52bf38c6c6c9e9d739cf7ae1"
   },
   "cores": {
     "fceumm": {
@@ -102,21 +102,6 @@
       "licenseText": "licenses/cores/nestopia.txt",
       "sources": [
         "nestopia",
-        "retroarch",
-        "build"
-      ]
-    },
-    "parallel_n64": {
-      "systems": [
-        "n64"
-      ],
-      "license": "GPL-2.0 (Mupen64Plus-Core; the core archive has no license file)",
-      "source": "https://github.com/EmulatorJS/parallel-n64",
-      "revision": "56f4daf8ec9b00d51d7db88e3c34c381294dbde0",
-      "revisionEvidence": "Both core builds contain the string \"2.0-rc2 56f4daf\". Makefile puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 56f4daf to this commit.",
-      "licenseText": "licenses/cores/parallel_n64.txt",
-      "sources": [
-        "parallel_n64",
         "retroarch",
         "build"
       ]
@@ -442,18 +427,6 @@
       "sha256": "8bf5009ae3df50e3471fabfd03ea45d97b8798d2912abe95281c65ccf6ffc905"
     },
     {
-      "id": "parallel_n64",
-      "path": "source/parallel-n64-56f4daf8ec9b.tar.gz",
-      "from": {
-        "url": "https://codeload.github.com/EmulatorJS/parallel-n64/tar.gz/56f4daf8ec9b00d51d7db88e3c34c381294dbde0"
-      },
-      "repository": "https://github.com/EmulatorJS/parallel-n64",
-      "commit": "56f4daf8ec9b00d51d7db88e3c34c381294dbde0",
-      "for": "The parallel_n64 core.",
-      "bytes": 5057653,
-      "sha256": "819e208aa25cae25c271b143d2ca650c097fdf1b2556e04bf3ea3d6873fbea85"
-    },
-    {
       "id": "picodrive",
       "path": "source/picodrive-3cf1e2617958.tar.gz",
       "from": {
@@ -577,7 +550,7 @@
       "from": {
         "url": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt"
       },
-      "for": "fceumm, mupen64plus_next, nestopia, parallel_n64 and stella2014 (GPL-2.0)",
+      "for": "fceumm, mupen64plus_next, nestopia and stella2014 (GPL-2.0)",
       "bytes": 17984,
       "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
     },
@@ -714,16 +687,6 @@
       "for": "nestopia: license.txt from the core file, unchanged",
       "bytes": 15122,
       "sha256": "df84246204e3c54cd24aebbc23714235f5fc41d754d53b65444a2afbf070130f"
-    },
-    {
-      "path": "licenses/cores/parallel_n64.txt",
-      "from": {
-        "archive": "source/parallel-n64-56f4daf8ec9b.tar.gz",
-        "member": "parallel-n64-56f4daf8ec9b00d51d7db88e3c34c381294dbde0/mupen64plus-core/LICENSES"
-      },
-      "for": "parallel_n64: the core file has no license.txt, so this is mupen64plus-core/LICENSES from the core source (GPL-2.0, text in licenses/GPL-2.0.txt)",
-      "bytes": 1959,
-      "sha256": "0a64350252a0b3e844449a8b9347707976add51726fa951b6035b1bf3f8c45a6"
     },
     {
       "path": "licenses/cores/picodrive.txt",
@@ -1002,24 +965,6 @@
       "bytes": 1218931,
       "sha256": "d3b1e6d3f0abd55a174d666303e51e06a208c257207ebeb734982a32595e1ac7",
       "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/nestopia-legacy-wasm.data"
-    },
-    {
-      "path": "cores/reports/parallel_n64.json",
-      "bytes": 126,
-      "sha256": "fc72e6320ba1225b041dfedf3e62406c0dc954696cc91a13b7d71303de349f24",
-      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/parallel_n64.json"
-    },
-    {
-      "path": "cores/parallel_n64-wasm.data",
-      "bytes": 1028134,
-      "sha256": "873755608d41a604f3eee11b631f1cbe7e4d8c4d10c92859c27941299c8ef6a6",
-      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/parallel_n64-wasm.data"
-    },
-    {
-      "path": "cores/parallel_n64-legacy-wasm.data",
-      "bytes": 1027660,
-      "sha256": "de0db87bb2d99c8aa6c9d70e9a101025cecf8dcd83d1c5a7ade25ac919b20485",
-      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/parallel_n64-legacy-wasm.data"
     },
     {
       "path": "cores/reports/picodrive.json",

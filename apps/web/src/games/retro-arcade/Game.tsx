@@ -43,7 +43,9 @@ const CATALOG_NAMES: CatalogNamesBySystem = {
   atari2600: new Set(ATARI_2600_CATALOG.map((game) => game.displayName)),
 };
 
-// Console selection card
+// Console selection card: one flat, solid color per console (SystemInfo.cardColor),
+// white text, no gradient and no colored border. A press scales the card down a
+// little; a mouse hover makes it a little brighter.
 function ConsoleCard({
   system,
   onClick,
@@ -53,12 +55,13 @@ function ConsoleCard({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`bg-gradient-to-br ${system.bgGradient} p-6 rounded-2xl shadow-lg hover:scale-105 active:scale-95 transition-transform cursor-pointer border-4 border-white/20 hover:border-white/40 min-w-[140px] touch-manipulation`}
+      className={`${system.cardColor} min-w-[140px] cursor-pointer touch-manipulation rounded-2xl p-6 text-white shadow-lg transition-[transform,filter] duration-150 ease-out hover:brightness-110 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white active:scale-[0.97] motion-reduce:transition-none`}
     >
-      <div className="text-5xl mb-2">{system.icon}</div>
-      <h3 className="text-xl font-bold text-white">{system.name}</h3>
-      <p className="text-white/70 text-sm">{system.fullName}</p>
+      <div className="mb-2 text-5xl" aria-hidden="true">{system.icon}</div>
+      <h3 className="text-xl font-bold">{system.name}</h3>
+      <p className="text-sm font-medium">{system.fullName}</p>
     </button>
   );
 }

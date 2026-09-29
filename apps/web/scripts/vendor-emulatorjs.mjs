@@ -147,14 +147,13 @@ export function parseArcadeSystems(constantsText) {
 /**
  * Returns every core that EmulatorJS can load for an EJS_core value, or null.
  * A system name gives all cores of the system (the first is the default, and
- * the kid can pick another in the settings). A core name gives the core and
- * the cores of its system, because the settings menu offers those (EmulatorJS
- * getCore(true) takes the first system that lists the core).
+ * the kid can pick another in the settings). A core name gives that core
+ * only: public/emulator/index.html pins it (it hides the Core setting and
+ * forgets a stored core choice).
  */
 export function coresFor(ejsCore, table) {
   if (table[ejsCore]) return [...table[ejsCore]];
-  const system = Object.keys(table).find((key) => table[key].includes(ejsCore));
-  return system ? [...new Set([ejsCore, ...table[system]])] : null;
+  return Object.values(table).some((cores) => cores.includes(ejsCore)) ? [ejsCore] : null;
 }
 
 async function main() {

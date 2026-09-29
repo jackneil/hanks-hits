@@ -6,6 +6,7 @@ import {
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
 import { RetroArcadeGame } from "../Game";
+import { SYSTEMS, SYSTEM_IDS } from "../lib/constants";
 import { useRetroArcadeStore } from "../lib/store";
 import { RETRO_ARCADE_INSTRUCTIONS } from "../lib/readAloud";
 import { toSpeakable } from "@/shared/hooks/useReadAloud";
@@ -98,5 +99,44 @@ describe("retro arcade recently played", () => {
     expect(screen.getByText("Super Mario World")).toBeInTheDocument();
     expect(screen.queryByText("Mortal Kombat 1")).not.toBeInTheDocument();
     expect(screen.queryByText("X-Man")).not.toBeInTheDocument();
+  });
+});
+
+describe("retro arcade console cards", () => {
+  beforeEach(() => {
+    useRetroArcadeStore.setState({
+      currentSystem: null,
+      currentRom: null,
+      currentRomName: null,
+      isPlaying: false,
+      recentlyPlayed: [],
+    });
+  });
+
+  const card = (id: (typeof SYSTEM_IDS)[number]) =>
+    // The icon is decorative (aria-hidden), so the name starts with the console name.
+    screen.getByRole("button", { name: new RegExp(`^${SYSTEMS[id].name} ${SYSTEMS[id].fullName.replace(/[/]/g, "\\/")}$`) });
+
+  it("draws each card flat: its own solid color, no gradient, no heavy colored border", () => {
+    render(<RetroArcadeGame />);
+    for (const id of SYSTEM_IDS) {
+      const classes = card(id).className.split(/\s+/);
+      expect(classes, id).toContain(SYSTEMS[id].cardColor);
+      expect(classes.filter((c) => /gradient|^from-|^via-|^to-|^border(-|$)|^hover:border/.test(c)), id).toEqual([]);
+      // White text on the color (no faded text).
+      expect(classes, id).toContain("text-white");
+    }
+  });
+
+  it("gives every console its own solid color", () => {
+    const colors = SYSTEM_IDS.map((id) => SYSTEMS[id].cardColor);
+    for (const color of colors) expect(color).toMatch(/^bg-[a-z]+-\d{3}$/);
+    expect(new Set(colors).size).toBe(SYSTEM_IDS.length);
+  });
+
+  it("opens a console when its card is tapped", () => {
+    render(<RetroArcadeGame />);
+    fireEvent.click(card("n64"));
+    expect(useRetroArcadeStore.getState().currentSystem).toBe("n64");
   });
 });
