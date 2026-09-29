@@ -5,9 +5,10 @@
  *   (the spec still starts it with a real click). A browser that is not
  *   installed gives a SKIPPED row, never a failure.
  * - labStatus / waitForStatus: read window.__clipsLab (labHandle.ts).
- * - pullClip: reads the last clip's bytes in base64 chunks. The page's
- *   Content Security Policy blocks fetch() of a blob: URL, so the bytes come
- *   through window.__clipsLab.readClipBase64.
+ * - pullClip: reads the last clip's bytes (or one part of a Record) in
+ *   base64 chunks. The page's Content Security Policy blocks fetch() of a
+ *   blob: URL, so the bytes come through window.__clipsLab.readClipBase64.
+ * - labTruth: the lab's beat log, for the analyzer's ground-truth rows.
  * - analyzeFile: runs scripts/clips/analyze-sync.mjs on the pulled file.
  * - watchPressure / readPressure: the Compute Pressure that the governor
  *   reads (plan 7), so a rung step in a file has its cause in the report.
@@ -30,6 +31,7 @@ import { pathToFileURL } from "node:url";
 import { chromium, type Browser, type Page } from "playwright/test";
 
 import type { ClipsLabHandle, LabStatus } from "../../../apps/web/src/shared/clips/lab/labHandle";
+import type { BeatTruth } from "../../../apps/web/src/shared/clips/lab/labSchedule";
 import type { Row, RowReport } from "./report";
 
 export type { LabStatus };
@@ -139,17 +141,31 @@ export async function pageNow(page: Page): Promise<number> {
   return page.evaluate(() => performance.now());
 }
 
-/** Reads the last clip of the lab, byte for byte. */
-export async function pullClip(page: Page, bytes: number): Promise<Buffer> {
-  const parts: Buffer[] = [];
+/** Reads part `part` (0: the clip, or the first part of a Record) of the lab's last result, byte for byte. */
+export async function pullClip(page: Page, bytes: number, part = 0): Promise<Buffer> {
+  const chunks: Buffer[] = [];
   for (let offset = 0; offset < bytes; offset += PULL_CHUNK) {
     const text = await page.evaluate(
-      ({ offset, length }) => (window as unknown as { __clipsLab: ClipsLabHandle }).__clipsLab.readClipBase64(offset, length),
-      { offset, length: PULL_CHUNK },
+      ({ offset, length, part }) => (window as unknown as { __clipsLab: ClipsLabHandle }).__clipsLab.readClipBase64(offset, length, part),
+      { offset, length: PULL_CHUNK, part },
     );
-    parts.push(Buffer.from(text, "base64"));
+    chunks.push(Buffer.from(text, "base64"));
   }
-  return Buffer.concat(parts);
+  return Buffer.concat(chunks);
+}
+
+/** The lab's beat log (labSchedule.ts BeatTruth), for the analyzer's ground-truth rows. */
+export async function labTruth(page: Page): Promise<BeatTruth[]> {
+  return page.evaluate(() => (window as unknown as { __clipsLab: ClipsLabHandle }).__clipsLab.truth());
+}
+
+/** What the analyzer needs to judge a file against the lab's log (scripts/clips/lib/truth.mjs). */
+export interface LabTruth {
+  beats: BeatTruth[];
+  /** Page time of the press where the file ends (Clip it!, or Stop the video); null for a Record part before the last. */
+  endMs: number | null;
+  displayHz: number;
+  maxStride: number;
 }
 
 /** Writes `data` to OUT_DIR/name and gives the path. */
@@ -165,7 +181,7 @@ export interface AnalyzerResult {
   ok: boolean;
   rows: Row[];
   beeps: unknown[];
-  measure: unknown;
+  measure: { container: { durationSec: number | null } | null };
 }
 
 interface AnalyzerModule {

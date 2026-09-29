@@ -7,10 +7,12 @@ import { installSpeechMock } from "@/__tests__/speech-mock";
 import { getGameAudio, type GameAudioChannel } from "@/shared/lib/audio";
 
 import { ClipsLabPage, LAB_CLIP_SECONDS, LAB_GAME } from "../ClipsLab";
-import { LAB_AUDIO_APP_ID } from "../labBeep";
+import type { ClipActionResult } from "../../service/contract";
+import { LAB_AUDIO_APP_ID, beepSeconds } from "../labBeep";
 import { LAB_COPY, LAB_REASON_TEXT } from "../labCopy";
 import type { ClipsLabHandle } from "../labHandle";
 import { DEFAULT_LAB_OPTIONS, type ClipsLabOptions } from "../labParams";
+import { BEAT_MARKS } from "../labSchedule";
 import { FakeLabService, clipFile, clipRecord } from "./fakeLabService";
 
 let realm: FakeRealm;
@@ -77,7 +79,7 @@ function oscillators(): FakeOscillatorNode[] {
 describe("ClipsLab", () => {
   it("shows the lab with big buttons, read-aloud buttons and the empty clip state", async () => {
     await mount();
-    for (const id of ["lab-start", "lab-clip", "lab-record-start", "lab-record-stop"]) {
+    for (const id of ["lab-start", "lab-clip", "lab-record-start", "lab-record-stop", "lab-wake"]) {
       expect(screen.getByTestId(id).className).toMatch(/min-h-\[48px\]/);
     }
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(LAB_COPY.title);
@@ -151,7 +153,7 @@ describe("ClipsLab", () => {
     expect(attached?.setAtBreak).toHaveBeenLastCalledWith(false);
     expect(screen.getByTestId("lab-start").textContent).toBe(LAB_COPY.stop);
 
-    // 3.2 s of 60 Hz frames: beats at context time 1, 2.017 and 3.033 (1 s and one frame apart, labSchedule.ts).
+    // 3.2 s of 60 Hz frames: beats at context time 1, 2.017 and 3.033 (61 frames apart at 60 Hz, labSchedule.ts beatFrames).
     const beatFrames: number[] = [];
     let t = 1000;
     for (frameNo = 0; frameNo < 192; frameNo++) {
@@ -170,10 +172,12 @@ describe("ClipsLab", () => {
     expect(screen.getByText("4 frames")).toBeTruthy();
     for (const f of fills.filter((x) => x.style === "rgb(255, 255, 255)")) expect(f.rect).toEqual([0, 0, 640, 360]);
     // Each beep starts at the context time of its frame: the first frame at or after its beat time.
+    // Its length carries the beat's mark (60 ms for 0, 120 ms for 1).
     oscillators().forEach((osc, i) => {
       const due = 1 + i * (61 / 60);
       expect(osc.startTime).toBeGreaterThanOrEqual(due - 1e-9);
       expect(osc.startTime! - due).toBeLessThan(1 / 60 + 1e-9);
+      expect(osc.stopTime! - osc.startTime!).toBeCloseTo(beepSeconds(BEAT_MARKS[i]), 9);
     });
     expect(screen.getByTestId("lab-status").getAttribute("data-beats")).toBe("3");
     expect(labWindow().__clipsLab?.truth().map((b) => b.index)).toEqual([0, 1, 2]);
@@ -300,6 +304,106 @@ describe("ClipsLab", () => {
     expect(startButton.disabled).toBe(false);
   });
 
+  it("keeps every part of a Record that the service stored in parts, and gives each part's bytes to drivers", async () => {
+    const service = new FakeLabService();
+    const first = clipRecord({ id: "r-1", kind: "record", createdAt: 2_000, durationMs: 12_000, bytes: 3 });
+    const second = clipRecord({ id: "r-1-p2", kind: "record", createdAt: 14_000, durationMs: 8_100, bytes: 2 });
+    service.files.set("r-1", clipFile(Uint8Array.from([1, 2, 3])));
+    service.files.set("r-1-p2", clipFile(Uint8Array.from([7, 8])));
+    // The PR 2.4 contract adds `parts` and `failedParts` to a record result.
+    service.recordResult = { ok: true, action: "record", record: first, atMs: 9, parts: [first, second], failedParts: 1 } as unknown as ClipActionResult;
+    await mount({}, service);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("lab-record-start"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("lab-record-stop"));
+    });
+    // The service's own list: the library is not asked.
+    expect(service.library.list).not.toHaveBeenCalled();
+    expect(service.library.file).toHaveBeenCalledWith("r-1-p2");
+    const handle = labWindow().__clipsLab!;
+    const last = handle.status().lastClip!;
+    expect(last.parts.map((p) => p.id)).toEqual(["r-1", "r-1-p2"]);
+    expect(last.failedParts).toBe(1);
+    expect(screen.getByTestId("lab-last-clip").getAttribute("data-parts")).toBe("2");
+    expect(screen.getByText("2 (1 could not be made)")).toBeTruthy();
+    expect([...Buffer.from(await handle.readClipBase64(0, 64, 1), "base64")]).toEqual([7, 8]);
+    expect([...Buffer.from(await handle.readClipBase64(0, 64, 0), "base64")]).toEqual([1, 2, 3]);
+  });
+
+  it("finds the parts of a Record in the library when the service does not list them", async () => {
+    const service = new FakeLabService();
+    const first = clipRecord({ id: "r-1", kind: "record", createdAt: 2_000 });
+    const second = clipRecord({ id: "r-1-p2", kind: "record", createdAt: 14_000 });
+    const older = clipRecord({ id: "r-0", kind: "record", createdAt: 1_000 });
+    service.files.set("r-1", clipFile(Uint8Array.from([1])));
+    service.files.set("r-1-p2", clipFile(Uint8Array.from([2])));
+    service.recordResult = { ok: true, action: "record", record: first, atMs: 9 };
+    vi.mocked(service.library.list).mockResolvedValue([second, first, older]);
+    await mount({}, service);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("lab-record-start"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("lab-record-stop"));
+    });
+    expect(service.library.list).toHaveBeenCalledWith({ gameId: "clips-lab", kind: "record" });
+    expect(labWindow().__clipsLab!.status().lastClip?.parts.map((p) => p.id)).toEqual(["r-1", "r-1-p2"]);
+    expect(labWindow().__clipsLab!.status().lastClip?.failedParts).toBe(0);
+  });
+
+  it("keeps a clip as one part, and never asks the library for parts of a clip", async () => {
+    const service = new FakeLabService();
+    service.files.set("c-1", clipFile(Uint8Array.from([4, 5])));
+    await mount({}, service);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("lab-clip"));
+    });
+    expect(service.library.list).not.toHaveBeenCalled();
+    expect(labWindow().__clipsLab!.status().lastClip?.parts.map((p) => p.id)).toEqual(["c-1"]);
+    await expect(labWindow().__clipsLab!.readClipBase64(0, 8, 1)).rejects.toThrow(/no part 1/);
+  });
+
+  it("logs the page time of the press, where the file ends, for the ground-truth checks", async () => {
+    const service = new FakeLabService();
+    service.files.set("c-1", clipFile(Uint8Array.from([1])));
+    let pressedAt = -1;
+    service.clipLast.mockImplementation(async () => {
+      pressedAt = performance.now();
+      return service.clipResult;
+    });
+    await mount({}, service);
+    const before = performance.now();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("lab-clip"));
+    });
+    const status = labWindow().__clipsLab!.status();
+    expect(status.lastClip?.pressedAtMs).toBeGreaterThanOrEqual(before);
+    // Taken before the service was asked, so the clip's end is at or after it.
+    expect(status.lastClip?.pressedAtMs).toBeLessThanOrEqual(pressedAt);
+  });
+
+  it("wakes a rested clip button with its own control, and says so next to it", async () => {
+    const service = new FakeLabService();
+    await mount({}, service);
+    const wake = screen.getByTestId("lab-wake") as HTMLButtonElement;
+    expect(wake.textContent).toBe(LAB_COPY.wake);
+    expect(wake.disabled).toBe(true);
+    act(() => service.set({ button: "resting", engine: "resting", reason: "resting" }));
+    expect(wake.disabled).toBe(false);
+    expect(screen.getByTestId("lab-message").textContent).toBe(LAB_REASON_TEXT.resting);
+    act(() => {
+      fireEvent.click(wake);
+    });
+    expect(service.wake).toHaveBeenCalledOnce();
+    // Drivers have the same action.
+    labWindow().__clipsLab!.wake();
+    expect(service.wake).toHaveBeenCalledTimes(2);
+    act(() => service.set({ button: "ready", engine: "buffering", reason: null }));
+    expect(wake.disabled).toBe(true);
+  });
+
   it("shows why a recording could not start", async () => {
     const service = new FakeLabService();
     service.startResult = { ok: false, action: "record", reason: "other-tab", atMs: 1 };
@@ -317,7 +421,9 @@ describe("ClipsLab", () => {
     service.files.set("r-1", clipFile(Uint8Array.from([8])));
     await mount({}, service);
     const handle = labWindow().__clipsLab!;
-    expect(handle.status()).toMatchObject({ service: "ready", attached: true, running: false, targetFps: 60, button: "warming", tier: "W" });
+    expect(handle.status()).toMatchObject({ service: "ready", attached: true, running: false, targetFps: 60, button: "warming", tier: "W", maxStride: 4 });
+    // 61 display frames at 60 Hz (labSchedule.ts beatFrames).
+    expect(handle.status().beatIntervalSec).toBeCloseTo(61 / 60, 12);
     await act(async () => {
       await handle.clip();
     });

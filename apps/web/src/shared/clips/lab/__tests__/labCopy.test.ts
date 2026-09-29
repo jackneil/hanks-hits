@@ -63,6 +63,12 @@ describe("clips lab copy (plan 11.6)", () => {
     expect(LAB_COPY.videoMade).toBe("Video made!");
   });
 
+  it("tells a rested clip button to use the control that wakes it (plan 11.3), never a control that stops the lab", () => {
+    expect(LAB_COPY.wake).toBe("Turn the clip button back on");
+    expect(LAB_REASON_TEXT.resting).toContain(`"${LAB_COPY.wake}"`);
+    expect(LAB_REASON_TEXT.resting).not.toContain(LAB_COPY.start);
+  });
+
   it("has words with a next step for every reason code of the contract", () => {
     for (const reason of Object.keys(REASONS) as ClipReasonCode[]) {
       const text = LAB_REASON_TEXT[reason];

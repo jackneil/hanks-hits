@@ -17,17 +17,22 @@ import {
   beepTable,
   evaluate,
   expectedPairs,
+  fileBeatInterval,
   flashOnsets,
   formatBeepTable,
   formatRows,
   fpsText,
+  markOf,
   offsetDeltas,
   pairEvents,
   passed,
   rateParts,
   ratePartsText,
+  truthBeatInterval,
   videoStats,
 } from "../../../../../../../scripts/clips/lib/sync.mjs";
+import { TRUTH_CHECKS, cleanBeats, fitPlaces, marksText, truthRows } from "../../../../../../../scripts/clips/lib/truth.mjs";
+import { beatMark, type BeatTruth } from "../labSchedule";
 
 type Frames = Array<[number, number]>;
 interface Segment {
@@ -51,14 +56,15 @@ function lab(options: { seconds: number; fps?: number; flashes?: number[]; drop?
   return frames;
 }
 
-/** One continuous 48 kHz segment with 1 ms peaks: silence, and a 60 ms beep at each time. */
-function beeps(options: { seconds: number; at: number[]; start?: number; level?: number }): Segment {
+/** One continuous 48 kHz segment with 1 ms peaks: silence, and a beep at each time (60 ms, or lengths[i] ms). */
+function beeps(options: { seconds: number; at: number[]; start?: number; level?: number; lengths?: number[] }): Segment {
   const bins = Math.round(options.seconds * 1000);
   const peaks = new Array<number>(bins).fill(0.001);
-  for (const t of options.at) {
+  options.at.forEach((t, n) => {
     const first = Math.round((t - (options.start ?? 0)) * 1000);
-    for (let i = first; i < first + 60 && i < bins; i++) if (i >= 0) peaks[i] = options.level ?? 0.5;
-  }
+    const length = options.lengths?.[n] ?? 60;
+    for (let i = first; i < first + length && i < bins; i++) if (i >= 0) peaks[i] = options.level ?? 0.5;
+  });
   return { start: options.start ?? 0, sampleRate: 48000, samples: bins * 48, binMs: 1, peaks };
 }
 
@@ -143,6 +149,23 @@ describe("beepOnsets", () => {
 
   it("finds no beep in a quiet track", () => {
     expect(beepOnsets([beeps({ seconds: 2, at: [1], level: DETECT.minBeepPeak / 2 })]).onsets).toEqual([]);
+  });
+
+  it("measures each beep's length, and gives null for a beep that the segment cuts", () => {
+    const result = beepOnsets([beeps({ seconds: 3, at: [0.5, 1.5, 2.95], lengths: [60, 120, 60] })]);
+    expect(result.onsets.map((t) => Math.round(t * 1000))).toEqual([500, 1500, 2950]);
+    // The last beep runs into the end of the segment: its length is not known.
+    expect(result.lengths).toEqual([60, 120, null]);
+    // A short dip inside a beep does not end it; DETECT.beepEndQuietMs of quiet does.
+    const dipped = beeps({ seconds: 2, at: [0.5], lengths: [120] });
+    for (let i = 540; i < 545; i++) dipped.peaks[i] = 0.001;
+    expect(beepOnsets([dipped]).lengths).toEqual([120]);
+    expect(DETECT.beepEndQuietMs).toBe(10);
+  });
+
+  it("reads the mark of a beep from its length: 90 ms or more is mark 1", () => {
+    expect(DETECT.markSplitMs).toBe(90);
+    expect([markOf(60), markOf(89), markOf(90), markOf(120), markOf(null), markOf(Number.NaN)]).toEqual([0, 0, 1, 1, null, null]);
   });
 });
 
@@ -352,21 +375,68 @@ describe("evaluate", () => {
       segments: [beeps({ seconds: 6, at: HALF_SECONDS })],
     });
     expect(inside.unmatched.beepsInside.map((t) => Math.round(t * 1000))).toEqual([2500]);
-    expect(rowOf(evaluate({ container: CONTAINER, ffmpeg: inside, ffmpegRaw: inside, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "swiftc not found" } }, {}), "flash and beep every second (ffmpeg)").status).toBe("FAIL");
+    expect(rowOf(evaluate({ container: CONTAINER, ffmpeg: inside, ffmpegRaw: inside, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "swiftc not found" } }, {}), "flash and beep at every beat (ffmpeg)").status).toBe("FAIL");
 
     const edge = analyzeDecode({
       frames: lab({ seconds: 6, flashes: [0.5, 1.5, 2.5, 3.5, 4.5] }),
       segments: [beeps({ seconds: 6, at: [...HALF_SECONDS.slice(0, 5), 5.9] })],
     });
     expect(edge.unmatched.beepsAtEdge.map((t) => Math.round(t * 1000))).toEqual([5900]);
-    expect(rowOf(evaluate({ container: CONTAINER, ffmpeg: edge, ffmpegRaw: edge, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } }, {}), "flash and beep every second (ffmpeg)").status).toBe("PASS");
+    expect(rowOf(evaluate({ container: CONTAINER, ffmpeg: edge, ffmpegRaw: edge, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } }, {}), "flash and beep at every beat (ffmpeg)").status).toBe("PASS");
   });
 
   it("fails when too few pairs cover the file", () => {
     const sparse = analyzeDecode({ frames: lab({ seconds: 6, flashes: [2.5] }), segments: [beeps({ seconds: 6, at: [2.5] })] });
     expect(expectedPairs(6)).toBe(5);
-    const row = rowOf(evaluate({ container: CONTAINER, ffmpeg: sparse, ffmpegRaw: sparse, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } }, {}), "flash and beep every second (ffmpeg)");
+    const row = rowOf(evaluate({ container: CONTAINER, ffmpeg: sparse, ffmpegRaw: sparse, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } }, {}), "flash and beep at every beat (ffmpeg)");
     expect(row.status).toBe("FAIL");
+  });
+
+  /** A long lab file: beats `interval` s apart from 0.5 s, each with its flash and its beep, all paired. */
+  function longRun(seconds: number, interval: number, fps: number) {
+    const times: number[] = [];
+    for (let t = 0.5; t < seconds - 0.2; t += interval) times.push(Math.round(t * 1e6) / 1e6);
+    return analyzeDecode({ frames: lab({ seconds, fps, flashes: times }), segments: [beeps({ seconds, at: times })] });
+  }
+
+  it.each([
+    [160, 60, 61 / 60, 157], // a Record of 160 s at 60 Hz: 61 frames between beats
+    [80, 30, 31 / 30, 77], // 80 s at 30 Hz (iOS Low Power Mode rAF): 31 frames between beats
+  ])("counts the pairs of a %i s file at %i Hz with the lab's real beat spacing, not 1 s", (seconds, hz, interval, pairs) => {
+    const decode = longRun(seconds, interval, hz);
+    expect(decode.pairs).toHaveLength(pairs);
+    expect(decode.unmatched.flashesInside.length + decode.unmatched.beepsInside.length).toBe(0);
+    const measure = { container: { ...CONTAINER, durationSec: seconds }, ffmpeg: decode, ffmpegRaw: decode, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } };
+    const check = `flash and beep at every beat (ffmpeg)`;
+    // The file's own spacing (61/60 s or 31/30 s) sets the count.
+    expect(fileBeatInterval(decode.pairs)).toBeCloseTo(interval, 2);
+    expect(rowOf(evaluate(measure, {}), check).status).toBe("PASS");
+    // So does a given interval, and the ground truth's.
+    expect(rowOf(evaluate(measure, { beatIntervalSec: interval }), check).status).toBe("PASS");
+    const log = Array.from({ length: 5 }, (_, i) => ({ index: i, rafTs: 1000 + i * interval * 1000, mark: 0 }));
+    expect(truthBeatInterval(log)).toBeCloseTo(interval, 9);
+    // The old count (1 s between beats, over the span the file covers) asks for one pair more than the file can have: it failed a good file.
+    const span = decode.span!.end - decode.span!.start;
+    expect(expectedPairs(span)).toBe(pairs + 1);
+    expect(rowOf(evaluate(measure, { beatIntervalSec: 1 }), check).status).toBe("FAIL");
+    expect(expectedPairs(span, interval)).toBeLessThanOrEqual(pairs);
+  });
+
+  it("never lets a file with lost beats ask for fewer pairs: a spacing outside the lab's range counts as 1 s", () => {
+    // Every second beat lost: flashes and beeps 2 s apart.
+    const decode = longRun(20, 2, 30);
+    expect(fileBeatInterval(decode.pairs)).toBe(1);
+    const measure = { container: { ...CONTAINER, durationSec: 20 }, ffmpeg: decode, ffmpegRaw: decode, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } };
+    expect(rowOf(evaluate(measure, {}), "flash and beep at every beat (ffmpeg)").status).toBe("FAIL");
+    expect(fileBeatInterval([])).toBe(1);
+    expect(fileBeatInterval([{ flash: 0.5 }, { flash: 1.48 }])).toBeCloseTo(0.98, 9);
+    expect(LIMITS.beatIntervalRangeSec).toEqual([0.95, 1.05]);
+    expect(truthBeatInterval([])).toBeNull();
+    expect(truthBeatInterval(undefined)).toBeNull();
+    // Beats that are not consecutive in the log (a stopped and started lab) give no spacing.
+    expect(truthBeatInterval([{ index: 1, rafTs: 0 }, { index: 3, rafTs: 5000 }])).toBeNull();
+    expect(expectedPairs(10, Number.NaN)).toBe(9);
+    expect(expectedPairs(0.5)).toBe(1);
   });
 
   it("fails when the two decoders read the container differently (the -44 ms AVFoundation defect of plan 3a)", () => {
@@ -382,8 +452,9 @@ describe("evaluate", () => {
     [45, "PASS"],
     [46, "FAIL"],
     [-4, "PASS"],
-    [-6, "FAIL"],
-  ])("judges a player that ignores edit lists, %i ms later, as %s (plan 6.4)", (late, status) => {
+    [-25, "PASS"],
+    [-26, "FAIL"],
+  ])("judges a player that ignores edit lists, %i ms later, as %s (plan 6.4: at most 25 ms early, 15.2: at most 45 ms late)", (late, status) => {
     const rows = evaluate({ container: CONTAINER, ffmpeg: decodeWith(0), ffmpegRaw: decodeWith(late), avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } }, {});
     expect(rowOf(rows, "edit list ignored").status).toBe(status);
   });
@@ -492,6 +563,203 @@ describe("evaluate", () => {
   });
 });
 
+describe("evaluate with a decoder that could not read the file", () => {
+  const good = () => decodeWith(0);
+
+  it("gives FAIL rows for AVFoundation, keeps every ffmpeg row, and fails the decoder comparison", () => {
+    const rows = evaluate(
+      { container: CONTAINER, ffmpeg: good(), ffmpegRaw: decodeWith(21), avfoundation: null, skipped: NO_SKIP, failed: { avfoundation: "avsync failed on x.mp4: Cannot Open" } },
+      { mode: "live", rungFps: 30, expectSeconds: 6 },
+    );
+    for (const check of ["flash and beep at every beat (AVFoundation)", "live A/V, BT.1359 (AVFoundation)"]) {
+      expect(rowOf(rows, check)).toMatchObject({ status: "FAIL", value: "could not read the file", detail: "AVFoundation could not read the file: avsync failed on x.mp4: Cannot Open" });
+    }
+    expect(rowOf(rows, "decoders agree").status).toBe("FAIL");
+    for (const check of ["flash and beep at every beat (ffmpeg)", "live A/V, BT.1359 (ffmpeg)", "edit list ignored", "largest video gap (ffmpeg)", "capture fps", "length"]) {
+      expect(rowOf(rows, check).status, check).toBe("PASS");
+    }
+    expect(passed(rows)).toBe(false);
+  });
+
+  it("gives SKIPPED rows, and passes, when the AVFoundation reader could not be built (a tool that is not usable)", () => {
+    const rows = evaluate({ container: CONTAINER, ffmpeg: good(), ffmpegRaw: decodeWith(21), avfoundation: null, skipped: { ffmpeg: null, avfoundation: "swiftc could not build avsync.swift: error: no such module" }, failed: {} }, { rungFps: 30 });
+    expect(rowOf(rows, "live A/V, BT.1359 (AVFoundation)")).toMatchObject({ status: "SKIPPED", detail: "swiftc could not build avsync.swift: error: no such module" });
+    expect(rowOf(rows, "decoders agree").status).toBe("SKIPPED");
+    expect(passed(rows)).toBe(true);
+  });
+
+  it("uses AVFoundation for the file rows when ffmpeg could not read the file, and fails the ffmpeg rows", () => {
+    const rows = evaluate({ container: null, ffmpeg: null, ffmpegRaw: null, avfoundation: good(), skipped: NO_SKIP, failed: { ffprobe: "Invalid data", ffmpeg: "moov atom not found", ffmpegRaw: "moov atom not found" } }, { rungFps: 30 });
+    expect(rowOf(rows, "container (ffprobe)")).toMatchObject({ status: "FAIL", detail: "ffprobe could not read the file: Invalid data" });
+    expect(rowOf(rows, "live A/V, BT.1359 (ffmpeg)")).toMatchObject({ status: "FAIL", detail: "ffmpeg could not read the file: moov atom not found" });
+    expect(rowOf(rows, "edit list ignored").status).toBe("FAIL");
+    expect(rowOf(rows, "live A/V, BT.1359 (AVFoundation)").status).toBe("PASS");
+    expect(rowOf(rows, "largest video gap (AVFoundation)").status).toBe("PASS");
+  });
+
+  it("fails the edit-list row alone when only the -ignore_editlist decode failed", () => {
+    const rows = evaluate({ container: CONTAINER, ffmpeg: good(), ffmpegRaw: null, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" }, failed: { ffmpegRaw: "bad edit list" } }, {});
+    expect(rowOf(rows, "edit list ignored")).toMatchObject({ status: "FAIL", detail: "ffmpeg -ignore_editlist 1 could not read the file: bad edit list" });
+    expect(rowOf(rows, "live A/V, BT.1359 (ffmpeg)").status).toBe("PASS");
+  });
+
+  it("fails the file rows when the only decoder here could not read the file", () => {
+    const rows = evaluate({ container: null, ffmpeg: null, ffmpegRaw: null, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "AVFoundation needs macOS" }, failed: { ffmpeg: "broken" } }, { rungFps: 30, expectSeconds: 6, truth: { beats: [], endMs: 1, displayHz: 60, maxStride: 4 } });
+    for (const check of ["largest video gap", "capture fps", "sound track is continuous", "length", TRUTH_CHECKS.match]) {
+      expect(rowOf(rows, check).status, check).toBe("FAIL");
+    }
+    expect(rowOf(rows, "decoders agree").status).toBe("SKIPPED");
+  });
+});
+
+/** 61 display frames at 60 Hz: the lab's beat interval there (ms). */
+const LOG_INTERVAL_MS = (1000 * 61) / 60;
+const T0 = 100_000;
+
+/** The lab's log: beats `from`..`to`, each 61 frames apart at 60 Hz, each with its mark. */
+function labLog(from: number, to: number): BeatTruth[] {
+  return Array.from({ length: to - from + 1 }, (_, i) => {
+    const index = from + i;
+    return { index, ctxTime: 0, rafTs: T0 + index * LOG_INTERVAL_MS, perfNow: 0, holdFrames: 4, mark: beatMark(index) };
+  });
+}
+
+/**
+ * A decoded file whose beats are `slots` (log indices, in file order), one
+ * log interval apart from `start` s, with the beep length of each beat's
+ * mark. moveMs moves the flash and the beep of one slot.
+ */
+function fileOf(slots: number[], options: { seconds: number; start?: number; moveMs?: Record<number, number> }) {
+  const times = slots.map((_, k) => Math.round(((options.start ?? 0.5) + (k * LOG_INTERVAL_MS) / 1000 + (options.moveMs?.[k] ?? 0) / 1000) * 1e6) / 1e6);
+  const lengths = slots.map((index) => (beatMark(index) === 1 ? 120 : 60));
+  return analyzeDecode({ frames: lab({ seconds: options.seconds, fps: 60, flashes: times }), segments: [beeps({ seconds: options.seconds, at: times, lengths })] });
+}
+
+/** Page time of the end of a file whose slot 0 is log beat `first` at file time `start`. */
+function endOf(first: number, seconds: number, start = 0.5): number {
+  return T0 + first * LOG_INTERVAL_MS + (seconds - start) * 1000;
+}
+
+const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+
+describe("ground truth (truth.mjs)", () => {
+  const SECONDS = 10;
+  const FILE = range(43, 52); // 10 beats in a 10 s clip: the next beat (53) is 0.3 s after its end
+  const truthAt = (endMs: number | null, beats = labLog(30, 70)) => ({ beats, endMs, displayHz: 60, maxStride: 4 });
+  const judge = (decode: ReturnType<typeof analyzeDecode>, endMs: number | null, beats?: BeatTruth[]) =>
+    evaluate({ container: { ...CONTAINER, durationSec: SECONDS }, ffmpeg: decode, ffmpegRaw: decode, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } }, { truth: truthAt(endMs, beats) });
+
+  it("reads the marks of the file, and passes a file that holds the right beats and ends at the press", () => {
+    const decode = fileOf(FILE, { seconds: SECONDS });
+    expect(decode.pairs.map((p) => p.mark)).toEqual(FILE.map((index) => beatMark(index)));
+    expect(new Set(decode.pairs.map((p) => p.mark))).toEqual(new Set([0, 1]));
+    const rows = judge(decode, endOf(43, SECONDS));
+    expect(rowOf(rows, TRUTH_CHECKS.match)).toMatchObject({ status: "PASS", value: "beats 44..53 (10)" });
+    expect(rowOf(rows, TRUTH_CHECKS.ends).status).toBe("PASS");
+    expect(rowOf(rows, TRUTH_CHECKS.spacing).status).toBe("PASS");
+    const press = rowOf(rows, TRUTH_CHECKS.press);
+    expect(press.status).toBe("PASS");
+    // The 30 fps frames put each flash onset within half a frame of its time.
+    expect(Math.abs((press.detail as { lagMs: number }).lagMs)).toBeLessThanOrEqual(17);
+    expect(passed(rows)).toBe(true);
+  });
+
+  it("fails a file that is one beat, or 5 s, away from the press (the wrong part of the ring)", () => {
+    const decode = fileOf(FILE, { seconds: SECONDS });
+    for (const shift of [LOG_INTERVAL_MS, -LOG_INTERVAL_MS, 5000, 1000]) {
+      const rows = judge(decode, endOf(43, SECONDS) + shift);
+      expect(rowOf(rows, TRUTH_CHECKS.match).status, `shift ${shift}`).toBe("PASS");
+      expect(rowOf(rows, TRUTH_CHECKS.press).status, `shift ${shift}`).toBe("FAIL");
+    }
+    // Inside half a beat is a pass: that is capture and encoder latency, not a wrong second.
+    expect(rowOf(judge(decode, endOf(43, SECONDS) + 400), TRUTH_CHECKS.press).status).toBe("PASS");
+  });
+
+  it("fails a file that lost a beat inside it, or repeated one (drops and duplicates)", () => {
+    const lost = fileOf([43, 44, 45, 47, 48, 49, 50, 51, 52, 53], { seconds: SECONDS });
+    expect(lost.unmatched.flashesInside.length + lost.unmatched.beepsInside.length).toBe(0);
+    expect(rowOf(judge(lost, endOf(43, SECONDS)), TRUTH_CHECKS.match).status).toBe("FAIL");
+    const repeated = fileOf([43, 44, 45, 46, 46, 47, 48, 49, 50, 51], { seconds: SECONDS });
+    const rows = judge(repeated, endOf(43, SECONDS));
+    expect(rowOf(rows, TRUTH_CHECKS.match).status).toBe("FAIL");
+    expect(rowOf(rows, TRUTH_CHECKS.press)).toMatchObject({ status: "INFO", value: "not checked" });
+  });
+
+  it("fails a file that lost the beat at its start, while its other beats are in order", () => {
+    // The first flash at 1.5 s: beat 43 would be at 0.48 s, inside the file.
+    const decode = fileOf(range(44, 52), { seconds: SECONDS, start: 1.5 });
+    const rows = judge(decode, endOf(44, SECONDS, 1.5));
+    expect(rowOf(rows, TRUTH_CHECKS.match).status).toBe("PASS");
+    const ends = rowOf(rows, TRUTH_CHECKS.ends);
+    expect(ends.status).toBe("FAIL");
+    expect(ends.value).toMatch(/^beat 44 at 0\.4[78]\d s$/);
+    // A beat that falls in the edge band is not lost: the file can cut it.
+    const edge = fileOf(range(44, 52), { seconds: SECONDS, start: 1.1 });
+    expect(rowOf(judge(edge, endOf(44, SECONDS, 1.1)), TRUTH_CHECKS.ends).status).toBe("PASS");
+  });
+
+  it("fails a spacing that differs from the log by more than one capture frame at the lowest rung", () => {
+    const moved = fileOf(FILE, { seconds: SECONDS, moveMs: { 4: 100 } });
+    expect(moved.pairs).toHaveLength(10);
+    const spacing = rowOf(judge(moved, endOf(43, SECONDS)), TRUTH_CHECKS.spacing);
+    expect(spacing.status).toBe("FAIL");
+    expect(spacing.limit).toBe("+/- 68.7 ms (one capture frame at 15 fps, + 2 ms)");
+    // 50 ms is inside one capture frame at 15 fps (66.7 ms).
+    expect(rowOf(judge(fileOf(FILE, { seconds: SECONDS, moveMs: { 4: 50 } }), endOf(43, SECONDS)), TRUTH_CHECKS.spacing).status).toBe("PASS");
+  });
+
+  it("picks the place nearest the press when the 127-beat sequence repeats in the log", () => {
+    const decode = fileOf(range(150, 159), { seconds: SECONDS });
+    const rows = judge(decode, endOf(150, SECONDS), labLog(0, 300));
+    const match = rowOf(rows, TRUTH_CHECKS.match);
+    expect(match).toMatchObject({ status: "PASS", value: "beats 151..160 (10)" });
+    expect(match.detail).toMatch(/^3 places in the log fit/);
+    expect(rowOf(rows, TRUTH_CHECKS.press).status).toBe("PASS");
+    expect(fitPlaces(decode.pairs, cleanBeats(labLog(0, 300)))).toEqual([23, 150, 277]);
+  });
+
+  it("gives an INFO row, not a press check, for a Record part before the last part", () => {
+    const rows = judge(fileOf(FILE, { seconds: SECONDS }), null);
+    expect(rowOf(rows, TRUTH_CHECKS.press)).toMatchObject({ status: "INFO", value: "no press for this file" });
+    expect(rowOf(rows, TRUTH_CHECKS.match).status).toBe("PASS");
+  });
+
+  it("fails when too few marks are read to name the beats, when the log is empty, and when the file has no pairs", () => {
+    const pairs = FILE.map((index, k) => ({ flash: 0.5 + k, mark: k < 3 ? beatMark(index) : null }));
+    const rows = truthRows({ pairs, span: { start: 0, end: 10 } }, 10, truthAt(null), LIMITS);
+    expect(rowOf(rows, TRUTH_CHECKS.match)).toMatchObject({ status: "FAIL", value: "3 of 10 marks read" });
+    expect(marksText(pairs)).toBe(`${pairs.slice(0, 3).map((p) => p.mark).join("")}???????`);
+    expect(rowOf(truthRows({ pairs: [], span: null }, 10, truthAt(null), LIMITS), TRUTH_CHECKS.match).value).toBe("no pairs in the file");
+    const empty = truthRows(fileOf(FILE, { seconds: SECONDS }), 10, truthAt(null, []), LIMITS);
+    expect(rowOf(empty, TRUTH_CHECKS.match)).toMatchObject({ status: "FAIL", value: "the log has no beats" });
+    // One unread mark at the end (a beep cut by the end of the file) still names the place.
+    const cut = FILE.map((index, k) => ({ flash: 0.5 + (k * LOG_INTERVAL_MS) / 1000, mark: k === 9 ? null : beatMark(index) }));
+    expect(rowOf(truthRows({ pairs: cut, span: { start: 0, end: 10 } }, 10, truthAt(null), LIMITS), TRUTH_CHECKS.match).status).toBe("PASS");
+  });
+
+  it("says so in one INFO row when no ground truth is given", () => {
+    const rows = evaluate({ container: CONTAINER, ffmpeg: decodeWith(0), ffmpegRaw: decodeWith(21), avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } }, {});
+    expect(rowOf(rows, "ground truth")).toMatchObject({ status: "INFO", value: "not given" });
+    expect(rows.some((r) => r.check === TRUTH_CHECKS.match)).toBe(false);
+  });
+
+  it("keeps only whole, marked beats of the log, once each", () => {
+    const beats = [
+      { index: 2, rafTs: 20, mark: 1 },
+      { index: 1, rafTs: 10, mark: 0 },
+      { index: 2, rafTs: 99, mark: 0 },
+      { index: 3.5, rafTs: 30, mark: 1 },
+      { index: 4, rafTs: Number.NaN, mark: 1 },
+      { index: 5, rafTs: 50, mark: 2 },
+      null,
+    ];
+    expect(cleanBeats(beats).map((b: { index: number; rafTs: number }) => [b.index, b.rafTs])).toEqual([
+      [1, 10],
+      [2, 20],
+    ]);
+  });
+});
+
 describe("beepTable", () => {
   it("lists every beep with each decoder's offset", () => {
     const table = beepTable({ ffmpeg: decodeWith(0, 4), avfoundation: decodeWith(3, 4), ffmpegRaw: decodeWith(21, 4) });
@@ -582,7 +850,15 @@ describe("limits", () => {
     expect(LIMITS.liveLeadMs).toBe(45);
     expect(LIMITS.liveLagMs).toBe(125);
     expect(LIMITS.editListLateMs).toBe(45);
+    // Plan 6.4: "the first audio packet is chosen so that playback is at most 25 ms early there".
+    expect(LIMITS.editListEarlyMs).toBe(25);
     expect(LIMITS.maxVideoGapMs).toBe(100);
     expect(LIMITS.fpsShare).toEqual({ desktop: 0.9, phone: 0.8 });
+  });
+
+  it("put the ground-truth press limit at half of the shortest beat interval (49 frames at 50 Hz)", () => {
+    expect(LIMITS.pressEndMs).toBe(490);
+    expect(LIMITS.pressEndMs * 2).toBeLessThanOrEqual((1000 * 49) / 50);
+    expect(LIMITS.truthSlackMs).toBe(2);
   });
 });

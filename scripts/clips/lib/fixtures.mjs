@@ -17,6 +17,10 @@
  * does when the governor steps the capture rung down (plan 7). Flash frames
  * sit at n = fps * k + fps / 2, so keep them with an `every` that divides
  * fps / 2.
+ *
+ * `marks` gives the mark bit of each beat, as the lab does (labSchedule.ts
+ * "Beat marks"): the beep of beat j is 60 ms for mark 0 and 120 ms for
+ * mark 1. Without `marks`, every beep is 60 ms (mark 0).
  */
 import { spawnSync } from "node:child_process";
 
@@ -36,7 +40,7 @@ export function fixtureToolsReason(ffmpeg = "ffmpeg") {
  * Makes one fixture file.
  *
  * @param {string} out the .mp4 path
- * @param {{ offsetMs?: number, seconds?: number, fps?: number, dropFrames?: [number, number] | null, rateStep?: { from: number, every: number } | null, ffmpeg?: string }} [options]
+ * @param {{ offsetMs?: number, seconds?: number, fps?: number, dropFrames?: [number, number] | null, rateStep?: { from: number, every: number } | null, marks?: Array<0 | 1> | null, ffmpeg?: string }} [options]
  */
 export function makeLabFixture(out, options = {}) {
   const offset = (options.offsetMs ?? 0) / 1000;
@@ -62,7 +66,10 @@ export function makeLabFixture(out, options = {}) {
   if (keep.length) video.push(`select='${keep.join("*")}'`);
   video.push("format=yuv420p");
   const u = `(t-(${offset.toFixed(4)}))`;
-  const tone = `0.5*sin(2*PI*1000*${u})*gte(mod(${u}\\,1)\\,0.5)*lt(mod(${u}\\,1)\\,0.56)*gte(${u}\\,0)`;
+  // Beat j is the beep in second j of u. Mark 1 makes it 60 ms longer (120 ms in all).
+  const longBeats = (options.marks ?? []).map((mark, j) => (mark === 1 ? `eq(floor(${u})\\,${j})` : null)).filter(Boolean);
+  const end = longBeats.length ? `0.56+0.06*(${longBeats.join("+")})` : "0.56";
+  const tone = `0.5*sin(2*PI*1000*${u})*gte(mod(${u}\\,1)\\,0.5)*lt(mod(${u}\\,1)\\,${end})*gte(${u}\\,0)`;
   const made = spawnSync(
     options.ffmpeg ?? "ffmpeg",
     [

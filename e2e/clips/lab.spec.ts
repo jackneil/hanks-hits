@@ -8,6 +8,10 @@
  *   1. 2D canvas (capture path P): play 15 s, then Clip it! for 10 s.
  *   2. WebGL2 canvas (?gl=2, capture path E): the same.
  *   3. 2D canvas: Record a video for 20 s.
+ * The analyzer also gets the lab's beat log (the ground truth), so it knows
+ * WHICH beats the file holds: a lost or repeated beat, or a file that ends
+ * a beat or more away from the press, fails (scripts/clips/lib/truth.mjs).
+ * A Record that the io worker stored in parts gets each part analysed.
  * Every test prints one PASS / FAIL / SKIPPED / INFO row per check, then the
  * offset of each beep. The INFO rows "CPU pressure" and "frame rate over
  * time" show why the capture rung changed: a busy machine makes the
@@ -25,6 +29,7 @@ import {
   describeStatus,
   keep,
   labStatus,
+  labTruth,
   launchLabBrowser,
   pageNow,
   pressureTimeline,
@@ -33,6 +38,7 @@ import {
   waitForStatus,
   watchPressure,
   type LabStatus,
+  type LabTruth,
 } from "./lib/lab";
 import { RowReport } from "./lib/report";
 
@@ -152,17 +158,49 @@ async function runLab(flow: Flow, baseURL: string): Promise<{ report: RowReport;
         : "the governor has no pressure signal here",
     );
 
-    const bytes = await pullClip(page, last!.bytes);
-    report.check("pulled bytes match the file and the row", bytes.length === last!.bytes && bytes.length === record.bytes, `${bytes.length} bytes`, `${record.bytes} bytes`);
+    // A Record can be stored in parts (plan 8.3): every part is pulled and analysed.
+    const parts = last!.parts.length ? last!.parts : [record];
+    if (parts.length > 1 || last!.failedParts > 0) {
+      report.info("parts", `${parts.length} parts`, "the io worker stored the recording in parts (a new video config, or the part limit); each part is analysed");
+    }
+    if (last!.failedParts > 0) report.check("every part stored", false, `${last!.failedParts} parts not stored`, "0");
+    const status: LabStatus = (await labStatus(page)) ?? made.status!;
+    const beats = await labTruth(page);
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const file = keep(`${flow.slug}-${stamp}.mp4`, bytes);
-    report.info("file", file);
-    const truth = await page.evaluate(() => (window as unknown as { __clipsLab: { truth(): unknown[] } }).__clipsLab.truth());
-    keep(`${flow.slug}-${stamp}.json`, JSON.stringify({ status: await labStatus(page), truth }, null, 1));
-
-    const result = await analyzeFile(file, { mode: "live", rungFps: record.fps || null, profile: "desktop", expectSeconds: seconds });
-    report.add(result.rows, "file");
-    beeps = result.beepText;
+    const lengths: number[] = [];
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index];
+      const prefix = parts.length > 1 ? `part ${index + 1}` : "file";
+      const name = parts.length > 1 ? `${flow.slug}-${stamp}-part${index + 1}` : `${flow.slug}-${stamp}`;
+      const bytes = await pullClip(page, part.bytes, index);
+      const sizeOk = bytes.length === part.bytes && (index > 0 || bytes.length === last!.bytes);
+      report.check(`${prefix}: pulled bytes match the file and the row`, sizeOk, `${bytes.length} bytes`, `${part.bytes} bytes`);
+      const file = keep(`${name}.mp4`, bytes);
+      report.info(`${prefix}: file`, file);
+      // The ground truth: which beats the file holds, and (for the last part) that it ends at the press.
+      const truth: LabTruth = {
+        beats,
+        endMs: index === parts.length - 1 ? last!.pressedAtMs : null,
+        displayHz: status.displayHz,
+        maxStride: status.maxStride,
+      };
+      keep(`${name}.json`, JSON.stringify({ status, truth }, null, 1));
+      const result = await analyzeFile(file, {
+        mode: "live",
+        rungFps: part.fps || null,
+        profile: "desktop",
+        expectSeconds: parts.length === 1 ? seconds : null,
+        truth,
+      });
+      report.add(result.rows, prefix);
+      beeps += `${parts.length > 1 ? `${prefix}:\n` : ""}${result.beepText}\n`;
+      lengths.push(result.measure.container?.durationSec ?? part.durationMs / 1000);
+    }
+    if (parts.length > 1) {
+      // The parts together are the recording (plan 6.6 limits for the length).
+      const total = lengths.reduce((sum, value) => sum + value, 0);
+      report.check("length of all parts", total >= seconds - 1 && total <= seconds + 1.2, `${total.toFixed(2)} s`, `${(seconds - 1).toFixed(1)}..${(seconds + 1.2).toFixed(1)} s`);
+    }
     report.check("no page errors", pageErrors.length === 0, pageErrors.length ? pageErrors.slice(0, 3).join(" | ") : "none", "none");
   } finally {
     noteLoad(report, "at the end");

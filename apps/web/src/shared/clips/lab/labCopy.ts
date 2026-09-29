@@ -23,6 +23,8 @@ export const LAB_COPY = Object.freeze({
   clip: "Clip it! (10 s)",
   recordStart: "Record a video",
   recordStop: "Stop the video",
+  /** Plan 11.3: the first row of the Capture menu when the clip button rests. */
+  wake: "Turn the clip button back on",
   clipMade: "Clip made!",
   videoMade: "Video made!",
   working: "Making your clip. Wait a moment.",
@@ -45,7 +47,7 @@ export const LAB_REASON_TEXT: Readonly<Record<ClipReasonCode | "busy" | "cancell
   "no-tier": "This browser cannot make videos. Try another browser.",
   "other-tab": "Clips are on in another tab. Close that tab, then try again.",
   breaker: "Clips stopped because something went wrong while recording. Load the page again.",
-  resting: "Clips are resting so the game stays fast. Tap Start again to wake them.",
+  resting: 'Clips are resting so the game stays fast. Tap "Turn the clip button back on" to wake them.',
   "record-only": "This device can only record videos. Tap Record a video.",
   quota: "There is no more room for clips. Remove some clips, then try again.",
   "storage-unavailable": "This browser cannot keep clips. Try another browser.",

@@ -241,7 +241,10 @@ export async function buildAvsync(options = {}) {
   const built = await run(options.swiftc ?? "swiftc", ["-o", building, sourcePath]);
   if (built.status !== 0) {
     rmSync(building, { force: true });
-    throw new Error(`swiftc could not build avsync.swift: ${built.stderr.slice(-600) || built.error}`);
+    // The first "error:" line names the cause (the first line of the message goes into the SKIPPED row).
+    const lines = built.stderr.split("\n").map((line) => line.trim()).filter(Boolean);
+    const cause = built.error ? built.error.message : (lines.find((line) => /\berror:/.test(line)) ?? lines[lines.length - 1] ?? `exit status ${built.status}`);
+    throw new Error(`swiftc could not build avsync.swift: ${cause}\n${built.stderr.slice(-600)}`);
   }
   renameSync(building, binary);
   return binary;
@@ -249,10 +252,11 @@ export async function buildAvsync(options = {}) {
 
 /**
  * Decodes `file` with AVFoundation (AVAssetReader: the stack that iPhone
- * Photos and Messages use).
+ * Photos and Messages use). options.avsyncBinary is a reader that is built
+ * already; without it, this builds one (buildAvsync).
  */
 export async function avfoundationDecode(file, options = {}) {
-  const binary = await buildAvsync(options);
+  const binary = options.avsyncBinary ?? (await buildAvsync(options));
   const result = await run(binary, [file]);
   if (result.status !== 0) throw new Error(`avsync failed on ${file}: ${result.stderr.trim() || result.error}`);
   const json = JSON.parse(result.stdout.toString("utf8"));

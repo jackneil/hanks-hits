@@ -13,7 +13,10 @@
  * - The lab uses the public clip service API only: the service and the
  *   attached game come from LabClipScope through the clip contexts, the
  *   canvas goes to AttachedGame.registerCanvas, and the buttons call
- *   clipLast, startRecording, stopRecording and library.file.
+ *   clipLast, startRecording, stopRecording, wake, library.list and
+ *   library.file.
+ * - A Record can be stored in parts (plan 8.3). The lab keeps every part of
+ *   the last Record (labParts.ts), so the drivers analyse each part.
  * - Drivers read the lab through window.__clipsLab (labHandle.ts) and the
  *   hidden element data-testid="lab-last-clip".
  */
@@ -27,8 +30,9 @@ import type { ClipActionResult, ClipSnapshot, GameAttachment } from "../service/
 import { LabClipScope, useLabServiceState } from "./LabClipScope";
 import { LAB_AUDIO_APP_ID, playBeep } from "./labBeep";
 import { LAB_COPY, reasonText } from "./labCopy";
-import { createLabHandle, installLabHandle, type LabLastClip, type LabStatus } from "./labHandle";
+import { createLabHandle, installLabHandle, type LabLastClip, type LabPart, type LabStatus } from "./labHandle";
 import type { ClipsLabOptions } from "./labParams";
+import { declaredFailedParts, declaredParts, recordParts } from "./labParts";
 import { LAB_CANVAS_HEIGHT, LAB_CANVAS_WIDTH, createLabRenderer } from "./labRenderer";
 import { LabMetronome } from "./labSchedule";
 import { loadLabService, type LabServiceLoader } from "./labService";
@@ -135,7 +139,7 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
       }
       frame += 1;
       if (tick.beat && channel && !channel.disposed) {
-        playBeep(channel, tick.beat.ctxTime);
+        playBeep(channel, tick.beat.ctxTime, tick.beat.mark);
         setBeats(metronome.beatCount);
       }
       id = requestAnimationFrame(step);
@@ -193,8 +197,12 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
     live.current.game?.runPhase("end");
   }, [metronome]);
 
-  /** Shows a result and, for a made clip, keeps its file for the drivers. */
-  const takeResult = useCallback(async (action: "clip" | "record", result: ClipActionResult | null) => {
+  /**
+   * Shows a result and, for a made clip, keeps its files for the drivers:
+   * the clip, or every part of a Record (labParts.ts). pressedAtMs is the
+   * page time of the press, where the file ends.
+   */
+  const takeResult = useCallback(async (action: "clip" | "record", result: ClipActionResult | null, pressedAtMs: number) => {
     const current = live.current.service;
     if (!result) return;
     if (!result.ok) {
@@ -206,7 +214,15 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
     try {
       if (!current) throw new Error("no service");
       const file = await current.library.file(result.record.id);
-      setLastClip({ action, record: result.record, file, url: URL.createObjectURL(file) });
+      const parts: LabPart[] = [{ record: result.record, file }];
+      if (action === "record") {
+        const declared = declaredParts(result);
+        const listed = declared ? [] : await current.library.list({ gameId: result.record.gameId, kind: "record" });
+        for (const record of recordParts(result.record, declared, listed).slice(1)) {
+          parts.push({ record, file: await current.library.file(record.id) });
+        }
+      }
+      setLastClip({ action, record: result.record, file, url: URL.createObjectURL(file), pressedAtMs, parts, failedParts: declaredFailedParts(result) });
       setLastError(null);
       setMessage(action === "clip" ? LAB_COPY.clipMade : LAB_COPY.videoMade);
     } catch {
@@ -233,8 +249,9 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
     if (!current || !beginBusy("clip")) return null;
     setMessage(LAB_COPY.working);
     try {
+      const pressedAtMs = performance.now();
       const result = await current.clipLast(LAB_CLIP_SECONDS);
-      await takeResult("clip", result);
+      await takeResult("clip", result, pressedAtMs);
       return result;
     } finally {
       endBusy();
@@ -260,13 +277,20 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
     if (!current || !beginBusy("record")) return null;
     setMessage(LAB_COPY.working);
     try {
+      const pressedAtMs = performance.now();
       const result = await current.stopRecording();
-      await takeResult("record", result);
+      await takeResult("record", result, pressedAtMs);
       return result;
     } finally {
       endBusy();
     }
   }, [takeResult, beginBusy, endBusy]);
+
+  /** "Turn the clip button back on": capture comes back after the governor rested it (plan 11.3). */
+  const wake = useCallback(() => {
+    live.current.service?.wake();
+    setMessage(null);
+  }, []);
 
   // The driver hook (labHandle.ts).
   useEffect(() => {
@@ -283,6 +307,8 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
         skippedBeats: metronome.skipped,
         displayHz: metronome.displayHz,
         holdFrames: metronome.holdFrames,
+        beatIntervalSec: metronome.beatIntervalSec,
+        maxStride: metronome.lowestStride,
         targetFps: options.targetFps,
         button: snap.button,
         engine: snap.engine,
@@ -293,7 +319,15 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
         busy: busyRef.current,
         results: s.results,
         lastClip: s.lastClip
-          ? { action: s.lastClip.action, record: s.lastClip.record, bytes: s.lastClip.file.size, url: s.lastClip.url }
+          ? {
+              action: s.lastClip.action,
+              record: s.lastClip.record,
+              bytes: s.lastClip.file.size,
+              url: s.lastClip.url,
+              pressedAtMs: s.lastClip.pressedAtMs,
+              parts: s.lastClip.parts.map((part) => part.record),
+              failedParts: s.lastClip.failedParts,
+            }
           : null,
         lastError: s.lastError,
       };
@@ -301,16 +335,18 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
     const handle = createLabHandle({
       status,
       truth: () => metronome.truth,
-      lastFile: () => live.current.lastClip?.file ?? null,
+      lastFile: (part) => live.current.lastClip?.parts[part]?.file ?? null,
       clip,
       recordStart,
       recordStop,
+      wake,
     });
     return installLabHandle(window, handle);
-  }, [metronome, options.targetFps, clip, recordStart, recordStop]);
+  }, [metronome, options.targetFps, clip, recordStart, recordStop, wake]);
 
   const ready = serviceState === "ready" && service !== null;
   const recording = snapshot.recording !== null;
+  const resting = snapshot.button === "resting" || snapshot.engine === "resting";
   const serviceLine =
     serviceState === "loading"
       ? LAB_COPY.serviceLoading
@@ -320,8 +356,8 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
           ? LAB_COPY.serviceError
           : null;
   const readAloudText = useMemo(
-    () => [LAB_COPY.title, LAB_COPY.intro, serviceLine, message].filter(Boolean).join(" "),
-    [serviceLine, message],
+    () => [LAB_COPY.title, LAB_COPY.intro, serviceLine, message ?? (resting ? reasonText("resting") : null)].filter(Boolean).join(" "),
+    [serviceLine, message, resting],
   );
 
   return (
@@ -385,10 +421,19 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
           >
             {LAB_COPY.recordStop}
           </button>
+          <button
+            type="button"
+            data-testid="lab-wake"
+            className="btn min-h-[48px] min-w-[120px] text-lg"
+            onClick={wake}
+            disabled={!ready || !resting}
+          >
+            {LAB_COPY.wake}
+          </button>
         </div>
 
         <p aria-live="polite" data-testid="lab-message" className="min-h-[1.75rem] text-lg font-semibold">
-          {message ?? serviceLine ?? (running && audioState !== "running" ? LAB_COPY.soundOff : "")}
+          {message ?? serviceLine ?? (resting ? reasonText("resting") : running && audioState !== "running" ? LAB_COPY.soundOff : "")}
         </p>
 
         <section className="rounded-lg bg-base-100 p-4">
@@ -429,6 +474,7 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
                 <Fact term="Size" value={`${lastClip.record.width}x${lastClip.record.height}, ${lastClip.record.fps} fps`} />
                 <Fact term="Sound" value={lastClip.record.hasAudio ? "yes" : "no"} />
                 <Fact term="Bytes" value={String(lastClip.file.size)} />
+                <Fact term="Parts" value={lastClip.failedParts > 0 ? `${lastClip.parts.length} (${lastClip.failedParts} could not be made)` : String(lastClip.parts.length)} />
               </dl>
             </div>
           ) : (
@@ -447,6 +493,7 @@ export function ClipsLab({ options }: { options: ClipsLabOptions }) {
           data-action={lastClip?.action ?? ""}
           data-blob-url={lastClip?.url ?? ""}
           data-bytes={lastClip ? lastClip.file.size : 0}
+          data-parts={lastClip ? lastClip.parts.length : 0}
           data-reason={lastError ?? ""}
         >
           <a data-testid="lab-last-clip-url" href={lastClip?.url}>

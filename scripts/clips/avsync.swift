@@ -124,30 +124,32 @@ Task {
       while let buffer = audioOutput.copyNextSampleBuffer() {
         let start = CMSampleBufferGetPresentationTimeStamp(buffer).seconds
         guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
-        var length = 0
-        var pointer: UnsafeMutablePointer<Int8>? = nil
-        guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer) == kCMBlockBufferNoErr,
-          let raw = pointer
-        else { continue }
-        let count = length / 4
+        let count = CMBlockBufferGetDataLength(block) / 4
         if count == 0 { continue }
+        // A block buffer can keep its bytes in more than one memory block. A
+        // pointer to offset 0 is then good for the first memory block only,
+        // not for the whole length. So copy the bytes out:
+        // CMBlockBufferCopyDataBytes reads across all the memory blocks.
+        var samples = [Float](repeating: 0, count: count)
+        let copied = samples.withUnsafeMutableBytes { bytes in
+          CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: count * 4, destination: bytes.baseAddress!)
+        }
+        if copied != kCMBlockBufferNoErr { fail("avsync: could not read an audio buffer (status \(copied))") }
         if segments.isEmpty
           || abs(start - (segments[segments.count - 1].start + Double(segments[segments.count - 1].samples) / sampleRate)) > gapTolerance
         {
           segments.append(Segment(start: start, samples: 0, peaks: []))
         }
         let index = segments.count - 1
-        raw.withMemoryRebound(to: Float.self, capacity: count) { samples in
-          for i in 0..<count {
-            let bin = segments[index].samples / binSamples
-            let value = abs(samples[i])
-            if bin >= segments[index].peaks.count {
-              segments[index].peaks.append(value)
-            } else if value > segments[index].peaks[bin] {
-              segments[index].peaks[bin] = value
-            }
-            segments[index].samples += 1
+        for i in 0..<count {
+          let bin = segments[index].samples / binSamples
+          let value = abs(samples[i])
+          if bin >= segments[index].peaks.count {
+            segments[index].peaks.append(value)
+          } else if value > segments[index].peaks[bin] {
+            segments[index].peaks[bin] = value
           }
+          segments[index].samples += 1
         }
       }
       if audioReader.status == .failed { fail("avsync: the audio reader failed: \(String(describing: audioReader.error))") }

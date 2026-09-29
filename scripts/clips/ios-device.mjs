@@ -5,8 +5,10 @@
  * Usage:
  *   node scripts/clips/ios-device.mjs <lab URL> [--flow clip|record] [--udid <UDID>] [--port 4444] [--out <dir>]
  *
- *   <lab URL>  the lab page, for example https://<tunnel>/clips-lab or
- *              https://<tunnel>/clips-lab?gl=2. The server must have
+ *   <lab URL>  the lab page, for example https://<tunnel>/clips-lab,
+ *              https://<tunnel>/clips-lab?gl=2, or a tunnel URL with a
+ *              per-session token path before it
+ *              (https://<tunnel>/<token>/clips-lab). The server must have
  *              CLIPS_LAB=1. The page must be a SECURE context on the phone
  *              (https, never http://<LAN address>): Safari gives VideoEncoder
  *              and the origin private file system only to secure pages.
@@ -24,7 +26,10 @@
  * (base64 chunks from window.__clipsLab.readClipBase64, because a WebDriver
  * result has a size limit and the page's Content Security Policy blocks
  * fetch() of a blob: URL), and runs scripts/clips/analyze-sync.mjs on it
- * with the phone limits (effective frame rate at least 80% of the rung).
+ * with the phone limits (effective frame rate at least 80% of the rung) and
+ * the lab's beat log (the ground truth: which beats the file holds, and that
+ * it ends at the press). A Record that the io worker stored in parts gets
+ * each part pulled and analysed.
  *
  * BEFORE YOU START (one time):
  *   - On the phone: Settings > Apps > Safari > Advanced: turn on
@@ -35,9 +40,12 @@
  *   - Keep the phone unlocked while the script runs. A WebDriver tap that
  *     does not reach the page (plan 3a saw this on some pages) is retried
  *     once; after that the script uses the lab's own action and says so.
+ *     A button that is off (a clip is being made, the service is not
+ *     ready) is never tapped: a FAIL row gives the lab status instead.
  *
  * Output: one PASS / FAIL / SKIPPED / INFO row per check, then the offset of
- * each beep. The file and a JSON of the lab status go to --out (default: the
+ * each beep. The file and a JSON of the lab status and the ground truth go
+ * to --out (analyze-sync.mjs --truth reads that JSON again; default: the
  * system temp folder, hh-clips-ios). Exit status: 0 when no row failed
  * (SKIPPED rows never fail: not macOS, no safaridriver, no device), 1 when a
  * row failed, 2 on a usage error.
@@ -162,9 +170,16 @@ export function parseArgs(argv) {
   } catch {
     throw new Error(`not a URL: ${options.url}`);
   }
-  if (!/^\/clips-lab\/?$/.test(parsed.pathname)) throw new Error("the URL must be the lab page, /clips-lab");
+  if (!LAB_PATH.test(parsed.pathname)) throw new Error("the URL must be the lab page, /clips-lab (a tunnel can put a token path before it)");
   return options;
 }
+
+/**
+ * The lab page path: /clips-lab, or a path that ends in /clips-lab (plan
+ * 15.3: a tunnel puts a per-session token path before it, for example
+ * /t/<token>/clips-lab).
+ */
+export const LAB_PATH = /(^|\/)clips-lab\/?$/;
 
 // ---------------------------------------------------------------------------
 // WebDriver
@@ -278,9 +293,20 @@ function describe(status) {
   return `service ${status.service}, button ${status.button}, engine ${status.engine}, sound ${status.audio}, beeps ${status.beats}, footage ${Number(status.bufferedSec).toFixed(1)} s`;
 }
 
-/** Taps the lab button with `testId`. Returns false when the button is not on the page. */
-async function tapButton(driver, testId) {
-  const point = await driver.execute(
+/** Why a lab button is off, from the lab status: the button state, a running action and the last reason. */
+export function disabledText(status) {
+  if (!status) return "no lab on the page";
+  const busy = status.busy ? `, busy (${status.busy})` : "";
+  const reason = status.reason ? `, reason ${status.reason}` : "";
+  return `button ${status.button}, service ${status.service}${busy}${reason}, recording ${status.recording ? "yes" : "no"}`;
+}
+
+/**
+ * Finds the lab button with `testId`: null when it is not on the page, else
+ * its middle point (viewport pixels) and whether it is disabled.
+ */
+async function findButton(driver, testId) {
+  return driver.execute(
     `const el = document.querySelector('[data-testid="' + arguments[0] + '"]');
      if (!el) return null;
      el.scrollIntoView({ block: "center" });
@@ -288,16 +314,31 @@ async function tapButton(driver, testId) {
      return { x: r.left + r.width / 2, y: r.top + r.height / 2, disabled: !!el.disabled };`,
     [testId],
   );
-  if (!point) return false;
-  await driver.tap(point.x, point.y);
-  return true;
 }
 
-/** Taps a lab button; when the tap does not reach the page, taps once more, then uses the lab's own action. */
-async function press(driver, rows, testId, reached, fallback) {
+/**
+ * Taps a lab button, and waits until `reached` says the page saw the tap.
+ * - A button that is not on the page, or that is disabled, gives a FAIL row
+ *   with the lab status, and no retry and no fallback: the lab would refuse
+ *   the action too (a clip while one is being made, a clip before the
+ *   service is ready), so a retry only hides the cause.
+ * - A tap that does not reach the page (plan 3a saw this in WebDriver) is
+ *   tried once more. After that, the lab's own action runs (when `fallback`
+ *   names one), and an INFO row says so.
+ * Returns true when the action started.
+ */
+export async function press(driver, rows, testId, reached, fallback, waitMs = 5_000) {
   for (let attempt = 1; attempt <= 2; attempt++) {
-    if (!(await tapButton(driver, testId))) return false;
-    const seen = await waitFor(driver, reached, 5_000);
+    const point = await findButton(driver, testId);
+    if (!point || point.disabled) {
+      const status = await driver.execute(STATUS_SCRIPT);
+      // A first tap that the page saw late can turn its own button off: that is not a failure.
+      if (attempt > 1 && status && reached(status)) return true;
+      rows.push({ status: "FAIL", check: `${testId} tap`, value: point ? "the button is off" : "the button is not on the page", limit: "an enabled button", detail: disabledText(status) });
+      return false;
+    }
+    await driver.tap(point.x, point.y);
+    const seen = await waitFor(driver, reached, waitMs);
     if (seen.ok) return true;
   }
   if (!fallback) return false;
@@ -333,19 +374,19 @@ async function runFlow(driver, options, rows) {
     check(rows, `played ${PLAY_SECONDS} s`, played.ok, describe(played.status), `>= ${PLAY_SECONDS} beeps, >= ${CLIP_SECONDS + 1} s of footage`);
     rows.push({ status: "INFO", check: "display", value: `${played.status?.displayHz ?? "?"} Hz, flash ${played.status?.holdFrames ?? "?"} frames, tier ${played.status?.tier ?? "?"}`, limit: "-" });
     before = played.status?.results ?? 0;
-    await press(driver, rows, "lab-clip", (s) => s.busy !== null || s.results > before, "clip");
+    if (!(await press(driver, rows, "lab-clip", (s) => s.busy !== null || s.results > before, "clip"))) return null;
   } else {
     seconds = RECORD_SECONDS;
     const warm = await waitFor(driver, (s) => s.button === "ready", 60_000);
     check(rows, "clip button ready", warm.ok, describe(warm.status), "ready");
     before = warm.status?.results ?? 0;
-    await press(driver, rows, "lab-record-start", (s) => s.recording, "recordStart");
+    if (!(await press(driver, rows, "lab-record-start", (s) => s.recording, "recordStart"))) return null;
     const recording = await waitFor(driver, (s) => s.recording, 10_000);
     if (!check(rows, "recording started", recording.ok, describe(recording.status), "recording")) return null;
     const from = recording.status.beats;
     const recorded = await waitFor(driver, (s) => s.beats >= from + RECORD_SECONDS, (RECORD_SECONDS + 30) * 1000);
     check(rows, `recorded ${RECORD_SECONDS} s`, recorded.ok, `${(recorded.status?.beats ?? 0) - from} beeps`, `>= ${RECORD_SECONDS}`);
-    await press(driver, rows, "lab-record-stop", (s) => !s.recording, "recordStop");
+    if (!(await press(driver, rows, "lab-record-stop", (s) => !s.recording, "recordStop"))) return null;
   }
 
   const made = await waitFor(driver, (s) => s.results > before && s.busy === null, 120_000);
@@ -355,23 +396,38 @@ async function runFlow(driver, options, rows) {
   check(rows, "library row has game sound", record.hasAudio, String(record.hasAudio), "true");
   rows.push({ status: "INFO", check: "library row", value: `${record.kind}, ${record.width}x${record.height}, ${record.fps} fps, ${(record.durationMs / 1000).toFixed(2)} s`, limit: "-" });
 
-  const parts = [];
-  for (const [offset, length] of chunkRanges(last.bytes)) {
-    const text = await driver.executeAsync("window.__clipsLab.readClipBase64(arguments[0], arguments[1]).then(done, (e) => done({ error: String(e) }));", [offset, length]);
-    if (typeof text !== "string") throw new Error(`reading the clip failed at byte ${offset}: ${text?.error ?? "no data"}`);
-    parts.push(Buffer.from(text, "base64"));
-  }
-  const bytes = Buffer.concat(parts);
-  check(rows, "pulled bytes match the row", bytes.length === record.bytes, `${bytes.length} bytes`, `${record.bytes} bytes`);
-
+  // A Record can be stored in parts (plan 8.3): every part is pulled and analysed.
+  const parts = Array.isArray(last.parts) && last.parts.length ? last.parts : [record];
+  if (parts.length > 1) rows.push({ status: "INFO", check: "parts", value: `${parts.length} parts`, limit: "-", detail: "the io worker stored the recording in parts; each part is analysed" });
+  if (last.failedParts > 0) check(rows, "every part stored", false, `${last.failedParts} parts not stored`, "0");
+  const beats = await driver.execute("return window.__clipsLab.truth();");
   mkdirSync(options.out, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const file = path.join(options.out, `ios-${options.flow}-${stamp}.mp4`);
-  writeFileSync(file, bytes);
-  const truth = await driver.execute("return window.__clipsLab.truth();");
-  writeFileSync(file.replace(/\.mp4$/, ".json"), JSON.stringify({ status: made.status, truth }, null, 1));
-  rows.push({ status: "INFO", check: "file", value: file, limit: "-" });
-  return { file, record, seconds };
+  const files = [];
+  for (let index = 0; index < parts.length; index++) {
+    const part = parts[index];
+    const prefix = parts.length > 1 ? `part ${index + 1}` : "file";
+    const chunks = [];
+    for (const [offset, length] of chunkRanges(part.bytes)) {
+      const text = await driver.executeAsync(
+        "window.__clipsLab.readClipBase64(arguments[0], arguments[1], arguments[2]).then(done, (e) => done({ error: String(e) }));",
+        [offset, length, index],
+      );
+      if (typeof text !== "string") throw new Error(`reading ${prefix} failed at byte ${offset}: ${text?.error ?? "no data"}`);
+      chunks.push(Buffer.from(text, "base64"));
+    }
+    const bytes = Buffer.concat(chunks);
+    check(rows, `${prefix}: pulled bytes match the row`, bytes.length === part.bytes, `${bytes.length} bytes`, `${part.bytes} bytes`);
+    const name = `ios-${options.flow}-${stamp}${parts.length > 1 ? `-part${index + 1}` : ""}`;
+    const file = path.join(options.out, `${name}.mp4`);
+    writeFileSync(file, bytes);
+    // The ground truth: which beats the file holds, and (for the last part) that it ends at the press.
+    const truth = { beats, endMs: index === parts.length - 1 ? last.pressedAtMs : null, displayHz: made.status.displayHz, maxStride: made.status.maxStride };
+    writeFileSync(path.join(options.out, `${name}.json`), JSON.stringify({ status: made.status, truth }, null, 1));
+    rows.push({ status: "INFO", check: `${prefix}: file`, value: file, limit: "-" });
+    files.push({ file, record: part, prefix, truth });
+  }
+  return { files, seconds };
 }
 
 /** One line: WebDriver errors from safaridriver can span several lines. */
@@ -411,9 +467,16 @@ async function run(options) {
       rows.push({ status: "INFO", check: "Safari", value: `${caps.browserVersion ?? "?"} on ${caps.platformName ?? "iOS"}`, limit: "-" });
       const made = await runFlow(driver, options, rows);
       if (made) {
-        const result = await analyzeSync(made.file, { mode: "live", rungFps: made.record.fps || null, profile: "phone", expectSeconds: made.seconds });
-        for (const r of result.rows) rows.push({ ...r, check: `file: ${r.check}` });
-        beeps = formatBeepTable(result.beeps);
+        const single = made.files.length === 1;
+        let total = 0;
+        for (const { file, record, prefix, truth } of made.files) {
+          const result = await analyzeSync(file, { mode: "live", rungFps: record.fps || null, profile: "phone", expectSeconds: single ? made.seconds : null, truth });
+          for (const r of result.rows) rows.push({ ...r, check: `${prefix}: ${r.check}` });
+          beeps += `${single ? "" : `${prefix}:\n`}${formatBeepTable(result.beeps)}\n`;
+          total += result.measure.container?.durationSec ?? record.durationMs / 1000;
+        }
+        // The parts together are the recording (plan 6.6 limits for the length).
+        if (!single) check(rows, "length of all parts", total >= made.seconds - 1 && total <= made.seconds + 1.2, `${total.toFixed(2)} s`, `${(made.seconds - 1).toFixed(1)}..${(made.seconds + 1.2).toFixed(1)} s`);
       }
     }
   } catch (error) {
