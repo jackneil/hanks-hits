@@ -17,6 +17,7 @@ import {
   VIEWER_TITLES,
   memoryNote,
   saveReply,
+  saveTip,
   shareReply,
 } from "../copy";
 import { UI_PREFS_KEY, type ViewerTarget } from "../uiStore";
@@ -392,6 +393,53 @@ describe("ClipViewer: Save per platform (plan 12)", () => {
     await openClip(makeRecord({ id: "c1" }));
     expect(viewer()).not.toHaveTextContent(SAVE_LABELS.photos);
     expect(screen.queryByTestId("clip-viewer-coach")).toBeNull();
+  });
+});
+
+describe("ClipViewer: the voice tells a pre-reader what to do (plan 11.1, 11.6)", () => {
+  async function spokenFor(record: ClipRecord): Promise<string> {
+    const speech = installSpeechMock();
+    await openClip(record);
+    fireEvent.click(within(viewer()).getByTestId("read-aloud-button"));
+    return speech.lastUtterance().text;
+  }
+
+  it("a video: how to watch it, then how to copy it out and share it, in screen order", async () => {
+    const spoken = await spokenFor(makeRecord({ id: "c1", gameId: "snake" }));
+    const order = [VIEWER_TITLES.clip, "Snake", VIEWER_COPY.watchTip, saveTip("computer"), VIEWER_COPY.shareTip, VIEWER_COPY.keep, VIEWER_COPY.delete];
+    const at = order.map((words) => spoken.indexOf(words));
+    for (const [i, index] of at.entries()) expect(index, order[i]).toBeGreaterThanOrEqual(0);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(saveTip("computer")).toBe("Tap Save to computer to put a copy on your computer.");
+    expect(VIEWER_COPY.watchTip).toBe("Tap the play button to watch it.");
+  });
+
+  it("a picture has nothing to play: no watch step", async () => {
+    const spoken = await spokenFor(makeRecord({ id: "p1", kind: "picture" }));
+    expect(spoken).not.toContain(VIEWER_COPY.watchTip);
+    expect(spoken).toContain(VIEWER_COPY.shareTip);
+    expect(spoken).toContain(saveTip("computer"));
+  });
+
+  it("the list of a game's clips shows and says how to open one; an empty list does not", async () => {
+    const speech = installSpeechMock();
+    const fake = createFakeClipService({ records: [makeRecord({ id: "c1", gameId: "snake" })], snapshot: { atBreak: true } });
+    const view = renderWithClips(<Open target={{ kind: "game", gameId: "snake" }} />, { fake });
+    fireEvent.click(screen.getByTestId("open-viewer"));
+    await flush();
+    expect(screen.getByTestId("clip-viewer-list-tip")).toHaveTextContent(VIEWER_COPY.gameListTip);
+    fireEvent.click(within(viewer()).getByTestId("read-aloud-button"));
+    expect(speech.lastUtterance().text).toContain(VIEWER_COPY.gameListTip);
+    view.unmount();
+
+    const empty = createFakeClipService({ records: [], snapshot: { atBreak: true } });
+    renderWithClips(<Open target={{ kind: "game", gameId: "snake" }} />, { fake: empty });
+    fireEvent.click(screen.getByTestId("open-viewer"));
+    await flush();
+    expect(screen.queryByTestId("clip-viewer-list-tip")).toBeNull();
+    fireEvent.click(within(viewer()).getByTestId("read-aloud-button"));
+    expect(speech.lastUtterance().text).not.toContain(VIEWER_COPY.gameListTip);
+    expect(speech.lastUtterance().text).toContain(VIEWER_COPY.gameListEmptyNext);
   });
 });
 

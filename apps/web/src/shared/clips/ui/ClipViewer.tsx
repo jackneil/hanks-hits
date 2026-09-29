@@ -60,6 +60,7 @@ import {
   VIEWER_TITLES,
   memoryNote,
   saveReply,
+  saveTip,
   shareReply,
   type SaveButton,
   type SavePlatform,
@@ -351,12 +352,18 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
         clipGameInfo(view.gameId).name,
         ...recoveredWords,
         empty ? `${VIEWER_COPY.gameListEmptySay} ${VIEWER_COPY.gameListEmptyNext}` : null,
+        list && list.length > 0 ? VIEWER_COPY.gameListTip : null,
       ]
         .filter(Boolean)
         .join(". ");
     return (
       <Sheet title={VIEWER_COPY.gameListTitle} variant="full" testId="clip-viewer" onClose={onClose} readAloudText={readAloud}>
-        <p className="mb-3 text-base font-semibold text-base-content/80">{clipGameInfo(view.gameId).name}</p>
+        <p className="mb-1 text-base font-semibold text-base-content/80">{clipGameInfo(view.gameId).name}</p>
+        {list && list.length > 0 && (
+          <p data-testid="clip-viewer-list-tip" className="mb-3 text-base">
+            {VIEWER_COPY.gameListTip}
+          </p>
+        )}
         {recoveredNote}
         {list === null && <p className="py-8 text-center text-lg">{VIEWER_COPY.loading}</p>}
         {empty && (
@@ -401,12 +408,17 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
         .filter(Boolean)
         .join(". ");
     }
-    const buttons = !shareShown ? [saveLabel] : saveFirst ? [saveLabel, VIEWER_COPY.share] : [VIEWER_COPY.share, saveLabel];
+    // A pre-reader hears what to do: watch, then how each way out works (in
+    // screen order), then the other buttons.
+    const saveWords = saveTip(saveButtonKind);
+    const buttons = !shareShown ? [saveWords] : saveFirst ? [saveWords, VIEWER_COPY.shareTip] : [VIEWER_COPY.shareTip, saveWords];
+    const watchWords = readyMedia && !isPicture ? VIEWER_COPY.watchTip : null;
     return [
       title,
       game.name,
       ...recoveredWords,
       note,
+      watchWords,
       statusText,
       ...(confirmWords ?? [...buttons, isKept ? VIEWER_COPY.kept : VIEWER_COPY.keep, VIEWER_COPY.delete]),
     ]

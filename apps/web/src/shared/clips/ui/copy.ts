@@ -305,6 +305,12 @@ export const VIEWER_COPY = {
   /** The coach line next to Save to Photos, with a picture of the Save Video icon (plan 8.2). */
   photosCoach: "In the list that opens, look for this button and tap it.",
   gameListTitle: "My clips from this game",
+  /** The list's next step, shown and spoken when it has clips. */
+  gameListTip: "Tap a clip to watch it.",
+  /** The one-clip script's next step for a video (plan 11.6: every screen gives a next step). */
+  watchTip: "Tap the play button to watch it.",
+  /** How to share, in the one-clip script. */
+  shareTip: "Tap Share to send it.",
   gameListEmptySay: "No clips from this game yet.",
   gameListEmptyNext: "Tap the clip button while you play!",
   backToList: "Back to my clips",
@@ -383,6 +389,11 @@ const SAVE_PLACES: Record<SaveButton, string> = {
   computer: "on your computer",
   files: "in the Files app",
 };
+
+/** How to copy the clip out, in the one-clip script: "Tap Save to computer to put a copy on your computer." */
+export function saveTip(save: SaveButton): string {
+  return `Tap ${SAVE_BUTTON_LABELS[save]} to put a copy ${SAVE_PLACES[save]}.`;
+}
 
 /**
  * The reply after a "Save to ..." button. The browser can only START a copy
@@ -481,7 +492,7 @@ export function allCopyStrings(): string[] {
       }
       out.push(saveReply({ kind: "saved" }, save, kind));
     }
-    out.push(saveReply({ kind: "failed", reason: "blocked" }, save));
+    out.push(saveReply({ kind: "failed", reason: "blocked" }, save), saveTip(save));
     out.push(saveReply({ kind: "failed", reason: "unknown" }, save));
   }
   out.push(PAUSE_ENTRY_LABEL, ...Object.values(RESULT_ACTION_COPY), wholeRunLabel("0:42"));
