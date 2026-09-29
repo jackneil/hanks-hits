@@ -56,11 +56,24 @@ const nextConfig: NextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-DNS-Prefetch-Control", value: "on" },
           {
+            // The emulator page shares this origin with the clip library, so
+            // it loads no code from another site: EmulatorJS is served from
+            // /emulator/ejs/<version>/. connect-src has no https: source on
+            // purpose. When a core file is missing, EmulatorJS downloads it
+            // from the EmulatorJS CDN and runs it; this blocks that download.
+            // Keep the meta CSP in public/emulator/index.html the same.
             key: "Content-Security-Policy",
             value:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.emulatorjs.org https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://cdn.emulatorjs.org; img-src 'self' data: https: blob:; font-src 'self' data: https://cdn.emulatorjs.org; connect-src 'self' https: blob:; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'self';",
+              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' blob:; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'self';",
           },
         ],
+      },
+      // The self-hosted EmulatorJS files. The version is in the path, and the
+      // files under one version never change (a test checks their SHA-256),
+      // so browsers and the Cloudflare edge can keep them for a year.
+      {
+        source: "/emulator/ejs/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
     ];
   },

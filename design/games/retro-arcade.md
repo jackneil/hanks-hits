@@ -164,14 +164,28 @@ N64 has analog stick and unique layout:
 
 EmulatorJS is designed as a plugin that runs in a container element. **Critical for Next.js/React**: We must use an **iframe** approach because EmulatorJS manipulates the DOM directly and conflicts with React's virtual DOM.
 
-#### CDN Setup
+#### Self-Hosted EmulatorJS Files
 
 ```javascript
 // Base configuration
-EJS_pathtodata = "https://cdn.emulatorjs.org/4.2.3/data/";
+EJS_pathtodata = "/emulator/ejs/4.2.3/";
 ```
 
-Use a pinned version path (for example `4.2.3`). Do not use the `stable`, `latest`, or `nightly` paths. These paths change when EmulatorJS makes a release, and the change gets no review from us (issue #22). The pin test `apps/web/src/games/retro-arcade/__tests__/emulator-pin.test.ts` fails when an EmulatorJS URL does not use the pinned version. To change the version, change the URLs in `public/emulator/index.html` and the version in the pin test in the same pull request.
+The site serves its own copy of EmulatorJS 4.2.3 from `apps/web/public/emulator/ejs/4.2.3/`. Do not load EmulatorJS from the EmulatorJS CDN. The emulator page runs in the same origin as the clip library (IndexedDB `hh-clips` and OPFS `lib/`). A script from another site in that origin can read every clip on the device.
+
+- The files come from the official release asset `4.2.3.7z` on GitHub. `manifest.json` in the folder records the source URL, the size and the SHA-256 of each file.
+- The folder holds the loader, the bundle and its CSS, the decompression helpers, the localization files, and the cores for each console in `lib/constants.ts`. Each core has a WebGL 2 build and a legacy (WebGL 1) build.
+- The emulator CSP (in `public/emulator/index.html` and in `next.config.ts`) allows no other host in `connect-src`. When a core file is missing, EmulatorJS downloads the core from its CDN and runs it. The CSP blocks that download.
+- The emulator page accepts only the systems of Retro Arcade and ROMs from this site (`/api/roms` or a `blob:` URL of this site).
+
+Three tests check this: `emulator-pin.test.ts` (paths and CSP), `emulator-selfhost.test.ts` (the SHA-256 of each file and the core list) and `emulator-page.test.ts` (the page script).
+
+To change the version:
+
+1. Run `node scripts/vendor-emulatorjs.mjs <version>` in `apps/web`.
+2. Change the two paths in `public/emulator/index.html`.
+3. Change the version in the three tests.
+4. Play a game on each console.
 
 #### Iframe Approach (Required for React/Next.js)
 
@@ -200,7 +214,7 @@ Create a standalone HTML template that loads EmulatorJS:
     EJS_core = params.get('core') || 'nes';
     EJS_gameUrl = params.get('rom');
     EJS_gameName = params.get('name') || 'Game';
-    EJS_pathtodata = "https://cdn.emulatorjs.org/4.2.3/data/";
+    EJS_pathtodata = "/emulator/ejs/4.2.3/";
 
     // Kid-friendly defaults
     EJS_volume = 0.5;
@@ -222,7 +236,7 @@ Create a standalone HTML template that loads EmulatorJS:
       window.parent.postMessage({ type: 'ready' }, '*');
     };
   </script>
-  <script src="https://cdn.emulatorjs.org/4.2.3/data/loader.js"></script>
+  <script src="/emulator/ejs/4.2.3/loader.js"></script>
 </body>
 </html>
 ```
@@ -872,7 +886,7 @@ export function useRetroArcadeSync() {
 ## References
 
 - [EmulatorJS GitHub](https://github.com/EmulatorJS/EmulatorJS) - Source and documentation
-- [EmulatorJS CDN](https://cdn.emulatorjs.org/) - Hosted assets
+- [EmulatorJS 4.2.3 release](https://github.com/EmulatorJS/EmulatorJS/releases/tag/v4.2.3) - The source of the self-hosted files
 - [EmulatorJS Docs](https://emulatorjs.org/docs/) - Configuration options
 - [Homebrew Hub](https://hh.gbdev.io/) - Game Boy homebrew collection
 - [PDRoms](https://pdroms.de/) - Multi-system homebrew news and files

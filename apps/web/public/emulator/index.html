@@ -3,16 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <!-- SECURITY: Content Security Policy for emulator iframe -->
+  <!-- SECURITY: Content Security Policy for the emulator iframe. This page
+       shares its origin with the clip library, so it loads no code from
+       another site. EmulatorJS comes from /emulator/ejs/<version>/ on this
+       site. connect-src has no https: source on purpose: when a core file
+       is missing, EmulatorJS downloads it from its own CDN and runs it. The
+       same policy is in the /emulator header in next.config.ts. -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
-                 script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.emulatorjs.org https://static.cloudflareinsights.com;
-                 style-src 'self' 'unsafe-inline' https://cdn.emulatorjs.org;
+                 script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://static.cloudflareinsights.com;
+                 style-src 'self' 'unsafe-inline';
                  img-src 'self' data: blob: https:;
                  media-src 'self' blob:;
-                 connect-src 'self' https: blob:;
+                 connect-src 'self' blob:;
                  worker-src 'self' blob:;
-                 font-src 'self' data: https://cdn.emulatorjs.org;">
+                 font-src 'self' data:;">
   <title>Retro Arcade Emulator</title>
   <style>
     * {
@@ -79,14 +84,19 @@
     // This prevents messages from being sent to/received from unauthorized origins
     const PARENT_ORIGIN = window.location.origin;
 
-    // SECURITY: Allowed ROM URL patterns
-    // Allow HTTPS URLs from our CDN, Railway, or same origin
+    // SECURITY: Allowed ROM URL patterns. ROMs come from this site only:
+    // the /api/roms proxy or a same-origin blob: URL for an uploaded ROM.
+    // The CSP connect-src ('self' blob:) blocks every other host, so the
+    // page refuses those URLs here with a clear message.
     const ALLOWED_ROM_PATTERNS = [
-      /^https:\/\/[^/]+\.railway\.app\//,  // Railway S3
-      /^https:\/\/storage\.railway\.app\//,  // Railway storage
       new RegExp(`^${window.location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`),  // Same origin
       /^\/[^/]/,  // Relative paths (starting with /)
     ];
+
+    // SECURITY: The EmulatorJS systems that Retro Arcade offers (the ejsCore
+    // values in src/games/retro-arcade/lib/constants.ts). The site hosts the
+    // cores for these systems only. A test keeps the two lists the same.
+    const ALLOWED_CORES = ['nes', 'snes', 'gb', 'gba', 'segaMD', 'n64', 'atari2600'];
 
     function isValidRomUrl(url) {
       if (!url) return false;
@@ -142,6 +152,15 @@
     const gameName = (params.get('name') || 'Game').replace(/[<>"'&]/g, '');
 
     // Validate required parameters
+    if (!ALLOWED_CORES.includes(core)) {
+      document.getElementById('loading').innerHTML = `
+        <div class="icon">🚫</div>
+        <div class="text">We cannot play this game here</div>
+        <div class="subtext">Go back and pick a different game.</div>
+      `;
+      throw new Error('Unsupported core: ' + core);
+    }
+
     if (!romUrl) {
       document.getElementById('loading').innerHTML = `
         <div class="icon">⚠️</div>
@@ -166,11 +185,14 @@
     window.EJS_core = core;
     window.EJS_gameUrl = romUrl;
     window.EJS_gameName = gameName;
-    // EmulatorJS is pinned to one version (issue #22). The floating "stable"
-    // path changes under us without a review. To change the version, change
-    // this URL and the loader.js URL below, then update the pin test in
-    // src/games/retro-arcade/__tests__/emulator-pin.test.ts.
-    window.EJS_pathtodata = 'https://cdn.emulatorjs.org/4.2.3/data/';
+    // EmulatorJS 4.2.3 is served from this site (issue #22). The files come
+    // from the official release; /emulator/ejs/4.2.3/manifest.json records
+    // the source and the SHA-256 of each file. To change the version, run
+    // apps/web/scripts/vendor-emulatorjs.mjs, change this path and the
+    // loader.js path below, then update the version in the three tests in
+    // src/games/retro-arcade/__tests__/ (emulator-pin, emulator-selfhost,
+    // emulator-page).
+    window.EJS_pathtodata = '/emulator/ejs/4.2.3/';
 
     // Kid-friendly defaults
     window.EJS_volume = 0.5;
@@ -240,7 +262,7 @@
 
     // Load the EmulatorJS loader script
     const script = document.createElement('script');
-    script.src = 'https://cdn.emulatorjs.org/4.2.3/data/loader.js';
+    script.src = '/emulator/ejs/4.2.3/loader.js';
     script.async = true;
     script.onerror = function() {
       document.getElementById('loading').innerHTML = `
