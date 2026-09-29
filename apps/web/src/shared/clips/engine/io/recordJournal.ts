@@ -13,9 +13,12 @@
  * - While a recording is open, the io worker holds the Web Lock
  *   "hh-clips-rec:<recording id>". The browser lets it go when the tab dies.
  * - At startup (after the library check), a journal whose recording lock is
- *   free belongs to a tab that is gone. The recovering worker takes that lock
- *   (ifAvailable) and holds it while it reads the file again, stores its
- *   chunks as the record part and removes the file. The stored rows go to
+ *   free belongs to a tab that is gone. The recovering worker names the
+ *   recording from the file name, takes that lock (ifAvailable) before it
+ *   reads anything, and holds it while it reads the file once, stores its
+ *   chunks as the record part and removes the file. A live tab takes the
+ *   lock before it creates its file, so an empty file of a live tab is never
+ *   removed. The stored rows go to
  *   the main thread in one "recovered" event (the UI tells the kid "Your
  *   video from last time is safe!"). A journal whose lock is held is left alone: a live tab
  *   records into it, or another tab recovers it now (two tabs that start at
@@ -479,6 +482,16 @@ export async function readJournalFile(dir: DirectoryHandleLike, name: string): P
 }
 
 /**
+ * The recording of a part journal, from its file name without the suffix.
+ * A part id is the recording id, or the recording id with "-p2", "-p3" and
+ * so on (recorder.ts partId). A recording id never ends in "-p" and digits:
+ * ClipService makes each id from one letter and letters or digits.
+ */
+export function recordingIdOfPart(partName: string): string {
+  return partName.replace(/-p\d+$/, "");
+}
+
+/**
  * Runs `body` while this worker holds the recording's lock, taken with
  * ifAvailable, and returns true. Returns false and does not run `body` when
  * the lock is held somewhere else: a live tab records into the journal, or
@@ -502,8 +515,12 @@ export async function withFreeRecordingLock(
  * the stored rows. `store` muxes and saves one part and gives its row, or
  * null when it failed (the failure is reported there). Either way the
  * journal is removed, so a broken journal is never tried again at every
- * startup. Each journal is read again, stored and removed while this worker
- * holds its recording lock; a journal whose lock is held is skipped.
+ * startup. The recording lock comes first, named from the file name
+ * (recordingIdOfPart). Then this worker reads the journal once, stores it
+ * and removes it, all under that lock. A journal whose lock is held is
+ * skipped and not read: a live tab records into it (it takes the lock
+ * before it creates the file, so its file can still be empty), or another
+ * tab recovers it now.
  */
 export async function recoverJournals<R>(env: JournalEnv, store: (part: RecoveredPart) => Promise<R | null>): Promise<R[]> {
   const log = env.log ?? (() => undefined);
@@ -524,18 +541,12 @@ export async function recoverJournals<R>(env: JournalEnv, store: (part: Recovere
   }
   for (const name of names.sort()) {
     const partName = name.slice(0, -JOURNAL_SUFFIX.length);
-    // The first read only finds the recording, so its lock can be asked for.
-    const first = await readJournalFile(journals, name);
-    if (!first) continue;
-    const found = readJournal(first, partName);
-    if (!found) {
-      // No row frame: nothing to store and no recording to ask about.
-      await journals.removeEntry(name).catch(() => undefined);
-      continue;
-    }
     try {
-      await withFreeRecordingLock(locks, found.meta.recordingId, async () => {
-        // Read again under the lock: another tab can have stored and removed it.
+      // The file name gives the recording, so the lock comes before any
+      // read. A live tab takes this lock before it creates the file, so a
+      // file with no row frame yet is left alone while its tab writes it.
+      await withFreeRecordingLock(locks, recordingIdOfPart(partName), async () => {
+        // The only read, under the lock: another tab can have stored and removed it.
         const bytes = await readJournalFile(journals, name);
         if (!bytes) return;
         const part = readJournal(bytes, partName);

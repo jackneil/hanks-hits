@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createOpfsMock } from "../../../../../__tests__/opfs-mock";
-import type { StorageLike } from "../../../library/fsTypes";
+import type { DirectoryHandleLike, FileHandleLike, StorageLike } from "../../../library/fsTypes";
 import type { ClipMeta, ClipPackets } from "../../../protocol";
 import { FakeLockManager } from "../../../service/__tests__/fakeLocks";
 import {
@@ -19,9 +19,11 @@ import {
   encodeFrame,
   holdRecordingLock,
   readJournal,
+  recordingIdOfPart,
   recoverJournals,
   type JournalMeta,
 } from "../recordJournal";
+import { SEGMENT_JOURNAL_SUFFIX, recoverSegmentJournals } from "../segmentRecording";
 import { epochInfo, makeClipPackets } from "./fixtures";
 
 function meta(id: string): ClipMeta {
@@ -75,6 +77,39 @@ function chunksOf(whole: ClipPackets): ClipPackets[] {
 
 function bytesOf(buffer: ArrayBuffer): number[] {
   return Array.from(new Uint8Array(buffer));
+}
+
+/** The storage, with a list of the file names that each getFile() read. */
+function countReads(storage: StorageLike): { storage: StorageLike; reads: () => string[] } {
+  const reads: string[] = [];
+  const bind = <T extends object>(target: T, key: PropertyKey) => {
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  };
+  const wrapFile = (file: FileHandleLike): FileHandleLike =>
+    new Proxy(file, {
+      get: (target, key) =>
+        key === "getFile"
+          ? () => {
+              reads.push(target.name);
+              return target.getFile();
+            }
+          : bind(target, key),
+    });
+  const wrapDir = (dir: DirectoryHandleLike): DirectoryHandleLike =>
+    new Proxy(dir, {
+      get: (target, key) => {
+        if (key === "getFileHandle") return async (name: string, options?: { create?: boolean }) => wrapFile(await target.getFileHandle(name, options));
+        if (key === "getDirectoryHandle") {
+          return async (name: string, options?: { create?: boolean }) => wrapDir(await target.getDirectoryHandle(name, options));
+        }
+        return bind(target, key);
+      },
+    });
+  const wrapped = new Proxy(storage, {
+    get: (target, key) => (key === "getDirectory" ? async () => wrapDir(await target.getDirectory!()) : bind(target, key)),
+  });
+  return { storage: wrapped, reads: () => [...reads] };
 }
 
 describe("journal frames", () => {
@@ -258,6 +293,50 @@ describe("recoverJournals", () => {
     expect(logs).toEqual([expect.stringContaining("left for later")]);
   });
 
+  it("leaves a live tab's empty journal alone: the lock comes before any read", async () => {
+    // A live tab takes the lock, creates the file, and only then writes the row.
+    // A second tab that starts recovery in that window must not remove the file.
+    const opfs = createOpfsMock();
+    const locks = new FakeLockManager();
+    const live = await holdRecordingLock(locks.client("live-tab"), "rec-live");
+    opfs.writeFile(`${JOURNAL_DIR}/rec-live.journal`, new Uint8Array(0));
+    opfs.writeFile(`${JOURNAL_DIR}/rec-live-p2.journal`, new Uint8Array(0));
+    opfs.writeFile(`${JOURNAL_DIR}/rec-gone.journal`, new Uint8Array(0));
+    const counted = countReads(opfs.storage as unknown as StorageLike);
+    const stored = await recoverJournals({ storage: counted.storage, locks: locks.client("me") }, async () => "row");
+    expect(stored).toEqual([]);
+    // The live recording's files stay, and were not even read. A dead tab's empty file goes.
+    expect(opfs.listFiles().sort()).toEqual([`${JOURNAL_DIR}/rec-live-p2.journal`, `${JOURNAL_DIR}/rec-live.journal`]);
+    expect(counted.reads()).toEqual(["rec-gone.journal"]);
+    live.release();
+  });
+
+  it("reads each journal once, under its lock", async () => {
+    const opfs = createOpfsMock();
+    const locks = new FakeLockManager();
+    const chunk = chunkFrame(makeClipPackets({ seconds: 1 }));
+    opfs.writeFile(`${JOURNAL_DIR}/rec-one.journal`, concat([encodeFrame(journalMeta("rec-one"), []), chunk]));
+    opfs.writeFile(`${JOURNAL_DIR}/rec-one-p2.journal`, concat([encodeFrame(journalMeta("rec-one-p2", "rec-one"), []), chunk]));
+    const counted = countReads(opfs.storage as unknown as StorageLike);
+    const holders: Array<string | null> = [];
+    const stored = await recoverJournals({ storage: counted.storage, locks: locks.client("me") }, async (part) => {
+      holders.push(locks.holderOf(`${RECORD_LOCK_PREFIX}rec-one`));
+      return part.meta.id;
+    });
+    expect([...stored].sort()).toEqual(["rec-one", "rec-one-p2"]);
+    expect(counted.reads().sort()).toEqual(["rec-one-p2.journal", "rec-one.journal"]);
+    // Each part of the recording was stored under the recording's lock (named from the file name).
+    expect(holders).toEqual(["me", "me"]);
+    expect(opfs.listFiles()).toEqual([]);
+  });
+
+  it("names the recording of a part journal from its file name", () => {
+    expect(recordingIdOfPart("r0123abcd")).toBe("r0123abcd");
+    expect(recordingIdOfPart("r0123abcd-p2")).toBe("r0123abcd");
+    expect(recordingIdOfPart("r0123abcd-p12")).toBe("r0123abcd");
+    expect(recordingIdOfPart("rec-dead")).toBe("rec-dead");
+  });
+
   it("removes a journal whose part fails to store (reported there), so it is not tried at every startup", async () => {
     const opfs = createOpfsMock();
     const locks = new FakeLockManager();
@@ -265,5 +344,31 @@ describe("recoverJournals", () => {
     const stored = await recoverJournals({ storage: opfs.storage as unknown as StorageLike, locks: locks.client("me") }, async () => null);
     expect(stored).toEqual([]);
     expect(opfs.listFiles()).toEqual([]);
+  });
+});
+
+describe("recoverSegmentJournals (tiers M and V)", () => {
+  const host = {
+    storePart: async () => null,
+    index: async (): Promise<never> => {
+      throw new Error("no segment to index");
+    },
+    maxPartBytes: () => 1 << 30,
+  };
+
+  it("leaves a live tab's empty segment journal alone and reads nothing of it; a dead tab's empty file goes", async () => {
+    const opfs = createOpfsMock();
+    const locks = new FakeLockManager();
+    const live = await holdRecordingLock(locks.client("live-tab"), "rec-live");
+    opfs.writeFile(`${JOURNAL_DIR}/rec-live${SEGMENT_JOURNAL_SUFFIX}`, new Uint8Array(0));
+    opfs.writeFile(`${JOURNAL_DIR}/rec-gone${SEGMENT_JOURNAL_SUFFIX}`, new Uint8Array(0));
+    const counted = countReads(opfs.storage as unknown as StorageLike);
+    const events: unknown[] = [];
+    const rows = await recoverSegmentJournals({ storage: counted.storage, locks: locks.client("me") }, host, (event) => events.push(event));
+    expect(rows).toEqual([]);
+    expect(events).toEqual([]);
+    expect(opfs.listFiles()).toEqual([`${JOURNAL_DIR}/rec-live${SEGMENT_JOURNAL_SUFFIX}`]);
+    expect(counted.reads()).toEqual([`rec-gone${SEGMENT_JOURNAL_SUFFIX}`]);
+    live.release();
   });
 });

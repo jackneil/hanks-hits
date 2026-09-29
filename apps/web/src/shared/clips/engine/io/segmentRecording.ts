@@ -645,12 +645,15 @@ export class SegmentRecording {
 
 /**
  * Stores the segment journals that dead tabs left, and returns the stored
- * rows. Each journal is read again, stored and removed while this worker
- * holds its recording lock (recordJournal.withFreeRecordingLock). A journal
- * whose lock is held somewhere else is skipped: a live tab records into it,
- * or another tab recovers it now. Every journal this worker takes is removed
- * after the try, stored or not, so a broken journal is not tried again at
- * every startup.
+ * rows. The file name is `<recording id>.segments`, so this worker takes
+ * the recording lock (recordJournal.withFreeRecordingLock) before it reads
+ * anything. Then it reads each journal once, stores it and removes it, all
+ * under that lock. A journal whose lock is held somewhere else is skipped
+ * and not read: a live tab records into it (it takes the lock before it
+ * creates the file, so its file can still be empty), or another tab
+ * recovers it now. Every journal this worker takes is removed after the
+ * try, stored or not (a file with no recording frame too), so a broken
+ * journal is not tried again at every startup.
  */
 export async function recoverSegmentJournals(
   env: JournalEnv,
@@ -674,18 +677,12 @@ export async function recoverSegmentJournals(
     if (handle.kind === "file" && name.endsWith(SEGMENT_JOURNAL_SUFFIX)) names.push(name);
   }
   for (const name of names.sort()) {
-    // The first read only finds the recording, so its lock can be asked for.
-    const first = await readJournalFile(journals, name);
-    if (!first) continue;
-    const found = readSegmentJournal(first);
-    if (!found) {
-      // No recording frame: nothing to store and no recording to ask about.
-      await journals.removeEntry(name).catch(() => undefined);
-      continue;
-    }
     try {
-      await withFreeRecordingLock(locks, found.meta.recordingId, async () => {
-        // Read again under the lock: another tab can have stored and removed it.
+      // The file name is the recording id, so the lock comes before any
+      // read. A live tab takes this lock before it creates the file, so a
+      // file with no recording frame yet is left alone while its tab writes it.
+      await withFreeRecordingLock(locks, name.slice(0, -SEGMENT_JOURNAL_SUFFIX.length), async () => {
+        // The only read, under the lock: another tab can have stored and removed it.
         const bytes = await readJournalFile(journals, name);
         if (!bytes) return;
         const journal = readSegmentJournal(bytes);
