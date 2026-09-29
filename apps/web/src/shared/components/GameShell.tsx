@@ -55,11 +55,14 @@ interface GameShellProps {
    */
   clipSlot?: boolean;
   /**
-   * Set this when the game shows the shared result chip at game over.
-   * Below 400 px, a game that can pause then moves Leaderboard and Restart
-   * out of the header: the pause menu holds them during play and the
-   * result chip holds them at game over. Without it they stay in the
-   * header, so they are never out of reach.
+   * Set this only when BOTH are true: the game shows the shared result chip
+   * at game over, AND every other screen between runs (the start card, a
+   * level or wave card) opens the pause menu. Below 400 px, a game that can
+   * pause then moves Leaderboard and Restart out of the header: the pause
+   * menu holds them on every screen but game over, and the result chip
+   * holds them at game over. A game whose start card or level card cannot
+   * pause (Asteroids) leaves it off, or those screens have neither control.
+   * Without it both stay in the header, so they are never out of reach.
    */
   resultChipReady?: boolean;
 }

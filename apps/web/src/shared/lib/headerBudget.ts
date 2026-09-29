@@ -14,9 +14,11 @@
  *   2. Below 480 px, the title becomes the game emoji. The full name stays
  *      in the accessible name, on the start card and in the pause menu.
  *   3. Below 400 px, Leaderboard and Restart leave the header. This applies
- *      only to a game that can pause AND that has set resultChipReady. The
- *      pause menu holds both during play and the result chip holds both at
- *      game over, so neither control becomes unreachable.
+ *      only to a game that can pause AND that has set resultChipReady. That
+ *      flag promises that the result chip holds both at game over and that
+ *      the pause menu opens on every other screen between runs (the start
+ *      card, a level card), so neither control becomes unreachable. A game
+ *      whose start card or level card cannot pause does not set it.
  *   4. If the header is still too wide, the Sign In button drops its label.
  *   5. Below 340 px, Fullscreen moves into the pause menu for a game that
  *      can pause. A game that cannot pause keeps it in the header. Between
@@ -87,7 +89,10 @@ export interface HeaderControls {
    * current state.
    */
   pausable: boolean;
-  /** The game shows the shared result chip at game over. */
+  /**
+   * The game shows the shared result chip at game over, and every other
+   * screen between runs opens the pause menu (GameShellProps.resultChipReady).
+   */
   resultChipReady: boolean;
   /** An emoji is known for the title. */
   hasEmoji: boolean;

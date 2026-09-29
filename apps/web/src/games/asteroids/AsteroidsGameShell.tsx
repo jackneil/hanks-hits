@@ -32,9 +32,10 @@ export function AsteroidsGameShell() {
       onRestart={startGame}
       onPause={pauseGame}
       onResume={resumeGame}
-      // Game over shows the shared result chip (Game.tsx), so on a narrow
-      // phone the header may move Leaderboard and Restart into it.
-      resultChipReady
+      // No resultChipReady: game over shows the shared result chip, but the
+      // start card and the wave card have no pause menu (canPause is off
+      // there). If the header moved Leaderboard and Restart out on a narrow
+      // phone, those two screens would have neither control.
     >
       <AsteroidsGame />
     </GameShell>
