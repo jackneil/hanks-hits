@@ -14,8 +14,10 @@ import { useCoarsePointer } from "@/shared/hooks";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
-import { getOverlayCopy } from "./lib/overlayCopy";
+import { gameOverText, getOverlayCopy, NEW_BEST_LINE } from "./lib/overlayCopy";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { DEFAULT_RESTART_GRACE_MS, useRestartGrace } from "@/shared/lib/input";
 import { useAsteroidsClips } from "./lib/useAsteroidsClips";
 import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
 import { ASTEROIDS_AUDIO_ID, releaseSounds } from "./lib/sounds";
@@ -213,8 +215,13 @@ function useCanvasRenderer(
       ctx.fillText(`Score: ${score}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
       ctx.fillText(`Wave: ${wave}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
 
-      ctx.font = "18px Arial";
-      ctx.fillText(copy.playAgain, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 100);
+      // No "play again" line: the result chip under the card has the
+      // button. A new best gets its own line.
+      if (store.lastRunNewBest) {
+        ctx.fillStyle = "#eab308";
+        ctx.font = "bold 24px Arial";
+        ctx.fillText(NEW_BEST_LINE, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 95);
+      }
     }
 
     if (status === "waveComplete") {
@@ -326,6 +333,11 @@ export function AsteroidsGame() {
     return () => window.removeEventListener("resize", updateScale);
   }, []);
 
+  // Restart and "next wave" wait out a short grace after the card appears,
+  // and a held key's repeats never count: a kid who is still firing when
+  // the run ends sees the card first.
+  const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, store.status);
+
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -337,7 +349,7 @@ export function AsteroidsGame() {
       if (store.status === "gameOver") {
         if (e.code === "Space") {
           e.preventDefault();
-          store.startGame();
+          if (grace.accept(e)) store.startGame();
         }
         return;
       }
@@ -345,7 +357,7 @@ export function AsteroidsGame() {
       if (store.status === "waveComplete") {
         if (e.code === "Space") {
           e.preventDefault();
-          store.nextWave();
+          if (grace.accept(e)) store.nextWave();
         }
         return;
       }
@@ -412,7 +424,7 @@ export function AsteroidsGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [store.status, store]);
+  }, [store.status, store, grace]);
 
   // Touch handlers for mobile buttons.
   // No e.preventDefault() here: React attaches these synthetic touch listeners
@@ -454,11 +466,14 @@ export function AsteroidsGame() {
     }
   };
 
+  // Game over restarts only from the result chip's Play again (or Space): a
+  // tap that was meant for a control at the moment of the last death must
+  // not start a new run and wipe the score off the card.
   const handleCanvasClick = () => {
-    if (store.status === "ready" || store.status === "gameOver") {
+    if (store.status === "ready") {
       store.startGame();
     } else if (store.status === "waveComplete") {
-      store.nextWave();
+      if (grace.accept()) store.nextWave();
     } else if (store.status === "paused") {
       store.resumeGame();
     }
@@ -474,12 +489,16 @@ export function AsteroidsGame() {
       ref={containerRef}
       className="flex flex-col items-center justify-center min-h-screen bg-black p-4 select-none"
     >
-      {/* Stats Bar */}
-      <div className="flex items-center gap-4 mb-2 text-white text-sm">
+      {/* Stats Bar: one line at every width, so the canvas never moves
+          when a number grows (a new best at game over). */}
+      <div
+        data-testid="asteroids-stats"
+        className="flex max-w-full items-center gap-3 overflow-hidden whitespace-nowrap mb-2 text-white text-xs sm:gap-4 sm:text-sm"
+      >
         <span>High: {store.progress.highScore}</span>
-        <span>|</span>
+        <span aria-hidden="true" className="hidden sm:inline">|</span>
         <span>Best Wave: {store.progress.highestWave}</span>
-        <span>|</span>
+        <span aria-hidden="true" className="hidden sm:inline">|</span>
         <span>Asteroids: {store.progress.totalAsteroidsDestroyed}</span>
       </div>
 
@@ -523,55 +542,60 @@ export function AsteroidsGame() {
         )}
       </div>
 
-      {/* Mobile controls */}
-      {store.status === "playing" && (
-        <div className="flex gap-2 mt-4">
-          <button
-            onTouchStart={handleTouchStart("left")}
-            onTouchEnd={handleTouchEnd("left")}
-            onMouseDown={() => store.setInput({ rotatingLeft: true })}
-            onMouseUp={() => store.setInput({ rotatingLeft: false })}
-            onMouseLeave={() => store.setInput({ rotatingLeft: false })}
-            style={{ touchAction: "none" }}
-            className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl"
-          >
-            ↺
-          </button>
-          <button
-            onTouchStart={handleTouchStart("thrust")}
-            onTouchEnd={handleTouchEnd("thrust")}
-            onMouseDown={() => store.setInput({ thrusting: true })}
-            onMouseUp={() => store.setInput({ thrusting: false })}
-            onMouseLeave={() => store.setInput({ thrusting: false })}
-            style={{ touchAction: "none" }}
-            className="w-16 h-16 bg-orange-600 active:bg-orange-500 text-white text-2xl font-bold rounded-xl"
-          >
-            🔥
-          </button>
-          <button
-            onTouchStart={handleTouchStart("fire")}
-            onTouchEnd={handleTouchEnd("fire")}
-            onMouseDown={() => store.setInput({ shooting: true })}
-            onMouseUp={() => store.setInput({ shooting: false })}
-            onMouseLeave={() => store.setInput({ shooting: false })}
-            style={{ touchAction: "none" }}
-            className="w-16 h-16 bg-yellow-600 active:bg-yellow-500 text-white text-2xl font-bold rounded-xl"
-          >
-            ●
-          </button>
-          <button
-            onTouchStart={handleTouchStart("right")}
-            onTouchEnd={handleTouchEnd("right")}
-            onMouseDown={() => store.setInput({ rotatingRight: true })}
-            onMouseUp={() => store.setInput({ rotatingRight: false })}
-            onMouseLeave={() => store.setInput({ rotatingRight: false })}
-            style={{ touchAction: "none" }}
-            className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl"
-          >
-            ↻
-          </button>
-        </div>
-      )}
+      {/* Mobile controls. The row keeps its place on every screen, so the
+          canvas does not jump when a run ends; it shows and takes taps only
+          while a round plays. */}
+      <div
+        data-testid="asteroids-touch-controls"
+        className={`flex gap-2 mt-4 ${store.status === "playing" ? "" : "invisible"}`}
+        aria-hidden={store.status === "playing" ? undefined : true}
+        inert={store.status !== "playing"}
+      >
+        <button
+          onTouchStart={handleTouchStart("left")}
+          onTouchEnd={handleTouchEnd("left")}
+          onMouseDown={() => store.setInput({ rotatingLeft: true })}
+          onMouseUp={() => store.setInput({ rotatingLeft: false })}
+          onMouseLeave={() => store.setInput({ rotatingLeft: false })}
+          style={{ touchAction: "none" }}
+          className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl"
+        >
+          ↺
+        </button>
+        <button
+          onTouchStart={handleTouchStart("thrust")}
+          onTouchEnd={handleTouchEnd("thrust")}
+          onMouseDown={() => store.setInput({ thrusting: true })}
+          onMouseUp={() => store.setInput({ thrusting: false })}
+          onMouseLeave={() => store.setInput({ thrusting: false })}
+          style={{ touchAction: "none" }}
+          className="w-16 h-16 bg-orange-600 active:bg-orange-500 text-white text-2xl font-bold rounded-xl"
+        >
+          🔥
+        </button>
+        <button
+          onTouchStart={handleTouchStart("fire")}
+          onTouchEnd={handleTouchEnd("fire")}
+          onMouseDown={() => store.setInput({ shooting: true })}
+          onMouseUp={() => store.setInput({ shooting: false })}
+          onMouseLeave={() => store.setInput({ shooting: false })}
+          style={{ touchAction: "none" }}
+          className="w-16 h-16 bg-yellow-600 active:bg-yellow-500 text-white text-2xl font-bold rounded-xl"
+        >
+          ●
+        </button>
+        <button
+          onTouchStart={handleTouchStart("right")}
+          onTouchEnd={handleTouchEnd("right")}
+          onMouseDown={() => store.setInput({ rotatingRight: true })}
+          onMouseUp={() => store.setInput({ rotatingRight: false })}
+          onMouseLeave={() => store.setInput({ rotatingRight: false })}
+          style={{ touchAction: "none" }}
+          className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl"
+        >
+          ↻
+        </button>
+      </div>
 
       {/* Control row */}
       <div className="flex items-center gap-4 mt-4">
@@ -591,6 +615,23 @@ export function AsteroidsGame() {
         )}
         <IOSInstallPrompt />
       </div>
+
+      {/* The result chip under the game-over card (plan 11.4): read it to
+          me, Play again, the leaderboard, and with clips on the clip
+          buttons. Mounted only at game over, so its grace starts then. */}
+      {store.status === "gameOver" && (
+        <ResultChip
+          resultText={gameOverText({
+            score: store.score,
+            wave: store.wave,
+            best: store.progress.highScore,
+            newBest: store.lastRunNewBest,
+          })}
+          appId="asteroids"
+          onRestart={store.startGame}
+          runSeconds={store.runPlayMs / 1000}
+        />
+      )}
     </div>
   );
 }

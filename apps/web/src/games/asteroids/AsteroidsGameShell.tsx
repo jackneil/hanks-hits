@@ -32,6 +32,9 @@ export function AsteroidsGameShell() {
       onRestart={startGame}
       onPause={pauseGame}
       onResume={resumeGame}
+      // Game over shows the shared result chip (Game.tsx), so on a narrow
+      // phone the header may move Leaderboard and Restart into it.
+      resultChipReady
     >
       <AsteroidsGame />
     </GameShell>
