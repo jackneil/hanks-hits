@@ -1,0 +1,763 @@
+/**
+ * A/V sync analysis for the clips lab pattern (plan 15.1, 15.2, 3a, 6.4).
+ *
+ * The lab pattern: about once each second (labSchedule.ts: beatFrames
+ * display frames, 0.98 s to 1.034 s at the standard display rates), the
+ * game picture flashes white and a 1 kHz beep starts at the same instant.
+ * The beep is 60 ms (mark 0) or 120 ms (mark 1) long: the marks let
+ * truth.mjs find the file's beats in the lab's ground truth. A decoder gives
+ * two series:
+ *   - video: one [presentation time (s), mean luma] pair per decoded frame;
+ *   - audio: segments of a peak envelope, one peak per 1 ms bin.
+ * This module finds the flash onsets and the beep onsets in those series,
+ * pairs each flash with its beep, and turns the result into PASS, FAIL,
+ * SKIPPED and INFO rows against the plan 15.2 limits.
+ *
+ * Sign convention: audioMinusVideoMs = beep time - flash time. A positive
+ * value means that the sound comes after the picture (the sound lags).
+ * ITU-R BT.1359 gives +45 ms (sound leads) to -125 ms (sound lags) as the
+ * limits of detection. In audioMinusVideoMs that is the window -45..+125.
+ *
+ * This module has no I/O. media.mjs runs the decoders, analyze-sync.mjs
+ * joins the two.
+ */
+import { TRUTH_CHECKS, truthRows } from "./truth.mjs";
+
+/** Plan 15.2 and 6.4 limits. */
+export const LIMITS = Object.freeze({
+  /** Container A/V on synthetic-timestamp files, and decoder agreement on live files (ms). */
+  containerMs: 5,
+  /** BT.1359: the sound can lead the picture by at most this (ms). */
+  liveLeadMs: 45,
+  /** BT.1359: the sound can lag the picture by at most this (ms). */
+  liveLagMs: 125,
+  /** Plan 6.4 and 15.2: a decoder that ignores edit lists plays the sound at most this late (ms). */
+  editListLateMs: 45,
+  /**
+   * Plan 6.4: "the first audio packet is chosen so that playback is at most
+   * 25 ms early there" (in a decoder that ignores edit lists). So that
+   * decoder can play the sound up to this early (ms).
+   */
+  editListEarlyMs: 25,
+  /** Plan 15.2: the largest gap between two video frames (ms). */
+  maxVideoGapMs: 100,
+  /** Plan 15.2: effective capture fps as a share of the settled rung. */
+  fpsShare: Object.freeze({ desktop: 0.9, phone: 0.8 }),
+  /** Plan 6.4: the sound track is continuous. A jump over this is a gap (ms). */
+  audioGapMs: 1,
+  /** A flash and a beep further apart than this are not a pair (ms). The events are about 1 s apart. */
+  pairWindowMs: 500,
+  /**
+   * The beat interval of the lab at every standard display rate is in this
+   * range (s): beatFrames / Hz is 49/50 = 0.98 s at the lowest and 31/30 =
+   * 1.033 s at the highest. A spacing of the file's own beats out of this
+   * range is not a lab interval (a file that lost beats, for example), so
+   * the pair count then uses 1 s.
+   */
+  beatIntervalRangeSec: Object.freeze([0.95, 1.05]),
+  /** An unpaired event this close to the start or the end of the file is cut by the edge (ms). */
+  edgeMs: 150,
+  /** Two decoders see the same flash when their times are this close (ms). */
+  decoderMatchMs: 20,
+  /** Plan 6.6: a clip starts at the last keyframe at or before the asked start, so it can be up to 1 s longer. */
+  lengthShortSec: 1,
+  lengthLongSec: 1.2,
+  /**
+   * Ground truth (truth.mjs): the file ends at most this far from the press
+   * (ms). It is half of the shortest beat interval (0.98 s), so a file that
+   * is one beat or more off always fails.
+   */
+  pressEndMs: 490,
+  /** Ground truth: the spacing of two beats can differ from the log by one capture frame plus this (ms). */
+  truthSlackMs: 2,
+});
+
+/** Onset detection settings. */
+export const DETECT = Object.freeze({
+  /** A picture series whose brightest frame is less than this over the median has no flash (0-255 scale). */
+  minLumaContrast: 24,
+  /** The flash threshold, as a share of the way from the median luma to the peak luma. */
+  flashLevel: 0.5,
+  /** A sound track whose loudest peak is under this (full scale 1.0) has no beeps. */
+  minBeepPeak: 0.05,
+  /** The beep threshold, as a share of the loudest peak. */
+  beepLevel: 0.25,
+  /** The beep threshold is never under this. */
+  beepFloor: 0.02,
+  /** A beep onset needs this much quiet before it (ms). The lab beep is 60 or 120 ms long, about once per second. */
+  quietMs: 100,
+  /** A beep ends at the first bin that starts this much quiet (ms). */
+  beepEndQuietMs: 10,
+  /** A beep of this length or more is mark 1 (ms). The lab beeps are 60 ms (mark 0) and 120 ms (mark 1). */
+  markSplitMs: 90,
+});
+
+/** Settings for the frame rate over time (rateParts). */
+export const RATE = Object.freeze({
+  /** Frame intervals in the moving median (an odd number). */
+  medianWindow: 9,
+  /** A part shorter than this joins a part next to it (s). A short run of missed frames is not a rung. */
+  minPartSec: 0.5,
+  /** Two cadences closer than this share of the smaller one are the same rate. */
+  sameShare: 0.05,
+});
+
+/** Round to 0.1 ms (or to 0.1 of any unit). */
+export function round1(value) {
+  return Math.round(value * 10) / 10;
+}
+
+function median(sorted) {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function finiteFrames(frames) {
+  return frames
+    .filter((frame) => Array.isArray(frame) && Number.isFinite(frame[0]) && Number.isFinite(frame[1]))
+    .slice()
+    .sort((a, b) => a[0] - b[0]);
+}
+
+/**
+ * Flash onsets: frames that are over the threshold after a frame that is not.
+ * The threshold adapts to the file (the median frame is the normal picture,
+ * the brightest frame is a flash), because the clip compositor puts a band
+ * and a border around the game picture, so a flash frame is never fully white.
+ * The first frame is never an onset: its flash can have started before the file.
+ *
+ * @param {Array<[number, number]>} frames [time s, luma]
+ * @returns {{ onsets: number[], threshold: number | null, low: number | null, high: number | null }}
+ */
+export function flashOnsets(frames, detect = DETECT) {
+  const sorted = finiteFrames(frames);
+  if (sorted.length < 2) return { onsets: [], threshold: null, low: null, high: null };
+  const lumas = sorted.map((frame) => frame[1]).sort((a, b) => a - b);
+  const low = median(lumas);
+  const high = lumas[lumas.length - 1];
+  if (high - low < detect.minLumaContrast) return { onsets: [], threshold: null, low, high };
+  const threshold = low + detect.flashLevel * (high - low);
+  const onsets = [];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i][1] >= threshold && sorted[i - 1][1] < threshold) onsets.push(sorted[i][0]);
+  }
+  return { onsets, threshold, low, high };
+}
+
+/**
+ * The length (ms) of the beep that starts at bin `from`: up to the first bin
+ * under the threshold that starts DETECT.beepEndQuietMs of quiet. Null when
+ * the segment ends first (the end of the file or a gap cuts the beep), so
+ * its length is not known.
+ */
+function beepLength(peaks, from, threshold, binMs, detect) {
+  const endQuiet = Math.max(1, Math.ceil(detect.beepEndQuietMs / binMs));
+  let quiet = 0;
+  for (let i = from + 1; i < peaks.length; i++) {
+    if (peaks[i] >= threshold) {
+      quiet = 0;
+    } else if (++quiet >= endQuiet) {
+      return (i - quiet + 1 - from) * binMs;
+    }
+  }
+  return null;
+}
+
+/**
+ * Beep onsets: the start of the first 1 ms bin over the threshold after at
+ * least DETECT.quietMs of bins under it, in the same segment. The time is the
+ * start of the bin, so it is at most one bin early. lengths[i] is the length
+ * of beep i in ms, or null when the segment cuts it.
+ *
+ * @param {Array<{ start: number, binMs: number, peaks: number[] }>} segments
+ * @returns {{ onsets: number[], lengths: Array<number | null>, threshold: number | null, loudest: number }}
+ */
+export function beepOnsets(segments, detect = DETECT) {
+  let loudest = 0;
+  for (const segment of segments) for (const peak of segment.peaks) if (peak > loudest) loudest = peak;
+  if (loudest < detect.minBeepPeak) return { onsets: [], lengths: [], threshold: null, loudest };
+  const threshold = Math.max(detect.beepFloor, detect.beepLevel * loudest);
+  const found = [];
+  for (const segment of segments) {
+    const quietBins = Math.ceil(detect.quietMs / segment.binMs);
+    let quiet = 0;
+    segment.peaks.forEach((peak, i) => {
+      if (peak >= threshold) {
+        if (quiet >= quietBins) found.push({ at: segment.start + (i * segment.binMs) / 1000, ms: beepLength(segment.peaks, i, threshold, segment.binMs, detect) });
+        quiet = 0;
+      } else {
+        quiet++;
+      }
+    });
+  }
+  found.sort((a, b) => a.at - b.at);
+  return { onsets: found.map((f) => f.at), lengths: found.map((f) => f.ms), threshold, loudest };
+}
+
+/**
+ * The mark bit of a beep length (ms): 1 for DETECT.markSplitMs or more, 0 under it, null when the length is not known.
+ *
+ * @param {number | null | undefined} lengthMs
+ * @returns {0 | 1 | null}
+ */
+export function markOf(lengthMs, detect = DETECT) {
+  if (typeof lengthMs !== "number" || !Number.isFinite(lengthMs)) return null;
+  return lengthMs >= detect.markSplitMs ? 1 : 0;
+}
+
+/**
+ * Pairs flashes with beeps, one to one, closest pairs first. A pair is at
+ * most `windowMs` apart.
+ *
+ * @param {number[]} flashes seconds
+ * @param {number[]} beeps seconds
+ */
+export function pairEvents(flashes, beeps, windowMs = LIMITS.pairWindowMs) {
+  const candidates = [];
+  flashes.forEach((flash, i) => {
+    beeps.forEach((beep, j) => {
+      const ms = (beep - flash) * 1000;
+      if (Math.abs(ms) <= windowMs) candidates.push({ i, j, ms });
+    });
+  });
+  candidates.sort((a, b) => Math.abs(a.ms) - Math.abs(b.ms) || a.i - b.i || a.j - b.j);
+  const usedFlashes = new Set();
+  const usedBeeps = new Set();
+  const pairs = [];
+  for (const candidate of candidates) {
+    if (usedFlashes.has(candidate.i) || usedBeeps.has(candidate.j)) continue;
+    usedFlashes.add(candidate.i);
+    usedBeeps.add(candidate.j);
+    pairs.push({ flash: flashes[candidate.i], beep: beeps[candidate.j], audioMinusVideoMs: round1(candidate.ms) });
+  }
+  pairs.sort((a, b) => a.flash - b.flash);
+  return {
+    pairs,
+    unmatchedFlashes: flashes.filter((_, i) => !usedFlashes.has(i)),
+    unmatchedBeeps: beeps.filter((_, j) => !usedBeeps.has(j)),
+  };
+}
+
+/**
+ * Frame timing: the largest gap between two frames and the effective frame
+ * rate ((frames - 1) / (last - first)).
+ *
+ * @param {Array<[number, number]>} frames
+ */
+export function videoStats(frames) {
+  const times = finiteFrames(frames).map((frame) => frame[0]);
+  let maxGapMs = 0;
+  let maxGapAt = null;
+  for (let i = 1; i < times.length; i++) {
+    const gapMs = (times[i] - times[i - 1]) * 1000;
+    if (gapMs > maxGapMs) {
+      maxGapMs = gapMs;
+      maxGapAt = times[i - 1];
+    }
+  }
+  const span = times.length >= 2 ? times[times.length - 1] - times[0] : 0;
+  // The cadence: the most common frame interval (to 0.1 ms). A clip can span
+  // two governor rungs, so this names the rung that most frames came at.
+  // The rate comes from the mean of the intervals in that group, not from
+  // the rounded key (1000 / 16.7 would say 59.9 for a 60 fps file).
+  const counts = new Map();
+  for (let i = 1; i < times.length; i++) {
+    const interval = times[i] - times[i - 1];
+    const key = Math.round(interval * 10000) / 10;
+    if (key <= 0) continue;
+    const group = counts.get(key) ?? { count: 0, sum: 0 };
+    group.count++;
+    group.sum += interval;
+    counts.set(key, group);
+  }
+  let cadenceMs = null;
+  let best = 0;
+  let bestSum = 0;
+  for (const [key, group] of counts) {
+    if (group.count > best || (group.count === best && key < cadenceMs)) {
+      best = group.count;
+      bestSum = group.sum;
+      cadenceMs = key;
+    }
+  }
+  return {
+    count: times.length,
+    first: times.length ? times[0] : null,
+    last: times.length ? times[times.length - 1] : null,
+    maxGapMs: round1(maxGapMs),
+    maxGapAt,
+    effectiveFps: span > 0 ? round1((times.length - 1) / span) : null,
+    cadenceMs,
+    cadenceFps: cadenceMs ? round1(best / bestSum) : null,
+    cadenceShare: times.length >= 2 ? round1((best / (times.length - 1)) * 100) / 100 : null,
+  };
+}
+
+/**
+ * The frame rate over time. The governor can change the capture rung during
+ * a clip or a recording (plan 7: Compute Pressure "serious" steps down one
+ * rung at once), so one number for the whole file can hide a change. This
+ * gives the file's parts, each with one rate:
+ * - each frame interval gets the median of the RATE.medianWindow intervals
+ *   around it, so a missed frame here and there does not change the rate;
+ * - a run of intervals with the same median (RATE.sameShare) is a part;
+ * - a part shorter than RATE.minPartSec joins the part before it (the part
+ *   after it, for the first part), then parts with the same rate join.
+ * The rate of a part is 1 / (the median interval of the part, in seconds).
+ * The frames alone cannot tell a rung from lost frames: at 60 Hz, a 30 fps
+ * rung and a 60 fps rung that loses every second frame give the same file.
+ * So this is a report, never a check. The check is the capture fps row
+ * against the rung that the library row gives.
+ *
+ * @param {Array<[number, number]>} frames [time s, luma]
+ * @returns {Array<{ from: number, to: number, cadenceMs: number, fps: number, intervals: number, effectiveFps: number }>}
+ */
+export function rateParts(frames, rate = RATE) {
+  const times = finiteFrames(frames).map((frame) => frame[0]);
+  if (times.length < 2) return [];
+  const intervals = [];
+  for (let i = 1; i < times.length; i++) intervals.push(times[i] - times[i - 1]);
+  const half = Math.floor(rate.medianWindow / 2);
+  const local = intervals.map((_, i) => median(intervals.slice(Math.max(0, i - half), Math.min(intervals.length, i + half + 1)).sort((a, b) => a - b)));
+  const same = (a, b) => Math.abs(a - b) <= rate.sameShare * Math.min(a, b);
+  // A part holds the intervals first..last; its rate is the local median of its first interval until the parts join.
+  let parts = [];
+  for (let i = 0; i < intervals.length; i++) {
+    const open = parts[parts.length - 1];
+    if (open && same(open.cadence, local[i])) open.last = i;
+    else parts.push({ first: i, last: i, cadence: local[i] });
+  }
+  const seconds = (part) => times[part.last + 1] - times[part.first];
+  for (;;) {
+    const joined = [];
+    for (const part of parts) {
+      const before = joined[joined.length - 1];
+      if (before && same(before.cadence, part.cadence)) before.last = part.last;
+      else joined.push({ ...part });
+    }
+    parts = joined;
+    if (parts.length < 2) break;
+    let shortest = -1;
+    parts.forEach((part, i) => {
+      if (seconds(part) < rate.minPartSec && (shortest < 0 || seconds(part) < seconds(parts[shortest]))) shortest = i;
+    });
+    if (shortest < 0) break;
+    const into = shortest === 0 ? 1 : shortest - 1;
+    parts[into].first = Math.min(parts[into].first, parts[shortest].first);
+    parts[into].last = Math.max(parts[into].last, parts[shortest].last);
+    parts.splice(shortest, 1);
+  }
+  return parts.map((part) => {
+    const cadence = median(intervals.slice(part.first, part.last + 1).sort((a, b) => a - b));
+    const span = seconds(part);
+    const count = part.last - part.first + 1;
+    return {
+      from: times[part.first],
+      to: times[part.last + 1],
+      cadenceMs: Math.round(cadence * 10000) / 10,
+      fps: cadence > 0 ? round1(1 / cadence) : 0,
+      intervals: count,
+      effectiveFps: span > 0 ? round1(count / span) : 0,
+    };
+  });
+}
+
+/** "60" for 59.96..60.04, else one decimal ("37.5"). */
+export function fpsText(fps) {
+  const whole = Math.round(fps);
+  return Math.abs(fps - whole) < 0.05 ? String(whole) : fps.toFixed(1);
+}
+
+/** The rate parts as a row value ("60 > 30 > 20 fps") and detail ("60 fps 0.00-2.83 s, ..."). */
+export function ratePartsText(parts) {
+  if (!parts.length) return { value: "?", detail: "fewer than 2 frames" };
+  const value = `${parts.map((part) => fpsText(part.fps)).join(" > ")} fps`;
+  if (parts.length === 1) return { value, detail: `one rate from ${parts[0].from.toFixed(2)} s to ${parts[0].to.toFixed(2)} s` };
+  return { value, detail: parts.map((part) => `${fpsText(part.fps)} fps ${part.from.toFixed(2)}-${part.to.toFixed(2)} s`).join(", ") };
+}
+
+/**
+ * Jumps between audio segments. The decoder layer starts a new segment where
+ * the presentation time does not follow on from the samples before it.
+ *
+ * @param {Array<{ start: number, samples: number, sampleRate: number }>} segments
+ */
+export function audioGaps(segments) {
+  const gaps = [];
+  const sorted = segments.slice().sort((a, b) => a.start - b.start);
+  for (let i = 1; i < sorted.length; i++) {
+    const end = sorted[i - 1].start + sorted[i - 1].samples / sorted[i - 1].sampleRate;
+    gaps.push({ at: end, ms: round1((sorted[i].start - end) * 1000) });
+  }
+  return gaps;
+}
+
+/** The first and last time that both the picture and the sound cover. */
+function commonSpan(frames, segments) {
+  const times = finiteFrames(frames).map((frame) => frame[0]);
+  if (!times.length || !segments.length) return null;
+  const audioStart = Math.min(...segments.map((segment) => segment.start));
+  const audioEnd = Math.max(...segments.map((segment) => segment.start + segment.samples / segment.sampleRate));
+  return { start: Math.max(times[0], audioStart), end: Math.min(times[times.length - 1], audioEnd) };
+}
+
+/**
+ * Everything one decoder shows: onsets, pairs (with unpaired events split
+ * into "edge" and "inside"), frame timing and sound gaps.
+ *
+ * @param {{ frames: Array<[number, number]>, segments: Array<{ start: number, samples: number, sampleRate: number, binMs: number, peaks: number[] }> }} decode
+ */
+export function analyzeDecode(decode, limits = LIMITS, detect = DETECT) {
+  const flash = flashOnsets(decode.frames, detect);
+  const beep = beepOnsets(decode.segments, detect);
+  const pairing = pairEvents(flash.onsets, beep.onsets, limits.pairWindowMs);
+  const span = commonSpan(decode.frames, decode.segments);
+  const nearEdge = (t) => !span || t - span.start < limits.edgeMs / 1000 || span.end - t < limits.edgeMs / 1000;
+  // Each pair gets the length and the mark of its beep. The beep times are all different, so the time finds the beep.
+  const lengthAt = new Map(beep.onsets.map((t, i) => [t, beep.lengths[i]]));
+  const pairs = pairing.pairs.map((pair) => {
+    const beepMs = lengthAt.get(pair.beep) ?? null;
+    return { ...pair, beepMs, mark: markOf(beepMs, detect) };
+  });
+  return {
+    flash,
+    beep,
+    pairs,
+    unmatched: {
+      flashesInside: pairing.unmatchedFlashes.filter((t) => !nearEdge(t)),
+      beepsInside: pairing.unmatchedBeeps.filter((t) => !nearEdge(t)),
+      flashesAtEdge: pairing.unmatchedFlashes.filter(nearEdge),
+      beepsAtEdge: pairing.unmatchedBeeps.filter(nearEdge),
+    },
+    span,
+    video: videoStats(decode.frames),
+    rates: rateParts(decode.frames),
+    audioGaps: audioGaps(decode.segments),
+  };
+}
+
+/**
+ * Pairs the beeps of two decoders by flash time and gives the difference of
+ * their offsets (b - a) for each beep that both saw.
+ */
+export function offsetDeltas(pairsA, pairsB, matchMs = LIMITS.decoderMatchMs) {
+  const deltas = [];
+  const used = new Set();
+  for (const a of pairsA) {
+    let best = -1;
+    let bestDistance = Infinity;
+    pairsB.forEach((b, j) => {
+      const distance = Math.abs(b.flash - a.flash) * 1000;
+      if (!used.has(j) && distance <= matchMs && distance < bestDistance) {
+        best = j;
+        bestDistance = distance;
+      }
+    });
+    if (best >= 0) {
+      used.add(best);
+      deltas.push({ flash: a.flash, a: a.audioMinusVideoMs, b: pairsB[best].audioMinusVideoMs, deltaMs: round1(pairsB[best].audioMinusVideoMs - a.audioMinusVideoMs) });
+    }
+  }
+  return { deltas, unmatchedA: pairsA.length - deltas.length, unmatchedB: pairsB.length - deltas.length };
+}
+
+/** "+12.3" / "-4.0": a signed millisecond value with one decimal. */
+export function signedMs(value) {
+  const rounded = round1(value);
+  return `${rounded >= 0 ? "+" : ""}${rounded.toFixed(1)}`;
+}
+
+function rangeText(values) {
+  if (!values.length) return "none";
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  return low === high ? `${signedMs(low)} ms` : `${signedMs(low)}..${signedMs(high)} ms`;
+}
+
+function row(status, check, value, limit, detail) {
+  const out = { status, check, value: String(value), limit: String(limit) };
+  if (detail !== undefined) out.detail = detail;
+  return out;
+}
+
+/**
+ * The number of flash-and-beep pairs that a file of this length must have,
+ * with beats `intervalSec` apart: one beat per interval, less one for the
+ * beats that the two ends of the file can cut.
+ */
+export function expectedPairs(durationSec, intervalSec = 1) {
+  const interval = Number.isFinite(intervalSec) && intervalSec > 0 ? intervalSec : 1;
+  return Math.max(1, Math.floor(durationSec / interval + 1e-9) - 1);
+}
+
+/**
+ * The beat interval (s) from the file's own pairs: the median spacing of
+ * consecutive flashes, when it is in LIMITS.beatIntervalRangeSec. Else 1 s,
+ * because such a spacing is not a lab interval: a file that lost every
+ * second beat has a 2 s spacing, and must not need fewer pairs for it.
+ */
+export function fileBeatInterval(pairs, limits = LIMITS) {
+  const spacings = [];
+  for (let i = 1; i < pairs.length; i++) spacings.push(pairs[i].flash - pairs[i - 1].flash);
+  if (!spacings.length) return 1;
+  const value = median(spacings.slice().sort((a, b) => a - b));
+  const [low, high] = limits.beatIntervalRangeSec;
+  return value >= low && value <= high ? value : 1;
+}
+
+/** The beat interval (s) from the lab's ground truth: the median spacing of the logged flash frames. Null when the log has no two beats in a row. */
+export function truthBeatInterval(beats) {
+  const sorted = (beats ?? []).filter((b) => b && Number.isFinite(b.rafTs) && Number.isInteger(b.index)).slice().sort((a, b) => a.index - b.index);
+  const spacings = [];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].index === sorted[i - 1].index + 1) spacings.push((sorted[i].rafTs - sorted[i - 1].rafTs) / 1000);
+  }
+  return spacings.length ? median(spacings.sort((a, b) => a - b)) : null;
+}
+
+/**
+ * The checks for one analysed file.
+ *
+ * @param {object} measure
+ * @param {{ durationSec: number | null, video: string, audio: string } | null} measure.container
+ * @param {ReturnType<typeof analyzeDecode> | null} measure.ffmpeg        edit lists applied
+ * @param {ReturnType<typeof analyzeDecode> | null} measure.ffmpegRaw     ffmpeg -ignore_editlist 1
+ * @param {ReturnType<typeof analyzeDecode> | null} measure.avfoundation  AVFoundation (Apple's player stack)
+ * @param {{ ffmpeg: string | null, avfoundation: string | null }} measure.skipped  why a decoder did not run (a missing tool: SKIPPED rows)
+ * @param {{ ffprobe?: string | null, ffmpeg?: string | null, ffmpegRaw?: string | null, avfoundation?: string | null }} [measure.failed]
+ *   why a decoder that IS on this machine could not read the file. The tool
+ *   is there and the file is bad, so each check of that decoder is a FAIL
+ *   row, never a SKIPPED row. The other decoders' rows stay.
+ * @param {object} options
+ * @param {"live" | "synthetic"} [options.mode] live: BT.1359 window; synthetic: within 5 ms of expectOffsetMs
+ * @param {number} [options.expectOffsetMs] synthetic mode: the offset the file was made with
+ * @param {number | null} [options.rungFps] the settled capture rung (ClipRecord.fps)
+ * @param {"desktop" | "phone"} [options.profile]
+ * @param {number | null} [options.expectSeconds] the asked clip or recording length
+ * @param {number | null} [options.beatIntervalSec] the lab's beat interval (s). Else the ground truth's, else the file's own (fileBeatInterval).
+ * @param {{ beats: object[], endMs?: number | null, displayHz: number, maxStride: number } | null} [options.truth]
+ *   the lab's ground truth, for the truth.mjs rows. Without it, one INFO row says so.
+ * @returns {Array<{ status: "PASS" | "FAIL" | "SKIPPED" | "INFO", check: string, value: string, limit: string, detail?: unknown }>}
+ */
+export function evaluate(measure, options = {}, limits = LIMITS) {
+  const mode = options.mode ?? "live";
+  const profile = options.profile ?? "desktop";
+  const rows = [];
+  const failed = measure.failed ?? {};
+  const ffmpegSkip = measure.skipped?.ffmpeg ?? null;
+  const avfSkip = measure.skipped?.avfoundation ?? null;
+  const ffmpegFailed = !measure.ffmpeg && failed.ffmpeg ? `ffmpeg could not read the file: ${failed.ffmpeg}` : null;
+  const avfFailed = !measure.avfoundation && failed.avfoundation ? `AVFoundation could not read the file: ${failed.avfoundation}` : null;
+  /** A FAIL row for a check that a decoder on this machine could not make. */
+  const cannotRead = (check, why) => row("FAIL", check, "could not read the file", "the file decodes", why);
+  /** The row for a check whose decoder did not give a result: FAIL when it failed, SKIPPED when it is missing. */
+  const noResult = (check, skip, why) => (why ? cannotRead(check, why) : row("SKIPPED", check, "-", "-", skip ?? "the decoder did not run"));
+
+  if (measure.container) {
+    const c = measure.container;
+    rows.push(row("INFO", "container", `${c.durationSec === null ? "?" : c.durationSec.toFixed(3)} s`, "-", `${c.video}; ${c.audio}`));
+  } else {
+    rows.push(noResult("container (ffprobe)", ffmpegSkip ?? "ffprobe did not run", failed.ffprobe ? `ffprobe could not read the file: ${failed.ffprobe}` : null));
+  }
+
+  const primary = measure.ffmpeg ?? measure.avfoundation;
+  const primaryName = measure.ffmpeg ? "ffmpeg" : "AVFoundation";
+  const givenInterval = Number.isFinite(options.beatIntervalSec) && options.beatIntervalSec > 0 ? options.beatIntervalSec : truthBeatInterval(options.truth?.beats);
+  const pairCheck = (name) => `flash and beep at every beat (${name})`;
+  const syncCheck = (name) => (mode === "synthetic" ? `container A/V (${name})` : `live A/V, BT.1359 (${name})`);
+
+  // Pairing: every beat has a flash and a beep.
+  const pairing = (name, decode) => {
+    const duration = decode.span ? decode.span.end - decode.span.start : 0;
+    const interval = givenInterval ?? fileBeatInterval(decode.pairs, limits);
+    const need = expectedPairs(duration, interval);
+    const inside = decode.unmatched.flashesInside.length + decode.unmatched.beepsInside.length;
+    const ok = decode.pairs.length >= need && inside === 0;
+    return row(ok ? "PASS" : "FAIL", pairCheck(name), `${decode.pairs.length} pairs, ${inside} unpaired`, `>= ${need} pairs (a beat each ${interval.toFixed(3)} s), 0 unpaired`, {
+      flashes: decode.flash.onsets.length,
+      beeps: decode.beep.onsets.length,
+      unpairedFlashes: decode.unmatched.flashesInside,
+      unpairedBeeps: decode.unmatched.beepsInside,
+      cutByEdge: decode.unmatched.flashesAtEdge.length + decode.unmatched.beepsAtEdge.length,
+    });
+  };
+
+  const sync = (name, decode) => {
+    const offsets = decode.pairs.map((pair) => pair.audioMinusVideoMs);
+    if (mode === "synthetic") {
+      const expected = options.expectOffsetMs ?? 0;
+      const worst = offsets.reduce((w, x) => (Math.abs(x - expected) > Math.abs(w - expected) ? x : w), offsets[0] ?? NaN);
+      const ok = offsets.length > 0 && offsets.every((x) => Math.abs(x - expected) <= limits.containerMs);
+      return row(ok ? "PASS" : "FAIL", `container A/V (${name})`, offsets.length ? `${rangeText(offsets)} (worst ${signedMs(worst)})` : "no pairs", `${signedMs(expected)} ms +/- ${limits.containerMs} ms`, { offsets });
+    }
+    const ok = offsets.length > 0 && offsets.every((x) => x >= -limits.liveLeadMs && x <= limits.liveLagMs);
+    return row(ok ? "PASS" : "FAIL", `live A/V, BT.1359 (${name})`, offsets.length ? rangeText(offsets) : "no pairs", `-${limits.liveLeadMs}..+${limits.liveLagMs} ms (sound minus picture)`, { offsets });
+  };
+
+  if (measure.ffmpeg) {
+    rows.push(pairing("ffmpeg", measure.ffmpeg));
+    rows.push(sync("ffmpeg", measure.ffmpeg));
+  } else {
+    rows.push(noResult(pairCheck("ffmpeg"), ffmpegSkip, ffmpegFailed));
+    rows.push(noResult(syncCheck("ffmpeg"), ffmpegSkip, ffmpegFailed));
+  }
+
+  if (measure.avfoundation) {
+    rows.push(pairing("AVFoundation", measure.avfoundation));
+    rows.push(sync("AVFoundation", measure.avfoundation));
+  } else {
+    rows.push(noResult(pairCheck("AVFoundation"), avfSkip, avfFailed));
+    rows.push(noResult(syncCheck("AVFoundation"), avfSkip, avfFailed));
+  }
+
+  // The two decoders read the container the same way (plan 3a: the roll-group
+  // patch exists because AVFoundation read -44 ms where ffmpeg read -0.6 ms).
+  const agreeCheck = "decoders agree (AVFoundation minus ffmpeg)";
+  if (measure.ffmpeg && measure.avfoundation) {
+    const { deltas, unmatchedA, unmatchedB } = offsetDeltas(measure.ffmpeg.pairs, measure.avfoundation.pairs, limits.decoderMatchMs);
+    const values = deltas.map((d) => d.deltaMs);
+    const ok = deltas.length > 0 && unmatchedA === 0 && unmatchedB === 0 && values.every((d) => Math.abs(d) <= limits.containerMs);
+    rows.push(row(ok ? "PASS" : "FAIL", agreeCheck, deltas.length ? `${rangeText(values)}, ${unmatchedA + unmatchedB} unmatched` : "no common beeps", `+/- ${limits.containerMs} ms at every beep`, { deltas }));
+  } else {
+    // A missing decoder means there is nothing to compare (SKIPPED); a decoder that failed on the file is a FAIL.
+    const skip = avfSkip ?? ffmpegSkip;
+    rows.push(skip ? row("SKIPPED", agreeCheck, "-", "-", skip) : noResult(agreeCheck, null, avfFailed ?? ffmpegFailed));
+  }
+
+  // Plan 6.4: players that ignore edit lists.
+  const editCheck = "edit list ignored (ffmpeg -ignore_editlist 1)";
+  if (measure.ffmpeg && measure.ffmpegRaw) {
+    const { deltas } = offsetDeltas(measure.ffmpeg.pairs, measure.ffmpegRaw.pairs, limits.decoderMatchMs + 50);
+    const values = deltas.map((d) => d.deltaMs);
+    const ok = deltas.length > 0 && deltas.length === measure.ffmpeg.pairs.length && values.every((d) => d >= -limits.editListEarlyMs && d <= limits.editListLateMs);
+    rows.push(row(ok ? "PASS" : "FAIL", editCheck, deltas.length ? `${rangeText(values)} later` : "no common beeps", `-${limits.editListEarlyMs}..+${limits.editListLateMs} ms`, { deltas }));
+  } else {
+    const rawFailed = !measure.ffmpegRaw && failed.ffmpegRaw ? `ffmpeg -ignore_editlist 1 could not read the file: ${failed.ffmpegRaw}` : null;
+    rows.push(noResult(editCheck, ffmpegSkip, ffmpegFailed ?? rawFailed));
+  }
+
+  if (primary) {
+    const v = primary.video;
+    rows.push(row(v.maxGapMs <= limits.maxVideoGapMs && v.count >= 2 ? "PASS" : "FAIL", `largest video gap (${primaryName})`, `${v.maxGapMs.toFixed(1)} ms${v.maxGapAt === null ? "" : ` at ${v.maxGapAt.toFixed(3)} s`}`, `<= ${limits.maxVideoGapMs} ms`));
+
+    rows.push(
+      row(
+        "INFO",
+        `frame cadence (${primaryName})`,
+        v.cadenceFps === null ? "?" : `${v.cadenceFps.toFixed(1)} fps`,
+        "-",
+        v.cadenceMs === null ? undefined : `${Math.round((v.cadenceShare ?? 0) * 100)}% of the frames are ${v.cadenceMs} ms apart`,
+      ),
+    );
+    const rates = primary.rates ?? [];
+    const ratesText = ratePartsText(rates);
+    rows.push(row("INFO", `frame rate over time (${primaryName})`, ratesText.value, "-", ratesText.detail));
+
+    const share = limits.fpsShare[profile] ?? limits.fpsShare.desktop;
+    if (options.rungFps && options.rungFps > 0) {
+      const need = options.rungFps * share;
+      const ok = v.effectiveFps !== null && v.effectiveFps >= need;
+      // A rung that the file's own cadence does not match is worth a look: the
+      // rung may be the encoder's nominal rate, not the governor's rung.
+      const mismatch = v.cadenceFps !== null && Math.abs(v.cadenceFps - options.rungFps) > options.rungFps * 0.1;
+      // A rate change in the file is worth a look too: one rung for the whole
+      // file can be the rung of one part only.
+      const notes = [];
+      if (mismatch) notes.push(`the file's cadence is ${v.cadenceFps.toFixed(1)} fps, not the given rung ${options.rungFps}`);
+      if (rates.length > 1) notes.push(`the rate changed in the file: ${ratesText.value}`);
+      const detail = notes.length ? notes.join("; ") : undefined;
+      rows.push(row(ok ? "PASS" : "FAIL", `capture fps (${profile})`, `${v.effectiveFps === null ? "?" : v.effectiveFps.toFixed(1)} fps`, `>= ${need.toFixed(1)} fps (${Math.round(share * 100)}% of ${options.rungFps})`, detail));
+    } else {
+      rows.push(row("SKIPPED", `capture fps (${profile})`, `${v.effectiveFps === null ? "?" : v.effectiveFps.toFixed(1)} fps`, "-", "no settled rung was given"));
+    }
+
+    const gaps = primary.audioGaps.filter((gap) => Math.abs(gap.ms) > limits.audioGapMs);
+    rows.push(row(gaps.length === 0 ? "PASS" : "FAIL", `sound track is continuous (${primaryName})`, gaps.length ? `${gaps.length} gaps, largest ${Math.max(...gaps.map((g) => Math.abs(g.ms))).toFixed(1)} ms` : "no gaps", `no jump over ${limits.audioGapMs} ms`, { gaps }));
+  } else {
+    for (const check of ["largest video gap", `capture fps (${profile})`, "sound track is continuous"]) rows.push(noResult(check, ffmpegSkip ?? avfSkip, ffmpegFailed ?? avfFailed));
+  }
+
+  if (options.expectSeconds) {
+    const duration = measure.container?.durationSec ?? (primary?.span ? primary.span.end - primary.span.start : null);
+    if (duration === null) {
+      rows.push(noResult("length", ffmpegSkip ?? "no duration", ffmpegFailed ?? avfFailed));
+    } else {
+      const lo = options.expectSeconds - limits.lengthShortSec;
+      const hi = options.expectSeconds + limits.lengthLongSec;
+      rows.push(row(duration >= lo && duration <= hi ? "PASS" : "FAIL", "length", `${duration.toFixed(2)} s`, `${lo.toFixed(1)}..${hi.toFixed(1)} s`));
+    }
+  }
+
+  // The lab's ground truth: which beats the file holds, and where it ends (truth.mjs).
+  if (!options.truth) {
+    rows.push(row("INFO", "ground truth", "not given", "-", "the lab drivers give the lab's beat log; analyze-sync takes it with --truth"));
+  } else if (primary) {
+    const fileEnd = measure.container?.durationSec ?? (primary.span ? primary.span.end : null);
+    rows.push(...truthRows(primary, fileEnd, options.truth, limits));
+  } else {
+    for (const check of Object.values(TRUTH_CHECKS)) rows.push(noResult(check, ffmpegSkip ?? avfSkip, ffmpegFailed ?? avfFailed));
+  }
+  return rows;
+}
+
+/**
+ * One line per beep: the flash time and the offset (sound minus picture) that
+ * each decoder read. The first decoder that ran sets the beeps; the others
+ * join by flash time. "-" means that decoder did not see that beep.
+ *
+ * @param {{ ffmpeg?: ReturnType<typeof analyzeDecode> | null, avfoundation?: ReturnType<typeof analyzeDecode> | null, ffmpegRaw?: ReturnType<typeof analyzeDecode> | null }} measure
+ * @returns {Array<{ beep: number, flash: number, ffmpeg: number | null, avfoundation: number | null, ignoreEditList: number | null }>}
+ */
+export function beepTable(measure, limits = LIMITS) {
+  const base = measure.ffmpeg ?? measure.avfoundation;
+  if (!base) return [];
+  const join = (decode, windowMs) => {
+    const used = new Set();
+    return base.pairs.map((pair) => {
+      if (!decode) return null;
+      let best = -1;
+      let bestDistance = Infinity;
+      decode.pairs.forEach((other, j) => {
+        const distance = Math.abs(other.flash - pair.flash) * 1000;
+        if (!used.has(j) && distance <= windowMs && distance < bestDistance) {
+          best = j;
+          bestDistance = distance;
+        }
+      });
+      if (best < 0) return null;
+      used.add(best);
+      return decode.pairs[best].audioMinusVideoMs;
+    });
+  };
+  const ffmpeg = measure.ffmpeg ? base.pairs.map((pair) => pair.audioMinusVideoMs) : base.pairs.map(() => null);
+  const avf = measure.ffmpeg ? join(measure.avfoundation, limits.decoderMatchMs) : base.pairs.map((pair) => pair.audioMinusVideoMs);
+  const raw = join(measure.ffmpegRaw, limits.decoderMatchMs + 50);
+  return base.pairs.map((pair, i) => ({ beep: i + 1, flash: pair.flash, ffmpeg: ffmpeg[i], avfoundation: avf[i], ignoreEditList: raw[i] }));
+}
+
+/** The beep table as text, one line per beep. */
+export function formatBeepTable(table) {
+  if (!table.length) return "no beeps were paired";
+  const cell = (value) => (value === null ? "-" : `${signedMs(value)} ms`).padStart(11);
+  const head = `${"beep".padStart(4)} | ${"flash".padStart(9)} | ${"ffmpeg".padStart(11)} | ${"AVFoundation".padStart(12)} | ${"no edit list".padStart(12)}`;
+  const lines = table.map(
+    (row) => `${String(row.beep).padStart(4)} | ${`${row.flash.toFixed(3)} s`.padStart(9)} | ${cell(row.ffmpeg)} | ${cell(row.avfoundation).padStart(12)} | ${cell(row.ignoreEditList).padStart(12)}`,
+  );
+  return [head, ...lines].join("\n");
+}
+
+/** True when no row failed. SKIPPED rows never fail a run. */
+export function passed(rows) {
+  return rows.every((r) => r.status !== "FAIL");
+}
+
+/** The rows as a fixed-width text table, one line per row. A SKIPPED row shows its reason; any other row shows its text detail. */
+export function formatRows(rows, title) {
+  const widths = [7, Math.max(20, ...rows.map((r) => r.check.length)), Math.max(10, ...rows.map((r) => r.value.length))];
+  const lines = rows.map((r) => {
+    const text = typeof r.detail === "string" ? r.detail : null;
+    const tail = r.status === "SKIPPED" && text ? `skipped: ${text}` : r.status === "INFO" && text ? text : text ? `${r.limit} (${text})` : r.limit;
+    return `${r.status.padEnd(widths[0])} | ${r.check.padEnd(widths[1])} | ${r.value.padEnd(widths[2])} | ${tail}`;
+  });
+  return (title ? [`== ${title}`] : []).concat(lines).join("\n");
+}
