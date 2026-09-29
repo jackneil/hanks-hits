@@ -185,8 +185,12 @@ export async function analyzeFile(file: string, options: Record<string, unknown>
 }
 
 export interface PressureTimeline {
+  /** The changes that the governor acts on, or "never serious (highest fair)". */
   value: string;
+  /** Every change, as text. */
+  all: string;
   changes: Array<{ atSec: number; state: string }>;
+  steps: Array<{ atSec: number; state: string }>;
   worst: string | null;
 }
 

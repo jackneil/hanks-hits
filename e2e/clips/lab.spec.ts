@@ -140,12 +140,16 @@ async function runLab(flow: Flow, baseURL: string): Promise<{ report: RowReport;
     report.check("library row type", record.mime === "video/mp4", record.mime, "video/mp4");
     report.check("library row has game sound", record.hasAudio, String(record.hasAudio), "true");
     report.info("library row", `${record.width}x${record.height}, ${record.fps} fps, ${(record.durationMs / 1000).toFixed(2)} s, ${record.bytes} bytes`);
+    // The value names the changes that the governor acts on; the detail lists every change.
     const readings = watching ? await readPressure(page) : null;
-    const recordText = recordAtSec === null ? "" : `, and Record at +${recordAtSec.toFixed(1)} s`;
+    const pressure = readings ? await pressureTimeline(readings, zeroMs) : null;
+    const recordText = recordAtSec === null ? "" : `, Record at +${recordAtSec.toFixed(1)} s`;
     report.info(
       "CPU pressure (Compute Pressure)",
-      readings ? (await pressureTimeline(readings, zeroMs)).value : "not in this browser",
-      readings ? `times from Start${recordText}; serious steps the capture rung down, critical rests capture (plan 7)` : "the governor has no pressure signal here",
+      pressure ? pressure.value : "not in this browser",
+      pressure
+        ? `serious steps the capture rung down, critical rests capture (plan 7); times from Start${recordText}; all changes: ${pressure.all}`
+        : "the governor has no pressure signal here",
     );
 
     const bytes = await pullClip(page, last!.bytes);
