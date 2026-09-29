@@ -1,7 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { createPortal, flushSync } from "react-dom";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
 import { useStartOverlayPresence } from "../lib/startOverlayPresence";
 import { ReadAloudButton } from "./ReadAloudButton";
@@ -33,7 +41,11 @@ import { useRegisterBreakSlot } from "../lib/gameBreaks";
  * So Play (or every choice) is always on screen, with no scroll.
  *
  * Break slot: a nudge such as the iOS install tip renders into a slot
- * below Play (gameBreaks.ts).
+ * OUTSIDE the card (below it, or beside it on a short screen), so it can
+ * never push Play down or sit in the card's scroll box. The slot shows
+ * only while the whole card body still fits with the note next to it.
+ * When it does not fit, the slot goes away for this mount, and the note
+ * waits for the next break (the pause menu).
  *
  * Mount contract: render it CONDITIONALLY on the menu/ready state
  * (`{state === "ready" && <GameStartOverlay .../>}`), never permanently
@@ -127,6 +139,11 @@ function useIsClient(): boolean {
   );
 }
 
+/** Does the scroll box hold more than it shows? (1 px for rounding.) */
+function overflows(box: HTMLElement): boolean {
+  return box.scrollHeight > box.clientHeight + 1;
+}
+
 export function GameStartOverlay({
   title,
   emoji,
@@ -144,6 +161,10 @@ export function GameStartOverlay({
   const startedRef = useRef(false);
   const titleId = useId();
   const startRef = useRef<HTMLButtonElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const bodyContentRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const breakSlotElRef = useRef<HTMLDivElement | null>(null);
 
   // Keyboard and screen-reader users land on Play, not on whatever game
   // control sits under the card. (A finger is not affected: focusing a
@@ -167,10 +188,64 @@ export function GameStartOverlay({
     onStart();
   }, [onStart]);
 
-  // The start card is a break: a nudge such as the iOS install tip renders
-  // into this slot, below Play, instead of floating over the card
-  // (gameBreaks.ts).
-  const { slotRef: breakSlotRef, readNotes: readBreakNotes } = useRegisterBreakSlot();
+  // The start screen is a break: a nudge such as the iOS install tip
+  // renders into this slot, next to the card (gameBreaks.ts).
+  const { slotRef: registerBreakSlot, readNotes: readBreakNotes } = useRegisterBreakSlot();
+  const breakSlotRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      breakSlotElRef.current = el;
+      if (!el) return undefined;
+      const unregister = registerBreakSlot(el);
+      return () => {
+        breakSlotElRef.current = null;
+        unregister?.();
+      };
+    },
+    [registerBreakSlot]
+  );
+
+  // The slot stays only while the card fits with the note next to it.
+  // When the body (or the whole card) must scroll, the
+  // note is removed for this mount and waits for the next break (the
+  // pause menu). One way only: if the note came back when the card fits
+  // again, the two would swap forever.
+  const [breakRoom, setBreakRoom] = useState(true);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    const card = cardRef.current;
+    if (!breakRoom || !body) return;
+    // The card itself scrolls only when even the action row does not fit.
+    const noRoom = () => overflows(body) || (!!card && overflows(card));
+
+    // A note arrives in the slot after this commit. Measure it before the
+    // browser paints, so a note that does not fit never shows. (This also
+    // catches a card that is too tall even with no note.)
+    const slot = breakSlotElRef.current;
+    const notes =
+      slot && typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            if (noRoom()) flushSync(() => setBreakRoom(false));
+          })
+        : null;
+    if (slot) notes?.observe(slot, { childList: true, subtree: true });
+
+    // The first size, and later changes: the phone turns, a font loads,
+    // a line appears. (A ResizeObserver reports once when it starts.)
+    const sizes =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            if (noRoom()) setBreakRoom(false);
+          })
+        : null;
+    sizes?.observe(body);
+    if (bodyContentRef.current) sizes?.observe(bodyContentRef.current);
+    if (card) sizes?.observe(card);
+
+    return () => {
+      notes?.disconnect();
+      sizes?.disconnect();
+    };
+  }, [breakRoom, isClient]);
 
   const hints = isCoarse ? touchHints : keyboardHints;
   // Also tell the kid HOW to start: some games hide the Play button and
@@ -204,6 +279,7 @@ export function GameStartOverlay({
       <div className="absolute inset-x-0 bottom-0 top-12 flex p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:top-14 short:p-2 short:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:h-full short:max-w-4xl short:flex-row short:items-center short:justify-center short:gap-2">
           <div
+            ref={cardRef}
             data-testid="start-card"
             className="flex max-h-full min-h-0 w-full flex-col overflow-y-auto rounded-3xl bg-base-100 text-center text-base-content shadow-2xl short:min-w-0 short:max-w-2xl short:flex-1 short:flex-row"
           >
@@ -212,10 +288,11 @@ export function GameStartOverlay({
                 held sideways) the body and the action row sit side by
                 side, so the words keep their room. */}
             <div
+              ref={bodyRef}
               data-testid="start-card-body"
               className="scroll-cue min-h-[4.5rem] shrink overflow-y-auto overscroll-contain px-6 pt-6 short:min-h-0 short:min-w-0 short:flex-1 short:px-3 short:py-3"
             >
-              <div>
+              <div ref={bodyContentRef}>
                 {emoji && (
                   <div className="mb-2 text-6xl short:mb-0 short:text-3xl" aria-hidden="true">
                     {emoji}
@@ -263,15 +340,17 @@ export function GameStartOverlay({
               ) : (
                 pickers
               )}
-
-              {/* Break slot, below Play (empty unless a nudge renders into it) */}
-              <div
-                ref={breakSlotRef}
-                data-testid="start-card-break-slot"
-                className="empty:hidden"
-              />
             </div>
           </div>
+
+          {/* Break slot, outside the card (empty unless a nudge renders into it) */}
+          {breakRoom && (
+            <div
+              ref={breakSlotRef}
+              data-testid="start-overlay-break-slot"
+              className="w-full shrink-0 empty:hidden short:w-72"
+            />
+          )}
         </div>
       </div>
     </div>,

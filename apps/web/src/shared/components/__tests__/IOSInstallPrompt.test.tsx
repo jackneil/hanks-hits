@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IOSInstallPrompt,
@@ -50,7 +50,7 @@ describe("IOSInstallPrompt", () => {
     removeSpeechMock();
   });
 
-  it("sits inside a start card below Play, then becomes a sheet after Play on a page with no game", () => {
+  it("sits on the start screen OUTSIDE the card, then becomes a sheet after Play on a page with no game", () => {
     const { rerender } = render(
       <>
         <GameStartOverlay title="Snake" onStart={() => {}} />
@@ -59,10 +59,15 @@ describe("IOSInstallPrompt", () => {
     );
 
     // A sheet would sit over the Play button, so the tip is part of the
-    // card instead, after Play.
-    const card = screen.getByTestId("game-start-overlay");
-    const slot = within(card).getByTestId("start-card-break-slot");
-    expect(within(slot).getByTestId("ios-install-tip")).toBeInTheDocument();
+    // start screen instead. It is NOT in the card: inside the card it
+    // pushed Play down and sat in the card's scroll box, cut off on an
+    // iPhone (verify finding swe17/ui22).
+    const overlay = screen.getByTestId("game-start-overlay");
+    const card = within(overlay).getByTestId("start-card");
+    const slot = within(overlay).getByTestId("start-overlay-break-slot");
+    const tip = within(slot).getByTestId("ios-install-tip");
+    expect(card).not.toContainElement(tip);
+    expect(card).not.toContainElement(slot);
     expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
     const play = within(card).getByRole("button", { name: "▶ Play!" });
     expect(play.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -161,7 +166,7 @@ describe("IOSInstallPrompt", () => {
       );
     });
 
-    it("shows inside the start card of a game that cannot pause, and is read with it", async () => {
+    it("shows on the start screen of a game that cannot pause, and is read with it", async () => {
       const synth = installSpeechMock();
       const { rerender } = render(
         <GameShell gameName="Flappy Bird" appId="flappy-bird" canPause={false}>
@@ -172,13 +177,13 @@ describe("IOSInstallPrompt", () => {
         </GameShell>
       );
 
-      const card = screen.getByTestId("game-start-overlay");
+      const overlay = screen.getByTestId("game-start-overlay");
       expect(
-        within(within(card).getByTestId("start-card-break-slot")).getByTestId("ios-install-tip")
+        within(within(overlay).getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
       ).toBeInTheDocument();
       expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
 
-      fireEvent.click(within(card).getByTestId("read-aloud-button"));
+      fireEvent.click(within(overlay).getByTestId("read-aloud-button"));
       // The voice skips the ▶ picture.
       expect(synth.lastUtterance().text).toBe(
         `Flappy Bird. Then tap Play! to start. ${IOS_INSTALL_TIP_SPOKEN}`
@@ -196,7 +201,7 @@ describe("IOSInstallPrompt", () => {
       expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
     });
 
-    it("moves from the start card into the pause menu, the newest break", () => {
+    it("moves from the start screen into the pause menu, the newest break", () => {
       render(
         <GameShell gameName="Snake" appId="snake">
           <div className="relative">
@@ -206,7 +211,7 @@ describe("IOSInstallPrompt", () => {
         </GameShell>
       );
       expect(
-        within(screen.getByTestId("start-card-break-slot")).getByTestId("ios-install-tip")
+        within(screen.getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
       ).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
@@ -219,8 +224,108 @@ describe("IOSInstallPrompt", () => {
         within(screen.getByTestId("pause-menu")).getByRole("button", { name: /Resume/ })
       );
       expect(
-        within(screen.getByTestId("start-card-break-slot")).getByTestId("ios-install-tip")
+        within(screen.getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
       ).toBeInTheDocument();
+    });
+
+    describe("when the start card has no room for it", () => {
+      // jsdom has no layout: fake the card body's scroll box. "Overflows"
+      // means the body holds more than it shows, so the kid would have to
+      // scroll the card to see all of it.
+      let bodyOverflows: () => boolean;
+      const setupResizeObserver = global.ResizeObserver;
+
+      beforeEach(() => {
+        bodyOverflows = () => false;
+        // Like a browser: a ResizeObserver reports once when it starts.
+        global.ResizeObserver = class {
+          constructor(private callback: ResizeObserverCallback) {}
+          observe() {
+            queueMicrotask(() => this.callback([], this as unknown as ResizeObserver));
+          }
+          unobserve() {}
+          disconnect() {}
+        };
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+          configurable: true,
+          get(this: HTMLElement) {
+            return this.dataset.testid === "start-card-body" && bodyOverflows() ? 900 : 300;
+          },
+        });
+        Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+          configurable: true,
+          get() {
+            return 300;
+          },
+        });
+      });
+
+      afterEach(() => {
+        global.ResizeObserver = setupResizeObserver;
+        // Back to jsdom's own Element.prototype getters.
+        delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+        delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+      });
+
+      function renderSnakeStart() {
+        return render(
+          <GameShell gameName="Snake" appId="snake">
+            <GameStartOverlay title="Snake" onStart={() => {}} />
+            <IOSInstallPrompt />
+          </GameShell>
+        );
+      }
+
+      it("leaves the start screen when it would make the card scroll, and waits for the pause menu", async () => {
+        // The card fits alone, but not with the tip next to it (a phone
+        // with a short screen): the body overflows only while the tip is
+        // in the slot.
+        bodyOverflows = () =>
+          !!document.querySelector(
+            '[data-testid="start-overlay-break-slot"] [data-testid="ios-install-tip"]'
+          );
+        renderSnakeStart();
+        await act(async () => {});
+
+        expect(screen.queryByTestId("start-overlay-break-slot")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
+        // It is not a sheet over Play either.
+        expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+
+        // The next break shows it.
+        fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
+        expect(
+          within(screen.getByTestId("pause-menu-break-slot")).getByTestId("ios-install-tip")
+        ).toBeInTheDocument();
+      });
+
+      it("gives no slot when the card body must scroll even without the tip", async () => {
+        bodyOverflows = () => true;
+        // No tip on screen yet (another phone): the slot still goes.
+        render(<GameStartOverlay title="Snake" onStart={() => {}} />);
+        await act(async () => {});
+        expect(screen.queryByTestId("start-overlay-break-slot")).not.toBeInTheDocument();
+        expect(useGameBreaks.getState().slots).toEqual([]);
+      });
+
+      it("never shows the tip on a start card that must scroll", async () => {
+        bodyOverflows = () => true;
+        renderSnakeStart();
+        await act(async () => {});
+
+        expect(screen.queryByTestId("start-overlay-break-slot")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "▶ Play!" })).toBeInTheDocument();
+      });
+
+      it("keeps the tip on the start screen when the card fits with it", async () => {
+        renderSnakeStart();
+        await act(async () => {});
+
+        expect(
+          within(screen.getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
+        ).toBeInTheDocument();
+      });
     });
 
     it("remembers don't-show-again from the pause menu", () => {

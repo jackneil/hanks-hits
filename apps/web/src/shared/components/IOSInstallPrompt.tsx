@@ -17,7 +17,10 @@ import { ReadAloudButton } from './ReadAloudButton';
  * - It never shows during active play (issue #32). It shows as a tip
  *   INSIDE a break surface (gameBreaks.ts), as part of that surface, so it
  *   cannot cover a game control or a menu button:
- *   - on the start card, below the Play button;
+ *   - on the start screen, OUTSIDE the start card (below it, or beside it
+ *     on a short screen). It never goes in the card, so it never pushes
+ *     Play down. The start screen gives it a slot only while the whole
+ *     card still fits next to it; if not, the tip waits for the pause menu;
  *   - in the pause menu, below the menu buttons.
  *   Both surfaces read the tip out loud with the rest of their words.
  * - On a game page with no break surface up, the kid is playing: it hides.

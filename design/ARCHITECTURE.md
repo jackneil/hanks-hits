@@ -229,16 +229,20 @@ the hints, and the picker when Play shows) scrolls on a short screen. The
 action row (the read-aloud button, then Play or the picker choices) stays at
 the bottom of the card, so the start action is always on screen with no
 scroll. On a short screen (a phone held sideways) the action row sits to the
-right of the body. It renders the title once (the only in-content heading, visible
-only before start), pointer-aware controls copy (`useCoarsePointer` /
+right of the body. A nudge such as the iOS install tip shows in a break slot
+outside the card (below it, or beside it on a short screen), never in the
+card. The slot shows only while the whole card still fits next to it. If it
+does not fit, the tip waits for the pause menu. The overlay renders the
+title once (the only in-content heading, visible only before start),
+pointer-aware controls copy (`useCoarsePointer` /
 `matchMedia("(pointer: coarse)")`: touch viewports never see keyboard-only
 instructions), a 🔊 "Read it to me" button (`ReadAloudButton`, see below),
-an optional difficulty/level picker slot (`GameStartOverlayButton`, the one
-approved start-button style), and a start button guarded to fire once. All
-targets are >= 44x44px. Never draw menu text or hit-boxes into the canvas.
-Write the hint lines for a reader in grade 1 to 3: one action per line, an
-emoji first, short words. Two kinds of module do not use the overlay: a toy
-with no start moment (drawing-app, drum-machine) and a module with its own
+an optional difficulty/level picker slot (`GameStartOverlayButton`, the one approved
+start-button style), and a start button guarded to fire once. All targets
+are >= 44x44px. Never draw menu text or hit-boxes into the canvas. Write the
+hint lines for a reader in grade 1 to 3: one action per line, an emoji
+first, short words. Two kinds of module do not use the overlay: a toy with
+no start moment (drawing-app, drum-machine) and a module with its own
 launcher (retro-arcade). Those modules put the same `ReadAloudButton` on
 their first screen instead.
 
