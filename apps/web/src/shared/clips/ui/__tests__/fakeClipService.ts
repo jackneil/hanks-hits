@@ -160,7 +160,8 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
 
     endPress: vi.fn((token: PressToken, info: { upAtMs: number; moved: boolean; cancelled?: boolean }): PressOutcome => {
       if (!openPresses.delete(token.pressId)) return { kind: "ignored", reason: "busy" };
-      if (info.cancelled) return { kind: "ignored", reason: "busy" };
+      // The real rule (contract.ts PressOutcome): a cancelled press commits nothing, whatever its length.
+      if (info.cancelled) return { kind: "ignored", reason: "cancelled" };
       if (info.upAtMs - token.downAtMs >= HOLD_FOR_MENU_MS && !info.moved) return { kind: "menu" };
       switch (snapshot.button) {
         case "warming":

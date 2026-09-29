@@ -7,9 +7,9 @@
  *   events, the page lifecycle (lifecycle.ts), the owner and the crash
  *   breaker (breaker.ts);
  * - the plan 11.1 tap rules: pointerdown freezes the ring end; a release
- *   under HOLD_FOR_MENU_MS commits a clip (also when the browser cancelled
- *   the press); a still hold of HOLD_FOR_MENU_MS or more opens the Capture
- *   menu and commits nothing; a tap within EXTEND_WINDOW_MS of the last clip
+ *   under HOLD_FOR_MENU_MS commits a clip; a cancelled press commits
+ *   nothing, whatever its length; a still hold of HOLD_FOR_MENU_MS or more
+ *   opens the Capture menu and commits nothing; a tap within EXTEND_WINDOW_MS of the last clip
  *   makes that clip longer. The longer clip replaces the last clip only when
  *   it contains all of it. When the ring cannot reach back that far (a 30 s
  *   ring, or an encoder recovery cut the clip to its newest epoch), both
@@ -581,15 +581,17 @@ export class ClipService implements ClipServiceApi {
   }
 
   endPress(token: PressToken, info: { upAtMs: number; moved: boolean; cancelled?: boolean }): PressOutcome {
+    // A cancelled press commits nothing, whatever its length: it only lets
+    // the token go. The UI sends it for every press that must not clip (a
+    // browser pointercancel, a controller button that stays the game's own,
+    // the Capture menu opened without a hold, the result chip's frozen end).
+    // The token keeps its frozen end for clipLast(seconds, token).
+    if (info.cancelled) return { kind: "ignored", reason: "cancelled" };
     const snap = this.snapshot;
     if (!this.attached || snap.button === "hidden") return { kind: "ignored", reason: snap.reason ?? "flag-off" };
     // While the owner is read again (a bfcache restore), the ring can hold another player's footage.
     if (!this.ownerConfirmed) return { kind: "ignored", reason: "hidden" };
     const heldMs = info.upAtMs - token.downAtMs;
-    // Plan 11.1: a tap always means "clip". A browser cancel of a short press
-    // (a pan or a system gesture that took the touch) is still that tap, and
-    // the token froze the ring end. Only a cancelled long press commits nothing.
-    if (info.cancelled && heldMs >= HOLD_FOR_MENU_MS) return { kind: "ignored", reason: "cancelled" };
     const button = snap.button;
     if (button === "recording" || button === "saving" || button === "exporting") return { kind: "ignored", reason: "busy" };
     if (heldMs >= HOLD_FOR_MENU_MS && !info.moved) return { kind: "menu" };

@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClipRecord } from "../../protocol";
 import { CrashBreaker, TAB_LOCK_PREFIX } from "../breaker";
 import {
-  ClipService,
   FAILURES_TO_DISABLE,
   OWNER_RETRY_MS,
   RESULT_POST_ROLL_MS,
@@ -19,209 +18,31 @@ import {
   HIDDEN_SNAPSHOT,
   HOLD_FOR_MENU_MS,
   type AttachedGame,
-  type ClipActionResult,
   type ClipLibraryApi,
-  type GameAttachment,
-  type PressOutcome,
 } from "../contract";
 import { EngineFailure } from "../engine";
-import type { SessionBusLike } from "../ioClient";
-import { CAPTURE_LOCK, GUEST_KEEP_MS, Lifecycle, RESUME_GRACE_MS, type LifecycleEnv } from "../lifecycle";
+import { CAPTURE_LOCK, GUEST_KEEP_MS, RESUME_GRACE_MS } from "../lifecycle";
 import { ERROR_MS, MADE_MS, RECOVERING_QUIET_MS, SOURCE_LOST_GRACE_MS } from "../machine";
-import { FakeLockManager } from "./fakeLocks";
-import { FakeEngine, recordFor } from "./fakeEngine";
-
-/** A stored record part of a recording (the id and the kind change). */
-function recordOf(meta: Parameters<typeof recordFor>[0], id: string): ClipRecord {
-  return recordFor({ ...meta, id, kind: "record" });
-}
-
-/** A fast owner key (the real one hashes with SubtleCrypto, which fake timers cannot drive). */
-async function keyOf(userId: string | null): Promise<string> {
-  if (!userId) return "guest";
-  let hex = "";
-  for (const ch of userId) hex += ch.charCodeAt(0).toString(16);
-  return `u_${hex.padEnd(20, "0").slice(0, 20)}`;
-}
-
-class MemoryStorage {
-  readonly items = new Map<string, string>();
-  getItem(key: string): string | null {
-    return this.items.get(key) ?? null;
-  }
-  setItem(key: string, value: string): void {
-    this.items.set(key, value);
-  }
-  removeItem(key: string): void {
-    this.items.delete(key);
-  }
-}
-
-/** The session bus (registry.ts) as a test double. */
-class FakeBus implements SessionBusLike {
-  latest: { userId: string | null } | null = null;
-  readonly listeners = new Set<(userId: string | null) => void>();
-  current() {
-    return this.latest;
-  }
-  subscribe(listener: (userId: string | null) => void) {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-  publish(userId: string | null) {
-    this.latest = { userId };
-    for (const l of [...this.listeners]) l(userId);
-  }
-}
-
-interface World {
-  service: ClipService;
-  engine: FakeEngine;
-  rows: Map<string, ClipRecord>;
-  library: ClipLibraryApi & { markWatched: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
-  io: ServiceIo & { update: ReturnType<typeof vi.fn>; setOwnerKey: ReturnType<typeof vi.fn>; resolveOwner: ReturnType<typeof vi.fn> };
-  locks: FakeLockManager;
-  storage: MemoryStorage;
-  doc: EventTarget & { visibilityState: DocumentVisibilityState; focused: boolean; hasFocus(): boolean };
-  win: EventTarget;
-  userId: { value: string | null };
-  /** Set to make the session read fail (offline). */
-  offline: { value: boolean };
-  bus: FakeBus;
-  shared: File[];
-  paused: number;
-}
-
-const services: ClipService[] = [];
-
-function makeWorld(options: { closesOnHide?: boolean; tab?: string } = {}): World {
-  const engine = new FakeEngine();
-  const rows = new Map<string, ClipRecord>();
-  const baseClip = engine.clipResult;
-  engine.clipResult = async (request) => {
-    const made = await baseClip(request);
-    rows.set(made.record.id, made.record);
-    return made;
-  };
-  const library = {
-    list: async () => [...rows.values()],
-    file: async () => new File([], "x"),
-    setKept: async () => undefined,
-    markWatched: vi.fn(async () => undefined),
-    remove: vi.fn(async (id: string) => {
-      rows.delete(id);
-    }),
-    usage: async () => ({ bytes: 0, budget: 1, count: rows.size }),
-    subscribe: () => () => undefined,
-  };
-  const io = {
-    libraryApi: () => library,
-    resolveOwner: vi.fn(async () => ({ key: "guest", confirmed: true })),
-    setOwnerKey: vi.fn(),
-    update: vi.fn(async (id: string, patch: Partial<ClipRecord>) => ({ ...(rows.get(id) as ClipRecord), ...patch })),
-  };
-  const locks = new FakeLockManager();
-  const tab = options.tab ?? "t1";
-  const storage = new MemoryStorage();
-  const doc = Object.assign(new EventTarget(), {
-    visibilityState: "visible" as DocumentVisibilityState,
-    focused: true,
-    hasFocus(): boolean {
-      return this.focused;
-    },
-  });
-  const win = new EventTarget();
-  const now = () => Date.now();
-  const lifecycle = new Lifecycle({
-    doc: doc as unknown as LifecycleEnv["doc"],
-    win: win as unknown as LifecycleEnv["win"],
-    locks: locks.client(tab),
-    now,
-  });
-  const breaker = new CrashBreaker({ storage, locks: locks.client(tab), now, tabLock: `${TAB_LOCK_PREFIX}${tab}` });
-  const userId = { value: null as string | null };
-  const offline = { value: false };
-  const bus = new FakeBus();
-  const shared: File[] = [];
-  const world = { paused: 0 } as World;
-  const service = new ClipService({
-    loadEngine: async () => engine,
-    io: io as unknown as ServiceIo,
-    breaker,
-    lifecycle,
-    now,
-    wallNow: now,
-    host: () => "hankshits.com",
-    readUserId: async () => {
-      if (offline.value) throw new TypeError("offline");
-      return userId.value;
-    },
-    ownerKeyFor: keyOf,
-    sessionBus: bus,
-    closesEncoderWhenHidden: options.closesOnHide ?? false,
-    shareEnv: {
-      navigator: {
-        share: async (data: ShareData) => {
-          shared.push(...(data.files ?? []));
-        },
-        canShare: () => true,
-      },
-      log: () => undefined,
-    },
-    log: () => undefined,
-  });
-  Object.assign(world, { service, engine, rows, library, io, locks, storage, doc, win, userId, offline, bus, shared });
-  services.push(service);
-  return world;
-}
-
-const flush = () => vi.advanceTimersByTimeAsync(0);
-
-function gameAttachment(w: World, extra: Partial<GameAttachment> = {}): GameAttachment {
-  return {
-    appId: "breakout",
-    gameName: "Breakout",
-    emoji: "🧱",
-    canPause: true,
-    pause: () => {
-      w.paused++;
-    },
-    ...extra,
-  };
-}
-
-/** Attaches Breakout, registers its canvas, and plays until the button is Ready. */
-async function ready(w: World): Promise<AttachedGame> {
-  const game = w.service.attach(gameAttachment(w));
-  await flush();
-  game.setAtBreak(false);
-  game.runPhase("start");
-  game.registerCanvas(document.createElement("canvas"));
-  w.engine.emit({ t: "output" });
-  w.engine.play(5);
-  await flush();
-  expect(w.service.getSnapshot().button).toBe("ready");
-  return game;
-}
-
-function press(w: World, holdMs: number, info: { moved?: boolean; cancelled?: boolean } = {}): PressOutcome {
-  const token = w.service.beginPress();
-  if (!token) throw new Error("no press token");
-  vi.advanceTimersByTime(holdMs);
-  return w.service.endPress(token, { upAtMs: Date.now(), moved: info.moved ?? false, cancelled: info.cancelled });
-}
-
-async function resultOf(outcome: PressOutcome): Promise<ClipActionResult> {
-  if (outcome.kind !== "clip" && outcome.kind !== "extend") throw new Error(`no result for ${outcome.kind}`);
-  return outcome.result;
-}
+import { FakeEngine } from "./fakeEngine";
+import {
+  disposeWorlds,
+  flush,
+  gameAttachment,
+  keyOf,
+  makeWorld,
+  press,
+  ready,
+  recordOf,
+  resultOf,
+  type World,
+} from "./serviceWorld";
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1_000_000);
 });
 afterEach(() => {
-  services.splice(0).forEach((s) => s.dispose());
+  disposeWorlds();
   resetClipServiceForTests();
   vi.useRealTimers();
 });
@@ -710,26 +531,52 @@ describe("tap semantics (plan 11.1)", () => {
     expect(press(w, 900, { moved: true }).kind).toBe("clip");
   });
 
-  it("a short press that the browser cancelled is still a tap: it clips from the frozen ring end", async () => {
+  it.each([
+    ["a 100 ms", 100],
+    ["a 700 ms", 700],
+    ["a 499 ms", HOLD_FOR_MENU_MS - 1],
+    ["a 500 ms", HOLD_FOR_MENU_MS],
+  ])("%s cancelled press commits nothing and lets the token go", async (_label, heldMs) => {
+    const w = makeWorld();
+    await ready(w);
+    w.engine.play(10);
+    const before = w.service.getSnapshot();
+    const token = w.service.beginPress()!;
+    w.engine.play(1);
+    vi.advanceTimersByTime(heldMs);
+    const outcome = w.service.endPress(token, { upAtMs: Date.now(), moved: false, cancelled: true });
+    expect(outcome).toEqual({ kind: "ignored", reason: "cancelled" });
+    await flush();
+    // Nothing is committed: no clip job, no row, no saving, no result, no chip.
+    expect(w.engine.clipRequests).toHaveLength(0);
+    expect(w.rows.size).toBe(0);
+    const after = w.service.getSnapshot();
+    expect(after.button).toBe("ready");
+    expect(after.savingProgress).toBeNull();
+    expect(after.lastResult).toBe(before.lastResult);
+    expect(after.unwatchedClipId).toBeNull();
+    // The token is let go: the next tap inside the extend window is a new
+    // clip, not an extend of a clip that the cancel never made.
+    vi.advanceTimersByTime(1000);
+    const next = press(w, 100);
+    expect(next.kind).toBe("clip");
+    await resultOf(next);
+    expect(w.rows.size).toBe(1);
+  });
+
+  it("a released token keeps its frozen end for the Capture menu row", async () => {
     const w = makeWorld();
     await ready(w);
     w.engine.play(10);
     const token = w.service.beginPress()!;
-    w.engine.play(1);
-    vi.advanceTimersByTime(200);
-    const outcome = w.service.endPress(token, { upAtMs: Date.now(), moved: false, cancelled: true });
-    expect(outcome.kind).toBe("clip");
-    expect(await resultOf(outcome)).toMatchObject({ ok: true, action: "clip" });
-    expect(w.engine.clipRequests[0]).toMatchObject({ endAtUs: token.endAtUs });
-  });
-
-  it("a long press that the browser cancelled commits nothing", async () => {
-    const w = makeWorld();
-    await ready(w);
-    expect(press(w, HOLD_FOR_MENU_MS, { cancelled: true })).toEqual({ kind: "ignored", reason: "cancelled" });
+    w.engine.play(4);
+    expect(w.service.endPress(token, { upAtMs: token.downAtMs, moved: false, cancelled: true }).kind).toBe("ignored");
     await flush();
-    expect(w.engine.clipRequests).toHaveLength(0);
     expect(w.rows.size).toBe(0);
+    await w.service.clipLast(DEFAULT_CLIP_SECONDS, token);
+    expect(w.engine.clipRequests).toHaveLength(1);
+    expect(w.engine.clipRequests[0]).toMatchObject({ endAtUs: token.endAtUs });
+    expect(w.rows.size).toBe(1);
   });
 
   it("tap, tap within 5 s, then tap after 6 s gives two library rows", async () => {

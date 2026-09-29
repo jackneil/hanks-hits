@@ -164,11 +164,13 @@ export type PressOutcome =
   | { kind: "extend"; result: Promise<ClipActionResult> }
   | { kind: "menu" } // a hold of 500 ms or more without movement: open the Capture menu, commit nothing
   /**
-   * "cancelled": the browser cancelled a press held HOLD_FOR_MENU_MS or longer
-   * (pointercancel), so it commits nothing. A cancelled SHORTER press is a tap
-   * (plan 11.1: a tap always means "clip" during play): it clips from the
-   * frozen ring end. The clip button uses touch-action: none and
-   * -webkit-touch-callout: none, so the browser rarely cancels a press.
+   * "cancelled": endPress got cancelled: true. A cancelled press ALWAYS
+   * commits nothing, whatever its length. There is no timing exception: a
+   * 100 ms cancel and a 700 ms cancel are the same. It only lets the token
+   * go. The UI sends it for every press that must not clip: a browser
+   * pointercancel, a controller button that stays the game's own, the
+   * Capture menu opened without a hold, and the result chip's frozen end.
+   * The token keeps its frozen end for clipLast(seconds, token).
    */
   | { kind: "ignored"; reason: ClipReasonCode | "busy" | "cancelled" };
 
@@ -258,7 +260,12 @@ export interface ClipServiceApi {
 
   /** Plan 11.1: call on pointerdown of the clip button. */
   beginPress(): PressToken | null;
-  /** Plan 11.1: call on pointerup or cancel. moved = the pointer left the slop radius. */
+  /**
+   * Plan 11.1: call on pointerup or cancel. moved = the pointer left the slop
+   * radius. cancelled: true lets the token go and commits nothing: the
+   * outcome is always { kind: "ignored", reason: "cancelled" }, whatever the
+   * press length. The token stays usable for clipLast(seconds, token).
+   */
   endPress(token: PressToken, info: { upAtMs: number; moved: boolean; cancelled?: boolean }): PressOutcome;
 
   /** Capture menu row "Clip the last 30 seconds" uses the press token's frozen end. */
