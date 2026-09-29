@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { useBottomSheetSpace } from '../lib/bottomSheetSpace';
 import { useBreakSlot, useGameShellMounted } from '../lib/gameBreaks';
 import { useStartOverlayShowing } from '../lib/startOverlayPresence';
 import { ReadAloudButton } from './ReadAloudButton';
@@ -29,6 +30,11 @@ import { ReadAloudButton } from './ReadAloudButton';
  *   card with no break slot is on screen, because the sheet would sit over
  *   the Play button.
  * - "Don't show this again" is remembered in localStorage.
+ *
+ * While a sheet shows (either mode), the page gets space at its end equal
+ * to the sheet's height (bottomSheetSpace.ts), so the kid can scroll the
+ * last thing on the page up clear of the sheet. The tip inside a break
+ * surface is part of that surface and needs no space.
  *
  * Requested (`requested`, used by the 📲 button): the kid asked for the
  * steps, so the sheet opens at once, in any state, above the pause menu.
@@ -118,10 +124,17 @@ function InstallSheet({
   // dialog (z-3000); "page" is the plain page-level banner.
   const z = layer === 'requested' ? 'z-[2500]' : 'z-[200]';
 
+  // The sheet is fixed over the bottom of the page: reserve its height at
+  // the end of the page while it shows, so nothing stays stuck under it.
+  const sheetRef = useRef<HTMLElement>(null);
+  useBottomSheetSpace(sheetRef);
+
   return (
     <section
+      ref={sheetRef}
       aria-label="Play full screen"
       data-testid="ios-install-sheet"
+      data-layer={layer}
       className={`ios-install-sheet fixed inset-x-0 bottom-0 ${z} px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]`}
     >
       <div className="relative bg-blue-700 text-white rounded-2xl p-4 shadow-lg">

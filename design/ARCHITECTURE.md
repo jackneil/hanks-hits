@@ -266,6 +266,14 @@ game modals <= 60, GameStartOverlay 90 (it covers the viewport, so it must
 be above every game layer), OrientationWarning 100 (phone-width portrait
 only), GameShell header 1000, PauseMenu 2000.
 
+**Bottom sheets:** a sheet fixed to the bottom of the screen covers the
+end of the page. While a sheet shows, it calls `useBottomSheetSpace`
+(`src/shared/lib/bottomSheetSpace.ts`). The hook sets the height of the
+sheet on `<html>` as `--bottom-sheet-space`. `globals.css` adds that much
+padding at the end of the body, so the kid can scroll every element up
+clear of the sheet. When the sheet closes, the space goes away. A new
+bottom sheet must use the same hook.
+
 **Layout under the shell:** content is offset by the header
 (`pt-12 md:pt-14`); full-height modules size against
 `calc(100vh - 3rem)` / `md:calc(100vh - 3.5rem)`, never `100vh`.
