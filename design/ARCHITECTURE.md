@@ -261,19 +261,45 @@ The kid must tap it. When the browser has no speech support, the button
 does not render. Any new text surface a kid meets mid-game must use the
 same button, in the same place: under the words, above the action buttons.
 
-**Stacking order (z-index, low to high):** game HUDs, touch controls and
-game modals <= 60, GameStartOverlay 90 (it covers the viewport, so it must
-be above every game layer), OrientationWarning 100 (phone-width portrait
-only), the iOS install banner on a page 200, GameShell header 1000 (the
-clip confirmation lies in its title region at the same level), clip toast
-slot 1050, toast lane 1100 and the full-screen Retro Arcade emulator view
-1100 (it covers the header, and its own top bar has the Back button),
-ResultChip 1200, LeaderboardModal 1500, PauseMenu 2000, clip sheets
-(Capture menu, viewer, settings) and the iOS install tip that the pause
-menu opens 2500, RestartConfirmationDialog 3000. Every layer above 1000
-portals to `document.body`, so no game container can trap it (gameplay
-clips plan, section 11.4). The emulator view is `fixed` in the game
-content, which makes no stacking context, so it does not need a portal.
+**Stacking order (z-index, low to high):**
+
+- 60 or less: game HUDs, touch controls and game modals.
+- 90: GameStartOverlay. It covers the viewport, so it must be above every
+  game layer.
+- 100: OrientationWarning (phone-width portrait only).
+- 200: the install sheet that shows by itself on a page with no play.
+- 1000: the GameShell header. The clip confirmation (`InPlayConfirm`) lies
+  in the title region of the header, at the same level.
+- 1050: toasts. The clip toast slot (`ToastSlot`) and the short notes of a
+  game (for example "Saved!") use this level.
+- 1100: the full-screen Retro Arcade emulator view. It covers the header
+  and the toasts. Its own top bar has the Back button.
+- 1150: AchievementCelebrations. A trophy that the kid earns while a retro
+  game runs shows over the emulator view.
+- 1200: ResultChip.
+- 1500: modals (LeaderboardModal, tutorials).
+- 2000: PauseMenu.
+- 2500: sheets that the kid opens: the clip sheets (Capture menu, viewer,
+  settings) and the install steps that the 📲 button opens (in the header
+  or in the pause menu).
+- 3000: dialogs (RestartConfirmationDialog).
+
+Every layer above 1000 portals to `document.body` or mounts in the root
+layout, so no game container can trap it (gameplay clips plan, section
+11.4). The emulator view is `fixed` in the game content, which makes no
+stacking context, so it does not need a portal. The celebration layer is
+`pointer-events-none`, so it takes no tap except on its own dismiss
+button. It stays below the result chip, the modals, the sheets and the
+dialogs, so it never covers a question that the kid must answer. The
+comment in `AchievementCelebrations.tsx` holds the same list.
+
+**Bottom sheets:** a sheet fixed to the bottom of the screen covers the
+end of the page. While a sheet shows, it calls `useBottomSheetSpace`
+(`src/shared/lib/bottomSheetSpace.ts`). The hook sets the height of the
+sheet on `<html>` as `--bottom-sheet-space`. `globals.css` adds that much
+padding at the end of the body, so the kid can scroll every element up
+clear of the sheet. When the sheet closes, the space goes away. A new
+bottom sheet must use the same hook.
 
 **Layout under the shell:** content is offset by the header
 (`pt-12 md:pt-14`); full-height modules size against

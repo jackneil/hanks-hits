@@ -90,10 +90,33 @@
   --noise: 0;
 }
 
-/* Kid-friendly base styles */
+/* Kid-friendly base styles.
+
+   Bottom sheet space: while a sheet fixed to the bottom of the screen shows
+   (the iOS install tip), shared/lib/bottomSheetSpace.ts sets the sheet's
+   measured height on <html> as --bottom-sheet-space. With no sheet the
+   variable is not set and every value below is 0.
+   - padding-bottom: the body (the document is the scroll box of every
+     page) ends that much lower, so the last element on the page can scroll
+     up clear of the sheet.
+   - background-image: the added space is painted in the sheet's own blue
+     (bg-blue-700 in IOSInstallPrompt.tsx), so the sheet's side and bottom
+     margins do not show a white band on a dark page.
+   - scroll-padding-bottom (on html): focus and scrollIntoView stop above
+     the sheet too. */
+html {
+  scroll-padding-bottom: var(--bottom-sheet-space, 0px);
+}
+
 body {
   font-family: 'Nunito', 'Comic Sans MS', cursive, sans-serif;
   min-height: 100vh;
+  padding-bottom: var(--bottom-sheet-space, 0px);
+  background-image: linear-gradient(
+    to top,
+    var(--color-blue-700) var(--bottom-sheet-space, 0px),
+    transparent var(--bottom-sheet-space, 0px)
+  );
 }
 
 /* Prevent pull-to-refresh and overscroll on mobile games */

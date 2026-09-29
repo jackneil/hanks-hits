@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -462,6 +464,182 @@ describe("IOSInstallPrompt", () => {
       fireEvent.click(screen.getByRole("button", { name: "Install app for fullscreen" }));
 
       expect(screen.getByTestId("ios-install-sheet").parentElement).toBe(document.body);
+    });
+  });
+
+  // The sheet is fixed to the bottom of the screen, so it covered the last
+  // thing on a page (the Atari 2600 card at the bottom of the Retro Arcade
+  // console grid: a tap there hit the sheet). While a sheet shows, the page
+  // gets that much extra space at its end, so every element can scroll
+  // clear of it.
+  describe("bottom space: the page can scroll every element clear of the sheet", () => {
+    const SPACE = "--bottom-sheet-space";
+    const root = document.documentElement;
+    const setupResizeObserver = global.ResizeObserver;
+    let observers: {
+      callback: ResizeObserverCallback;
+      targets: Element[];
+      options: ResizeObserverOptions | undefined;
+    }[];
+    /** The measured height of each sheet, by its layer. */
+    let heights: Record<string, number>;
+
+    const space = () => root.style.getPropertyValue(SPACE);
+
+    /** The browser reports a new sheet size: every observer of a sheet calls back. */
+    async function resizeSheets(next: Record<string, number>) {
+      heights = { ...heights, ...next };
+      await act(async () => {
+        for (const observer of [...observers]) {
+          if (observer.targets.length > 0) observer.callback([], {} as ResizeObserver);
+        }
+      });
+    }
+
+    beforeEach(() => {
+      heights = { page: 212.4, requested: 260 };
+      observers = [];
+      global.ResizeObserver = class {
+        private entry: (typeof observers)[number];
+        constructor(callback: ResizeObserverCallback) {
+          this.entry = { callback, targets: [], options: undefined };
+          observers.push(this.entry);
+        }
+        observe(target: Element, options?: ResizeObserverOptions) {
+          this.entry.targets.push(target);
+          this.entry.options = options;
+        }
+        unobserve() {}
+        disconnect() {
+          this.entry.targets = [];
+        }
+      };
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+        this: Element
+      ) {
+        const layer = (this as HTMLElement).dataset?.layer;
+        const height =
+          (this as HTMLElement).dataset?.testid === "ios-install-sheet" && layer
+            ? heights[layer]
+            : 0;
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 390,
+          bottom: height,
+          width: 390,
+          height,
+          toJSON: () => ({}),
+        } as DOMRect;
+      });
+    });
+
+    afterEach(() => {
+      global.ResizeObserver = setupResizeObserver;
+      vi.restoreAllMocks();
+      root.style.removeProperty(SPACE);
+    });
+
+    it("reserves the sheet's measured height (whole pixels, rounded up) while it shows", () => {
+      expect(space()).toBe("");
+
+      render(<IOSInstallPrompt />);
+
+      expect(screen.getByTestId("ios-install-sheet")).toHaveAttribute("data-layer", "page");
+      expect(space()).toBe("213px");
+      // The border box: the safe-area padding at the bottom of the sheet
+      // counts too, and a change to it alone must report.
+      const sheetObserver = observers.find((o) =>
+        o.targets.includes(screen.getByTestId("ios-install-sheet"))
+      );
+      expect(sheetObserver?.options).toEqual({ box: "border-box" });
+    });
+
+    it("follows the sheet when its size changes (the phone turns, the words wrap)", async () => {
+      render(<IOSInstallPrompt />);
+      expect(space()).toBe("213px");
+
+      await resizeSheets({ page: 150 });
+
+      expect(space()).toBe("150px");
+    });
+
+    it("gives the space back when the kid closes the sheet", () => {
+      render(<IOSInstallPrompt />);
+      expect(space()).toBe("213px");
+
+      fireEvent.click(
+        within(screen.getByTestId("ios-install-sheet")).getByRole("button", { name: "Close" })
+      );
+
+      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+      expect(space()).toBe("");
+    });
+
+    it("gives the space back on Don't show this again, and when the page goes away", () => {
+      const first = render(<IOSInstallPrompt />);
+      fireEvent.click(screen.getByText("Don't show this again"));
+      expect(space()).toBe("");
+      first.unmount();
+
+      localStorage.clear();
+      const second = render(<IOSInstallPrompt />);
+      expect(space()).toBe("213px");
+      second.unmount();
+      expect(space()).toBe("");
+    });
+
+    it("keeps the space for the sheet that is still up when two show at once", () => {
+      render(
+        <>
+          <IOSInstallPrompt />
+          <IOSInstallPrompt requested />
+        </>
+      );
+      const [pageSheet, requestedSheet] = screen.getAllByTestId("ios-install-sheet");
+      expect(pageSheet).toHaveAttribute("data-layer", "page");
+      expect(requestedSheet).toHaveAttribute("data-layer", "requested");
+      // The taller sheet decides.
+      expect(space()).toBe("260px");
+
+      fireEvent.click(within(requestedSheet).getByRole("button", { name: "Close" }));
+      expect(space()).toBe("213px");
+
+      fireEvent.click(within(pageSheet).getByRole("button", { name: "Close" }));
+      expect(space()).toBe("");
+    });
+
+    it("reserves nothing for the tip inside a break surface, or during play", () => {
+      renderGameWithPrompt();
+      expect(space()).toBe("");
+
+      fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
+      expect(screen.getByTestId("ios-install-tip")).toBeInTheDocument();
+      expect(space()).toBe("");
+    });
+
+    it("the page adds the space at its end, and the space shows the sheet's own blue", () => {
+      const css = readFileSync(path.resolve(__dirname, "../../../app/globals.css"), "utf8");
+      const rule = (selector: string) =>
+        css.match(new RegExp(`(?:^|\\n)${selector} \\{([^}]*)\\}`))?.[1] ?? "";
+
+      // The document is the scroll box of every page: extra space at the
+      // end of the body lets the last element scroll up past the sheet.
+      expect(rule("body")).toMatch(/padding-bottom: var\(--bottom-sheet-space, 0px\);/);
+      // Focus and scrollIntoView keep an element clear of the sheet too.
+      expect(rule("html")).toMatch(/scroll-padding-bottom: var\(--bottom-sheet-space, 0px\);/);
+      // Under the sheet's side and bottom margins, the space is the sheet's
+      // blue (bg-blue-700), not a white band on a dark page.
+      expect(rule("body")).toMatch(
+        /background-image: linear-gradient\(\s*to top,\s*var\(--color-blue-700\) var\(--bottom-sheet-space, 0px\),\s*transparent var\(--bottom-sheet-space, 0px\)\s*\);/
+      );
+      // The sheet the rule is painted for is that blue.
+      render(<IOSInstallPrompt />);
+      expect(
+        screen.getByTestId("ios-install-sheet").querySelector(":scope > div")
+      ).toHaveClass("bg-blue-700");
     });
   });
 });
