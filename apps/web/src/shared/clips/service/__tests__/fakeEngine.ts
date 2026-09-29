@@ -32,7 +32,8 @@ export class FakeEngine implements CaptureEngine {
   /** How the next clip ends. Default: stored, spanning the requested seconds back from its end. */
   clipResult: (request: ClipRequest) => Promise<MadeClip> = async (request) => {
     const endUs = request.endAtUs ?? this.mediaEnd;
-    const startUs = Math.max(0, endUs - request.seconds * 1e6);
+    // Like the real engines: never before notBeforeUs (the run's start).
+    const startUs = Math.max(0, endUs - request.seconds * 1e6, request.notBeforeUs ?? 0);
     const moments = request.moments ? request.moments(startUs, endUs) : [];
     request.onProgress?.(0.5);
     return { record: recordFor({ ...request.meta, moments, durationMs: Math.round((endUs - startUs) / 1000) }), startUs, endUs };

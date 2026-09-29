@@ -16,6 +16,10 @@
  * - Video starts at the last keyframe at or before (end - seconds), so a clip
  *   is at most one GOP (1 s) longer than asked. With less history, it starts
  *   at the oldest keyframe and coveredSec says so.
+ * - notBeforeUs (the run's start, plan 11.4): the clip never starts before
+ *   it. When the keyframe above is earlier, the clip starts at the first
+ *   keyframe at or after notBeforeUs, so it holds no footage from before the
+ *   run (it can be up to one GOP shorter than asked).
  * - Epochs: each older GOP is compared with the newest GOP's epoch (codec,
  *   coded size, avcC bytes and color space). Identical epochs splice by packet
  *   copy. At the first different epoch, the clip starts after it:
@@ -51,6 +55,8 @@ export interface ClipRequest {
   requestId: string;
   seconds: number;
   endAtUs?: number;
+  /** The clip never starts before this capture-timeline time (the run's start, plan 11.4). */
+  notBeforeUs?: number;
 }
 
 export interface AudioSource {
@@ -157,6 +163,13 @@ export function assembleClip(req: ClipRequest, src: ClipSources): BuiltClip {
   const target = end - Math.max(0, req.seconds) * 1e6;
   let first = last;
   while (first > 0 && gops[first].startUs > target) first--;
+  // Never before notBeforeUs (the run's start): start at the first keyframe
+  // at or after it. No such keyframe before the end: nothing to clip.
+  const notBefore = req.notBeforeUs;
+  if (typeof notBefore === "number" && Number.isFinite(notBefore)) {
+    while (first <= last && gops[first].startUs < notBefore) first++;
+    if (first > last) return empty();
+  }
 
   const newest = src.epochInfo(gops[last].epoch);
   let cut = false;

@@ -84,6 +84,14 @@ export interface ClipRequest {
   seconds: number;
   /** Capture-timeline end (a press token froze it), or undefined for "now". */
   endAtUs?: number;
+  /**
+   * Capture-timeline time that the clip never starts before (the start of
+   * the run, plan 11.4). When the keyframe at or before (end - seconds) is
+   * earlier, the clip starts at the first keyframe at or after this time
+   * instead, so it holds no footage from before it (a clip can then be up
+   * to one keyframe gap shorter than asked). Undefined: no bound.
+   */
+  notBeforeUs?: number;
   meta: ClipMeta;
   /** The marks inside [startUs, endUs] of the clip, with offsets from its start. */
   moments?: (startUs: number, endUs: number) => MomentMark[];

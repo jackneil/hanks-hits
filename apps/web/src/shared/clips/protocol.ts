@@ -214,7 +214,8 @@ export type EncodeCmd =
   | FrameIn
   | ClockAnchor
   | { t: "timeline"; state: "live" | "paused"; atPerfMs: number }
-  | { t: "clip"; requestId: string; seconds: number; endAtUs?: number }
+  /** notBeforeUs: the clip never starts before it (the run's start; service/engine.ts ClipRequest). */
+  | { t: "clip"; requestId: string; seconds: number; endAtUs?: number; notBeforeUs?: number }
   /** Start teeing packets to the io worker. It gets RecordTeeMsg on the port. */
   | { t: "record"; on: true; recordingId: string; port: MessagePort }
   | { t: "record"; on: false; recordingId?: string }

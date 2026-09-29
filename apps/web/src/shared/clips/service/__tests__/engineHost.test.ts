@@ -339,6 +339,21 @@ describe("EngineHost against the worker handlers", () => {
     env.engine.dispose();
   });
 
+  it("sends the run's start to the worker: the clip never starts before it", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 8);
+    const [worker] = env.workers;
+    // A run started 5.5 s before the end of the footage.
+    const notBeforeUs = env.engine.mediaEndUs() - 5_500_000;
+    const made = await env.engine.clip({ seconds: 30, notBeforeUs, meta: env.meta("run1") });
+    const cmd = worker.commands.find((c) => c.t === "clip") as Extract<EncodeCmd, { t: "clip" }>;
+    expect(cmd).toMatchObject({ seconds: 30, notBeforeUs });
+    expect(made.startUs).toBeGreaterThanOrEqual(notBeforeUs);
+    // At most one keyframe gap (1 s) late.
+    expect(made.startUs - notBeforeUs).toBeLessThanOrEqual(1_000_000);
+    env.engine.dispose();
+  });
+
   it("waits for the game's warm-up (the governor baseline) before the first frame", async () => {
     const env = setup();
     expect(await env.engine.prepare()).toMatchObject({ supported: true });

@@ -89,6 +89,29 @@ describe("assembleClip", () => {
     expect(packets.startUs).toBe(90 * F);
   });
 
+  it("never starts before notBeforeUs (the run's start): the first keyframe at or after it", () => {
+    const ring = ringWith(range(0, 300)); // keyframes every 30 frames (1 s)
+    // The run started at frame 100 (3.33 s). Asked for 30 s, the clip starts at the 4 s keyframe, not at 0.
+    const run = assembleClip({ requestId: "r", seconds: 30, endAtUs: 8_000_000, notBeforeUs: 100 * F }, sources(ring, [epoch(0)], audioUpTo(10 * 48000)));
+    expect(run.packets.startUs).toBe(120 * F);
+    expect(run.packets.video[0]).toMatchObject({ type: "key", tsUs: 120 * F });
+    expect(run.packets.video.every((p) => p.tsUs >= 100 * F)).toBe(true);
+    expect(run.packets.coveredSec).toBeCloseTo((8_000_000 - 120 * F) / 1e6, 9);
+    // The same ask with no bound reaches back to the start of the ring.
+    expect(assembleClip({ requestId: "r", seconds: 30, endAtUs: 8_000_000 }, sources(ring, [epoch(0)], null)).packets.startUs).toBe(0);
+    // A bound on a keyframe starts there, and a bound before the asked start changes nothing.
+    expect(assembleClip({ requestId: "r", seconds: 30, notBeforeUs: 90 * F }, sources(ring, [epoch(0)], null)).packets.startUs).toBe(90 * F);
+    expect(assembleClip({ requestId: "r", seconds: 2, endAtUs: 5_000_000, notBeforeUs: F }, sources(ring, [epoch(0)], null)).packets.startUs).toBe(90 * F);
+  });
+
+  it("gives an empty clip when no keyframe at or after notBeforeUs comes before the end", () => {
+    const ring = ringWith(range(0, 300));
+    // The last keyframe before the 5 s end is frame 150 (4.99995 s): the run started just after it.
+    const { packets } = assembleClip({ requestId: "r", seconds: 5, endAtUs: 5_000_000, notBeforeUs: 150 * F + 1 }, sources(ring, [epoch(0)], null));
+    expect(packets.video).toEqual([]);
+    expect(packets.coveredSec).toBe(0);
+  });
+
   it("covers what the ring has when asked for more, and says the real length", () => {
     const ring = ringWith(range(0, 300));
     const { packets } = assembleClip({ requestId: "r", seconds: 30 }, sources(ring, [epoch(0)], null));

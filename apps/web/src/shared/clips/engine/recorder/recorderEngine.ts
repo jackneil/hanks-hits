@@ -487,7 +487,9 @@ export class RecorderEngine implements CaptureEngine {
     s.sound.flush();
     await this.finishFootageTo(s, endUs, () => Math.max(0, ...s.ring.segments.map((segment) => segment.endUs)));
     if (this.session !== s) throw new EngineFailure("encoder-error", "the recorder stopped");
-    const fromUs = Math.max(0, endUs - request.seconds * 1e6);
+    // The clip never starts before notBeforeUs (the run's start, plan 11.4).
+    const notBeforeUs = request.notBeforeUs;
+    const fromUs = Math.max(0, endUs - request.seconds * 1e6, notBeforeUs ?? 0);
     // Each index moves its segment's start to its first frame, and that can change which segments the span needs.
     let needed = s.ring.needed(fromUs, endUs);
     for (let pass = 0; pass < 3; pass++) {
@@ -498,7 +500,7 @@ export class RecorderEngine implements CaptureEngine {
       needed = again;
       if (same) break;
     }
-    const plan = planClip(needed, fromUs, endUs);
+    const plan = planClip(needed, fromUs, endUs, notBeforeUs);
     const coveredSec = plan ? (plan.endUs - plan.startUs) / 1e6 : 0;
     if (!plan || coveredSec < MIN_CLIP_SECONDS) throw new EngineFailure("warming", `only ${coveredSec.toFixed(1)} s of footage`);
     if (plan.cut) this.log("[clips] the clip starts at the newest recorder segments (an older one cannot join them)");

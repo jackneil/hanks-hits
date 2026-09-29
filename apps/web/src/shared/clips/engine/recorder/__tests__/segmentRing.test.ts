@@ -167,6 +167,37 @@ describe("planClip", () => {
     expect(planClip(small, 3 * S, 9 * S)!.cut).toBe(false);
   });
 
+  it("never starts before notBeforeUs (the run's start): the first keyframe at or after it", () => {
+    const list = rotation(3);
+    // The run started at 3.4 s. Asked from 2 s, the clip still starts at the 4 s keyframe.
+    const plan = planClip(list, 2 * S, 11 * S, 3.4 * S)!;
+    expect(plan.startUs).toBe(4 * S);
+    expect(plan.segments[0]).toMatchObject({ startUs: 0, fromUs: 4 * S, toUs: 5 * S });
+    // A bound on a keyframe starts there; no bound keeps the old start.
+    expect(planClip(list, 2 * S, 11 * S, 3 * S)!.startUs).toBe(3 * S);
+    expect(planClip(list, 2 * S, 11 * S)!.startUs).toBe(2 * S);
+    // A bound before the asked start changes nothing.
+    expect(planClip(list, 3.4 * S, 11 * S, S)!.startUs).toBe(3 * S);
+  });
+
+  it("with one keyframe per segment, a bound starts the clip at the next segment and leaves the older one out", () => {
+    const list = rotation(3, () => index({ keyframesUs: [0] }));
+    const plan = planClip(list, 0, 14 * S, 3.4 * S)!;
+    expect(plan.startUs).toBe(5 * S);
+    expect(plan.segments.map((s) => [s.startUs / S, s.fromUs / S])).toEqual([
+      [5, 5],
+      [10, 10],
+    ]);
+    // A keyframe in a segment's overlap with the next one is not used: the next segment takes over there.
+    const overlap = rotation(2, (i) => index({ keyframesUs: i === 0 ? [0, 5.1 * S] : [0] }));
+    expect(planClip(overlap, 0, 9 * S, 4.9 * S)!.startUs).toBe(5 * S);
+  });
+
+  it("returns null when no keyframe at or after the bound comes before the end", () => {
+    const list = rotation(1, () => index({ keyframesUs: [0] }));
+    expect(planClip(list, 0, 5 * S, 2 * S)).toBeNull();
+  });
+
   it("returns null with no usable segment, or no footage in the span", () => {
     expect(planClip([], 0, S)).toBeNull();
     expect(planClip([seg(0, 5.25, null)], 0, 3 * S)).toBeNull();

@@ -159,9 +159,18 @@ export interface ClipPlan {
  *   or at that segment's first frame when the ring does not reach back to
  *   fromUs. Plan 6.6: a clip starts at a keyframe, at most one keyframe gap
  *   early.
+ * - notBeforeUs (the run's start, plan 11.4): the clip never starts before
+ *   it. When that keyframe is earlier, the clip starts at the first keyframe
+ *   at or after notBeforeUs (a keyframe in the segment, or the first frame of
+ *   a later segment), and the older segments are left out.
  * - Each segment is used up to the next segment's first frame.
  */
-export function planClip(segments: readonly RingSegment[], fromUs: number, toUs: number): ClipPlan | null {
+export function planClip(
+  segments: readonly RingSegment[],
+  fromUs: number,
+  toUs: number,
+  notBeforeUs?: number,
+): ClipPlan | null {
   let first = segments.length;
   let video: string | null = null;
   for (let i = segments.length - 1; i >= 0; i--) {
@@ -175,7 +184,7 @@ export function planClip(segments: readonly RingSegment[], fromUs: number, toUs:
   }
   if (first >= segments.length) return null;
   const cut = first > 0;
-  const run = segments.slice(first);
+  let run = segments.slice(first);
   const head = run[0];
   let startUs = head.startUs;
   if (fromUs > head.startUs) {
@@ -184,6 +193,26 @@ export function planClip(segments: readonly RingSegment[], fromUs: number, toUs:
       if (at <= fromUs) startUs = at;
       else break;
     }
+  }
+  if (typeof notBeforeUs === "number" && Number.isFinite(notBeforeUs) && startUs < notBeforeUs) {
+    // The first keyframe at or after notBeforeUs, inside the window of its
+    // segment (a segment is used up to the next one's first frame, which is
+    // a keyframe too).
+    let found: { index: number; atUs: number } | null = null;
+    for (let i = 0; i < run.length && !found; i++) {
+      const windowEndUs = i < run.length - 1 ? run[i + 1].startUs : Infinity;
+      for (const k of run[i].index!.keyframesUs) {
+        const at = run[i].startUs + k;
+        if (at >= windowEndUs) break;
+        if (at >= notBeforeUs) {
+          found = { index: i, atUs: at };
+          break;
+        }
+      }
+    }
+    if (!found) return null;
+    run = run.slice(found.index);
+    startUs = found.atUs;
   }
   const last = run[run.length - 1];
   const endUs = Math.min(toUs, last.endUs);

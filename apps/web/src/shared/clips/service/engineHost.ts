@@ -478,10 +478,13 @@ export class EngineHost implements CaptureEngine {
     const requestId = `q${randomId()}`;
     const packets = await new Promise<ClipPackets>((resolve, reject) => {
       this.pendingClips.set(requestId, { resolve, reject });
-      const cmd: EncodeCmd =
-        request.endAtUs === undefined
-          ? { t: "clip", requestId, seconds: request.seconds }
-          : { t: "clip", requestId, seconds: request.seconds, endAtUs: request.endAtUs };
+      const cmd: EncodeCmd = {
+        t: "clip",
+        requestId,
+        seconds: request.seconds,
+        ...(request.endAtUs === undefined ? {} : { endAtUs: request.endAtUs }),
+        ...(request.notBeforeUs === undefined ? {} : { notBeforeUs: request.notBeforeUs }),
+      };
       s.worker.postMessage(cmd);
     });
     if (packets.video.length === 0 || packets.coveredSec < MIN_CLIP_SECONDS) {

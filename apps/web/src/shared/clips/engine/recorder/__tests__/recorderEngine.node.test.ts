@@ -589,6 +589,19 @@ describe.skipIf(SKIP)("RecorderEngine: rotation and clips (tier V, WebM)", () =>
     h.check(shown, made.startUs, made.endUs, true);
   });
 
+  it("a clip with the run's start as its bound holds no frame from before it", async () => {
+    const h = setup({ seed: 29 });
+    await h.start();
+    await h.toCapture(13 * S);
+    const notBeforeUs = 6.4 * S;
+    const made = await h.during(h.engine.clip({ seconds: 30, endAtUs: 13 * S, notBeforeUs, meta: h.meta("run1") }));
+    expect(made.startUs).toBeGreaterThanOrEqual(notBeforeUs);
+    // Keyframes every second: at most one keyframe gap late.
+    expect(made.startUs - notBeforeUs).toBeLessThanOrEqual(1.1 * S);
+    // The file shows exactly the frames painted from its start on: none from before the bound.
+    h.check(decodeCodes(h.file("run1"), "webm"), made.startUs, made.endUs);
+  });
+
   it("too little footage is 'warming', never a broken file", async () => {
     const h = setup();
     await h.start();
