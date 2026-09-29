@@ -30,6 +30,12 @@ export function getOverlayCopy(isCoarse: boolean): OverlayCopy {
 export const NEW_BEST_LINE = "NEW BEST!";
 
 /**
+ * The sound switch in the result chip at game over (the chip covers the
+ * switch under the canvas). The words say what the kid hears now.
+ */
+export const SOUND_LABELS = { on: "Sound on", off: "Sound off" } as const;
+
+/**
  * The result chip's words at game over, read out loud first: the score,
  * the wave, and the best. Short sentences for a kid who cannot read yet.
  */

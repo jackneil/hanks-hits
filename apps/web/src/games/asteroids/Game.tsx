@@ -14,9 +14,10 @@ import { useCoarsePointer } from "@/shared/hooks";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
-import { gameOverText, getOverlayCopy, NEW_BEST_LINE } from "./lib/overlayCopy";
+import { gameOverText, getOverlayCopy, NEW_BEST_LINE, SOUND_LABELS } from "./lib/overlayCopy";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { ResultChip } from "@/shared/components/ResultChip";
+import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 import { DEFAULT_RESTART_GRACE_MS, useRestartGrace } from "@/shared/lib/input";
 import { useAsteroidsClips } from "./lib/useAsteroidsClips";
 import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
@@ -484,6 +485,10 @@ export function AsteroidsGame() {
     store.setProgress({ ...store.progress, soundEnabled: !current });
   };
 
+  const playing = store.status === "playing";
+  const gameOver = store.status === "gameOver";
+  const soundLabel = store.progress.soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off;
+
   return (
     <div
       ref={containerRef}
@@ -597,29 +602,46 @@ export function AsteroidsGame() {
         </button>
       </div>
 
-      {/* Control row */}
-      <div className="flex items-center gap-4 mt-4">
+      {/* Control row. It keeps its place on every screen: the pause button
+          stays mounted (shown and tappable only while a round plays), so
+          the sound switch never moves. At game over the result chip covers
+          this row, so the row hides and the chip has the sound switch. */}
+      <div
+        data-testid="asteroids-control-row"
+        className={`flex items-center gap-4 mt-4 ${gameOver ? "invisible" : ""}`}
+        aria-hidden={gameOver ? true : undefined}
+        inert={gameOver}
+      >
         <button
+          type="button"
+          data-testid="asteroids-sound"
+          aria-label={soundLabel}
           onClick={toggleSound}
           className="w-12 h-12 bg-gray-700 hover:bg-gray-600 text-white rounded-full flex items-center justify-center"
         >
           {store.progress.soundEnabled ? "🔊" : "🔇"}
         </button>
-        {store.status === "playing" && (
-          <button
-            onClick={() => store.pauseGame()}
-            className="w-12 h-12 bg-yellow-600 hover:bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold"
-          >
-            II
-          </button>
-        )}
+        <button
+          type="button"
+          data-testid="asteroids-pause"
+          aria-label="Pause"
+          onClick={() => store.pauseGame()}
+          aria-hidden={playing ? undefined : true}
+          inert={!playing}
+          className={`w-12 h-12 bg-yellow-600 hover:bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold ${
+            playing ? "" : "invisible"
+          }`}
+        >
+          II
+        </button>
         <IOSInstallPrompt />
       </div>
 
       {/* The result chip under the game-over card (plan 11.4): read it to
-          me, Play again, the leaderboard, and with clips on the clip
-          buttons. Mounted only at game over, so its grace starts then. */}
-      {store.status === "gameOver" && (
+          me, Play again, the leaderboard, the sound switch, and with clips
+          on the clip buttons. Mounted only at game over, so its grace
+          starts then. */}
+      {gameOver && (
         <ResultChip
           resultText={gameOverText({
             score: store.score,
@@ -629,7 +651,20 @@ export function AsteroidsGame() {
           })}
           appId="asteroids"
           onRestart={store.startGame}
-        />
+          spokenExtras={[soundLabel]}
+        >
+          <button
+            type="button"
+            data-testid="result-chip-sound"
+            onClick={toggleSound}
+            // A pointer press leaves no focus here, so Space still means "play again".
+            onMouseDown={(event) => event.preventDefault()}
+            className={`btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`}
+          >
+            <span aria-hidden="true">{store.progress.soundEnabled ? "🔊" : "🔇"}</span>
+            {soundLabel}
+          </button>
+        </ResultChip>
       )}
     </div>
   );

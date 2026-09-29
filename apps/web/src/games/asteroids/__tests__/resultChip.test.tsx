@@ -12,7 +12,7 @@ import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { DEFAULT_RESTART_GRACE_MS } from "@/shared/lib/input";
 
 import { AsteroidsGame } from "../Game";
-import { gameOverText, NEW_BEST_LINE } from "../lib/overlayCopy";
+import { gameOverText, NEW_BEST_LINE, SOUND_LABELS } from "../lib/overlayCopy";
 import { useAsteroidsStore } from "../lib/store";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
@@ -156,6 +156,48 @@ describe("the Asteroids layout keeps its place (the canvas never jumps at a run'
     act(() => useAsteroidsStore.getState().resumeGame());
     act(() => useAsteroidsStore.getState().gameOver());
     hiddenRow();
+  });
+
+  it("keeps the control row still: the pause button stays mounted, so the sound switch never moves", () => {
+    render(<AsteroidsGame />);
+    const row = () => screen.getByTestId("asteroids-control-row");
+    const sound = screen.getByTestId("asteroids-sound");
+    const pause = screen.getByTestId("asteroids-pause");
+    const hidden = (el: HTMLElement) => el.className.split(/\s+/).includes("invisible") && el.hasAttribute("inert") && el.getAttribute("aria-hidden") === "true";
+    // The start card: the pause button keeps its place, hidden and inert.
+    expect(hidden(pause)).toBe(true);
+    expect(hidden(row())).toBe(false);
+    act(() => useAsteroidsStore.getState().startGame());
+    expect(hidden(pause)).toBe(false);
+    expect(within(row()).getAllByRole("button")).toEqual([sound, pause]);
+    act(() => useAsteroidsStore.getState().gameOver());
+    // The same two buttons, in the same order: nothing in the row moved.
+    expect(screen.getByTestId("asteroids-sound")).toBe(sound);
+    expect(screen.getByTestId("asteroids-pause")).toBe(pause);
+    expect(row().children[0]).toBe(sound);
+    expect(row().children[1]).toBe(pause);
+    // The result chip covers the row at game over: the row hides and takes no taps.
+    expect(hidden(row())).toBe(true);
+  });
+
+  it("puts the sound switch in the result chip at game over, and the voice says it", () => {
+    const speech = installSpeechMock();
+    render(<AsteroidsGame />);
+    act(() => useAsteroidsStore.setState({ progress: { ...useAsteroidsStore.getState().progress, soundEnabled: true } }));
+    endTheRun(300, 2000);
+    const chip = screen.getByTestId("result-chip");
+    const soundSwitch = within(chip).getByTestId("result-chip-sound");
+    expect(soundSwitch).toHaveTextContent(SOUND_LABELS.on);
+    // The chip's own size and edge.
+    expect(soundSwitch.className).toMatch(/(^|\s)min-h-14(\s|$)/);
+    passGrace();
+    // A mouse press leaves no focus on it: Space still means "play again".
+    expect(fireEvent.mouseDown(soundSwitch)).toBe(false);
+    fireEvent.click(soundSwitch);
+    expect(useAsteroidsStore.getState().progress.soundEnabled).toBe(false);
+    expect(within(chip).getByTestId("result-chip-sound")).toHaveTextContent(SOUND_LABELS.off);
+    fireEvent.click(within(chip).getByTestId("read-aloud-button"));
+    expect(speech.lastUtterance().text).toContain(SOUND_LABELS.off);
   });
 
   it("keeps the stats on one line at every width, so a bigger number never wraps it", () => {

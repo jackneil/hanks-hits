@@ -20,6 +20,7 @@ import {
 import { getGameAudio, getGameAudioTapPoint, isGameSpeakerEnabled } from "@/shared/lib/audio";
 
 import { AsteroidsGame } from "../Game";
+import { SOUND_LABELS } from "../lib/overlayCopy";
 import { playSound, releaseSounds, type AsteroidsSound } from "../lib/sounds";
 import { useAsteroidsStore } from "../lib/store";
 
@@ -107,13 +108,13 @@ describe("Asteroids sounds on the game-audio bus", () => {
   it("the sound switch turns this game's speakers off and on, and the clip still hears the sound", () => {
     render(<AsteroidsGame />);
     expect(isGameSpeakerEnabled("asteroids")).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "🔊" }));
+    fireEvent.click(screen.getByRole("button", { name: SOUND_LABELS.on }));
     expect(useAsteroidsStore.getState().progress.soundEnabled).toBe(false);
     expect(isGameSpeakerEnabled("asteroids")).toBe(false);
     // Muted: the sound still reaches the tap point (plan 6.3: a clip of a quiet run has the game's sound).
     playSound("shoot");
     expect(pathExists(lastOscillator(), getGameAudioTapPoint() as unknown as FakeAudioNode)).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "🔇" }));
+    fireEvent.click(screen.getByRole("button", { name: SOUND_LABELS.off }));
     expect(isGameSpeakerEnabled("asteroids")).toBe(true);
   });
 });
