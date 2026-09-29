@@ -228,7 +228,8 @@ change the card. The card has a body and an action row. The body (the title,
 the hints, and the picker when Play shows) scrolls on a short screen. The
 action row (the read-aloud button, then Play or the picker choices) stays at
 the bottom of the card, so the start action is always on screen with no
-scroll. It renders the title once (the only in-content heading, visible
+scroll. On a short screen (a phone held sideways) the action row sits to the
+right of the body. It renders the title once (the only in-content heading, visible
 only before start), pointer-aware controls copy (`useCoarsePointer` /
 `matchMedia("(pointer: coarse)")`: touch viewports never see keyboard-only
 instructions), a 🔊 "Read it to me" button (`ReadAloudButton`, see below),

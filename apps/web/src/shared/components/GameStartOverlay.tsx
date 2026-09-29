@@ -28,6 +28,8 @@ import { useRegisterBreakSlot } from "../lib/gameBreaks";
  *     built-in start button shows) that scrolls when the screen is short;
  *   - an action row pinned at the bottom of the card: "Read it to me",
  *     then Play, or the picker slot when the picker starts the game.
+ *     On a short screen (a phone held sideways) the action row sits to the
+ *     right of the body instead, so the words keep their room.
  * So Play (or every choice) is always on screen, with no scroll.
  *
  * Break slot: a nudge such as the iOS install tip renders into a slot
@@ -200,16 +202,18 @@ export function GameStartOverlay({
           variant (viewport under 480px tall, a phone held sideways)
           tightens the spacing and puts a note beside the card. */}
       <div className="absolute inset-x-0 bottom-0 top-12 flex p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:top-14 short:p-2 short:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:h-full short:max-w-4xl short:flex-row short:items-center short:gap-2">
+        <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:h-full short:max-w-4xl short:flex-row short:items-center short:justify-center short:gap-2">
           <div
             data-testid="start-card"
-            className="flex max-h-full min-h-0 w-full flex-col overflow-y-auto rounded-3xl bg-base-100 text-center text-base-content shadow-2xl short:min-w-0 short:max-w-2xl short:flex-1"
+            className="flex max-h-full min-h-0 w-full flex-col overflow-y-auto rounded-3xl bg-base-100 text-center text-base-content shadow-2xl short:min-w-0 short:max-w-2xl short:flex-1 short:flex-row"
           >
             {/* Body: scrolls when the screen is short. The scroll-cue
-                shadow shows that more is below. */}
+                shadow shows that more is below. On a short screen (a phone
+                held sideways) the body and the action row sit side by
+                side, so the words keep their room. */}
             <div
               data-testid="start-card-body"
-              className="scroll-cue min-h-[4.5rem] shrink overflow-y-auto overscroll-contain px-6 pt-6 short:px-3 short:pt-3"
+              className="scroll-cue min-h-[4.5rem] shrink overflow-y-auto overscroll-contain px-6 pt-6 short:min-h-0 short:min-w-0 short:flex-1 short:px-3 short:py-3"
             >
               <div>
                 {emoji && (
@@ -237,14 +241,18 @@ export function GameStartOverlay({
                   </ul>
                 )}
 
-                {showStartButton && pickers && <div className="mt-3 short:mt-2">{pickers}</div>}
+                {/* pb: room for the picker buttons' shadow, which the
+                    scroll box would cut off at its bottom edge */}
+                {showStartButton && pickers && (
+                  <div className="mt-3 pb-4 short:mt-2 short:pb-2">{pickers}</div>
+                )}
               </div>
             </div>
 
             {/* Action row: pinned, never scrolls out of view */}
             <div
               data-testid="start-card-actions"
-              className="flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:gap-2 short:px-3 short:pb-3 short:pt-2"
+              className="flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:w-[45%] short:gap-2 short:p-3 short:[align-self:safe_center]"
             >
               <ReadAloudButton text={readAloudText} className="short:min-h-[44px]" />
 
