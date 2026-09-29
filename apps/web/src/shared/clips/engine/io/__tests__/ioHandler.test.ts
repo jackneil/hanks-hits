@@ -226,6 +226,7 @@ describe("io command loop", () => {
       remove: vi.fn(),
       update: vi.fn(),
       setMemoryClass: vi.fn(),
+      budget: vi.fn(),
     };
     const handler = createIoHandler({ post: (event) => events.push(event), openLibrary: async () => library });
     await handler.handle({ t: "list", ownerKey: "guest" });
@@ -246,6 +247,7 @@ describe("io command loop", () => {
       remove: vi.fn(),
       update: vi.fn(),
       setMemoryClass: vi.fn(),
+      budget: vi.fn(),
     };
     const handler = createIoHandler({
       post: (event) => events.push(event),
@@ -276,6 +278,7 @@ describe("io command loop", () => {
       remove: vi.fn(),
       update: vi.fn(),
       setMemoryClass: vi.fn(),
+      budget: vi.fn(),
     };
     const handler = createIoHandler({ post: (event) => events.push(event), openLibrary: async () => library });
     await handler.handle({ t: "list", ownerKey: "guest" });
@@ -297,6 +300,7 @@ describe("io command loop: review fixes", () => {
       remove: vi.fn(),
       update: vi.fn(),
       setMemoryClass: vi.fn(),
+      budget: vi.fn(),
       ...overrides,
     };
   }
@@ -458,6 +462,7 @@ describe("io.worker entry", () => {
       remove: vi.fn(),
       update: vi.fn(),
       setMemoryClass: vi.fn(),
+      budget: vi.fn(),
     };
     const handler = installIoWorker(scope, { openLibrary: async () => library });
     // The startup check runs at load, before any command.

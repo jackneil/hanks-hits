@@ -257,6 +257,136 @@ HUDs render while playing, the overlay pre-start), OrientationWarning 100
 
 ---
 
+## Audio
+
+All game and app sound goes through one shared audio bus. The bus is in
+`src/shared/lib/audio/gameAudio.ts`. Call `getGameAudio()` to get it.
+
+**Why one bus.** A gameplay clip must record the game sound. A recorder
+can only hear a sound that goes through a node that it can reach. A sound
+that goes directly to `ctx.destination` does not get into a clip.
+
+**The graph:**
+
+```
+channel.input  (one for each channel() call)
+  |-> master -> tap point   (the recording branch; a clip recorder
+  |                          connects here)
+  |-> app speaker gain      (one for each app; the sound switch of
+        |                    that game sets it to 0 or 1)
+        -> limiter          (a DynamicsCompressorNode that stops clipping)
+        -> destination      (the speakers)
+
+uiOutput -> limiter  (site sounds; they never get to the tap point)
+```
+
+Each channel goes to two places: the tap point, and the speaker gain of
+its app. The sound switch sets only the speaker gain. Because of this, a
+clip keeps the game sound when the kid turns the sound off. Read-aloud
+speech does not use the bus, and it does not get into a clip.
+
+The app of a channel is the part of its id before the first ":". The
+channels `"monster-truck:engine"` and `"monster-truck:music"` both use
+the speaker gain of `"monster-truck"`. Each app has its own speaker gain.
+Thus a mute in one game has no effect on a different game, also when a
+game keeps its channel for the full page visit.
+
+Nothing pulls the tap point until a recorder connects to it. Thus the
+recording branch has no cost before then. A recorder must be a node that
+the browser pulls (an `AudioWorkletNode` or a
+`MediaStreamAudioDestinationNode`). Or, the recorder must connect to the
+destination through a gain of 0.
+
+**Rules for a game or an app:**
+
+- When the game plays its first sound, get a channel with
+  `getGameAudio()?.channel("<app id>")`. Do not get it on page load: an
+  AudioContext that starts before a gesture makes the browser log a
+  warning. For a sub-mix, use `"<app id>:<name>"`.
+- Connect each sound to `channel.input`.
+- Make nodes with `channel.context`. Its type is `BaseAudioContext`, so
+  a game cannot close it.
+- Call `channel.dispose()` when the game unmounts. If the browser closes
+  the context, each channel shows `disposed === true`. Then get a new
+  channel.
+- Add `useEffect(() => wantGameAudio(), [])` to the main component of the
+  game.
+- Connect the sound switch to `setGameSpeakerEnabled("<app id>", enabled)`.
+  Call it after the saved setting loads, and on each tap of the switch.
+  This function does not make an AudioContext, so it is safe on page load.
+- Make each sound a no-op when `getGameAudio()` returns `null`. It
+  returns `null` on the server, in a browser with no Web Audio, and in a
+  test without the audio mock.
+- Connect a site sound (not a game sound) to `uiOutput`.
+- Do not use three.js or drei audio (`Audio`, `AudioListener`,
+  `PositionalAudio`, `AudioLoader`). They make a different AudioContext.
+  Play the sound on a channel of the bus.
+
+**Unlock.** A browser keeps a new AudioContext silent until a user
+gesture calls `resume()`. When the module is first imported, it adds a
+capture-phase listener to `document`. The listener runs on
+`pointerdown`, `pointerup`, `touchend`, `keydown` and `click`:
+
+- If the bus exists, the listener calls `unlock()`.
+- If the bus does not exist, and a mounted game called `wantGameAudio()`,
+  the listener makes the bus in the gesture and starts it. The listener
+  waits for a gesture that can start sound. On a touch screen, this is
+  `pointerup` or `touchend`, not `pointerdown`.
+- If no game wants sound, the listener does not make an AudioContext.
+
+The listener stops when the context runs. It starts again after an
+interruption, for example a phone call on iOS. The Play button of
+`GameStartOverlay` calls `unlockGameAudio()` in the tap, before the game
+starts. Each `GameStartOverlayButton` (a level or difficulty choice) does
+the same.
+
+**For the clip service.** `getGameAudioTapPoint()` gives the tap point,
+or `null` when no bus exists. It does not make an AudioContext.
+`onGameAudioCreated(listener)` calls the listener with the bus that
+exists now, and again with each new bus.
+
+**Iframe games.** An iframe has its own JavaScript realm. Web Audio cannot
+connect nodes from two realms. `buildAudioShimSource()` in `audioShim.ts`
+returns a script for the iframe. Put this script first in the iframe
+document, before the game scripts. The script wraps `AudioContext` in that
+realm. The `destination` of each new context becomes a GainNode bus, and
+the bus connects to the real speakers. The script puts each context and
+its bus on `window.__hhAudioBus`. It also resumes a suspended context when
+the kid taps in the iframe.
+
+**Enforcement:**
+
+- ESLint (`no-restricted-syntax`) blocks these forms in `src/games/**`
+  and `src/apps/**`: `new AudioContext()`, `x.AudioContext` on any object
+  (also `(window as any).AudioContext`), `x["AudioContext"]`,
+  `webkitAudioContext`, `.destination`, `const { destination } = ctx`,
+  `new Audio()`, `createElement("audio")`, `<audio>`, and three.js or
+  drei audio. Tests are exempt.
+- `src/shared/lib/audio/audioBusRule.mjs` holds the rule and the
+  `LEGACY_AUDIO_SITES` list. The list names the files that still make
+  their own sound. Each file has a ceiling: the number of bypasses in it
+  now. Each migration PR removes its own files from the list. Do not add
+  a file to the list, and do not increase a ceiling.
+- A source-scan test (`src/shared/lib/audio/__tests__/audioBusSources.test.ts`)
+  checks the same rule. It also reads the HTML games in `public/`. ESLint
+  does not examine a file on the list, so this test is the only check for
+  these files. The test fails in these conditions:
+  - A file that is not on the list breaks the rule.
+  - A file on the list has more bypasses than its ceiling.
+  - A file on the list has fewer bypasses than its ceiling. Decrease the
+    ceiling.
+  - A file on the list no longer breaks the rule, or does not exist.
+    Remove the entry.
+- `SHIMMED_REALM_DOCUMENTS` in the same file names each HTML game whose
+  host adds the iframe shim. The test checks that the host calls
+  `buildAudioShimSource()`.
+
+**Tests.** Use `installAudioMock()` from `src/__tests__/audio-mock.ts`. It
+is the only fake Web Audio API. It resets the bus, so each test starts
+with a new bus. `removeAudioMock()` also resets the bus.
+
+---
+
 ## Next.js Configuration
 
 ```ts

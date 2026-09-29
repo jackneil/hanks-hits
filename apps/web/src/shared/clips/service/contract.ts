@@ -118,7 +118,20 @@ export interface ClipSnapshot {
 // ---------------------------------------------------------------------------
 
 export type ClipActionResult =
-  | { ok: true; action: "clip" | "extend" | "record" | "picture"; record: ClipRecord; atMs: number }
+  | {
+      ok: true;
+      action: "clip" | "extend" | "record" | "picture";
+      record: ClipRecord;
+      atMs: number;
+      /**
+       * "record" only: every stored part of the recording, in order (record is
+       * parts[0]). A long recording is stored in parts (the io worker's part
+       * limit), so the UI can say how many videos it made, never silently.
+       */
+      parts?: readonly ClipRecord[];
+      /** "record" only: parts that could not be stored (each also failed with a reason). */
+      failedParts?: number;
+    }
   | { ok: false; action: "clip" | "extend" | "record" | "picture"; reason: ClipReasonCode; atMs: number };
 
 /**
@@ -136,7 +149,14 @@ export type PressOutcome =
   | { kind: "clip"; result: Promise<ClipActionResult> }
   | { kind: "extend"; result: Promise<ClipActionResult> }
   | { kind: "menu" } // a hold of 500 ms or more without movement: open the Capture menu, commit nothing
-  | { kind: "ignored"; reason: ClipReasonCode | "busy" };
+  /**
+   * "cancelled": the browser cancelled a press held HOLD_FOR_MENU_MS or longer
+   * (pointercancel), so it commits nothing. A cancelled SHORTER press is a tap
+   * (plan 11.1: a tap always means "clip" during play): it clips from the
+   * frozen ring end. The clip button uses touch-action: none and
+   * -webkit-touch-callout: none, so the browser rarely cancels a press.
+   */
+  | { kind: "ignored"; reason: ClipReasonCode | "busy" | "cancelled" };
 
 /** Plan 11.1 tap semantics. */
 export const HOLD_FOR_MENU_MS = 500;
@@ -200,6 +220,13 @@ export interface ClipLibraryApi {
   usage(): Promise<{ bytes: number; budget: number; count: number }>;
   /** Subscribe to library changes from any tab (BroadcastChannel "hh-clips"). */
   subscribe(listener: () => void): () => void;
+  /**
+   * Record videos that were saved from a tab that closed or crashed while it
+   * recorded (plan 8.4 crash recovery), for the current player. Each one is
+   * returned once, so the UI says "We saved your recording from last time!"
+   * one time. subscribe() listeners hear when new ones arrive.
+   */
+  takeRecovered?(): Promise<ClipRecord[]>;
 }
 
 /**

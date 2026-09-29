@@ -168,7 +168,7 @@ export interface PcmBatch {
   /** Sample-frame index of the first sample, in the stream's own clock. */
   firstFrame: number;
   sampleRate: number;
-  /** Transferred Int16Array buffer, interleaved L,R. */
+  /** Int16 samples, interleaved L,R. The tap worklet posts a copy (it reuses its own buffer). */
   data: ArrayBuffer;
 }
 
@@ -373,11 +373,55 @@ export interface ClipRecord {
  */
 export type ClipRecordPatch = Partial<Pick<ClipRecord, "kept" | "watched" | "moments" | "challengeScore" | "ownerKey">>;
 
-export type IoCmd =
-  | { t: "mux"; packets: ClipPackets; meta: Omit<ClipRecord, "bytes" | "storage" | "posterDataUrl"> }
+/** The row fields that a producer gives. The io worker adds the bytes, the storage tier and the poster. */
+export type ClipMeta = Omit<ClipRecord, "bytes" | "storage" | "posterDataUrl">;
+
+/**
+ * An optional request id on a command. The io worker copies it onto every event
+ * that the command causes, so the main thread can match each answer to its
+ * command. Events of the startup check have no rid. Without a rid, events come
+ * back in command order, as before.
+ */
+export interface IoTag {
+  rid?: number;
+}
+
+export type IoCmd = (
+  | { t: "mux"; packets: ClipPackets; meta: ClipMeta }
   | { t: "read"; id: string }
   | { t: "delete"; id: string }
   | { t: "list"; ownerKey: string }
+  /**
+   * Bytes that the library uses (all owners: they share one device budget), the
+   * budget, and the count of clips of this owner (plan 8.1 storage line).
+   * Answer: "usage".
+   */
+  | { t: "usage"; ownerKey: string }
+  /**
+   * Stores a still picture (plan 11.4 "Take a picture"). The io worker sets mime
+   * "image/png", hasAudio false and durationMs 0, and makes the poster. Answer:
+   * "saved" or "error".
+   */
+  | { t: "picture"; png: ArrayBuffer; meta: ClipMeta }
+  /**
+   * Starts to receive a Record tee (plan 8.4) on `port`: RecordTeeMsg chunks from
+   * the encode worker. The io worker keeps the chunks of one part in memory, and
+   * also appends each chunk to a journal file in OPFS as it arrives, so a tab
+   * that closes or crashes loses at most the open chunk (the next startup stores
+   * the journal: the "recovered" event). A part ends at a different video config
+   * (plan 6.6: one track is never written across two configs) or at the part size
+   * limit (RECORD_PART_MAX_BYTES), and is then stored as its own "record" clip, so
+   * no footage is dropped. Part 1 gets meta.id; part n gets meta.id + "-p" + n.
+   * Answer: "recording" at once, then "saved" (or "error") for each part, then
+   * "recorded" after the tee's "end".
+   */
+  | { t: "record"; recordingId: string; port: MessagePort; meta: ClipMeta }
+  /**
+   * Ends an open recording whose tee can no longer send "end" (the encode worker
+   * stopped). The parts so far are stored, and the recording's "recorded" event
+   * follows. A recording that is not open is ignored.
+   */
+  | { t: "recordEnd"; recordingId: string }
   /**
    * Changes fields of one row: Keep, watched, stars, the challenge score, or the owner
    * ("Which of these are yours?", plan 8.1). The io worker is the only writer of
@@ -391,21 +435,44 @@ export type IoCmd =
    * in-memory tier (private windows). Until this command arrives, the worker uses the
    * "low" budget. No event answers this command.
    */
-  | { t: "configure"; memoryClass: MemoryClass };
+  | { t: "configure"; memoryClass: MemoryClass }
+) &
+  IoTag;
 
 /**
  * Events from the io worker. The worker runs commands one at a time, so events come
- * back in command order.
+ * back in command order. An event that a command caused carries the command's rid.
  */
-export type IoEvent =
+export type IoEvent = (
   | { t: "saved"; record: ClipRecord; muxMs: number }
+  | { t: "usage"; bytes: number; budget: number; count: number }
+  /** The io worker listens on the record port now. */
+  | { t: "recording"; recordingId: string }
+  /**
+   * The tee sent "end" and every part is done. `parts` are the stored parts in
+   * order, each with its span on the capture timeline (so star marks can go to
+   * the right part). `failed` counts the parts that could not be stored (each
+   * one also sent an "error" event).
+   */
+  | {
+      t: "recorded";
+      recordingId: string;
+      parts: Array<{ record: ClipRecord; startUs: number; endUs: number }>;
+      failed: number;
+    }
   /**
    * The stored clip, for Share and Save. The File of an OPFS clip reads the stored
    * bytes directly, so it stops working (NotReadableError) after the clip is removed
    * or moves to another owner. On NotReadableError, send "read" again. A "not-found"
    * answer then means that the clip is gone.
    */
-  | { t: "file"; id: string; file: File }
+  | {
+      t: "file";
+      id: string;
+      file: File;
+      /** The clip's row, so the main thread can name the file (plan 12: <host-slug>-<game>-<yyyymmdd-hhmm>). */
+      record: ClipRecord;
+    }
   | { t: "list"; records: ClipRecord[] }
   | { t: "deleted"; id: string }
   | { t: "updated"; record: ClipRecord }
@@ -420,6 +487,13 @@ export type IoEvent =
    * bytes the browser removed; the library tells the kid about this one time.
    */
   | { t: "reconciled"; reindexed: number; missing: number; unreadable: number }
+  /**
+   * Record crash recovery (plan 8.4), at startup, after "reconciled": the
+   * io worker stored the journaled parts of recordings that a tab left open
+   * (it closed or crashed while it recorded). No rid. The UI says "We saved
+   * your recording from last time!" to each record's owner.
+   */
+  | { t: "recovered"; records: ClipRecord[] }
   | {
       t: "error";
       /** "bad-command": the command was not valid (an unknown type or bad fields). */
@@ -427,4 +501,6 @@ export type IoEvent =
       detail: string;
       /** The clip id of the command that failed, when the command had one. */
       id?: string;
-    };
+    }
+) &
+  IoTag;

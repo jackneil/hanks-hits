@@ -5,6 +5,7 @@
 import fs from "fs";
 import path from "path";
 import { hrefForCategory } from "./app-routing";
+import { readMetadataLiterals } from "./metadataLiterals";
 
 // Metadata type that each game/app exports
 export interface GameMetadata {
@@ -15,6 +16,12 @@ export interface GameMetadata {
   description?: string;
   hidden?: boolean; // Set true to hide from home page
   madeByKid?: boolean; // Set true on games the kid built/remixed — powers the "my-creations" shelf
+  /**
+   * Set true when the module records gameplay clips. GameShell then mounts
+   * the clip service for it (plan 4.1). A plain literal only (true or false),
+   * like madeByKid, or the scan does not see it.
+   */
+  clips?: boolean;
 }
 
 // Category definitions
@@ -210,28 +217,23 @@ export function parseMetadata(
   dirName: string
 ): GameMetadata | null {
   try {
-    // Extract values using regex
-    const idMatch = content.match(/id:\s*["']([^"']+)["']/);
-    const nameMatch = content.match(/name:\s*["']([^"']+)["']/);
-    const emojiMatch = content.match(/emoji:\s*["']([^"']+)["']/);
-    const categoryMatch = content.match(/category:\s*["']([^"']+)["']/);
-    const hiddenMatch = content.match(/hidden:\s*(true|false)/);
-    const descMatch = content.match(/description:\s*["']([^"']+)["']/);
-    const madeByKidMatch = content.match(/madeByKid:\s*(true|false)/);
+    // One reader for the runtime scan and the build-time generator (metadataLiterals.ts).
+    const fields = readMetadataLiterals(content);
 
-    if (!nameMatch || !emojiMatch || !categoryMatch) {
+    if (!fields.name || !fields.emoji || !fields.category) {
       console.warn(`Missing required fields in metadata for ${dirName}`);
       return null;
     }
 
     return {
-      id: idMatch ? idMatch[1] : dirName,
-      name: nameMatch[1],
-      emoji: emojiMatch[1],
-      category: categoryMatch[1] as CategoryId,
-      hidden: hiddenMatch ? hiddenMatch[1] === "true" : false,
-      description: descMatch ? descMatch[1] : undefined,
-      madeByKid: madeByKidMatch ? madeByKidMatch[1] === "true" : false,
+      id: fields.id ?? dirName,
+      name: fields.name,
+      emoji: fields.emoji,
+      category: fields.category as CategoryId,
+      hidden: fields.hidden ?? false,
+      description: fields.description,
+      madeByKid: fields.madeByKid ?? false,
+      clips: fields.clips ?? false,
     };
   } catch {
     return null;

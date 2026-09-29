@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useGameShell } from "../hooks/useGameShell";
 import { PauseMenu } from "./PauseMenu";
 import { LeaderboardButton } from "./LeaderboardButton";
+import { ClipShellScope } from "@/shared/clips";
 import { FullscreenButton } from "./FullscreenButton";
 import { LoginButton } from "./LoginButton";
 import { RestartConfirmationDialog } from "./RestartConfirmationDialog";
@@ -51,7 +52,7 @@ export function GameShell({
 }: GameShellProps) {
   const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
-  const { isPaused, resume, togglePause, goHome } = useGameShell({
+  const { isPaused, pause, resume, togglePause, goHome } = useGameShell({
     canPause,
     suppressEscape: isRestartConfirmationOpen,
     onPause,
@@ -63,6 +64,9 @@ export function GameShell({
   const showLeaderboard = appId && hasLeaderboardSupport(appId);
 
   return (
+    // Gameplay clips (plan 4.1): only a module with the metadata literal
+    // clips: true gets the clip service. Every other game renders as before.
+    <ClipShellScope appId={appId} gameName={gameName} canPause={canPause} paused={isPaused} pause={pause} resume={resume}>
     <div className="relative w-full h-full min-h-screen">
       {/* Header bar */}
       <div
@@ -177,5 +181,6 @@ export function GameShell({
         }}
       />
     </div>
+    </ClipShellScope>
   );
 }
