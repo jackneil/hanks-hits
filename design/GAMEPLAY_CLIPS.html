@@ -657,6 +657,7 @@ stateDiagram-v2
   <ul>
   <li>On <code>pointerdown</code> the ring bounds are snapshotted. The clip is committed on <code>pointerup</code> before 500 ms, so a slow 6-year-old press still captures the moment they meant.</li>
   <li>A hold of 500 ms or more without movement opens the Capture menu and commits nothing. The menu's first row, "Clip the last 30 seconds", uses the snapshot.</li>
+  <li>Drag off to cancel, like a native iOS button: a press released more than 48 px outside the clip button commits nothing. A release inside the button, or within 48 px of its edges, still clips, also after the finger moved. A cancelled press (pointercancel, a press given up for a sheet) never clips, whatever its length.</li>
   <li>A tap within 5 s of the last clip extends it.</li>
   <li>Test: a 600 ms hold opens the menu and leaves zero new library rows.</li>
   </ul></li>
@@ -743,7 +744,7 @@ stateDiagram-v2
   <ul>
   <li>The game's read-aloud button (fixed for every game in PR 1.3).</li>
   <li>Leaderboard and Restart when the header dropped them.</li>
-  <li>After Phase 2: Watch, "Make the whole run a video", Record and Take a picture.</li>
+  <li>After Phase 2 (decision 24): the run's own clips. A run of 30 s or less gets one button, "Watch the whole run (m:ss)". A longer run gets "Watch the end" (its last 30 s) and "Make the whole run a video (m:ss)". Both clip bounds come from the run's own start and end on the capture timeline (runPhase), so a clip never holds an earlier run or the start card. Record a video and Take a picture stay in the Capture menu.</li>
   </ul></li>
 <li><strong>Capture menu</strong> (hold, right-click, pause menu, result chip): Clip the last 30 seconds, Record a video, Take a picture, My clips from this game, Clip settings. After the third clip, a one-time spoken tip teaches the hold.</li>
 <li><strong>Editor:</strong>
@@ -1337,13 +1338,22 @@ stateDiagram-v2
 <tr><td>19</td><td><strong>Retention: an account nobody uses for 24 months is deleted</strong>, with everything it owns. Parents get an answer within 30 days, a parent is verified through the account email, and hand-made database copies are deleted within 90 days (#42pr).</td><td>16 CFR 312.10 forbids keeping children's data indefinitely and names "a specific amount of time after the child has last used" the service. 24 months matches ABCmouse, Kiddopia and Legends of Learning. Production read 2026-09-28: 4 accounts, none eligible before 2027-12-28.</td></tr>
 <tr><td>20</td><td><strong>Test gates survive machine load:</strong> a suite-wide 60 s vitest timeout (no per-test timeouts) and a timer guard that clears component timers before jsdom goes away (#37pr).</td><td>This Mac runs several agent sessions at once, and at a load average of 60-70 healthy tests timed out or a leaked 100 ms timer failed the whole run. A gate that fails on load gets bypassed; one that does not stays trusted.</td></tr>
 <tr><td>21</td><td><strong>No code change for the client IP</strong> (#29i closed).</td><td>A live probe sent 125 forged addresses through both Cloudflare and the raw Railway domain; all landed in one rate-limit bucket, and Cloudflare rejects a client-sent CF-Connecting-IP. PR 0.4 is therefore done without a diff.</td></tr>
+<tr><td>22</td><td><strong>A cancelled press never makes a clip</strong>, whatever its length.</td><td>Two review fixes gave "cancelled" two meanings, and the result chip then made a clip that nobody asked for. One meaning removes the ambiguity, and every UI path that lets a press go depends on it.</td></tr>
+<tr><td>23</td><td><strong>Drag off more than 48 px to cancel</strong> a clip-button press.</td><td>This is how a native iOS button works. The 48 px margin keeps the tap of a small, unsteady finger.</td></tr>
+<tr><td>24</td><td><strong>The result chip clips only this run</strong>: "Watch the whole run" for a run of 30 s or less, else "Watch the end" and "Make the whole run a video". Record and Take a picture leave the chip.</td><td>A fixed 30 s clip reached back into the previous run after a restart. At game over, Record and Take a picture had no use and put 7 buttons on a 320 px screen.</td></tr>
+<tr><td>25</td><td><strong>A clip's poster is the featured moment, else the last keyframe at least 1 s before the end.</strong></td><td>The first keyframe was the dim start of the run, so every tile of a game looked the same.</td></tr>
+<tr><td>26</td><td><strong>No clip button, no capture.</strong> If the clip UI cannot load, the engine stays parked and the load is tried again after 2 s, 10 s, 60 s and on each return to the page.</td><td>Capture with no button spends the battery and gives the kid nothing.</td></tr>
+<tr><td>27</td><td><strong>EmulatorJS 4.2.3 is served from this site</strong> with a SHA-256 manifest; its CDN is blocked by CSP, and the page accepts only the 7 arcade systems (#38pr).</td><td>A third-party script in the origin that holds the clip library could read every clip on the device. A missing core also fell back to the CDN, and <code>?core=</code> could load any core.</td></tr>
+<tr><td>28</td><td><strong>The emulator source is served from the same place, fetched by hash in the Docker build</strong>, never stored in git.</td><td>GPL-2.0 section 3, GPL-3.0 section 6(d) and MPL-2.0 section 3.2 require the source next to the object code. The 19 archives are 136 MB, which git would keep in every clone forever.</td></tr>
+<tr><td>29</td><td><strong>Game Boy runs on mGBA</strong>, not gambatte.</td><td>gambatte is GPL-2.0-only and upstream links it with GPL-3.0 RetroArch. mGBA (MPL-2.0) passed the acid2 tests pixel-exact, input and audio, and old battery saves move over. Known residual: upstream links stella2014, snes9x, genesis_plus_gx and picodrive the same way. We ship them unmodified with every license text, the full source and a NOTICE; removing them removes Atari 2600, SNES and Genesis.</td></tr>
+<tr><td>30</td><td><strong>Retro Arcade save states stay on the device</strong> (IndexedDB Blobs, one set per account) and are never synced to the cloud.</td><td>The old code saved an empty string, so every save state was lost. States are 0.2-16 MB, over the 1 MB cloud slot, and cloud copies would add server cost.</td></tr>
 </tbody>
 </table>
 <h3>What only Jack can provide (asked once, batched)</h3>
 <ul>
 <li><strong>Before PR 0.3 ships:</strong> a mailing address that is not your home (a PO box or a business address), a phone number that is not personal (a free Google Voice number works), and a contact email, for the privacy notice. COPPA requires all three on the site.</li>
 <li><strong>Before Phase 7 launches:</strong> file the Copyright Office PO-box waiver, then register the DMCA agent ($6) and the NCMEC ESP under your name. I prepare every form.</li>
-<li><strong>Production writes waiting for a grant:</strong> (1) delete the 32 blocked ROM objects from the hanks-hits-roms bucket and purge the 20 cached Atari URLs from Cloudflare (closes #25i; list in #38pr); (2) <code>railway config apply</code> for the Railway IaC migration before Railway stops reading railway.toml on 2026-12-01 (steps in .railway/README.md on #37pr).</li>
+<li><strong>Production writes waiting for a grant:</strong> (1) delete the 32 blocked ROM objects from the hanks-hits-roms bucket and purge the 20 cached Atari URLs from Cloudflare (closes #25i; list in #38pr); (2) <code>railway config apply</code> for the Railway IaC migration before Railway stops reading railway.toml on 2026-12-01 (steps in .railway/README.md on #37pr); (3) delete the unused Railway variable <code>NEXT_PUBLIC_ROM_CDN_URL</code> (the build ignores it, and if it were ever wired up the new emulator CSP would refuse its ROMs); (4) after the iPhone run passes, <code>railway variable set CLIPS_MODE=dogfood</code>, then <code>on</code>.</li>
 <li><strong>Ongoing:</strong> merge PRs; grant the production writes as each is named; moderation alerts once links exist.</li>
 </ul>
 
