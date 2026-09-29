@@ -126,17 +126,24 @@ html, body {
   }
 }
 
-/* Fun hover effects */
-.btn:hover {
-  transform: scale(1.05);
-  transition: transform 0.2s ease;
-}
+/* Hover effects apply to a mouse only. On a touch screen, a tap puts the
+   button in :hover, and it stays there until the next tap on something
+   else: a button stayed big after the finger lifted. Every :hover rule in
+   the app's CSS goes in this media query
+   (src/__tests__/hover-only-with-a-mouse.test.ts). */
+@media (hover: hover) and (pointer: fine) {
+  /* Fun hover effects */
+  .btn:hover {
+    transform: scale(1.05);
+    transition: transform 0.2s ease;
+  }
 
-/* Card hover for game tiles */
-.card:hover {
-  transform: translateY(-4px);
-  transition: transform 0.2s ease;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+  /* Card hover for game tiles */
+  .card:hover {
+    transform: translateY(-4px);
+    transition: transform 0.2s ease;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+  }
 }
 
 /* Shake animation for invalid wall placement in Quoridor */
