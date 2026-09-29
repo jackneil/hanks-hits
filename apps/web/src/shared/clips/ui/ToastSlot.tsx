@@ -32,7 +32,7 @@
  *   safe areas (a notch in landscape), so nothing runs off a 320 px phone.
  *   Games keep their own controls out of this strip.
  *
- * Mount it once inside ClipUiProvider (GameShell, in the integration step).
+ * GameShell mounts it once, through the shell mount (see ClipUiRuntime.tsx).
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -42,7 +42,7 @@ import { createPortal } from "react-dom";
 import { useReadAloud } from "@/shared/hooks/useReadAloud";
 
 import { useClipService, useClipSnapshot } from "../service/context";
-import { useClipUi, useClipUiState } from "./ClipUiProvider";
+import { useClipUi, useClipUiState } from "./uiContext";
 import { recordTimerName, TOAST_COPY } from "./copy";
 import { formatDuration } from "./format";
 import { PlayGlyph, StarGlyph } from "./glyphs";

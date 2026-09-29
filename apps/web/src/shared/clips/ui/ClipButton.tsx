@@ -2,9 +2,8 @@
 
 /**
  * The clip button (plan 11.1, 11.3): the 44 px control in GameShell's
- * header clipSlot. Mount it inside ClipUiProvider:
- *
- *   <GameShell clipSlot={<ClipButton />} ...>
+ * header clip slot. GameShell puts it there through the shell mount (see
+ * ClipUiRuntime.tsx); a game adds nothing for it.
  *
  * - A drawn glyph (a clapperboard), white on the dark header, with one look
  *   per state (buttonFace.ts). Motion follows prefers-reduced-motion.
@@ -30,8 +29,8 @@
  * - Game controller: the Share or Capture button, or a 1 s hold of Back
  *   (gamepad.ts). A controller always clips; it never opens a sheet, and it
  *   does nothing while a clip sheet is open. Never in Retro Arcade.
- * - It renders nothing when there is no clip service, no ClipUiProvider,
- *   or the state is "hidden".
+ * - It renders nothing when there is no clip service, no clip UI
+ *   controller (ClipUiRuntime), or the state is "hidden".
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -40,7 +39,7 @@ import type React from "react";
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { ClipButtonState, ClipServiceApi, ClipSnapshot } from "../service/contract";
 import { faceFor, LOOK_HOLD_MS, LOOK_MAX_MS, sameLook, type FaceLook } from "./buttonFace";
-import { useClipUi, useClipUiState } from "./ClipUiProvider";
+import { useClipUi, useClipUiState } from "./uiContext";
 import { BUTTON_NAMES, buttonTooltip, RESULT_COPY } from "./copy";
 import { createGamepadPoller, NO_GAMEPAD_CLIP_APPS, type PadLike } from "./gamepad";
 import { CheckGlyph, ClipGlyph } from "./glyphs";

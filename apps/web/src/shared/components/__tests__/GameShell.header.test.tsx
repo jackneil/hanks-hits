@@ -165,11 +165,8 @@ describe("GameShell header: clip slot", () => {
     expect(controls()).toContainElement(slot);
   });
 
-  it("holds the clip button in the same slot", () => {
-    renderFullGame({ clipSlot: <button type="button">🎬</button> });
-    const slot = screen.getByTestId("header-clip-slot");
-    expect(within(slot).getByRole("button", { name: "🎬" })).toBeInTheDocument();
-  });
+  // With clips on, the clip button takes this slot:
+  // clips/shell/__tests__/GameShellClipUi.test.tsx.
 });
 
 describe("GameShell header: width budget", () => {

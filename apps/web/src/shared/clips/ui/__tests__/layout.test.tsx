@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
-import { useClipUi } from "../ClipUiProvider";
+import { useClipUi } from "../uiContext";
 import {
   CHIP_FULL_WIDTH_PX,
   CHIP_ICON_WIDTH_PX,

@@ -6,7 +6,7 @@
  *
  * The shell mount (shell/ClipUiMount.tsx) holds this context on every page
  * of a clip-enabled game, also before the clip UI loads and when clips are
- * off. The clip UI itself (ClipUiProvider.tsx and the parts) loads with a
+ * off. The clip UI itself (ClipUiRuntime.tsx and the parts) loads with a
  * dynamic import, only when capture is on. Both sides must use the SAME
  * context object, so it lives here, in a module that imports only types.
  */
@@ -17,7 +17,7 @@ import type { ClipUiController, ClipUiState } from "./uiStore";
 
 export const ClipUiContext = createContext<ClipUiController | null>(null);
 
-/** The clip UI controller, or null without a ClipUiProvider (or before the clip UI loads). */
+/** The clip UI controller, or null without a ClipUiRuntime (before the clip UI loads, or with clips off). */
 export function useClipUi(): ClipUiController | null {
   return useContext(ClipUiContext);
 }

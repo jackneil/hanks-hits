@@ -6,7 +6,7 @@ import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import type { ClipRecord } from "../../protocol";
 import type { ShareOutcome } from "../../service/contract";
 import { ClipTile } from "../ClipTile";
-import { useClipUi } from "../ClipUiProvider";
+import { useClipUi } from "../uiContext";
 import {
   DELETE_QUESTIONS,
   SAVE_BUTTON_LABELS,

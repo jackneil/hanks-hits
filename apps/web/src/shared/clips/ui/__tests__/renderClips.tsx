@@ -1,15 +1,32 @@
 /**
- * Test helpers: render clip UI parts with a fake service and a real
- * ClipUiProvider.
+ * Test helpers: render clip UI parts with a fake service and the real
+ * ClipUiRuntime, held the way the shell mount holds it (ClipUiMount): the
+ * runtime renders next to the parts and gives them its controller through
+ * ClipUiContext. The parts mount only once the controller exists, as
+ * GameShell renders them only once the clip UI runs.
  */
 
 import { act, render, type RenderResult } from "@testing-library/react";
+import { useState } from "react";
 import type React from "react";
 import { vi } from "vitest";
 
 import { ClipServiceContext } from "../../service/context";
-import { ClipUiProvider } from "../ClipUiProvider";
+import { ClipUiRuntime } from "../ClipUiRuntime";
+import { ClipUiContext } from "../uiContext";
+import type { ClipUiController, ClipUiHost } from "../uiStore";
 import { createFakeClipService, type FakeClipService, type FakeClipServiceOptions } from "./fakeClipService";
+
+/** The shell mount's hold of the runtime, without the dynamic import. */
+function RuntimeHost({ children, ...host }: ClipUiHost & { children: React.ReactNode }) {
+  const [controller, setController] = useState<ClipUiController | null>(null);
+  return (
+    <ClipUiContext.Provider value={controller}>
+      {controller ? children : null}
+      <ClipUiRuntime {...host} onController={setController} />
+    </ClipUiContext.Provider>
+  );
+}
 
 export interface ClipRender extends RenderResult {
   fake: FakeClipService;
@@ -27,7 +44,7 @@ export function renderWithClips(
   const host = options.host === false ? {} : { pauseGame, resumeGame };
   const result = render(
     <ClipServiceContext.Provider value={fake.service}>
-      <ClipUiProvider {...host}>{ui}</ClipUiProvider>
+      <RuntimeHost {...host}>{ui}</RuntimeHost>
     </ClipServiceContext.Provider>,
   );
   return Object.assign(result, { fake, pauseGame, resumeGame });

@@ -1,25 +1,29 @@
 "use client";
 
 /**
- * ClipUiProvider: the shared state of the clip surfaces, and the sheets.
+ * ClipUiRuntime: the shared state of the clip surfaces (the controller), and
+ * the sheets (plan 11.4).
  *
- * Mount it ONCE per game page, inside the service's ClipProvider (so
- * useClipService and useClipSnapshot see the service), around the parts
- * that GameShell renders. The integration step mounts:
+ * There is one way to put the clip UI on a page, and a game writes none of
+ * it. GameShell wraps a module whose metadata literal is clips: true in
+ * ClipShellScope. Its ClipUiMount (shell/ClipUiMount.tsx) loads the clip UI
+ * (shellParts.ts) with a dynamic import when the clips flag turns capture
+ * on, renders this runtime NEXT TO the game, and holds the controller in
+ * ClipUiContext. GameShell and ResultChip then read the parts through
+ * useClipShellUi() and put each one in its place:
  *
- *   <ClipUiProvider pauseGame={pause} resumeGame={resume}>
- *     header clipSlot:        <ClipButton />
- *     header title region:    <InPlayConfirm />
- *     anywhere:               <ToastSlot />
- *     pauseMenuChildren:      <ClipsPauseEntry />
- *     ResultChip children:    <ResultChipClipActions />
- *   </ClipUiProvider>
+ *   header clip slot:     ClipButton
+ *   header title region:  InPlayConfirm
+ *   under the header:     ToastSlot (it portals, z-1050)
+ *   pause menu:           ClipsPauseEntry (the menu reads its label aloud)
+ *   ResultChip:           ResultChipClipActions (the chip reads their labels aloud)
  *
- * The provider renders the sheets itself (Capture menu, viewer, settings),
- * so each part only asks the controller to open one.
+ * A game adds only `clips: true`, useClipSource, and at game over a
+ * ResultChip (give it `runSeconds` to offer the whole run).
  *
- * Without a provider every part renders nothing, the same as without a
- * clip service.
+ * The runtime renders the sheets itself (Capture menu, viewer, settings), so
+ * each part only asks the controller to open one. Without the runtime, every
+ * part renders nothing, the same as without a clip service.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -40,25 +44,13 @@ import {
   type ClipUiHost,
 } from "./uiStore";
 
-// The context lives in uiContext.ts (a module with type imports only), so the
-// shell mount can hold it on every page without this module. Every part
-// imports it from here or from there: it is the same object.
-export { ClipUiContext, useClipUi, useClipUiState } from "./uiContext";
-
-export interface ClipUiProviderProps extends ClipUiHost {
-  children?: React.ReactNode;
-}
-
 interface Latest {
   service: ClipServiceApi | null;
   snapshot: ClipSnapshot;
   host: ClipUiHost;
 }
 
-/**
- * The controller and the sheets of one page. ClipUiProvider and ClipUiRuntime
- * share it, so the page behaves the same whichever of the two mounts it.
- */
+/** The controller and the sheets of one page. */
 function useClipUiRuntime({ pauseGame, resumeGame }: ClipUiHost): { controller: ClipUiController; sheets: React.ReactNode } {
   const service = useClipService();
   const snapshot = useClipSnapshot();
@@ -128,16 +120,6 @@ function useClipUiRuntime({ pauseGame, resumeGame }: ClipUiHost): { controller: 
     </>
   );
   return { controller, sheets };
-}
-
-export function ClipUiProvider({ children, pauseGame, resumeGame }: ClipUiProviderProps) {
-  const { controller, sheets } = useClipUiRuntime({ pauseGame, resumeGame });
-  return (
-    <ClipUiContext.Provider value={controller}>
-      {children}
-      {sheets}
-    </ClipUiContext.Provider>
-  );
 }
 
 export interface ClipUiRuntimeProps extends ClipUiHost {

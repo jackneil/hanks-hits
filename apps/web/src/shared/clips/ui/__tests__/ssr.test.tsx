@@ -10,29 +10,39 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { ClipServiceContext } from "../../service/context";
+import { ClipUiContext } from "../uiContext";
+import { createClipUiController, createClipUiStore } from "../uiStore";
 import { createFakeClipService } from "./fakeClipService";
 
 describe("clip UI on the server", () => {
-  it("imports with no window, document or navigator", async () => {
+  it("imports the shell parts (the dynamic-import target) with no window, document or navigator", async () => {
     expect(typeof window).toBe("undefined");
     expect(typeof document).toBe("undefined");
-    const ui = await import("../index");
-    expect(typeof ui.ClipButton).toBe("function");
-    expect(typeof ui.ClipUiProvider).toBe("function");
+    const parts = await import("../shellParts");
+    expect(typeof parts.ClipUiRuntime).toBe("function");
+    expect(typeof parts.ClipButton).toBe("function");
   });
 
-  it("renders every part to an empty string, even with a live service", async () => {
-    const ui = await import("../index");
+  it("renders every part to an empty string, even with a live service and a controller", async () => {
+    const parts = await import("../shellParts");
     const fake = createFakeClipService({ snapshot: { unwatchedClipId: "c1", atBreak: true } });
+    const controller = createClipUiController({
+      store: createClipUiStore(),
+      service: () => fake.service,
+      snapshot: () => fake.snapshot(),
+      host: () => ({}),
+      platform: () => "computer",
+    });
     const html = renderToString(
       <ClipServiceContext.Provider value={fake.service}>
-        <ui.ClipUiProvider pauseGame={() => {}}>
-          <ui.ClipButton />
-          <ui.InPlayConfirm />
-          <ui.ToastSlot />
-          <ui.ClipsPauseEntry />
-          <ui.ResultChipClipActions runSeconds={20} />
-        </ui.ClipUiProvider>
+        <ClipUiContext.Provider value={controller}>
+          <parts.ClipUiRuntime pauseGame={() => {}} onController={() => {}} />
+          <parts.ClipButton />
+          <parts.InPlayConfirm />
+          <parts.ToastSlot />
+          <parts.ClipsPauseEntry />
+          <parts.ResultChipClipActions runSeconds={20} />
+        </ClipUiContext.Provider>
       </ClipServiceContext.Provider>,
     );
     expect(html).toBe("");

@@ -409,10 +409,16 @@ useClipSource(canvasRef, { isPlaying: status === "playing" });
 `isPlaying` is false on every break (a wave card, the game's own pause, the
 game-over card). A game can also report runs and moments through
 `useAttachedGame()`: `runPhase("start" | "end")` and
-`markMoment({ kind, label, emoji, priority })`. Asteroids is the first game
+`markMoment({ kind, label, emoji, priority })`. At game over, mount the
+shared `ResultChip` and give it `runSeconds` (the time the run played).
+The chip then shows the clip buttons by itself. Asteroids is the first game
 with clips (`src/games/asteroids/lib/useAsteroidsClips.ts`). The clip
 records only the sound that goes through the shared audio bus (see
 "Audio").
+
+A game does nothing more for the clip UI. Do not mount a clip part (the
+clip button, the toast slot, the pause-menu entry or the result-chip clip
+buttons) yourself. GameShell and `ResultChip` put each part in its place.
 
 **What GameShell does.** For a module with `clips: true`, GameShell wraps
 the header, the game and the pause menu in `ClipShellScope`:
@@ -428,11 +434,15 @@ the header, the game and the pause menu in `ClipShellScope`:
   visible. There is no capture without a clip button: until the UI runs,
   `useAttachedGame()` gives null under the mount, so the game registers no
   canvas and the capture engine does not start.
+- The loaded `ClipUiRuntime` (`src/shared/clips/ui/ClipUiRuntime.tsx`)
+  makes the page's clip UI controller and renders the clip sheets. It is
+  the only way that the clip UI gets onto a page.
 - GameShell then puts the clip button in the header clip slot, the in-play
   confirmation in the title region, the toast slot under the header, and
   the "Clips" entry in the pause menu (the menu reads it out loud).
   `ResultChip` shows the clip buttons (Watch, Record a video, Take a
-  picture, and "Make the whole run a video" when it gets `runSeconds`).
+  picture, and "Make the whole run a video" when it gets `runSeconds`),
+  and reads them out loud.
 
 A module without `clips: true` gets no clip code, no request and no
 header slot. A clip-enabled module with the flag off reads the flag and

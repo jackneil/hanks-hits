@@ -6,12 +6,12 @@
  * sheet is open, the tap reply toast, a clip or a menu that waits for the
  * end of a run, the frozen end of the last run, and the one-time hold tip.
  * The store is framework-free, so the tests drive it without React.
- * ClipUiProvider makes one per game page.
+ * ClipUiRuntime makes one per game page.
  *
  * Pausing (plan 11.1, 12): before a sheet opens during play, the game
  * pauses where it can. The UI cannot pause a game through the service
- * contract, so the host (GameShell) gives pauseGame and resumeGame to
- * ClipUiProvider.
+ * contract, so the host (GameShell, through ClipUiMount) gives pauseGame and
+ * resumeGame to ClipUiRuntime.
  *
  * Never cover a run that cannot pause (plan 11.1 "Never interrupt play",
  * 11.4 "the result chip is the Capture home for games that cannot pause"):
@@ -73,7 +73,7 @@ export interface ResultMark {
   token: PressToken | null;
   /**
    * Capture time (ms) since the mark, up to the last count. While capture
-   * runs, ClipUiProvider counts it on once a second (tickResultMark), so
+   * runs, ClipUiRuntime counts it on once a second (tickResultMark), so
    * every part that reads it sees the same number.
    */
   capturedMs: number;
@@ -347,7 +347,7 @@ export interface ClipUiController {
   beginResultMark(): void;
   /** Forget the frozen end: call when the result chip goes away. */
   endResultMark(): void;
-  /** Count the capture that runs now onto the result mark (ClipUiProvider calls it once a second). */
+  /** Count the capture that runs now onto the result mark (ClipUiRuntime calls it once a second). */
   tickResultMark(): void;
   /** The snapshot's engine state changed: keep the result mark's capture count. */
   noteEngine(engine: EngineState): void;

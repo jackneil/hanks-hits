@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -89,6 +89,29 @@ describe("public barrel", () => {
         if (file.startsWith(`ui${path.sep}`)) expect(file).toBe(path.join("ui", "uiContext.ts"));
       }
     }
+  });
+
+  it("has one way onto a page: no static clip UI barrel, no second mount, no spoken-word lists", async () => {
+    // A barrel of the clip UI would let a page import the parts statically,
+    // around the lazy load (plan 4.1).
+    expect(existsSync(path.join(CLIPS_DIR, "ui", "index.ts"))).toBe(false);
+    const uiDir = path.join(CLIPS_DIR, "ui");
+    const exported = readdirSync(uiDir)
+      .filter((file) => /\.tsx?$/.test(file))
+      .flatMap((file) =>
+        [...readFileSync(path.join(uiDir, file), "utf8").matchAll(/export\s+(?:function|const|class)\s+(\w+)/g)].map(
+          (match) => `${file}:${match[1]}`,
+        ),
+      );
+    // ClipUiMount renders ClipUiRuntime; a provider component would be a second mount.
+    expect(exported.filter((name) => /Provider$/.test(name))).toEqual([]);
+    // GameShell and ResultChip read the visible labels out loud: word lists
+    // for a spokenExtras prop would say every clip button twice.
+    expect(exported.filter((name) => /spoken/i.test(name))).toEqual([]);
+    const parts = await import("../ui/shellParts");
+    expect(Object.keys(parts).sort()).toEqual(
+      ["ClipButton", "ClipUiRuntime", "ClipsPauseEntry", "InPlayConfirm", "ResultChipClipActions", "ToastSlot"].sort(),
+    );
   });
 
   it("the walker sees the workers behind the capture engine (a control)", () => {

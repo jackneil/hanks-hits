@@ -48,11 +48,12 @@ interface GameShellProps {
   headerClassName?: string;
   pauseMenuChildren?: React.ReactNode;
   /**
-   * The header slot for the clip button: a sized 44 px slot. Pass `true`
-   * for an empty slot, or the clip button itself. Leave it out and the
-   * header has no slot.
+   * Reserve the header's clip slot (44 px) with nothing in it. Only the
+   * header layout tests use it. A clip-enabled game passes nothing: when its
+   * clips are on, GameShell puts the clip button in this slot itself (plan
+   * 11.2, through the shell mount in ClipShellScope).
    */
-  clipSlot?: React.ReactNode;
+  clipSlot?: boolean;
   /**
    * Set this when the game shows the shared result chip at game over.
    * Below 400 px, a game that can pause then moves Leaderboard and Restart
@@ -238,15 +239,10 @@ function GameShellFrame({
   // The header budget may move controls into the pause menu only when the
   // kid can open that menu by touch, which needs the pause button.
   const hasPauseSlot = showPauseButton && canEverPause;
-  // A game's own clipSlot wins (tests pass `true` for an empty slot). Else the
-  // clip button takes the slot while the clip UI shows one (plan 11.2).
-  const clipSlotContent: React.ReactNode =
-    clipSlot !== undefined && clipSlot !== null && clipSlot !== false
-      ? clipSlot
-      : clip && clipButtonShown
-        ? <clip.ClipButton />
-        : null;
-  const hasClipSlot = clipSlotContent !== null;
+  // The clip button takes the slot while the clip UI shows one (plan 11.2).
+  // The header tests reserve an empty slot with clipSlot.
+  const clipButton = clip && clipButtonShown ? <clip.ClipButton /> : null;
+  const hasClipSlot = clipButton !== null || clipSlot === true;
   const titleEmoji = resolveHeaderEmoji(GAME_METADATA, { emoji, appId, routeId, gameName });
   // Mirrors LoginButton: a spinner while loading, the avatar when signed
   // in (both one 44 px control), and the Sign In button for a guest.
@@ -369,7 +365,7 @@ function GameShellFrame({
               data-testid="header-clip-slot"
               className="w-11 h-11 shrink-0 flex items-center justify-center"
             >
-              {clipSlotContent === true ? null : clipSlotContent}
+              {clipButton}
             </div>
           )}
 

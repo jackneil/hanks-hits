@@ -2,13 +2,11 @@
 
 /**
  * The clip buttons of the result chip (plan 11.4): Watch, "Make the whole
- * run a video", Record a video and Take a picture. They go in ResultChip's
- * children slot, and their words go in its spokenExtras:
- *
- *   const clipExtras = useResultChipClipSpokenExtras({ runSeconds });
- *   <ResultChip spokenExtras={clipExtras} ...>
- *     <ResultChipClipActions runSeconds={runSeconds} />
- *   </ResultChip>
+ * run a video", Record a video and Take a picture. ResultChip mounts them
+ * itself (through the shell mount, see ClipUiRuntime.tsx), after its own
+ * buttons, and its read-aloud button says their visible labels in screen
+ * order. A game only mounts ResultChip at game over and gives it
+ * `runSeconds`; it never puts these buttons in the chip's children.
  *
  * The result chip is a break, so every action runs at once:
  * - When the buttons appear, they freeze the end of the run (a press token,
@@ -35,7 +33,7 @@ import type React from "react";
 
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { ClipSnapshot } from "../service/contract";
-import { useClipUi, useClipUiState } from "./ClipUiProvider";
+import { useClipUi, useClipUiState } from "./uiContext";
 import { MENU_COPY, RESULT_ACTION_COPY, wholeRunLabel } from "./copy";
 import { formatDuration } from "./format";
 import { PictureGlyph, PlayGlyph, RecordGlyph, StopGlyph } from "./glyphs";
@@ -88,15 +86,6 @@ export function resultChipClipActions(
     actions.push({ id: "picture", label: RESULT_ACTION_COPY.picture });
   }
   return actions;
-}
-
-/** The words of the clip buttons, for ResultChip's spokenExtras (screen order). */
-export function useResultChipClipSpokenExtras({ runSeconds }: ResultChipClipActionsProps = {}): string[] {
-  const service = useClipService();
-  const snapshot = useClipSnapshot();
-  const uiState = useClipUiState();
-  if (!service) return [];
-  return resultChipClipActions(snapshot, runSeconds, capturedSecSince(uiState.resultMark)).map((action) => action.label);
 }
 
 const ACTION_BUTTON =

@@ -14,14 +14,14 @@
  *   clips the moment of the press), Record a video (Stop the video while
  *   one records), Take a picture, My clips from this game, Clip settings.
  *
- * ClipUiProvider renders it; open it with controller.openMenu().
+ * ClipUiRuntime renders it; open it with controller.openMenu().
  */
 
 import type React from "react";
 
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { PressToken } from "../service/contract";
-import { useClipUi } from "./ClipUiProvider";
+import { useClipUi } from "./uiContext";
 import { MENU_COPY, REASON_COPY } from "./copy";
 import {
   ClipGlyph,

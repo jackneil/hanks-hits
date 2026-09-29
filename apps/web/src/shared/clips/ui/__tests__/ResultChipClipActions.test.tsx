@@ -1,13 +1,9 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HIDDEN_SNAPSHOT, type ClipSnapshot } from "../../service/contract";
 import { MENU_COPY, RESULT_ACTION_COPY, VIEWER_TITLES, wholeRunLabel } from "../copy";
-import {
-  ResultChipClipActions,
-  resultChipClipActions,
-  useResultChipClipSpokenExtras,
-} from "../ResultChipClipActions";
+import { ResultChipClipActions, resultChipClipActions } from "../ResultChipClipActions";
 import { createFakeClipService, makeRecord, PLAYING } from "./fakeClipService";
 import { flush, renderWithClips, stubObjectUrls } from "./renderClips";
 
@@ -64,31 +60,8 @@ describe("result chip clip actions (plan 11.4)", () => {
     expect(resultChipClipActions(snapshot({ button: "hidden" }))).toEqual([]);
   });
 
-  /** Writes the spoken words into the page, the way ResultChip receives them. */
-  function SpokenProbe({ runSeconds, withButtons }: { runSeconds?: number; withButtons: boolean }) {
-    const spoken = useResultChipClipSpokenExtras({ runSeconds });
-    return (
-      <>
-        <output data-testid="spoken">{JSON.stringify(spoken)}</output>
-        {withButtons && <ResultChipClipActions runSeconds={runSeconds} />}
-      </>
-    );
-  }
-
-  function spoken(): string[] {
-    return JSON.parse(screen.getByTestId("spoken").textContent ?? "null");
-  }
-
-  it("gives the same words, in the same order, for the chip's spokenExtras", () => {
-    renderWithClips(<SpokenProbe runSeconds={30} withButtons />, { snapshot: AT_GAME_OVER });
-    expect(spoken()).toEqual(labels());
-    expect(spoken()[1]).toBe(wholeRunLabel("0:30"));
-  });
-
-  it("says nothing without a clip service", () => {
-    render(<SpokenProbe withButtons={false} />);
-    expect(spoken()).toEqual([]);
-  });
+  // ResultChip reads these buttons' visible labels out loud in screen order
+  // (shell/__tests__/GameShellClipUi.test.tsx, "a ResultChip in the game").
 
   it("Watch opens the newest unwatched clip at once", async () => {
     const record = makeRecord({ id: "c1" });

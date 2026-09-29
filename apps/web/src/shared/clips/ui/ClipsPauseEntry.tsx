@@ -1,14 +1,10 @@
 "use client";
 
 /**
- * The visible "Clips" button of the pause menu (plan 11.4). It goes in
- * PauseMenu's children slot, through GameShell's pauseMenuChildren:
- *
- *   <GameShell pauseMenuChildren={<ClipsPauseEntry />} ...>
- *
- * and its words go in PauseMenu's spokenExtras, so the read-aloud button
- * says it: spokenExtras={[CLIPS_PAUSE_ENTRY_SPOKEN]}. (PauseMenu also reads
- * the visible label of each child button when spokenExtras is left out.)
+ * The visible "Clips" button of the pause menu (plan 11.4). GameShell puts
+ * it first in PauseMenu's children through the shell mount (see
+ * ClipUiRuntime.tsx), and PauseMenu's read-aloud button says the visible
+ * label of each child button. A game adds nothing for it.
  *
  * A tap opens the Capture menu above the pause menu. The game is paused
  * already, so "Clip the last 30 seconds" clips the footage before the pause.
@@ -16,11 +12,8 @@
  */
 
 import { useClipService, useClipSnapshot } from "../service/context";
-import { useClipUi } from "./ClipUiProvider";
+import { useClipUi } from "./uiContext";
 import { PAUSE_ENTRY_LABEL } from "./copy";
-
-/** The words the pause menu's read-aloud button says for this entry. */
-export const CLIPS_PAUSE_ENTRY_SPOKEN = PAUSE_ENTRY_LABEL;
 
 export interface ClipsPauseEntryProps {
   className?: string;

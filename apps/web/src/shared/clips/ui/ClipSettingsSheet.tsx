@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 
 import { useClipService, useClipSnapshot } from "../service/context";
-import { useClipUi } from "./ClipUiProvider";
+import { useClipUi } from "./uiContext";
 import { MENU_COPY, SETTINGS_COPY, storageLine } from "./copy";
 import { formatBytes } from "./format";
 import { NO_GAMEPAD_CLIP_APPS } from "./gamepad";

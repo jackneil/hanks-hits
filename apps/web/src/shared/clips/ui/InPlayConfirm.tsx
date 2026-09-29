@@ -5,13 +5,11 @@
  * compact check mark and a small pill in the header row. The full card
  * waits for a break.
  *
- * Mount it INSIDE the header's title region (the flex-1 element between the
- * home button and the control cluster), which must be `relative`:
- *
- *   <div className="relative flex-1 min-w-0 ...">{title}<InPlayConfirm /></div>
- *
- * It then lies over the title, never over a control, and takes no taps. It
- * is part of the header row (z-1000), so it needs no portal.
+ * GameShell mounts it INSIDE the header's title region (the flex-1 element
+ * between the home button and the control cluster, which is `relative`),
+ * through the shell mount (see ClipUiRuntime.tsx). It then lies over the
+ * title, never over a control, and takes no taps. It is part of the header
+ * row (z-1000), so it needs no portal.
  *
  * Fit: the region is narrow on a phone (the title is one emoji below
  * 480 px). A container query shows the words only when the region has room
@@ -26,7 +24,7 @@
 import { useEffect, useState } from "react";
 
 import { useClipSnapshot } from "../service/context";
-import { useClipUi } from "./ClipUiProvider";
+import { useClipUi } from "./uiContext";
 import { RESULT_COPY } from "./copy";
 import { CheckGlyph } from "./glyphs";
 

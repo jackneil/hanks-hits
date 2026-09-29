@@ -16,8 +16,8 @@ import { ReadAloudButton } from "./ReadAloudButton";
 
 /**
  * One shared bar of big buttons that sits over a game's result or
- * game-over card: read it to me, play again, the leaderboard, and (later)
- * the clip buttons in the children slot.
+ * game-over card: read it to me, play again, the leaderboard, and, in a
+ * clip-enabled game with clips on, the clip buttons.
  *
  * Why: the result card is where a kid wants to do the next thing, but
  * most games draw that card into the canvas, where a tap only restarts.

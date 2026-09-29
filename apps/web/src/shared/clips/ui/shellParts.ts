@@ -8,7 +8,7 @@
  * Never import it statically from a page, a shared component or the barrel.
  */
 
-export { ClipUiRuntime } from "./ClipUiProvider";
+export { ClipUiRuntime } from "./ClipUiRuntime";
 export { ClipButton } from "./ClipButton";
 export { InPlayConfirm } from "./InPlayConfirm";
 export { ToastSlot } from "./ToastSlot";

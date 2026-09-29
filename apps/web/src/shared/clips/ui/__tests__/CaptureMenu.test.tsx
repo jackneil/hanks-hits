@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 import { DEFAULT_CLIP_SECONDS } from "../../service/contract";
-import { CLIPS_PAUSE_ENTRY_SPOKEN, ClipsPauseEntry } from "../ClipsPauseEntry";
-import { useClipUi } from "../ClipUiProvider";
+import { ClipsPauseEntry } from "../ClipsPauseEntry";
+import { useClipUi } from "../uiContext";
 import { MENU_COPY, PAUSE_ENTRY_LABEL, REASON_COPY, SETTINGS_COPY, VIEWER_COPY } from "../copy";
 import { CLIP_SHEET_Z_INDEX } from "../Sheet";
 import type { MenuSource } from "../uiStore";
@@ -236,9 +236,8 @@ describe("ClipsPauseEntry (plan 11.4)", () => {
     expect(screen.getByRole("dialog", { name: MENU_COPY.title })).toBeInTheDocument();
   });
 
-  it("gives the words the pause menu says for it", () => {
-    expect(CLIPS_PAUSE_ENTRY_SPOKEN).toBe("Clips");
-  });
+  // The pause menu reads the entry's visible label out loud
+  // (shell/__tests__/GameShellClipUi.test.tsx).
 
   it("renders nothing when clips are off for the game", () => {
     renderWithClips(<ClipsPauseEntry />, { snapshot: { button: "hidden" } });

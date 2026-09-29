@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
-import { useClipUi } from "../ClipUiProvider";
+import { useClipUi } from "../uiContext";
 import { recordTimerName, TOAST_COPY, VIEWER_TITLES } from "../copy";
 import { TOAST_SLOT_Z_INDEX, ToastSlot } from "../ToastSlot";
 import { HOLD_TIP_AFTER_CLIPS, REPLY_MS, REPLY_READING_MS, UI_PREFS_KEY } from "../uiStore";

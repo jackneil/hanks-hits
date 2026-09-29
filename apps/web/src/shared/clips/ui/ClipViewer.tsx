@@ -40,7 +40,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import type { ClipRecord } from "../protocol";
 import { useClipService } from "../service/context";
 import type { ShareOutcome } from "../service/contract";
-import { useClipUi } from "./ClipUiProvider";
+import { useClipUi } from "./uiContext";
 import {
   DELETE_QUESTIONS,
   SAVE_BUTTON_LABELS,
