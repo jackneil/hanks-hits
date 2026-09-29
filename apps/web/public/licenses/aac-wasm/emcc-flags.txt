@@ -9,6 +9,7 @@
 -sDYNAMIC_EXECUTION=0
 -sSTACK_SIZE=1048576
 -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAPF32
+--extern-pre-js=notice.js
 -msimd128
 -flto
 -Oz

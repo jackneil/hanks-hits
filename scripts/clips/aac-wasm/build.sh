@@ -27,7 +27,7 @@ SOURCE_COPY_DIR="$LICENSE_DIR/aac-wasm"
 RECORDED_HASH="$HERE/ffmpeg-aac-enc.mjs.sha256"
 # The files that make "the work that uses the Library" (LGPL-2.1 section 6).
 # build.sh copies them next to the FFmpeg source, so both come from one place.
-SOURCE_FILES=(README.md bridge.c build.sh container-build.sh verify.sh pins.sh configure-flags.txt emcc-flags.txt)
+SOURCE_FILES=(README.md bridge.c notice.js build.sh container-build.sh verify.sh pins.sh configure-flags.txt emcc-flags.txt)
 
 out=""
 platform=""
@@ -56,16 +56,27 @@ command -v docker >/dev/null 2>&1 || fail "Docker is not installed"
 docker info >/dev/null 2>&1 || fail "Docker is not running"
 
 # 1. Get the pinned source tarball and check its hash before it is used.
+# The site serves the files in apps/web/public, so the download goes to a
+# temporary directory first. Only a download with the pinned SHA-256 moves to
+# the served path.
 if [ ! -f "$TARBALL" ]; then
   echo "build.sh: downloading $FFMPEG_URL"
+  download_dir=$(mktemp -d "${TMPDIR:-/tmp}/aac-wasm-download.XXXXXX")
+  trap 'rm -rf "$download_dir"' EXIT
+  partial="$download_dir/ffmpeg-$FFMPEG_VERSION.tar.xz"
+  curl -sSfL "$FFMPEG_URL" -o "$partial" || fail "the download from $FFMPEG_URL failed"
+  partial_sha=$(sha256_of "$partial")
+  if [ "$partial_sha" != "$FFMPEG_SHA256" ]; then
+    fail "the download from $FFMPEG_URL has SHA-256 $partial_sha, but pins.sh says $FFMPEG_SHA256. build.sh deleted it and did not build."
+  fi
   mkdir -p "$(dirname "$TARBALL")"
-  partial="$TARBALL.partial"
-  curl -sSfL "$FFMPEG_URL" -o "$partial" || { rm -f "$partial"; fail "the download failed"; }
   mv "$partial" "$TARBALL"
+  rm -rf "$download_dir"
+  trap - EXIT
 fi
 tarball_sha=$(sha256_of "$TARBALL")
 if [ "$tarball_sha" != "$FFMPEG_SHA256" ]; then
-  fail "$TARBALL has SHA-256 $tarball_sha, but pins.sh says $FFMPEG_SHA256. Do not build from it."
+  fail "$TARBALL has SHA-256 $tarball_sha, but pins.sh says $FFMPEG_SHA256. Do not build from it. Delete it, then run build.sh again to download the pinned tarball."
 fi
 
 # 2. Build in Docker with no network. The container writes to a new directory.

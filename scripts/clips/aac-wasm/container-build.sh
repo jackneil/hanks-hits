@@ -10,13 +10,20 @@
 # Output in /out:
 #   ffmpeg-aac-enc.mjs     the ES module (JavaScript glue with the WASM inside)
 #   licenses/              license texts copied from the pinned inputs
-#   BUILD-INFO.txt         the versions, the commands and the output hash
+#   BUILD-INFO.txt         the versions, the commands, the input hashes and
+#                          the output hash
 set -euo pipefail
 export LC_ALL=C
 export TZ=UTC
 
 # shellcheck source=pins.sh
 source /in/scripts/pins.sh
+
+# The files in /in/scripts that can change the output. BUILD-INFO.txt records
+# the SHA-256 of each one, so only a real rebuild can agree with an edited
+# file. When this script starts to read a new file from /in/scripts, add the
+# file here. The artifact test fails when a read file is not in this list.
+INPUT_FILES=(pins.sh configure-flags.txt emcc-flags.txt bridge.c notice.js container-build.sh)
 
 fail() {
   echo "container-build: $*" >&2
@@ -78,17 +85,20 @@ for pair in "CONFIG_GPL 0" "CONFIG_NONFREE 0" "CONFIG_VERSION3 0" "CONFIG_AAC_EN
   grep -q "^#define $pair\$" config.h config_components.h 2>/dev/null ||
     fail "config.h does not define $pair"
 done
+# BUILD-INFO.txt records this command as text. Keep the two the same.
 emmake make -j"$(nproc)" >"$work/make.log" 2>&1 ||
   { tail -n 40 "$work/make.log" >&2; fail "make failed"; }
 
-# 4. Link the bridge with the two static libraries.
+# 4. Link the bridge with the two static libraries. The link runs in the
+# source directory with bridge.c and notice.js copied into it, so the link
+# command in BUILD-INFO.txt is the command that ran. notice.js is the license
+# notice at the top of the module (--extern-pre-js in emcc-flags.txt).
+cp /in/scripts/bridge.c /in/scripts/notice.js "$src/"
+emcc bridge.c libavcodec/libavcodec.a libavutil/libavutil.a -I. "${EMCC_FLAGS[@]}" -o ffmpeg-aac-enc.mjs
 mkdir -p "$work/out"
-emcc /in/scripts/bridge.c \
-  "$src/libavcodec/libavcodec.a" \
-  "$src/libavutil/libavutil.a" \
-  -I"$src" \
-  "${EMCC_FLAGS[@]}" \
-  -o "$work/out/ffmpeg-aac-enc.mjs"
+mv ffmpeg-aac-enc.mjs "$work/out/ffmpeg-aac-enc.mjs"
+cmp -s -n "$(stat -c %s /in/scripts/notice.js)" /in/scripts/notice.js "$work/out/ffmpeg-aac-enc.mjs" ||
+  fail "the module does not start with the license notice in notice.js"
 
 # 5. Copy the license texts from the pinned inputs.
 mkdir -p "$work/out/licenses"
@@ -110,15 +120,20 @@ output_sha=$(sha256sum "$work/out/ffmpeg-aac-enc.mjs" | cut -d ' ' -f 1)
   echo "Toolchain: $emcc_version"
   echo "Image: $EMSDK_IMAGE"
   echo
+  echo "Inputs (SHA-256 of the build files in /licenses/aac-wasm/):"
+  (cd /in/scripts && sha256sum "${INPUT_FILES[@]}")
+  echo
   echo "Configure command (in the source directory):"
   printf 'emconfigure ./configure'
   printf " '%s'" "${CONFIGURE_FLAGS[@]}"
   echo
   echo
-  echo "Build command:"
-  echo "emmake make"
+  echo "Build command (in the source directory):"
+  # shellcheck disable=SC2016 # The text of the command, not its result.
+  echo 'emmake make -j"$(nproc)"'
+  echo "The -j option sets only the number of parallel jobs. It does not change the output."
   echo
-  echo "Link command:"
+  echo "Link command (in the source directory, with bridge.c and notice.js copied into it):"
   printf "emcc bridge.c libavcodec/libavcodec.a libavutil/libavutil.a -I."
   printf " '%s'" "${EMCC_FLAGS[@]}"
   echo " -o ffmpeg-aac-enc.mjs"

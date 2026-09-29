@@ -18,6 +18,7 @@ tarball at `/licenses/ffmpeg-<version>.tar.xz`.
 | `configure-flags.txt` | The FFmpeg configure arguments, one per line. |
 | `emcc-flags.txt` | The link arguments of the module, one per line. |
 | `bridge.c` | The C functions that JavaScript calls (MPL-2.0, from Mediabunny 1.60.0, changed). |
+| `notice.js` | The license notice at the top of the module (`--extern-pre-js`). Each copy of the module names its licenses and the place of the source. |
 | `container-build.sh` | The build steps. They run inside the Docker image only. |
 | `build.sh` | Starts the build in Docker and installs the output. |
 | `verify.sh` | Builds two times from clean and compares the hashes. |
@@ -29,9 +30,11 @@ tarball at `/licenses/ffmpeg-<version>.tar.xz`.
   inside the file (`SINGLE_FILE`), so the browser does not fetch a second file.
 - `apps/web/public/licenses/`: the license texts from the pinned inputs, and a
   copy of this directory (`aac-wasm/`) with `BUILD-INFO.txt`.
+  `BUILD-INFO.txt` records the commands that ran and the SHA-256 of each input
+  file (`INPUT_FILES` in `container-build.sh`).
 
 `NOTICE.txt` in `apps/web/public/licenses/` is written by hand. A test compares
-it with the pins and the flags.
+it with the pins, the flags and the commands in `container-build.sh`.
 
 ## Rebuild the module
 
@@ -44,8 +47,10 @@ build uses only the pinned inputs.
    `apps/web/public/licenses/aac-wasm/`.
 
 The test `aacWasmArtifact.node.test.ts` fails when the module, the recorded
-hash, the tarball or the source copy do not agree. Thus an edit that is not
-rebuilt cannot pass the test gate.
+hash, the tarball or the source copy do not agree. It also fails when an input
+file has a SHA-256 that is not in the committed `BUILD-INFO.txt`. Thus an edit
+that is not rebuilt cannot pass the test gate, also when you copy the edited
+file to `apps/web/public/licenses/aac-wasm/` by hand.
 
 ## Change the FFmpeg version
 
@@ -54,11 +59,14 @@ rebuilt cannot pass the test gate.
 2. Check the signature with the FFmpeg release signing key
    (`FCF986EA15E6E293A5644F10B4322F04D67658D8`).
 3. Put the new version, SHA-256 and URL in `pins.sh`.
-4. Delete the old tarball from `apps/web/public/licenses/`.
-5. Run `build.sh`. It downloads the tarball, checks the SHA-256, and builds.
-6. Update the version, the hashes and the commands in `NOTICE.txt` and in
+4. Put the new version, SHA-256 and URL in `notice.js`. The module contains
+   `notice.js`, so change it before you build.
+5. Delete the old tarball from `apps/web/public/licenses/`.
+6. Run `build.sh`. It downloads the tarball to a temporary directory, checks
+   the SHA-256, moves the tarball to `apps/web/public/licenses/`, and builds.
+7. Update the version, the hashes and the commands in `NOTICE.txt` and
    `apps/web/src/apps/licenses/lib/components.ts`.
-7. Run `verify.sh` and the tests.
+8. Run `verify.sh` and the tests.
 
 ## Rules
 

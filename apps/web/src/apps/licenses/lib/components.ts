@@ -2,10 +2,13 @@
  * The third-party software that the clip maker ships, for the /licenses page.
  *
  * Every value here must agree with the build pins in scripts/clips/aac-wasm
- * and with apps/web/public/licenses/NOTICE.txt. The tests in
- * ../__tests__/components.test.ts compare them. When you rebuild the AAC
- * module or change a version, update this file, NOTICE.txt and the pins
- * together.
+ * and with apps/web/public/licenses/NOTICE.txt. Two test files compare them:
+ * - src/shared/clips/engine/encode/__tests__/aacWasmArtifact.node.test.ts
+ *   compares this data with the pins, the build and the files on the disk;
+ * - src/apps/licenses/__tests__/LicensesPage.test.tsx compares the page with
+ *   this data.
+ * When you rebuild the AAC module or change a version, update this file,
+ * NOTICE.txt, notice.js and the pins together.
  */
 
 /** FFmpeg release in the AAC module (scripts/clips/aac-wasm/pins.sh). */
@@ -22,7 +25,7 @@ export const EMSCRIPTEN_VERSION = "6.0.10";
 export const MEDIABUNNY_VERSION = "1.60.0";
 /** The AAC module that the site serves, and its SHA-256 (scripts/clips/aac-wasm/ffmpeg-aac-enc.mjs.sha256). */
 export const AAC_MODULE_PATH = "/clips/aac/ffmpeg-aac-enc.mjs";
-export const AAC_MODULE_SHA256 = "567c509a6ffc191739412713bd0cf46d21f1c8b7e8e29ebfbab93a8354dc125d";
+export const AAC_MODULE_SHA256 = "e2ee0d697dabd45903649b0971d4335bebacf25e53d41b4c8894deffbd7b4c6b";
 /** The notice file with the same information as the page. */
 export const NOTICE_PATH = "/licenses/NOTICE.txt";
 /** The date of the last change to this list. */
@@ -58,13 +61,14 @@ export interface ThirdPartyComponent {
 export const AAC_BUILD_FILES: readonly { file: string; about: string }[] = [
   { file: "README.md", about: "How to build the module" },
   { file: "bridge.c", about: "The bridge source code" },
+  { file: "notice.js", about: "The license notice at the top of the module" },
   { file: "pins.sh", about: "The pinned versions and hashes" },
   { file: "configure-flags.txt", about: "The FFmpeg configure options" },
   { file: "emcc-flags.txt", about: "The link options" },
   { file: "build.sh", about: "The build script" },
   { file: "container-build.sh", about: "The build steps in Docker" },
   { file: "verify.sh", about: "The reproducibility check" },
-  { file: "BUILD-INFO.txt", about: "The exact commands and the result of the last build" },
+  { file: "BUILD-INFO.txt", about: "The exact commands, the input hashes and the result of the last build" },
   { file: "ffmpeg-aac-enc.mjs.sha256", about: "The SHA-256 of the module" },
 ];
 
@@ -83,6 +87,7 @@ export const THIRD_PARTY_COMPONENTS: readonly ThirdPartyComponent[] = [
     copyright: "Copyright (c) 2000-2026 the FFmpeg developers",
     notes: [
       `The AAC module (${AAC_MODULE_PATH}) contains FFmpeg. The module links FFmpeg statically.`,
+      "The first lines of the AAC module are a license notice. The notice names each part in the module, its license and this page.",
       `The source code file above is the unchanged FFmpeg ${FFMPEG_VERSION} release from ffmpeg.org. We did not change the FFmpeg source.`,
       "The FFmpeg release signing key (FCF986EA15E6E293A5644F10B4322F04D67658D8) signs the release.",
       "Some FFmpeg files have MIT, BSD or ISC style licenses. Their notices are in the source code file.",
