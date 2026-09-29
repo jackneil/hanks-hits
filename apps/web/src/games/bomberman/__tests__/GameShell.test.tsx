@@ -67,15 +67,15 @@ describe("BombermanGameShell pause wiring", () => {
     ).toBeInTheDocument();
 
     // ESC opens the shell's pause menu AND pauses the game (onPause wired). The
-    // shell's PauseMenu renders the exact text "PAUSED" (the game's own overlay
+    // shell's PauseMenu renders the exact text "Paused" (the game's own overlay
     // reads "⏸️ PAUSED"), so this matches the shell menu specifically.
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useBombermanStore.getState().gameState).toBe("paused");
-    expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
 
     // ESC again resumes both in lockstep (onResume wired).
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useBombermanStore.getState().gameState).toBe("playing");
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });

@@ -90,7 +90,7 @@ describe("ArkanoidGameShell (shell <-> store pause wiring)", () => {
     expect(
       screen.queryByRole("button", { name: /pause game/i })
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 
   it("restarts through the shell and preserves the store's persistent progress", () => {
@@ -132,7 +132,7 @@ describe("ArkanoidGameShell (shell <-> store pause wiring)", () => {
     // Click pause: the shell's PauseMenu opens AND onPause flips the store to
     // "paused".
     fireEvent.click(pauseBtn);
-    expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
     expect(useArkanoidStore.getState().gameState).toBe("paused");
 
     // Click Resume inside the PauseMenu: onResume returns the store to "playing"
@@ -140,6 +140,6 @@ describe("ArkanoidGameShell (shell <-> store pause wiring)", () => {
     // header toggle's visible text is the ⏸️ glyph, not "Resume".)
     fireEvent.click(screen.getByText("Resume"));
     expect(useArkanoidStore.getState().gameState).toBe("playing");
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });

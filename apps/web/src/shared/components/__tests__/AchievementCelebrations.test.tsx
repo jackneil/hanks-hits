@@ -48,6 +48,17 @@ describe("AchievementCelebrations", () => {
     expect(dismiss.className).toContain("min-h-[44px]");
   });
 
+  it("draws the toast on one solid surface, with no gradient or colored glow", () => {
+    resetAchievements(["first-play:snake"]);
+    render(<AchievementCelebrations />);
+
+    const card = screen.getByTestId("achievement-card");
+    expect(card).toHaveClass("bg-amber-300");
+    expect(card.className).not.toMatch(/bg-gradient|from-|to-orange|shadow-2xl|backdrop-blur/);
+    // The text stays dark on the gold card.
+    expect(screen.getByText(/First Play!/)).toHaveClass("text-yellow-950");
+  });
+
   it("collapses a deep queue into ONE summary toast instead of a toast parade", () => {
     // Retroactive burst: an existing player's first evaluation can award
     // first-play + several tiers at once — 4+ queued unlocks would stack

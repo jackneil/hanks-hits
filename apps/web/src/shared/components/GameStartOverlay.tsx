@@ -5,6 +5,7 @@ import { useCoarsePointer } from "../hooks/useCoarsePointer";
 import { unlockGameAudio } from "../lib/audio";
 import { useStartOverlayPresence } from "../lib/startOverlayPresence";
 import { ReadAloudButton } from "./ReadAloudButton";
+import { useRegisterBreakSlot } from "../lib/gameBreaks";
 
 /**
  * Shared start screen for every game: a DOM overlay (never in-canvas),
@@ -155,15 +156,22 @@ export function GameStartOverlay({
     onStart();
   }, [onStart]);
 
+  // The start card is a break: a nudge such as the iOS install tip renders
+  // into this slot, below Play, instead of floating over the card
+  // (gameBreaks.ts).
+  const { slotRef: breakSlotRef, readNotes: readBreakNotes } = useRegisterBreakSlot();
+
   const hints = isCoarse ? touchHints : keyboardHints;
   // Also tell the kid HOW to start: some games hide the Play button and
   // start from a picker choice instead, and a non-reader cannot tell.
   const startInstruction = showStartButton
     ? `Then tap ${startLabel} to start.`
     : "Then tap one of the choices to start.";
-  const readAloudText = [title, subtitle, ...hints, spokenChoices, startInstruction]
-    .filter(Boolean)
-    .join(". ");
+  // Built at tap time, so a note in the break slot is spoken last.
+  const readAloudText = () =>
+    [title, subtitle, ...hints, spokenChoices, startInstruction]
+      .filter(Boolean)
+      .join(". ") + readBreakNotes().map((note) => ` ${note}`).join("");
 
   return (
     <div
@@ -219,6 +227,13 @@ export function GameStartOverlay({
             {startLabel}
           </GameStartOverlayButton>
         )}
+
+        {/* Break slot, below Play (empty unless a nudge renders into it) */}
+        <div
+          ref={breakSlotRef}
+          data-testid="start-card-break-slot"
+          className="mt-4 empty:hidden short:mt-2"
+        />
         </div>
       </div>
     </div>

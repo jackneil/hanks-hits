@@ -78,17 +78,17 @@ describe("SpaceInvadersGameShell pause wiring", () => {
     expect(
       screen.getByRole("button", { name: "Pause game" })
     ).toBeInTheDocument();
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
 
     // ESC opens the shell's pause menu AND pauses the game (onPause wired).
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useSpaceInvadersStore.getState().gameState).toBe("paused");
-    expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
 
     // ESC again resumes both in lockstep (onResume wired). The old bug left the
     // game frozen after the menu closed.
     fireEvent.keyDown(window, { key: "Escape" });
     expect(useSpaceInvadersStore.getState().gameState).toBe("playing");
-    expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
 });

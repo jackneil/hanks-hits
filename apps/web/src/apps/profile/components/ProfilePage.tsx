@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { signOutAndClear } from "@/lib/auth-client";
 import { GameProgressCard } from "./GameProgressCard";
 import { GamesIMade } from "./GamesIMade";
+import { LeaderboardNameToggle } from "./LeaderboardNameToggle";
 import { TrophyCase } from "@/shared/components/TrophyCase";
 import { extractGameStats, type GameDisplayInfo } from "@/shared/lib/gameStatExtractor";
 import Link from "next/link";
@@ -47,7 +48,7 @@ interface MyRanksData {
  * Shows user info, game progress, and account actions.
  */
 export function ProfilePage() {
-  const { data: session, status, update } = useSession();
+  const { status, update } = useSession();
   const router = useRouter();
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -299,6 +300,9 @@ export function ProfilePage() {
               Member since {formatMemberSince(profile?.createdAt ?? null)}
             </p>
           </div>
+
+          {/* Leaderboard privacy: the only control for show_on_leaderboards */}
+          <LeaderboardNameToggle />
         </div>
       </section>
 
@@ -321,7 +325,7 @@ export function ProfilePage() {
           {rankings.handle && (
             <div className="bg-yellow-500/20 rounded-xl p-3 mb-4 border border-yellow-400/30 flex items-center justify-between">
               <div>
-                <span className="text-white/60 text-sm">Your Gamer Handle:</span>
+                <span className="text-white/60 text-sm">Your gamer name:</span>
                 <span className="ml-2 font-bold text-white">{rankings.handle}</span>
               </div>
               <span className="text-2xl">🎮</span>
