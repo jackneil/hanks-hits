@@ -99,6 +99,13 @@ interface ShareTrouble {
 
 const ACTION = "btn h-auto min-h-14 w-full gap-2 px-4 py-2 text-lg font-semibold normal-case whitespace-normal touch-manipulation";
 
+/**
+ * The clip (a video or a picture) in its box. On a phone it fills the box,
+ * which grows into the free space above the buttons. On a wider screen it
+ * is at most half the screen high, so the dialog keeps its size.
+ */
+const MEDIA_FILL = "w-full object-contain max-sm:absolute max-sm:inset-0 max-sm:h-full sm:max-h-[50dvh]";
+
 function initialView(target: ViewerTarget): ViewState {
   return target.kind === "clip" ? { kind: "clip", id: target.id, fromGame: null } : target;
 }
@@ -538,7 +545,16 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
               <p className="text-base">{VIEWER_COPY.brokenNext}</p>
             </div>
           ) : (
-            <div className="mb-3 flex min-h-40 items-center justify-center overflow-hidden rounded-xl bg-slate-950">
+            // On a phone the clip takes the free space between the title row
+            // and the buttons pinned at the bottom (flex-1), and the video
+            // fills that box, centered with object-contain. Its own size never
+            // pushes the buttons down: it is positioned in the box. On a wider
+            // screen the dialog keeps its size (the clip is at most half the
+            // screen high).
+            <div
+              data-testid="clip-viewer-media"
+              className="relative mb-3 flex min-h-40 items-center justify-center overflow-hidden rounded-xl bg-slate-950 max-sm:flex-1"
+            >
               {readyMedia && record ? (
                 isPicture ? (
                   // A blob: URL of the kid's own picture; next/image adds nothing here.
@@ -547,7 +563,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
                     data-testid="clip-viewer-picture"
                     src={readyMedia.url}
                     alt={`${title}: ${game.name}`}
-                    className="max-h-[50dvh] w-full object-contain"
+                    className={MEDIA_FILL}
                   />
                 ) : (
                   // The player's own menu has no Download, cast or picture in
@@ -565,7 +581,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
                     playsInline
                     preload="metadata"
                     aria-label={`${title}: ${game.name}`}
-                    className="max-h-[50dvh] w-full bg-black object-contain"
+                    className={`${MEDIA_FILL} bg-black`}
                   />
                 )
               ) : (
