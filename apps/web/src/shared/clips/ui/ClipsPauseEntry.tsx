@@ -6,6 +6,10 @@
  * ClipUiRuntime.tsx), and PauseMenu's read-aloud button says the visible
  * label of each child button. A game adds nothing for it.
  *
+ * Its picture is a small copy of the header's clip button (the same drawn
+ * clapperboard in its ring), not the 🎬 emoji: the kid learns one picture
+ * for one control.
+ *
  * A tap opens the Capture menu above the pause menu. The game is paused
  * already, so "Clip the last 30 seconds" clips the footage before the pause.
  * It renders nothing when clips are off for this game.
@@ -14,6 +18,7 @@
 import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
 import { useClipService, useClipSnapshot } from "../service/context";
+import { ClipButtonPicture } from "./ClipWords";
 import { useClipUi } from "./uiContext";
 import { PAUSE_ENTRY_LABEL } from "./copy";
 
@@ -35,10 +40,8 @@ export function ClipsPauseEntry({ className = "" }: ClipsPauseEntryProps) {
       onClick={() => ui.openMenu(null, "pause-menu")}
       className={`btn btn-lg w-full gap-3 ${SECONDARY_ACTION} text-xl shadow-lg hover:scale-105 transition-transform ${className}`}
     >
-      {/* An emoji paired with a word is a picture for kids who cannot read (plan decision 11). */}
-      <span aria-hidden="true" className="text-2xl">
-        🎬
-      </span>
+      {/* A picture paired with a word is a pre-reader aid (plan decision 11). */}
+      <ClipButtonPicture size={32} />
       {PAUSE_ENTRY_LABEL}
     </button>
   );

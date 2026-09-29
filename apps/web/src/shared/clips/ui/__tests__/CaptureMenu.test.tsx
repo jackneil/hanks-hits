@@ -303,7 +303,8 @@ describe("ClipsPauseEntry (plan 11.4)", () => {
   it("is a visible Clips button that opens the Capture menu above the pause menu", () => {
     renderWithClips(<ClipsPauseEntry />, { snapshot: { atBreak: true } });
     const entry = screen.getByRole("button", { name: PAUSE_ENTRY_LABEL });
-    expect(entry).toHaveTextContent("🎬");
+    // The header button's own picture pairs with the word (ClipWords.test.tsx).
+    expect(entry.querySelector('[data-glyph="clip-button"]')).not.toBeNull();
     expect(entry.className).toContain("btn-lg");
     fireEvent.click(entry);
     expect(screen.getByRole("dialog", { name: MENU_COPY.title })).toBeInTheDocument();

@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 
 import { useClipService, useClipSnapshot } from "../service/context";
 import { useClipUi } from "./uiContext";
+import { ClipWords } from "./ClipWords";
 import { MENU_COPY, SETTINGS_COPY, storageLine } from "./copy";
 import { formatBytes } from "./format";
 import { NO_GAMEPAD_CLIP_APPS } from "./gamepad";
@@ -89,7 +90,9 @@ export function ClipSettingsSheet({ onClose }: ClipSettingsSheetProps) {
       <h3 className="mb-2 text-lg font-bold">{SETTINGS_COPY.howTitle}</h3>
       <ul className="flex list-disc flex-col gap-1 pl-6 text-base">
         {tips.map((tip) => (
-          <li key={tip}>{tip}</li>
+          <li key={tip}>
+            <ClipWords text={tip} />
+          </li>
         ))}
       </ul>
     </Sheet>

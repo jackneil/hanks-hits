@@ -44,6 +44,7 @@ import { createPortal } from "react-dom";
 import { useReadAloud } from "@/shared/hooks/useReadAloud";
 
 import { useClipService, useClipSnapshot } from "../service/context";
+import { ClipWords } from "./ClipWords";
 import { useClipUi, useClipUiState } from "./uiContext";
 import { recordTimerName, TOAST_COPY } from "./copy";
 import { formatDuration } from "./format";
@@ -238,7 +239,9 @@ function HoldTip({
       style={{ maxWidth }}
       {...noLeak}
     >
-      <p className="min-w-0 flex-1 py-1 text-base font-semibold leading-snug">{TOAST_COPY.holdTip}</p>
+      <p className="min-w-0 flex-1 py-1 text-base font-semibold leading-snug">
+        <ClipWords text={TOAST_COPY.holdTip} />
+      </p>
       <InPlayReadAloudButton text={TOAST_COPY.holdTip} voice={voice} className="shrink-0 text-slate-900" />
       <button type="button" {...done} className="btn h-11 min-h-11 min-w-11 shrink-0 bg-white px-3 text-base text-slate-900">
         {TOAST_COPY.holdTipDone}
@@ -328,7 +331,9 @@ export function ToastSlot() {
               className={`pointer-events-none flex items-center gap-2 py-1.5 pl-4 pr-1.5 ${DARK_TOAST}`}
               style={{ maxWidth: plan.replyMaxWidth }}
             >
-              <p className="min-w-0 flex-1 py-1 text-base font-semibold leading-snug">{reply.text}</p>
+              <p className="min-w-0 flex-1 py-1 text-base font-semibold leading-snug">
+                <ClipWords text={reply.text} />
+              </p>
               {reply.tappable && (
                 // The reply stays up from the moment the finger goes down, so it
                 // cannot time out between the press and the release.

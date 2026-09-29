@@ -489,7 +489,8 @@ describe("the one-time hold tip (plan 11.4)", () => {
       );
       for (let i = 0; i < HOLD_TIP_AFTER_CLIPS; i++) fireEvent.click(screen.getByTestId("note-clip"));
       act(() => fake.set({ atBreak: true }));
-      const words = within(screen.getByTestId("clip-hold-tip")).getByText(TOAST_COPY.holdTip);
+      const words = screen.getByTestId("clip-hold-tip").querySelector("p")!;
+      expect(words.textContent?.replace(/\s+/g, " ").trim()).toBe(TOAST_COPY.holdTip);
       // A press on the tip's words stays with the tip.
       fireEvent.pointerDown(words, pointer({ pointerId: 2 }));
       fireEvent.mouseDown(words);

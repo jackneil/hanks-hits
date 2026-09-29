@@ -66,6 +66,7 @@ import {
   type SavePlatform,
 } from "./copy";
 import { ClipTile } from "./ClipTile";
+import { ClipWords } from "./ClipWords";
 import { clipGameInfo, formatDuration } from "./format";
 import { KeepGlyph, PlayGlyph, SaveGlyph, ShareGlyph, TrashGlyph } from "./glyphs";
 import { logClipUiFailure } from "./log";
@@ -369,7 +370,9 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
         {empty && (
           <div data-testid="clip-viewer-empty" className="flex flex-col items-center gap-2 py-10 text-center">
             <p className="text-lg font-semibold">{VIEWER_COPY.gameListEmptySay}</p>
-            <p className="text-base">{VIEWER_COPY.gameListEmptyNext}</p>
+            <p className="text-base">
+              <ClipWords text={VIEWER_COPY.gameListEmptyNext} />
+            </p>
           </div>
         )}
         {list && list.length > 0 && (

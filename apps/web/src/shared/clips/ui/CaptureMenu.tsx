@@ -29,6 +29,7 @@ import { useClipService, useClipSnapshot } from "../service/context";
 import type { PressToken } from "../service/contract";
 import { useClipUi, useClipUiState } from "./uiContext";
 import { closeResumesPlay } from "./uiStore";
+import { ClipWords } from "./ClipWords";
 import { MENU_COPY, REASON_COPY } from "./copy";
 import {
   ClipGlyph,
@@ -132,7 +133,7 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
     >
       {note && (
         <p data-testid="capture-menu-reason" className="mb-3 rounded-xl bg-base-200 px-4 py-3 text-base leading-snug">
-          {note.say} {note.next}
+          <ClipWords text={`${note.say} ${note.next}`} />
         </p>
       )}
       <ul className="flex flex-col gap-2" aria-label={MENU_COPY.title}>
