@@ -170,6 +170,97 @@ const RAILWAY_VARIABLES = [
   "S3_SECRET_ACCESS_KEY",
 ];
 
+/**
+ * Functions that take process.env whole, and the names that each one reads.
+ * The scan below cannot see into them. It trusts this list, checks the list
+ * against the source of each function, and fails on a function that gets
+ * process.env and is not on the list.
+ */
+const ENV_READERS: Record<string, { file: string; names: string[] }> = {
+  isClipsLabEnabled: { file: "apps/web/src/shared/clips/lab/labParams.ts", names: ["CLIPS_LAB"] },
+};
+
+/** Names that the app reads but that must never be Railway variables. */
+const NEVER_ON_RAILWAY = new Set(["CLIPS_LAB"]);
+
+interface EnvScan {
+  /** The variable names that the source reads. */
+  names: Set<string>;
+  /** Reads that the scan cannot name: a dynamic key, or process.env given to a function it does not know. */
+  unknown: string[];
+}
+
+/**
+ * The environment variables that one source file reads: process.env.NAME,
+ * process.env?.NAME, process.env["NAME"], a destructuring of process.env,
+ * and process.env given whole to a function in `readers`.
+ */
+function scanEnvReads(source: string, readers: Record<string, { names: string[] }> = ENV_READERS): EnvScan {
+  const names = new Set<string>();
+  const unknown: string[] = [];
+  for (const match of source.matchAll(/process\.env\b/g)) {
+    const at = match.index ?? 0;
+    const after = source.slice(at + match[0].length);
+    const before = source.slice(0, at);
+    const dot = /^\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/.exec(after);
+    if (dot) {
+      if (/^[A-Z][A-Z0-9_]*$/.test(dot[1])) names.add(dot[1]);
+      else unknown.push(`process.env.${dot[1]}`);
+      continue;
+    }
+    const bracket = /^\s*(?:\?\.)?\s*\[\s*(["'`])([A-Z][A-Z0-9_]*)\1\s*\]/.exec(after);
+    if (bracket) {
+      names.add(bracket[2]);
+      continue;
+    }
+    if (/^\s*(?:\?\.)?\s*\[/.test(after)) {
+      unknown.push("process.env[<dynamic key>]");
+      continue;
+    }
+    const destructure = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*$/.exec(before);
+    if (destructure) {
+      for (const part of destructure[1].split(",")) {
+        const key = part.split(/[:=]/)[0].trim().replace(/^\.\.\./, "");
+        if (/^[A-Z][A-Z0-9_]*$/.test(key)) names.add(key);
+        else if (key) unknown.push(`{ ${key} } = process.env`);
+      }
+      continue;
+    }
+    const call = /([A-Za-z_$][\w$]*)\s*\(\s*$/.exec(before);
+    if (call && /^\s*\)/.test(after) && Object.hasOwn(readers, call[1])) {
+      for (const name of readers[call[1]].names) names.add(name);
+      continue;
+    }
+    unknown.push(call ? `${call[1]}(process.env)` : `process.env${after.slice(0, 1)}`);
+  }
+  return { names, unknown };
+}
+
+describe("the environment read scan", () => {
+  it("finds dot, optional, bracket and destructured reads, and the names that a known reader reads", () => {
+    const scan = scanEnvReads(
+      [
+        "const a = process.env.ALPHA;",
+        "const b = process.env?.BETA;",
+        'const c = process.env["GAMMA"];',
+        "const d = process.env['DELTA'];",
+        "const { EPSILON, ZETA: zeta = 'x' } = process.env;",
+        "if (!isClipsLabEnabled(process.env)) notFound();",
+      ].join("\n"),
+    );
+    expect([...scan.names].sort()).toEqual(["ALPHA", "BETA", "CLIPS_LAB", "DELTA", "EPSILON", "GAMMA", "ZETA"]);
+    expect(scan.unknown).toEqual([]);
+  });
+
+  it("reports each read that it cannot name, so a new kind of read fails the gate", () => {
+    const scan = scanEnvReads(
+      ["const key = pick();", "const x = process.env[key];", "readSettings(process.env);", "const env = process.env;"].join("\n"),
+    );
+    expect(scan.names.size).toBe(0);
+    expect(scan.unknown).toEqual(["process.env[<dynamic key>]", "readSettings(process.env)", "process.env;"]);
+  });
+});
+
 describe("Railway configuration", () => {
   async function loadService(): Promise<ServiceNode> {
     const context = createRailwayContext({ environment: "production" });
@@ -231,31 +322,57 @@ describe("Railway configuration", () => {
   it("declares every variable that the app reads in production, and never the lab switch", async () => {
     // A variable that the app reads but railway.ts leaves out is deleted by
     // the next apply, and the feature behind it goes quiet with no error.
-    const srcDir = join(REPO_ROOT, "apps", "web", "src");
+    // The scan covers the app and the source of every workspace package
+    // (packages/db reads DATABASE_URL).
+    const packagesDir = join(REPO_ROOT, "packages");
+    const roots = [
+      join(REPO_ROOT, "apps", "web", "src"),
+      ...readdirSync(packagesDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && existsSync(join(packagesDir, entry.name, "src")))
+        .map((entry) => join(packagesDir, entry.name, "src")),
+    ];
     const read = new Set<string>();
+    const unknown: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
           if (entry.name !== "__tests__") walk(full);
         } else if (/\.(ts|tsx)$/.test(entry.name) && !/\.(test|spec)\.tsx?$/.test(entry.name)) {
-          for (const match of readFileSync(full, "utf8").matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) read.add(match[1]);
+          const scan = scanEnvReads(readFileSync(full, "utf8"));
+          scan.names.forEach((name) => read.add(name));
+          unknown.push(...scan.unknown.map((what) => `${full.slice(REPO_ROOT.length + 1)}: ${what}`));
         }
       }
     };
-    walk(srcDir);
+    roots.forEach(walk);
+    // Every read has a name: a new kind of read is added to ENV_READERS first.
+    expect(unknown).toEqual([]);
+    // Each known reader still reads the names that the list gives it.
+    for (const [reader, { file, names }] of Object.entries(ENV_READERS)) {
+      const source = readRepoFile(file);
+      expect(source, reader).toMatch(new RegExp(`function ${reader}\\b`));
+      for (const name of names) expect(source, `${reader} reads ${name}`).toMatch(new RegExp(`\\benv\\.${name}\\b`));
+    }
     // Names that the platform or Next.js sets, never a Railway variable.
     const PLATFORM = new Set(["NODE_ENV"]);
     const web = await loadService();
     const declared = new Set(Object.keys(web.variables ?? {}));
-    const missing = [...read].filter((name) => !PLATFORM.has(name) && !declared.has(name)).sort();
+    const missing = [...read]
+      .filter((name) => !PLATFORM.has(name) && !NEVER_ON_RAILWAY.has(name) && !declared.has(name))
+      .sort();
     expect(missing).toEqual([]);
-    // A control: the scan finds the clips variables.
-    expect(read.has("CLIPS_MODE") && read.has("CLIPS_DOGFOOD_USER_IDS")).toBe(true);
+    // A control: the scan finds the clips variables, the database, and the
+    // lab switch (read through isClipsLabEnabled).
+    for (const name of ["CLIPS_MODE", "CLIPS_DOGFOOD_USER_IDS", "DATABASE_URL", "CLIPS_LAB"]) {
+      expect(read.has(name), name).toBe(true);
+    }
     // The lab switch stays out of production, in the file and in the list.
-    expect(declared.has("CLIPS_LAB")).toBe(false);
-    expect(RAILWAY_VARIABLES).not.toContain("CLIPS_LAB");
-    expect(readRepoFile(".railway/railway.ts")).not.toMatch(/CLIPS_LAB\s*:/);
+    for (const name of NEVER_ON_RAILWAY) {
+      expect(declared.has(name)).toBe(false);
+      expect(RAILWAY_VARIABLES).not.toContain(name);
+      expect(readRepoFile(".railway/railway.ts")).not.toMatch(new RegExp(`${name}\\s*:`));
+    }
   });
 
   it("holds the same settings in railway.toml and railway.ts while both files exist", async () => {
