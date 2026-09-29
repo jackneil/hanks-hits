@@ -528,11 +528,18 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
                     className="max-h-[50dvh] w-full object-contain"
                   />
                 ) : (
+                  // The player's own menu has no Download, cast or picture in
+                  // picture: the only ways out are Share and the named "Save
+                  // to ..." button (plan 11.6, 12), which give the file its
+                  // plan 12 name.
                   <video
                     data-testid="clip-viewer-video"
                     src={readyMedia.url}
                     poster={record.posterDataUrl || undefined}
                     controls
+                    controlsList="nodownload noremoteplayback"
+                    disablePictureInPicture
+                    disableRemotePlayback
                     playsInline
                     preload="metadata"
                     aria-label={`${title}: ${game.name}`}

@@ -84,6 +84,11 @@ describe("ClipViewer: one clip (plan 11.4)", () => {
     const { fake } = await openClip(record);
     expect(screen.getByRole("dialog", { name: VIEWER_TITLES.clip })).toBeInTheDocument();
     const video = screen.getByTestId("clip-viewer-video") as HTMLVideoElement;
+    // The browser's own player menu offers no Download, cast or picture in
+    // picture: Share and the named Save button are the only ways out.
+    expect(video.getAttribute("controlslist")?.split(/\s+/).sort()).toEqual(["nodownload", "noremoteplayback"]);
+    expect(video.hasAttribute("disablepictureinpicture")).toBe(true);
+    expect(video.hasAttribute("disableremoteplayback")).toBe(true);
     expect(video.getAttribute("src")).toBe(urls.created[0]);
     expect(video.getAttribute("poster")).toBe(record.posterDataUrl);
     expect(video.hasAttribute("controls")).toBe(true);
