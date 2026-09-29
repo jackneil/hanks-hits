@@ -289,6 +289,84 @@
         left: 64px !important;
       }
     }
+
+    /* Landscape with the on-screen gamepad. The picture is in the middle and
+       the controls go in a strip on each side (--hh-side wide), so no
+       control covers the picture. On a short phone (568x320, 667x375) the
+       picture fills the height and leaves strips of about 105 px only; there
+       the picture gets smaller to keep the strips free. On a wide screen
+       (844x390) the picture is already narrower than the space between the
+       strips, so it does not change. The page puts "hh_gamepad_shown" on
+       #game while EmulatorJS shows the gamepad (see trackGamepad below), so
+       a computer without the gamepad keeps the whole box for the picture.
+       RetroArch fits the picture in the size of the canvas; it puts the
+       picture at the top of a canvas that is taller than it is wide.
+       Heights are for a box of 268 px (568x320 minus the 52 px bar). */
+    #game { --hh-side: 144px; }
+    #game:has(.cs_snes),
+    #game:has(.cs_n64) { --hh-side: 164px; }
+    #game:has(.cs_segaMD) { --hh-side: 170px; }
+    @media (orientation: landscape) {
+      #game.hh_gamepad_shown .ejs_canvas_parent {
+        position: absolute;
+        top: 0;
+        left: var(--hh-side);
+        right: var(--hh-side);
+        width: auto;
+        height: 100%;
+      }
+      /* The shoulder buttons are 4 px above the d-pad and the face buttons,
+         so the SNES R stays on the screen. R is left of the menu button
+         (top right). */
+      #game .ejs_virtualGamepad_left .b_l,
+      #game .ejs_virtualGamepad_right .b_r {
+        top: -52px !important;
+      }
+      #game .ejs_virtualGamepad_right .b_r {
+        left: auto !important;
+        right: 46px !important;
+      }
+      /* Sega Genesis: the rows of three are 162 px wide (50 px buttons,
+         4 px apart), 8 px from the right edge. */
+      #game .ejs_virtualGamepad_parent:has(.cs_segaMD) .ejs_virtualGamepad_right { right: 8px; }
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_a,
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_x { right: 108px !important; }
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_b,
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_y { right: 54px !important; }
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_c,
+      #game .ejs_virtualGamepad_right .cs_segaMD.b_z { right: 0 !important; }
+      /* Nintendo 64, from the bottom of the box: the bottom row (8 to 56 px),
+         then 4 px, then B and A (60 to 110 px), then the C buttons in a
+         150 px diamond (114 to 264 px). R is in the top left corner of the
+         diamond, the menu button in its top right corner. On the left: the
+         analog stick (60 to 160 px), the d-pad stick above it (164 to
+         264 px) and L beside the d-pad stick. The sticks are 100 px circles
+         on the bottom and top edges of their container. */
+      #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_left {
+        left: 8px;
+        width: 100px;
+        bottom: 102px;
+        height: 104px;
+      }
+      #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_right {
+        right: 10px;
+        width: 150px;
+        bottom: 52px;
+        height: 204px;
+      }
+      #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_top {
+        bottom: 256px;
+      }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cu { left: 50px !important; top: 0 !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cl { left: 0 !important; top: 50px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cr { left: 100px !important; top: 50px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_cd { left: 50px !important; top: 100px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_b { left: 44px !important; top: 154px !important; }
+      #game .ejs_virtualGamepad_right .cs_n64.b_a { left: 100px !important; top: 154px !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_l { left: 112px !important; right: auto !important; top: 0 !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_r { left: auto !important; right: 110px !important; top: 0 !important; }
+      #game .ejs_virtualGamepad_top .cs_n64.b_z { top: 208px !important; left: 64px !important; }
+    }
   </style>
 </head>
 <body>
@@ -511,11 +589,38 @@
     // which is not a real EmulatorJS API and risks breaking the gamepad, so it
     // is deliberately NOT set: the defaults are what we want.
 
+    /**
+     * Keeps "hh_gamepad_shown" on #game while EmulatorJS shows the on-screen
+     * gamepad (the style block uses it for the landscape strips). EmulatorJS
+     * shows the gamepad on a phone and hides it on a computer, and the
+     * player can turn it off in Settings; it sets style.display each time.
+     * When the box changes size, EmulatorJS shows a hidden gamepad for
+     * 250 ms at opacity 0 to measure it; that does not count as shown.
+     */
+    function trackGamepad() {
+      const emulator = window.EJS_emulator;
+      const pad = emulator && emulator.virtualGamepad;
+      const game = document.getElementById('game');
+      if (!pad || !game) return;
+      const update = function() {
+        const shown = pad.style.display !== 'none' && pad.style.opacity !== '0';
+        game.classList.toggle('hh_gamepad_shown', shown);
+      };
+      update();
+      new MutationObserver(update).observe(pad, { attributes: true, attributeFilter: ['style'] });
+    }
+
     // Notify parent when emulator is ready
     // SECURITY: Use specific origin instead of wildcard '*'
     window.EJS_onGameStart = function() {
       document.getElementById('loading').classList.add('hidden');
       window.parent.postMessage({ type: 'ready' }, PARENT_ORIGIN);
+      try {
+        trackGamepad();
+      } catch (e) {
+        // The game plays; the picture keeps the whole box.
+        console.warn('Could not watch the on-screen gamepad', e);
+      }
     };
 
     // Save states. The Retro Arcade page (the parent) keeps them on this

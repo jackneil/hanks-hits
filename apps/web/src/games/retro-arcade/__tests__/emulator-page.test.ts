@@ -238,6 +238,60 @@ const pattern = (length: number) => {
   return bytes;
 };
 
+describe("emulator page: the landscape strips follow the on-screen gamepad", () => {
+  /** Starts the game with a gamepad element in the given style, as EmulatorJS makes it. */
+  function startWithGamepad(style: string) {
+    const page = runPage({ core: "snes", rom: "/api/roms/snes/demo.smc" });
+    const pad = document.createElement("div");
+    pad.className = "ejs_virtualGamepad_parent";
+    pad.setAttribute("style", style);
+    document.getElementById("game")!.appendChild(pad);
+    page.win.EJS_emulator = { on: vi.fn(), virtualGamepad: pad };
+    (page.win.EJS_onGameStart as () => void)();
+    const game = document.getElementById("game")!;
+    const parent = page.win.parent as { postMessage: ReturnType<typeof vi.fn> };
+    return { game, pad, parent };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("marks #game when the game starts with the gamepad shown (a phone)", () => {
+    const { game, parent } = startWithGamepad("");
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(true);
+    expect(parent.postMessage).toHaveBeenCalledWith({ type: "ready" }, ORIGIN);
+  });
+
+  it("does not mark #game when EmulatorJS hides the gamepad (a computer)", () => {
+    const { game } = startWithGamepad("display: none;");
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(false);
+  });
+
+  it("follows the gamepad when the player turns it off and on in Settings", async () => {
+    const { game, pad } = startWithGamepad("");
+    pad.style.display = "none";
+    await settle();
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(false);
+    pad.style.display = "";
+    await settle();
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(true);
+  });
+
+  it("ignores the 250 ms that EmulatorJS shows a hidden gamepad at opacity 0 to measure it", async () => {
+    const { game, pad } = startWithGamepad("display: none;");
+    pad.style.opacity = "0";
+    pad.style.display = "";
+    await settle();
+    expect(game.classList.contains("hh_gamepad_shown")).toBe(false);
+  });
+
+  it("still tells the parent that the game is ready when there is no gamepad element", () => {
+    const page = runPage({ core: "nes", rom: "/api/roms/nes/demo.nes" });
+    page.win.EJS_emulator = { on: vi.fn() };
+    (page.win.EJS_onGameStart as () => void)();
+    expect((page.win.parent as { postMessage: ReturnType<typeof vi.fn> }).postMessage).toHaveBeenCalledWith({ type: "ready" }, ORIGIN);
+    expect(document.getElementById("game")!.classList.contains("hh_gamepad_shown")).toBe(false);
+  });
+});
+
 describe("emulator page: save states", () => {
   it("sends the bytes of a Save State to the parent as a transferred ArrayBuffer", () => {
     const { page, parent } = startSavePage();
