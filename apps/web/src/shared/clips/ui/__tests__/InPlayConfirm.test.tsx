@@ -1,7 +1,7 @@
 import { act, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CONFIRM_CHECK_MIN_REM, CONFIRM_MS, CONFIRM_TEXT_MIN_REM, InPlayConfirm } from "../InPlayConfirm";
+import { CONFIRM_MS, CONFIRM_TEXT_MIN_REM, InPlayConfirm } from "../InPlayConfirm";
 import { RESULT_COPY } from "../copy";
 import { createFakeClipService } from "./fakeClipService";
 import { renderWithClips } from "./renderClips";
@@ -72,19 +72,56 @@ describe("InPlayConfirm (plan 11.1)", () => {
     expect(confirm.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("fits a narrow title region: words only when there is room, the check alone below that", async () => {
+  /**
+   * What the kid sees in a title region `widthRem` wide: jsdom has no
+   * container queries, so this reads the Tailwind @min-/@max- width variants
+   * (the only ones the part uses) the way the browser applies them.
+   */
+  function drawnAt(widthRem: number): { pill: boolean; check: boolean; words: boolean } {
+    const shown = (element: Element | null): boolean => {
+      for (let el = element; el && el !== document.body; el = el.parentElement) {
+        const classes = (el.getAttribute("class") ?? "").split(/\s+/);
+        let hidden = classes.includes("hidden");
+        for (const token of classes) {
+          const variant = /^@(min|max)-\[(\d+(?:\.\d+)?)rem\]:(hidden|inline|flex|block)$/.exec(token);
+          if (!variant) continue;
+          const [, side, size, display] = variant;
+          const applies = side === "min" ? widthRem >= Number(size) : widthRem < Number(size);
+          if (applies) hidden = display === "hidden";
+        }
+        if (hidden) return false;
+        if (classes.includes("@container")) break;
+      }
+      return true;
+    };
+    const pill = screen.getByTestId("in-play-confirm-pill");
+    return {
+      pill: shown(pill),
+      check: shown(pill.querySelector('[data-glyph="check"]')),
+      words: shown(screen.getByTestId("in-play-confirm-text")),
+    };
+  }
+
+  it("draws the check and the words together, or nothing: never a check alone over a phone's emoji title", async () => {
     const { fake } = renderWithClips(<TitleRegion />);
     await act(async () => {
       await fake.service.clipLast();
     });
     const confirm = screen.getByTestId("in-play-confirm");
     expect(confirm.className).toContain("@container");
-    const text = screen.getByTestId("in-play-confirm-text");
-    expect(text.className).toMatch(/(^|\s)hidden(\s|$)/);
-    expect(text.className).toContain(`@min-[${CONFIRM_TEXT_MIN_REM}rem]:inline`);
-    const pill = text.parentElement!;
-    expect(pill.className).toContain(`@max-[${CONFIRM_CHECK_MIN_REM}rem]:hidden`);
-    expect(pill.className).toContain("max-w-full");
+    expect(screen.getByTestId("in-play-confirm-pill").className).toContain("max-w-full");
+    // A phone below 480 px: the title is one emoji, about 2.6 rem of room.
+    // The emoji stays visible; the button's check and the chip confirm.
+    expect(drawnAt(2.6)).toEqual({ pill: false, check: false, words: false });
+    expect(drawnAt(CONFIRM_TEXT_MIN_REM - 0.1)).toEqual({ pill: false, check: false, words: false });
+    // A wide header: a check mark and the words.
+    expect(drawnAt(CONFIRM_TEXT_MIN_REM)).toEqual({ pill: true, check: true, words: true });
+    expect(drawnAt(30)).toEqual({ pill: true, check: true, words: true });
+    // At no width does a check show without its words.
+    for (let rem = 0; rem <= 40; rem += 0.5) {
+      const drawn = drawnAt(rem);
+      expect(drawn.check, `${rem} rem`).toBe(drawn.words);
+    }
   });
 
   it("does not show a result made before it appeared, or a failure", async () => {

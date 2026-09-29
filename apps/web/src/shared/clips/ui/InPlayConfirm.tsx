@@ -11,11 +11,13 @@
  * title, never over a control, and takes no taps. It is part of the header
  * row (z-1000), so it needs no portal.
  *
- * Fit: the region is narrow on a phone (the title is one emoji below
- * 480 px). A container query shows the words only when the region has room
- * for them (CONFIRM_TEXT_MIN_REM); otherwise only the check mark shows, and
- * in a region too narrow for the check, nothing shows (the clip button's own
- * check mark still does).
+ * Fit: the pill is all or nothing, a check mark AND the words. A container
+ * query shows it only when the title region has room for the words
+ * (CONFIRM_TEXT_MIN_REM). Below that (a phone, where the title is one
+ * emoji), nothing covers the title: the clip button's own check mark and
+ * the new-clip chip under the header are the confirmation. A check-only
+ * pill there would hide the title and show a second check mark beside the
+ * button's.
  *
  * The clip button announces the result to screen readers, so this part is
  * visual only (aria-hidden).
@@ -30,10 +32,8 @@ import { CheckGlyph } from "./glyphs";
 
 /** How long the confirmation stays (the same 1.2 s as the button's "made" state). */
 export const CONFIRM_MS = 1200;
-/** The region needs this width (rem) to show the words. "Clip made! (longer)" needs about 11.3 rem. */
+/** The region needs this width (rem) to show the pill. "Clip made! (longer)" needs about 11.3 rem. */
 export const CONFIRM_TEXT_MIN_REM = 12;
-/** Below this width (rem) not even the check mark shows. */
-export const CONFIRM_CHECK_MIN_REM = 2;
 
 export function InPlayConfirm() {
   const ui = useClipUi();
@@ -59,9 +59,12 @@ export function InPlayConfirm() {
       aria-hidden="true"
       className="@container pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center overflow-hidden"
     >
-      <span className="flex h-7 max-w-full items-center gap-1.5 rounded-full bg-white px-2 text-sm font-bold text-slate-900 @max-[2rem]:hidden motion-safe:transition-opacity motion-safe:duration-150 motion-safe:starting:opacity-0">
+      <span
+        data-testid="in-play-confirm-pill"
+        className="flex h-7 max-w-full items-center gap-1.5 rounded-full bg-white px-2 text-sm font-bold text-slate-900 @max-[12rem]:hidden motion-safe:transition-opacity motion-safe:duration-150 motion-safe:starting:opacity-0"
+      >
         <CheckGlyph size={16} className="shrink-0" />
-        <span data-testid="in-play-confirm-text" className="hidden truncate whitespace-nowrap @min-[12rem]:inline">
+        <span data-testid="in-play-confirm-text" className="truncate whitespace-nowrap">
           {RESULT_COPY[result.action]}
         </span>
       </span>
