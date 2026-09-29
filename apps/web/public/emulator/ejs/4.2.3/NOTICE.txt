@@ -1,0 +1,346 @@
+Hank's Hits: notice for the Retro Arcade emulator (EmulatorJS 4.2.3)
+Last updated: 2026-09-29
+
+Retro Arcade on this site plays games in your browser. It uses EmulatorJS
+and emulator cores. This site sends these files to your browser. This notice
+tells you what each part is and what its license is. It also tells you where
+to get its license text and its source code.
+
+All paths in this notice are in the folder /emulator/ejs/4.2.3/ on this site.
+For example, source/snes9x-6ca2343e5f3b.tar.gz is at
+/emulator/ejs/4.2.3/source/snes9x-6ca2343e5f3b.tar.gz.
+
+Hank's Hits is free. It has no ads and no payments.
+
+
+A. We did not change the files
+------------------------------
+
+Each file that we send is the same as the file in the official EmulatorJS
+4.2.3 release:
+  https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z
+  SHA-256 of the release file:
+  07d451bc06fa3ad04ab30d9b94eb63ac34ad0babee52d60357b002bde8f3850b
+
+manifest.json in this folder gives the size and the SHA-256 of each file.
+It also gives the size, the SHA-256 and the download URL of each source
+archive and each license text.
+
+
+B. How to get the source code
+-----------------------------
+
+The folder source/ holds the source code of the files that we send. You can
+download it from this site at no cost. You do not need an account. We keep
+the source code here for as long as we send the files.
+
+Each .tar.gz archive in source/ is an unchanged copy of the archive that
+GitHub makes for one git commit. The name of the archive has the first 12
+characters of the commit ID. The first header in the archive holds the full
+commit ID. manifest.json gives the commit ID and the URL of each archive.
+
+Each core file (cores/*.data) is a 7z archive. It holds one WebAssembly
+program, the JavaScript code that loads it, core.json, build.json and, for
+most cores, license.txt. The WebAssembly program is RetroArch and one
+emulator core, compiled together. Thus the source code of a core file is the
+source code of the core, of RetroArch (part 2) and of the build scripts
+(part 3).
+
+
+C. The parts
+------------
+
+1. EmulatorJS, version 4.2.3
+
+   What it does here: EmulatorJS is the game player. It loads the cores,
+   shows the game and reads the controls.
+   Files: loader.js, emulator.min.js, emulator.min.css, localization/*.json
+   and LICENSE.
+   License: GNU General Public License, version 3 (GPL-3.0).
+   License text: licenses/GPL-3.0.txt (LICENSE has the same license).
+   Copyright: the EmulatorJS contributors. The file docs/contributors.md in
+   the source archive names them.
+   Source code:
+     source/EmulatorJS-4.2.3-e150dc0491ae.tar.gz (0.6 MB)
+       The git tag v4.2.3, commit e150dc0491ae747028919fb82d6598954976ede6.
+     source/EmulatorJS-4.2.3-package-lock.json (0.1 MB)
+       This file is from the release. It gives the exact versions of the
+       minify tools.
+   How to make emulator.min.js and emulator.min.css: Extract the source
+   archive. Put package-lock.json into the folder. Run
+   "npm ci --omit=optional --ignore-scripts". Then run
+   "node minify/minify.js". We did these steps with Node.js 26. The result
+   was the same as the files that we send, byte for byte.
+
+   emulator.min.js also contains these parts:
+   a. nipplejs, version 0.10.2 (the on-screen joystick).
+      License: MIT License. License text: licenses/nipplejs-0.10.2-LICENSE.txt
+      Copyright (c) 2014 Yoann Moinet.
+      Source code: https://github.com/yoannmoinet/nipplejs/tree/v0.10.2
+      data/src/nipplejs.js in the EmulatorJS source archive is the file
+      dist/nipplejs.js of that version.
+   b. Socket.IO client, version 4.8.1.
+      License: MIT License.
+      License text: licenses/socket.io-client-4.8.1-LICENSE.txt
+      Copyright (c) 2014-present Guillermo Rauch and Socket.IO contributors.
+      Source code: https://github.com/socketio/socket.io, git tag
+      socket.io-client@4.8.1. data/src/socket.io.min.js in the EmulatorJS
+      source archive is the file dist/socket.io.min.js of that version.
+   c. Icons from Font Awesome Free (the menu icons). One icon names
+      version 6.5.1.
+      License: Creative Commons Attribution 4.0 International (CC BY 4.0).
+      License texts: licenses/CC-BY-4.0.txt and
+      licenses/FontAwesome-Free-6.5.1-LICENSE.txt
+      Copyright 2023 Fonticons, Inc. (https://fontawesome.com).
+      The icons are in data/src/emulator.js in the EmulatorJS source archive.
+
+2. RetroArch (the EmulatorJS fork)
+
+   What it does here: RetroArch runs the emulator core. It connects the core
+   to the screen, the sound and the controls. It is in each core file.
+   License: GNU General Public License, version 3 or later
+   (GPL-3.0-or-later). Some parts have other licenses, for example the MIT
+   and BSD licenses. Their notices are in the source archive.
+   License text: licenses/GPL-3.0.txt
+   Copyright (C) 2010-2014 Hans-Kristian Arntzen, Copyright (C) 2011-2021
+   Daniel De Matteis, and the other RetroArch contributors.
+   Source code: source/RetroArch-EmulatorJS-6dd4353937ef.tar.gz (71.0 MB)
+     https://github.com/EmulatorJS/RetroArch, branch next,
+     commit 6dd4353937ef48b6ec0bfbdbb15d1c5992d86927.
+   How we know the commit: each core file contains the RetroArch git
+   version "6dd4353".
+
+3. The build scripts of the cores
+
+   What they do: they built the core files on 14 June 2025 (see
+   cores/reports/*.json).
+   License: GNU General Public License, version 3 (GPL-3.0).
+   License text: licenses/GPL-3.0.txt
+   Source code: source/EmulatorJS-build-b24e5b535034.tar.gz (less than
+   0.1 MB)
+     https://github.com/EmulatorJS/build,
+     commit b24e5b535034dc7c3428d76f236d4793881969b6.
+   How we know the commit: build.json in each core file gives version
+   2.0.2. This commit is the last commit before the build date. The next
+   commit is from 19 October 2025.
+   How to build: README.md and build.sh in the archive tell how. build.sh
+   gets each core and RetroArch with git. The archives in source/ hold the
+   same commits.
+   Compiler: Emscripten, version 4.0.8. How we know the version: each core
+   file names the LLVM compiler revision
+   23e3cbb2e82b62586266116c8ab77ce68e412cf8. Emscripten 4.0.8 uses this
+   revision.
+
+4. The emulator cores
+
+   Each core has two files: cores/<core>-wasm.data (WebGL 2) and
+   cores/<core>-legacy-wasm.data (WebGL 1). Both come from the same commit.
+   cores/reports/<core>.json gives the build time.
+   How we know each commit: the Makefile of each core puts the short git
+   commit ID into the core (git rev-parse --short HEAD). We give the text
+   that each core contains below. GitHub gives the full commit ID for it.
+
+   4.1 FCEUmm (fceumm), for the NES
+       License: GNU General Public License, version 2 or later.
+       License text: licenses/cores/fceumm.txt (GPL-2.0)
+       Copyright (C) 2003 Xodnizel and the other FCE Ultra and FCEUmm
+       authors.
+       Source code: source/libretro-fceumm-d9d7e141274d.tar.gz (0.8 MB)
+         https://github.com/EmulatorJS/libretro-fceumm,
+         commit d9d7e141274d07186b6a871ca2919b6f13cfb2f9 ("(SVN) d9d7e14").
+
+   4.2 Genesis Plus GX (genesis_plus_gx), for the Sega Genesis
+       License: the Genesis Plus GX license. It allows non-commercial use
+       only. Redistributions must not be sold or used in a commercial
+       product or activity. Some parts have the LGPL-2.1 and BSD licenses.
+       License text: licenses/cores/genesis_plus_gx.txt (the license and
+       the licenses of its parts). LGPL-2.1: licenses/LGPL-2.1.txt
+       Copyright (c) 1998-2003 Charles MacDonald. Copyright (c) 2007-2023
+       Eke-Eke. Some portions copyright Nicola Salmoria and the MAME team.
+       Source code: source/Genesis-Plus-GX-594cdf3a6665.tar.gz (14.4 MB)
+         https://github.com/EmulatorJS/Genesis-Plus-GX,
+         commit 594cdf3a666546f65f46391c3615ac5e9550bfc1 ("v1.7.4 594cdf3").
+
+   4.3 mGBA (mgba), for the Game Boy, the Game Boy Color and the
+       Game Boy Advance
+       License: Mozilla Public License, version 2.0 (MPL-2.0).
+       License text: licenses/cores/mgba.txt (also licenses/MPL-2.0.txt)
+       Copyright (c) 2013-2023 Jeffrey Pfau.
+       Source code: source/mgba-1d9dbb1dc8d5.tar.gz (15.1 MB)
+         https://github.com/EmulatorJS/mgba,
+         commit 1d9dbb1dc8d51ed744fe6be82183f7f5076e549d
+         ("0.11-dev 1d9dbb1").
+
+   4.4 Mupen64Plus-Next (mupen64plus_next), for the Nintendo 64
+       License: GNU General Public License, version 2 (GPL-2.0). Most files
+       also allow a later version. Some parts have other licenses. Their
+       notices are in the source archive.
+       License text: licenses/cores/mupen64plus_next.txt (GPL-2.0)
+       Copyright (C) 2008-2009 Richard Goedeken and the other Mupen64Plus
+       and GLideN64 authors.
+       Source code: source/mupen64plus-libretro-nx-c35e55e87cba.tar.gz
+       (15.0 MB)
+         https://github.com/EmulatorJS/mupen64plus-libretro-nx,
+         commit c35e55e87cbaa4cfc8355d8f91ceaa2beb212e9d
+         ("2.8-GLES3 c35e55e").
+
+   4.5 Nestopia UE (nestopia), for the NES
+       License: GNU General Public License, version 2 or later.
+       License text: licenses/cores/nestopia.txt (GPL-2.0)
+       Copyright (c) 2003-2008 Martin Freij. Copyright (c) 2008-2018
+       Nestopia UE Contributors.
+       Source code: source/nestopia-6b08ec9148bd.tar.gz (1.1 MB)
+         https://github.com/EmulatorJS/nestopia,
+         commit 6b08ec9148bd4cedc893ed0c97bc64061d044399
+         ("1.53.1 6b08ec9").
+
+   4.6 ParaLLEl N64 (parallel_n64), for the Nintendo 64
+       License: GNU General Public License, version 2 (GPL-2.0), the license
+       of Mupen64Plus-Core. Most files also allow a later version. Some parts
+       have other licenses. Their notices are in the source archive.
+       License texts: licenses/cores/parallel_n64.txt (the Mupen64Plus-Core
+       LICENSES file) and licenses/GPL-2.0.txt. The core file has no
+       license.txt.
+       Copyright: the Mupen64Plus authors (see licenses/cores/parallel_n64.txt)
+       and the other parallel-n64 authors.
+       Source code: source/parallel-n64-56f4daf8ec9b.tar.gz (5.0 MB)
+         https://github.com/EmulatorJS/parallel-n64,
+         commit 56f4daf8ec9b00d51d7db88e3c34c381294dbde0
+         ("2.0-rc2 56f4daf").
+
+   4.7 PicoDrive (picodrive), for the Sega Genesis
+       License: the PicoDrive license (the MAME license). It allows
+       non-commercial use only. Redistributions must not be sold or used in
+       a commercial product or activity.
+       License text: licenses/cores/picodrive.txt
+       (c) Copyright Dave, 2004. (C) notaz, 2006-2010. (C) irixxxx,
+       2020-2024. The file AUTHORS in the source archive names the other
+       authors.
+       Source code: source/picodrive-3cf1e2617958.tar.gz (2.0 MB)
+         https://github.com/EmulatorJS/picodrive,
+         commit 3cf1e26179584fc06b4794b0b2bf5d41c01b19dd ("2.01-3cf1e26").
+       PicoDrive uses git submodules. GitHub archives do not include them.
+       These archives hold each submodule at the commit that PicoDrive
+       3cf1e26 records. Each archive has the license file of its submodule.
+         source/picodrive-libpicofe-86a086ed64aa.tar.gz (0.1 MB)
+           platform/libpicofe, https://github.com/irixxxx/libpicofe,
+           commit 86a086ed64aadc1e87fc58a90703a07d91c9cdbe.
+         source/picodrive-cyclone68000-3ac7cf1bdeec.tar.gz (0.1 MB)
+           cpu/cyclone, https://github.com/irixxxx/cyclone68000,
+           commit 3ac7cf1bdeecb60e2414980e8dc72ff092f69769.
+         source/picodrive-emu2413-a2dfc20ff507.tar.gz (less than 0.1 MB)
+           pico/sound/emu2413,
+           https://github.com/digital-sound-antiques/emu2413,
+           commit a2dfc20ff507e4fd075cd325620bcea655e2c1f7.
+         source/picodrive-libchdr-e62ac5995b1c.tar.gz (4.2 MB)
+           pico/cd/libchdr, https://github.com/irixxxx/libchdr,
+           commit e62ac5995b1c7ef65ece35293914843b8ee57d49.
+         source/picodrive-dr_libs-dd762b861eca.tar.gz (0.5 MB)
+           platform/common/dr_libs, https://github.com/mackron/dr_libs,
+           commit dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb.
+
+   4.8 Snes9x (snes9x), for the Super NES
+       License: the Snes9x license. It allows use, copy, change and
+       distribution for non-commercial purposes only. The license
+       information and the copyright notice must appear with all copies.
+       Some parts have the LGPL and GPL licenses. The license text names
+       them.
+       License text: licenses/cores/snes9x.txt (the full license and all
+       copyright notices). Each Snes9x core file also holds this text as
+       license.txt.
+       (c) Copyright 1996-2002 Gary Henderson and Jerremy Koot, and the
+       other Snes9x authors in licenses/cores/snes9x.txt.
+       Source code: source/snes9x-6ca2343e5f3b.tar.gz (5.2 MB)
+         https://github.com/EmulatorJS/snes9x,
+         commit 6ca2343e5f3b0acbea49ca958251e3a0af58a81d ("1.63 6ca2343").
+       The libretro build of Snes9x does not use the git submodules of
+       this repository.
+
+   4.9 Stella 2014 (stella2014), for the Atari 2600
+       License: GNU General Public License, version 2.
+       License text: licenses/cores/stella2014.txt (stella/license.txt from
+       the source). The core file has no license.txt.
+       Copyright (c) 1995-2014 Bradford W. Mott, Stephen Anthony and the
+       Stella Team.
+       Source code: source/stella2014-libretro-1f578c36382b.tar.gz (0.7 MB)
+         https://github.com/EmulatorJS/stella2014-libretro,
+         commit 1f578c36382bb5a86a0fe245973fa557f369738b ("3.9.3 1f578c3").
+
+5. The Emscripten runtime and the musl C library, Emscripten 4.0.8
+
+   What they do here: Emscripten compiled the cores. Its runtime code and
+   its C library are in each core file.
+   License: Emscripten has the MIT License and the University of
+   Illinois/NCSA Open Source License. musl has the MIT License. The C++
+   library (LLVM libc++) has the Apache License 2.0 with LLVM Exceptions.
+   License texts: licenses/Emscripten-4.0.8-LICENSE.txt and
+   licenses/musl-COPYRIGHT.txt
+   Copyright (c) 2010-2014 Emscripten authors. Copyright (c) 2005-2020 Rich
+   Felker, et al.
+   Source code: https://github.com/emscripten-core/emscripten/tree/4.0.8
+   (the musl source is in system/lib/libc/musl).
+
+6. libunrar (compression/libunrar.js and compression/libunrar.wasm)
+
+   What it does here: it opens RAR game archives.
+   License: the UnRAR license (freeware). You can use the UnRAR source code
+   in any software to handle RAR archives. You cannot use it to make a RAR
+   compatible archiver or to re-create the RAR compression algorithm.
+   License text: licenses/UnRAR-5.9.2-license.txt
+   Copyright: Alexander Roshal (RAR and UnRAR).
+   Source code: source/libunrar-js-294e36269104.tar.gz (0.4 MB)
+     https://github.com/tnikolai2/libunrar-js,
+     commit 294e362691041b70bef818628e7dfb012b2474aa.
+     The archive holds the UnRAR 5.9.2 source (src/unrarsrc-5.9.2.tar.gz),
+     the glue code and build.sh.
+   compression/libunrar.wasm is the same file as libunrar.wasm at this
+   commit. EmulatorJS removed a short logging block from the start of
+   libunrar.js. The EmulatorJS source archive holds the changed file.
+
+7. extract7z.js and extractzip.js (in compression/)
+
+   What they do here: they open 7z and ZIP files. Each core file is a 7z
+   archive, so extract7z.js runs for each game.
+   Source code: we could not find it. EmulatorJS has had these two files
+   since its first commit (12 May 2021). EmulatorJS does not publish their
+   source code. The EmulatorJS source archive holds the same two files.
+   Their text shows a 7z decoder, a ZIP reader and the Emscripten runtime
+   with the musl C library.
+   License: not known. EmulatorJS gives them with its GPL-3.0 release.
+
+
+D. A known license problem in the upstream core files
+-----------------------------------------------------
+
+Each core file holds RetroArch and one emulator core, compiled together
+into one program (part B). RetroArch has the GPL-3.0-or-later license. The
+licenses of four cores do not agree with the GPL-3.0:
+  - Stella 2014 (part 4.9) has the GPL-2.0 license only. Its license does
+    not give the option of a later version.
+  - Snes9x (part 4.8), Genesis Plus GX (part 4.2) and PicoDrive (part 4.7)
+    allow non-commercial use only. The GPL-3.0 does not allow this
+    condition on a combined program.
+
+We did not make these combinations, and we did not change these files.
+EmulatorJS made these core files. EmulatorJS also sends the same files,
+with the same SHA-256 values as in manifest.json, from
+https://cdn.emulatorjs.org/4.2.3/data/cores/. libretro, the RetroArch
+project, compiles Snes9x, Genesis Plus GX and PicoDrive together with
+RetroArch in the same way for its web version of RetroArch:
+https://buildbot.libretro.com/nightly/emscripten/.
+
+The full source code of each part is in the folder source/ on this site.
+Part B tells you how to get it. Part C gives the archive for each part.
+
+
+E. Your rights
+--------------
+
+The GPL and the MPL let you get the source code, change it and share it.
+Read the license texts for the conditions.
+
+Genesis Plus GX, PicoDrive and Snes9x allow non-commercial use only. Do not
+sell these cores. Do not use them in a commercial product or activity.
+
+We give these files "as is". Each license text has its warranty
+disclaimer.

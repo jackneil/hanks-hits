@@ -134,6 +134,48 @@ describe("ROM proxy route", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("404s a ROM that the content blocklist removed, without touching the network", async () => {
+    // Guardrail 1, issue #25: the objects stay in the bucket, so the old URL
+    // of a removed title must not play.
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const blocked: [string[], string][] = [
+      [["snes", "mortal_kombat_1.smc"], "mortal-kombat"],
+      [["snes", "doom.smc"], "doom"],
+      [["atari2600", "custers_revenge.bin"], "custers-revenge"],
+      [["atari2600", "custerev.bin"], "custers-revenge"],
+      [["atari2600", "x_man.bin"], "x-man-universal-gamex"],
+      [["atari2600", "halloween.bin"], "halloween-wizard-video"],
+    ];
+    for (const [segments, ruleId] of blocked) {
+      const res = await GET(req(), params(segments));
+      expect(res.status, segments.join("/")).toBe(404);
+      expect(warnSpy).toHaveBeenLastCalledWith(
+        `ROM proxy: refused /${segments.join("/")} (content rule: ${ruleId})`
+      );
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still serves a kid-safe ROM whose name looks like a blocked title", async () => {
+    const rom = new Uint8Array(16).fill(1);
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(new Response(bodyStream([rom]), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (const segments of [
+      ["snes", "lufia_1_the_fortress_of_doom.smc"],
+      ["atari2600", "room_of_doom.bin"],
+      ["atari2600", "x_doom.bin"],
+    ]) {
+      expect((await GET(req(), params(segments))).status, segments.join("/")).toBe(200);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("429s once the per-IP rate limit is exceeded, without touching the network", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

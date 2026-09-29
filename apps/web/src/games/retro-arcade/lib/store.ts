@@ -19,15 +19,6 @@ export interface CustomRom {
   blobUrl?: string; // Runtime blob URL, not persisted
 }
 
-// Save state slot
-export interface SaveStateSlot {
-  slot1?: string; // base64 encoded
-  slot2?: string;
-  slot3?: string;
-  autoSave?: string;
-  lastSaved: number;
-}
-
 // User settings
 export interface ArcadeSettings {
   volume: number;
@@ -45,11 +36,15 @@ export interface PlayStats {
 
 // Full progress structure for sync
 // Index signature added for AppProgressData compatibility
+//
+// Save states are NOT part of the progress. They stay on this device in
+// IndexedDB (lib/saveStates.ts). Progress from before that change can still
+// carry a "saveStates" field (in localStorage or in the cloud); setProgress
+// and the persist migration below drop it.
 export interface RetroArcadeProgress {
   [key: string]: unknown;
   favorites: string[];
   recentlyPlayed: RecentGame[];
-  saveStates: Record<string, SaveStateSlot>;
   customRoms: Omit<CustomRom, "blobUrl">[];
   stats: PlayStats;
   settings: ArcadeSettings;
@@ -69,7 +64,6 @@ interface RetroArcadeState {
   // Persisted data
   favorites: string[];
   recentlyPlayed: RecentGame[];
-  saveStates: Record<string, SaveStateSlot>;
   customRoms: CustomRom[];
   stats: PlayStats;
   settings: ArcadeSettings;
@@ -96,10 +90,6 @@ interface RetroArcadeState {
   removeCustomRom: (romId: string) => void;
   getCustomRomsForSystem: (system: SystemType) => CustomRom[];
 
-  // Save states
-  saveSaveState: (gameId: string, slot: string, data: string) => void;
-  loadSaveState: (gameId: string, slot: string) => string | undefined;
-
   // Settings
   updateSettings: (settings: Partial<ArcadeSettings>) => void;
 
@@ -124,6 +114,28 @@ const defaultStats: PlayStats = {
   lastPlayedAt: 0,
 };
 
+/** The version of the localStorage data. Version 0 kept save states in it. */
+export const RETRO_ARCADE_STORAGE_VERSION = 1;
+
+/**
+ * Removes the "saveStates" field of version 0 data. That field held base64
+ * save states in localStorage. The old message code turned the EmulatorJS
+ * save object into an empty string, so the field holds no usable state.
+ */
+export function dropLegacySaveStates(persisted: unknown): PersistedArcade {
+  if (!persisted || typeof persisted !== "object") return {} as PersistedArcade;
+  const { saveStates: _legacy, ...rest } = persisted as Record<string, unknown>;
+  void _legacy;
+  // Zustand merges this over the defaults, so a missing field keeps its default.
+  return rest as PersistedArcade;
+}
+
+/** What goes to localStorage (see partialize below). */
+type PersistedArcade = Pick<
+  RetroArcadeProgress,
+  "favorites" | "recentlyPlayed" | "customRoms" | "stats" | "settings" | "lastModified"
+>;
+
 function stripRuntimeBlobUrl(rom: CustomRom): Omit<CustomRom, "blobUrl"> {
   return {
     id: rom.id,
@@ -147,7 +159,6 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
       // Initial persisted state
       favorites: [],
       recentlyPlayed: [],
-      saveStates: {},
       customRoms: [],
       stats: defaultStats,
       settings: defaultSettings,
@@ -275,25 +286,6 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
 
       getCustomRomsForSystem: (system) => get().customRoms.filter((r) => r.system === system),
 
-      // Save states
-      saveSaveState: (gameId, slot, data) =>
-        set((state) => ({
-          saveStates: {
-            ...state.saveStates,
-            [gameId]: {
-              ...state.saveStates[gameId],
-              [slot]: data,
-              lastSaved: Date.now(),
-            },
-          },
-          lastModified: Date.now(),
-        })),
-
-      loadSaveState: (gameId, slot) => {
-        const states = get().saveStates[gameId];
-        return states?.[slot as keyof typeof states] as string | undefined;
-      },
-
       // Settings
       updateSettings: (newSettings) =>
         set((state) => ({
@@ -317,7 +309,6 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
         return {
           favorites: state.favorites,
           recentlyPlayed: state.recentlyPlayed,
-          saveStates: state.saveStates,
           // Strip blobUrl from customRoms for persistence
           customRoms: state.customRoms.map(stripRuntimeBlobUrl),
           stats: state.stats,
@@ -326,11 +317,12 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
         };
       },
 
+      // Reads only the known fields, so a legacy "saveStates" field in cloud
+      // progress is dropped here.
       setProgress: (data) =>
         set({
           favorites: data.favorites || [],
           recentlyPlayed: data.recentlyPlayed || [],
-          saveStates: data.saveStates || {},
           customRoms: data.customRoms || [],
           stats: data.stats || defaultStats,
           settings: data.settings || defaultSettings,
@@ -339,10 +331,12 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
     }),
     {
       name: "retro-arcade-progress",
+      // Version 1: save states left localStorage (they are in IndexedDB now).
+      version: RETRO_ARCADE_STORAGE_VERSION,
+      migrate: (persisted) => dropLegacySaveStates(persisted),
       partialize: (state) => ({
         favorites: state.favorites,
         recentlyPlayed: state.recentlyPlayed,
-        saveStates: state.saveStates,
         // Don't persist blobUrls
         customRoms: state.customRoms.map(stripRuntimeBlobUrl),
         stats: state.stats,

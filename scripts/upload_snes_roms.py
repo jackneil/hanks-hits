@@ -11,6 +11,8 @@ import boto3
 from pathlib import Path
 from botocore.config import Config
 
+from retro_blocklist import blocked_rule
+
 # Railway S3 configuration - NEVER COMMIT CREDENTIALS
 # Set these environment variables before running:
 #   RAILWAY_S3_ENDPOINT
@@ -108,8 +110,7 @@ def categorize_game(name: str) -> str:
 
     # Fighting
     fighting_keywords = [
-        "street fighter", "mortal kombat", "killer instinct", "fatal fury",
-        "samurai showdown", "gundam", "fire pro wrestling", "fatal fury"
+        "street fighter", "fatal fury", "gundam"
     ]
     if any(kw in name_lower for kw in fighting_keywords):
         return "fighting"
@@ -125,7 +126,7 @@ def categorize_game(name: str) -> str:
     # Shooters (shmups)
     shooter_keywords = [
         "gradius", "r-type", "axelay", "phalanx", "parodius", "twinbee",
-        "un squadron", "cybernator", "metal warriors", "wolfenstein", "doom"
+        "un squadron", "cybernator", "metal warriors"
     ]
     if any(kw in name_lower for kw in shooter_keywords):
         return "shooter"
@@ -164,7 +165,7 @@ def categorize_game(name: str) -> str:
         "metroid", "castlevania", "contra", "alien", "battletoads",
         "ninja", "turtles", "zombies", "wild guns", "sunset riders",
         "knights of the round", "final fight", "double dragon",
-        "bomberman", "smash tv", "cannon fodder", "desert strike",
+        "bomberman", "desert strike",
         "starfox", "star fox", "pilotwings", "wolverine", "pocky"
     ]
     if any(kw in name_lower for kw in action_keywords):
@@ -205,11 +206,29 @@ def upload_roms():
     catalog = []
     uploaded = 0
     skipped = 0
+    blocked = 0
+    seen_filenames = set()  # Two dumps of one game sanitize to the same name
 
     for rom_path in sorted(rom_files):
         original_name = rom_path.name
         safe_name = sanitize_filename(original_name)
+
+        # Skip duplicates (same sanitized name); a duplicate id breaks the game list
+        if safe_name in seen_filenames:
+            print(f"  [DUP] {original_name} -> {safe_name} (skipping duplicate)")
+            continue
+        seen_filenames.add(safe_name)
+
         display_name = get_display_name(original_name)
+        game_id = f"snes-{safe_name.replace('.smc', '').replace('_', '-')}"
+
+        # Kid-safe content: do not upload or list a blocked title
+        rule = blocked_rule(display_name, safe_name, game_id)
+        if rule:
+            print(f"  [BLOCKED] {original_name} ({rule['id']}: {rule['reason']})")
+            blocked += 1
+            continue
+
         genre = categorize_game(display_name)
         favorite = is_favorite(display_name)
 
@@ -239,7 +258,6 @@ def upload_roms():
                 continue
 
         # Add to catalog
-        game_id = f"snes-{safe_name.replace('.smc', '').replace('_', '-')}"
         catalog.append({
             "id": game_id,
             "displayName": display_name,
@@ -248,7 +266,7 @@ def upload_roms():
             "favorite": favorite,
         })
 
-    print(f"\nUpload complete: {uploaded} uploaded, {skipped} skipped")
+    print(f"\nUpload complete: {uploaded} uploaded, {skipped} skipped, {blocked} blocked")
 
     # Save catalog as JSON for reference
     catalog_path = Path(__file__).parent / "snes_catalog.json"
@@ -288,9 +306,11 @@ export interface CatalogGame {
   favorite: boolean;
 }
 
-// ROM base URL - uses env var in production, falls back for local dev
+// ROM base URL - env var can override, but the default is the same-origin
+// /api/roms proxy (which works in every environment; a bare "/roms" fallback
+// used to 404 all of local dev because nothing serves that path)
 export const ROM_BASE_URL =
-  process.env.NEXT_PUBLIC_ROM_CDN_URL || "/roms";
+  process.env.NEXT_PUBLIC_ROM_CDN_URL || "/api/roms";
 
 export function getRomUrl(game: CatalogGame): string {
   return `${ROM_BASE_URL}/snes/${game.filename}`;

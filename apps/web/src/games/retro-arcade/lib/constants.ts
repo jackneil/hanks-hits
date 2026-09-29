@@ -12,7 +12,18 @@ export interface SystemInfo {
   bgGradient: string;
   icon: string;
   extensions: string[];
+  /**
+   * The EJS_core value for this console: an EmulatorJS system name (EmulatorJS
+   * then picks its first core for it) or a core name. The emulator page
+   * (public/emulator/index.html) has the same value for each console, and
+   * emulator-page.test.ts checks that the two agree.
+   */
   ejsCore: string;
+  /**
+   * The EmulatorJS control layout (EJS_controlScheme), when ejsCore is a core
+   * name. Without it, EmulatorJS uses the layout of the system of that core.
+   */
+  ejsControlScheme?: string;
 }
 
 // System definitions with their colors and EmulatorJS core names
@@ -45,7 +56,14 @@ export const SYSTEMS: Record<SystemType, SystemInfo> = {
     bgGradient: "from-green-500 to-green-700",
     icon: "📱",
     extensions: [".gb", ".gbc", ".zip"],
-    ejsCore: "gb",
+    // mGBA (MPL-2.0) plays Game Boy and Game Boy Color games. It replaced
+    // Gambatte, the EmulatorJS default for "gb". Both pass dmg-acid2 and
+    // cgb-acid2. Gambatte is GPL-2.0 only, and each core file links the core
+    // with GPL-3.0 RetroArch; MPL-2.0 is compatible with GPL-3.0. mGBA is the
+    // GBA core, so the Game Boy control layout is set here. The emulator page
+    // moves old Gambatte battery saves to mGBA (index.html).
+    ejsCore: "mgba",
+    ejsControlScheme: "gb",
   },
   gba: {
     id: "gba",
@@ -99,14 +117,6 @@ export interface GameInfo {
   romPath?: string; // Optional for pre-loaded games
   isCustom?: boolean; // User-uploaded ROM
 }
-
-// EmulatorJS CDN configuration
-export const EMULATOR_CONFIG = {
-  cdnBase: "https://cdn.emulatorjs.org/stable/data/",
-  loaderScript: "https://cdn.emulatorjs.org/stable/data/loader.js",
-  defaultVolume: 0.5,
-  themeColor: "#3B82F6", // Blue for kid-friendly
-};
 
 // Pre-loaded homebrew games (user will need to provide their own ROMs)
 // These are just metadata - actual ROMs must be user-provided

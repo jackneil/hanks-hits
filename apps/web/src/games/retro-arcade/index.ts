@@ -7,15 +7,14 @@ export type {
   RetroArcadeProgress,
   RecentGame,
   CustomRom,
-  SaveStateSlot,
   ArcadeSettings,
   PlayStats,
 } from "./lib/store";
+export type { SaveSlot, SavedGame } from "./lib/saveStates";
 export type { SystemType, SystemInfo, GameInfo } from "./lib/constants";
 export {
   SYSTEMS,
   SYSTEM_IDS,
-  EMULATOR_CONFIG,
   SAMPLE_GAMES,
   getGamesForSystem,
   isValidRomFile,

@@ -38,6 +38,9 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 
+# Python bytecode (the scripts/ catalog generators import scripts/retro_blocklist.py)
+__pycache__/
+
 # Vercel
 .vercel
 
@@ -60,6 +63,12 @@ dogfood-output-*/
 .claude/settings.local.json
 settings.local.json
 .claude/goals/
+
+# EmulatorJS Corresponding Source archives (about 136 MB). They are never
+# committed: the Docker build downloads each archive that manifest.json lists,
+# checks its SHA-256 and serves it (see apps/web/public/emulator/ejs/README.md).
+# For a local copy, run: pnpm --filter web emulator:sources
+apps/web/public/emulator/ejs/*/source/
 
 # graphify query cache - content-hash keyed, regenerated on every query.
 # last_query_stamp rewrites itself constantly and kept the tree permanently dirty.

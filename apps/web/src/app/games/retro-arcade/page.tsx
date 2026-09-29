@@ -2,7 +2,6 @@
 
 import dynamic from "next/dynamic";
 import { GameShell } from "@/shared/components";
-import { useRetroArcadeStore } from "@/games/retro-arcade/lib/store";
 
 const RetroArcadeGame = dynamic(
   () => import("@/games/retro-arcade"),
@@ -21,15 +20,13 @@ const RetroArcadeGame = dynamic(
   }
 );
 
+// No onRestart here: a game runs in the full-screen emulator view, which
+// sits above this header. Its own top bar has the restart button (with the
+// same confirmation dialog). On the other screens nothing is running, so a
+// restart button in this header would do nothing.
 export default function RetroArcadePage() {
-  const restartGame = useRetroArcadeStore((state) => state.restartGame);
-
   return (
-    <GameShell
-      gameName="Retro Arcade"
-      canPause={false}
-      onRestart={restartGame}
-    >
+    <GameShell gameName="Retro Arcade" canPause={false}>
       <RetroArcadeGame />
     </GameShell>
   );

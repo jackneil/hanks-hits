@@ -26,6 +26,7 @@ describe("retro arcade read aloud", () => {
       currentRomUrl: null,
       currentRomName: null,
       isPlaying: false,
+      recentlyPlayed: [],
     });
   });
 
@@ -68,5 +69,34 @@ describe("retro arcade read aloud", () => {
     render(<RetroArcadeGame />);
 
     expect(screen.queryByTestId("read-aloud-button")).not.toBeInTheDocument();
+  });
+});
+
+describe("retro arcade recently played", () => {
+  beforeEach(() => {
+    useRetroArcadeStore.setState({
+      currentSystem: null,
+      currentRomUrl: null,
+      currentRomName: null,
+      isPlaying: false,
+    });
+  });
+
+  it("does not show a removed title in Recently Played", () => {
+    // Saved progress from before issue #25 can still name a removed title.
+    useRetroArcadeStore.setState({
+      recentlyPlayed: [
+        { gameId: "snes-Mortal Kombat 1", name: "Mortal Kombat 1", system: "snes", lastPlayed: 3 },
+        { gameId: "atari2600-X-Man", name: "X-Man", system: "atari2600", lastPlayed: 2 },
+        { gameId: "snes-Super Mario World", name: "Super Mario World", system: "snes", lastPlayed: 1 },
+      ],
+      customRoms: [],
+    });
+    render(<RetroArcadeGame />);
+
+    expect(screen.getByText("Recently Played")).toBeInTheDocument();
+    expect(screen.getByText("Super Mario World")).toBeInTheDocument();
+    expect(screen.queryByText("Mortal Kombat 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("X-Man")).not.toBeInTheDocument();
   });
 });

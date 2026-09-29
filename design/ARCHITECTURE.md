@@ -266,11 +266,14 @@ game modals <= 60, GameStartOverlay 90 (it covers the viewport, so it must
 be above every game layer), OrientationWarning 100 (phone-width portrait
 only), the iOS install banner on a page 200, GameShell header 1000 (the
 clip confirmation lies in its title region at the same level), clip toast
-slot 1050, toast lane 1100, ResultChip 1200, LeaderboardModal 1500,
-PauseMenu 2000, clip sheets (Capture menu, viewer, settings) and the iOS
-install tip that the pause menu opens 2500, RestartConfirmationDialog
-3000. Every layer above 1000 portals to `document.body`, so no game
-container can trap it (gameplay clips plan, section 11.4).
+slot 1050, toast lane 1100 and the full-screen Retro Arcade emulator view
+1100 (it covers the header, and its own top bar has the Back button),
+ResultChip 1200, LeaderboardModal 1500, PauseMenu 2000, clip sheets
+(Capture menu, viewer, settings) and the iOS install tip that the pause
+menu opens 2500, RestartConfirmationDialog 3000. Every layer above 1000
+portals to `document.body`, so no game container can trap it (gameplay
+clips plan, section 11.4). The emulator view is `fixed` in the game
+content, which makes no stacking context, so it does not need a portal.
 
 **Layout under the shell:** content is offset by the header
 (`pt-12 md:pt-14`); full-height modules size against

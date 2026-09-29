@@ -3,17 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <!-- SECURITY: Content Security Policy for emulator iframe -->
+  <!-- SECURITY: Content Security Policy for the emulator iframe. This page
+       shares its origin with the clip library, so it loads no code from
+       another site. EmulatorJS comes from /emulator/ejs/<version>/ on this
+       site. connect-src has no https: source on purpose: when a core file
+       is missing, EmulatorJS downloads it from its own CDN and runs it. The
+       same policy is in the /emulator header in next.config.ts. -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
-                 script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdn.emulatorjs.org https://static.cloudflareinsights.com;
-                 style-src 'self' 'unsafe-inline' https://cdn.emulatorjs.org;
+                 script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://static.cloudflareinsights.com;
+                 style-src 'self' 'unsafe-inline';
                  img-src 'self' data: blob: https:;
                  media-src 'self' blob:;
-                 connect-src 'self' https: blob:;
+                 connect-src 'self' blob:;
                  worker-src 'self' blob:;
-                 font-src 'self' data: https://cdn.emulatorjs.org;">
+                 font-src 'self' data:;">
   <title>Retro Arcade Emulator</title>
+  <!-- The licenses and the source code of EmulatorJS and the cores
+       (GPL-3.0 section 6(d)): NOTICE.txt in the same folder as the files. -->
+  <link rel="license" href="/emulator/ejs/4.2.3/NOTICE.txt">
   <style>
     * {
       margin: 0;
@@ -64,6 +72,181 @@
     .hidden {
       display: none !important;
     }
+
+    /* On-screen gamepad of EmulatorJS 4.2.3. Every control is at least
+       48 px, over the 44 px touch rule (the default Start and Select were
+       50x31 px, the menu button 24x24 px), and no control covers the
+       picture of the game.
+       - Portrait: EmulatorJS puts the picture at the top
+         (video_top_portrait_viewport), so all controls stay in the space
+         below it. The bottom row holds five 48 px slots: Fast, Select,
+         Start, Slow and the menu button.
+       - Landscape: the picture is in the middle, so the bottom row goes to
+         the two bottom corners and the menu button to the top right.
+       Heights from the bottom of the emulator box: bottom row 8 to 56 px,
+       d-pad and face buttons from 64 px, shoulder buttons above them.
+       The "#game" prefix beats the EmulatorJS stylesheet, which loads
+       later. "!important" only beats the inline top/left/height that
+       EmulatorJS sets on each button. emulator-page.test.ts checks these
+       rules. */
+    #game .ejs_virtualGamepad_button {
+      box-sizing: border-box;
+      min-width: 48px;
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1 !important;
+    }
+    #game .ejs_virtualGamepad_open {
+      box-sizing: border-box;
+      width: 48px;
+      height: 48px;
+      padding: 12px;
+      top: 0;
+      right: 0;
+    }
+    #game .ejs_virtualGamepad_parent {
+      bottom: 8px;
+    }
+    #game .ejs_virtualGamepad_left,
+    #game .ejs_virtualGamepad_right {
+      bottom: 56px;
+    }
+    /* Shoulder buttons sit just above the d-pad and the face buttons. */
+    #game .ejs_virtualGamepad_left .b_l,
+    #game .ejs_virtualGamepad_right .b_r {
+      top: -56px !important;
+    }
+    #game .ejs_virtualGamepad_bottom {
+      /* Slot k starts at --start + k * (48px + --gap). */
+      --gap: min(calc((100% - 256px) / 4), 24px);
+      --start: calc((100% - 240px - 4 * var(--gap)) / 2);
+      left: 0;
+      width: 100%;
+      margin-left: 0;
+      bottom: 0;
+      height: 48px;
+    }
+    #game .ejs_virtualGamepad_bottom .ejs_virtualGamepad_button {
+      top: 0 !important;
+      width: 48px;
+    }
+    /* Rewind (off unless the player turns it on in Settings) goes above the
+       middle of the bottom row. */
+    #game .ejs_virtualGamepad_bottom .b_speed_rewind {
+      top: -56px !important;
+      left: calc(50% - 24px) !important;
+      right: auto !important;
+    }
+    @media (orientation: portrait) {
+      #game .ejs_virtualGamepad_bottom .ejs_virtualGamepad_button {
+        right: auto !important;
+      }
+      #game .ejs_virtualGamepad_bottom .b_speed_fast {
+        left: var(--start) !important;
+      }
+      #game .ejs_virtualGamepad_bottom .b_select,
+      #game .ejs_virtualGamepad_bottom .b_mode {
+        left: calc(var(--start) + 48px + var(--gap)) !important;
+      }
+      #game .ejs_virtualGamepad_bottom .b_start,
+      #game .ejs_virtualGamepad_bottom .b_reset {
+        left: calc(var(--start) + 2 * (48px + var(--gap))) !important;
+      }
+      #game .ejs_virtualGamepad_bottom .b_speed_slow {
+        left: calc(var(--start) + 3 * (48px + var(--gap))) !important;
+      }
+      #game .ejs_virtualGamepad_open {
+        top: auto;
+        bottom: 8px;
+        right: calc((100% - 240px - 4 * min(calc((100% - 256px) / 4), 24px)) / 2);
+      }
+    }
+    @media (orientation: landscape) {
+      #game .ejs_virtualGamepad_bottom .b_speed_fast {
+        left: 8px !important;
+        right: auto !important;
+      }
+      #game .ejs_virtualGamepad_bottom .b_select,
+      #game .ejs_virtualGamepad_bottom .b_mode {
+        left: 64px !important;
+        right: auto !important;
+      }
+      #game .ejs_virtualGamepad_bottom .b_start,
+      #game .ejs_virtualGamepad_bottom .b_reset {
+        left: auto !important;
+        right: 64px !important;
+      }
+      #game .ejs_virtualGamepad_bottom .b_speed_slow {
+        left: auto !important;
+        right: 8px !important;
+      }
+    }
+
+    /* The menu bar (Save State, Load State, Restart and more). Its buttons
+       were 32 px (an 18 px icon and 7 px padding). On a small screen the
+       menu is a 300 px popup that stopped at 260 px and cut off the last
+       rows; it now scrolls and can use the height of the box. */
+    #game .ejs_menu_bar .ejs_menu_button {
+      box-sizing: border-box;
+      min-width: 44px;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    #game .ejs_small_screen .ejs_menu_bar .ejs_menu_button {
+      justify-content: flex-start;
+    }
+    #game .ejs_small_screen .ejs_menu_bar {
+      max-height: calc(100% - 16px);
+      overflow-y: auto;
+    }
+
+    /* Nintendo 64: two sticks, six face buttons and three triggers. The
+       default layout is 340 px tall. This one is 272 px, so it fits below
+       the picture on a 320x568 phone. The sticks keep their container
+       (EmulatorJS measures them in it); only the container moves. Each
+       stick is a 100 px circle on an edge of that container: the analog
+       stick on the bottom edge (64 to 164 px), the d-pad stick on the top
+       edge (164 to 264 px). */
+    #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_left {
+      bottom: 106px;
+      height: 100px;
+    }
+    #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_right {
+      height: 208px;
+    }
+    #game .ejs_virtualGamepad_parent:has(.cs_n64) .ejs_virtualGamepad_top {
+      bottom: 264px;
+    }
+    #game .ejs_virtualGamepad_right .cs_n64.b_a { left: 80px !important; top: 158px !important; }
+    #game .ejs_virtualGamepad_right .cs_n64.b_b { left: 20px !important; top: 158px !important; }
+    #game .ejs_virtualGamepad_right .cs_n64.b_cu { left: 30px !important; top: 0 !important; }
+    #game .ejs_virtualGamepad_right .cs_n64.b_cl { left: -20px !important; top: 50px !important; }
+    #game .ejs_virtualGamepad_right .cs_n64.b_cr { left: 80px !important; top: 50px !important; }
+    #game .ejs_virtualGamepad_right .cs_n64.b_cd { left: 30px !important; top: 100px !important; }
+    #game .ejs_virtualGamepad_top .cs_n64.b_l { left: 128px !important; right: auto !important; top: 0 !important; }
+    #game .ejs_virtualGamepad_top .cs_n64.b_r { left: auto !important; right: 10px !important; top: 0 !important; }
+    /* Z joins the bottom row in the Select slot. The top row line is
+       272 px above the bottom of the box, the bottom row starts 216 px
+       below that line. */
+    #game .ejs_virtualGamepad_top .cs_n64.b_z {
+      top: 216px !important;
+      right: auto !important;
+    }
+    @media (orientation: portrait) {
+      #game .ejs_virtualGamepad_top .cs_n64.b_z {
+        left: calc((100% - 240px - 4 * min(calc((100% - 256px) / 4), 24px)) / 2 + 48px + min(calc((100% - 256px) / 4), 24px)) !important;
+      }
+    }
+    @media (orientation: landscape) {
+      #game .ejs_virtualGamepad_top .cs_n64.b_z {
+        left: 64px !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -79,14 +262,57 @@
     // This prevents messages from being sent to/received from unauthorized origins
     const PARENT_ORIGIN = window.location.origin;
 
-    // SECURITY: Allowed ROM URL patterns
-    // Allow HTTPS URLs from our CDN, Railway, or same origin
+    // SECURITY: Allowed ROM URL patterns. ROMs come from this site only:
+    // the /api/roms proxy or a same-origin blob: URL for an uploaded ROM.
+    // The CSP connect-src ('self' blob:) blocks every other host, so the
+    // page refuses those URLs here with a clear message.
     const ALLOWED_ROM_PATTERNS = [
-      /^https:\/\/[^/]+\.railway\.app\//,  // Railway S3
-      /^https:\/\/storage\.railway\.app\//,  // Railway storage
       new RegExp(`^${window.location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`),  // Same origin
       /^\/[^/]/,  // Relative paths (starting with /)
     ];
+
+    // SECURITY: The consoles that Retro Arcade offers, with the EmulatorJS
+    // core (EJS_core) and control layout (EJS_controlScheme) of each. The
+    // site hosts the cores for these consoles only. The values are the same
+    // as ejsCore and ejsControlScheme in
+    // src/games/retro-arcade/lib/constants.ts (emulator-page.test.ts checks).
+    const SYSTEM_CONFIG = {
+      nes: { core: 'nes' },
+      snes: { core: 'snes' },
+      // Game Boy and Game Boy Color games run on mGBA. Before, they ran on
+      // Gambatte. RetroArch keeps battery saves in one folder per core, so
+      // the page copies old Gambatte saves to the mGBA folder (see below).
+      gb: {
+        core: 'mgba',
+        controlScheme: 'gb',
+        oldSaveFolder: '/data/saves/Gambatte',
+        saveFolder: '/data/saves/mGBA',
+      },
+      gba: { core: 'gba' },
+      segaMD: { core: 'segaMD' },
+      n64: { core: 'n64' },
+      atari2600: { core: 'atari2600' },
+    };
+
+    /**
+     * Copies each battery save (.srm) from oldFolder to newFolder, when
+     * newFolder does not have a save with that name. The old file stays.
+     * A .srm file is the cartridge RAM as it is, so the new core reads it.
+     * Returns the names of the copied files.
+     */
+    function copyOldSaves(FS, oldFolder, newFolder) {
+      if (!FS.analyzePath(oldFolder).exists) return [];
+      const copied = [];
+      for (const name of FS.readdir(oldFolder)) {
+        if (!/\.srm$/i.test(name)) continue;
+        const target = newFolder + '/' + name;
+        if (FS.analyzePath(target).exists) continue;
+        if (!FS.analyzePath(newFolder).exists) FS.mkdir(newFolder);
+        FS.writeFile(target, FS.readFile(oldFolder + '/' + name));
+        copied.push(name);
+      }
+      return copied;
+    }
 
     function isValidRomUrl(url) {
       if (!url) return false;
@@ -141,7 +367,18 @@
     // SECURITY: Sanitize game name to prevent XSS
     const gameName = (params.get('name') || 'Game').replace(/[<>"'&]/g, '');
 
-    // Validate required parameters
+    // Validate required parameters. hasOwnProperty: a name such as
+    // "constructor" must not match a property of Object.prototype.
+    const system = Object.prototype.hasOwnProperty.call(SYSTEM_CONFIG, core) ? SYSTEM_CONFIG[core] : null;
+    if (!system) {
+      document.getElementById('loading').innerHTML = `
+        <div class="icon">🚫</div>
+        <div class="text">We cannot play this game here</div>
+        <div class="subtext">Go back and pick a different game.</div>
+      `;
+      throw new Error('Unsupported core: ' + core);
+    }
+
     if (!romUrl) {
       document.getElementById('loading').innerHTML = `
         <div class="icon">⚠️</div>
@@ -163,10 +400,42 @@
 
     // EmulatorJS configuration
     window.EJS_player = '#game';
-    window.EJS_core = core;
+    window.EJS_core = system.core;
+    if (system.controlScheme) window.EJS_controlScheme = system.controlScheme;
+
+    // Keep a kid's Game Boy progress after the change of core. EmulatorJS
+    // mounts the saves folder, sends "saveDatabaseLoaded", and only then
+    // loads the game. loader.js sets window.EJS_emulator immediately after it
+    // makes the emulator, so this setter adds the handler in time.
+    if (system.oldSaveFolder) {
+      let emulator;
+      Object.defineProperty(window, 'EJS_emulator', {
+        configurable: true,
+        get: function() { return emulator; },
+        set: function(value) {
+          emulator = value;
+          value.on('saveDatabaseLoaded', function(FS) {
+            try {
+              const copied = copyOldSaves(FS, system.oldSaveFolder, system.saveFolder);
+              if (copied.length > 0) console.log('Copied old saves to ' + system.saveFolder + ': ' + copied.join(', '));
+            } catch (e) {
+              // The game still starts. It does not see the old save.
+              console.warn('Could not copy the old saves', e);
+            }
+          });
+        },
+      });
+    }
     window.EJS_gameUrl = romUrl;
     window.EJS_gameName = gameName;
-    window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+    // EmulatorJS 4.2.3 is served from this site (issue #22). The files come
+    // from the official release; /emulator/ejs/4.2.3/manifest.json records
+    // the source and the SHA-256 of each file. To change the version, run
+    // apps/web/scripts/vendor-emulatorjs.mjs, change this path and the
+    // loader.js path below, then update the version in the three tests in
+    // src/games/retro-arcade/__tests__/ (emulator-pin, emulator-selfhost,
+    // emulator-page).
+    window.EJS_pathtodata = '/emulator/ejs/4.2.3/';
 
     // Kid-friendly defaults
     window.EJS_volume = 0.5;
@@ -207,10 +476,31 @@
       window.parent.postMessage({ type: 'ready' }, PARENT_ORIGIN);
     };
 
-    // Handle save states
+    // Save states. The Retro Arcade page (the parent) keeps them on this
+    // device in IndexedDB; this page only moves the bytes. EmulatorJS 4.2.3
+    // calls EJS_onSaveState with { screenshot, format, state }, where state
+    // is a Uint8Array. The bytes go to the parent as an ArrayBuffer in the
+    // transfer list, so a 16 MB state is not copied.
+    // src/games/retro-arcade/lib/emulatorMessages.ts lists every message.
+    function stateBuffer(state) {
+      if (!(state instanceof Uint8Array) || state.byteLength === 0) return null;
+      if (state.byteOffset === 0 && state.byteLength === state.buffer.byteLength) return state.buffer;
+      return state.buffer.slice(state.byteOffset, state.byteOffset + state.byteLength);
+    }
+
+    function gameManager() {
+      const emulator = window.EJS_emulator;
+      return emulator && emulator.gameManager ? emulator.gameManager : null;
+    }
+
     // SECURITY: Use specific origin instead of wildcard '*'
-    window.EJS_onSaveState = function(data) {
-      window.parent.postMessage({ type: 'saveState', data: data }, PARENT_ORIGIN);
+    window.EJS_onSaveState = function(event) {
+      const buffer = stateBuffer(event && event.state);
+      if (!buffer) {
+        window.parent.postMessage({ type: 'saveStateFailed' }, PARENT_ORIGIN);
+        return;
+      }
+      window.parent.postMessage({ type: 'saveState', state: buffer }, PARENT_ORIGIN, [buffer]);
     };
 
     window.EJS_onLoadState = function() {
@@ -218,25 +508,54 @@
     };
 
     // Listen for messages from parent
-    // SECURITY: Validate message origin before processing
+    // SECURITY: Accept a message only from the parent window, on this origin.
     window.addEventListener('message', function(event) {
-      // Only accept messages from same origin
-      if (event.origin !== PARENT_ORIGIN) {
+      if (event.origin !== PARENT_ORIGIN || event.source !== window.parent) {
         console.warn('Ignoring message from unauthorized origin:', event.origin);
         return;
       }
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
 
-      if (event.data.type === 'loadState' && event.data.data) {
-        // Handle load state from parent
-        if (window.EJS_emulator && window.EJS_emulator.gameManager) {
-          window.EJS_emulator.gameManager.loadState(event.data.data);
+      if (data.type === 'loadState') {
+        const reason = data.reason === 'resume' ? 'resume' : 'manual';
+        const manager = gameManager();
+        if (!manager || !(data.state instanceof ArrayBuffer) || data.state.byteLength === 0) {
+          window.parent.postMessage({ type: 'stateLoadFailed', reason: reason }, PARENT_ORIGIN);
+          return;
         }
+        try {
+          manager.loadState(new Uint8Array(data.state));
+          window.parent.postMessage({ type: 'stateLoaded', reason: reason }, PARENT_ORIGIN);
+        } catch (e) {
+          console.warn('Could not load the save state', e);
+          window.parent.postMessage({ type: 'stateLoadFailed', reason: reason }, PARENT_ORIGIN);
+        }
+        return;
+      }
+
+      // The parent asks for the current state when the kid leaves the game
+      // or the page goes to the background (the "auto" save).
+      if (data.type === 'captureState') {
+        const requestId = typeof data.requestId === 'number' ? data.requestId : 0;
+        let buffer = null;
+        try {
+          const manager = gameManager();
+          buffer = manager ? stateBuffer(manager.getState()) : null;
+        } catch (e) {
+          console.warn('Could not make a save state', e);
+        }
+        window.parent.postMessage(
+          { type: 'capturedState', requestId: requestId, state: buffer },
+          PARENT_ORIGIN,
+          buffer ? [buffer] : []
+        );
       }
     });
 
     // Load the EmulatorJS loader script
     const script = document.createElement('script');
-    script.src = 'https://cdn.emulatorjs.org/stable/data/loader.js';
+    script.src = '/emulator/ejs/4.2.3/loader.js';
     script.async = true;
     script.onerror = function() {
       document.getElementById('loading').innerHTML = `

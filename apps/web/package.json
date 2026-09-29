@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "generate:metadata": "npx tsx scripts/generate-game-metadata.ts"
+    "generate:metadata": "npx tsx scripts/generate-game-metadata.ts",
+    "emulator:sources": "node scripts/emulatorjs-sources.mjs 4.2.3 --fetch --sources"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",

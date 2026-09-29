@@ -27,7 +27,7 @@ CLICK a game to start
     |
 PLAY with on-screen controls (mobile) or keyboard (desktop)
     |
-SAVE progress (auto-save to localStorage/DB)
+SAVE progress (save states stay on this device in IndexedDB)
     |
 RETURN later and continue where you left off
 ```
@@ -164,17 +164,28 @@ N64 has analog stick and unique layout:
 
 EmulatorJS is designed as a plugin that runs in a container element. **Critical for Next.js/React**: We must use an **iframe** approach because EmulatorJS manipulates the DOM directly and conflicts with React's virtual DOM.
 
-#### CDN Setup
+#### Self-Hosted EmulatorJS Files
 
 ```javascript
 // Base configuration
-EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+EJS_pathtodata = "/emulator/ejs/4.2.3/";
 ```
 
-Use the `stable` version for reliability. Options:
-- `stable` - Tested, recommended for production
-- `latest` - Current code, stable cores
-- `nightly` - Bleeding edge, may break
+The site serves its own copy of EmulatorJS 4.2.3 from `apps/web/public/emulator/ejs/4.2.3/`. Do not load EmulatorJS from the EmulatorJS CDN. The emulator page runs in the same origin as the clip library (IndexedDB `hh-clips` and OPFS `lib/`). A script from another site in that origin can read every clip on the device.
+
+- The files come from the official release asset `4.2.3.7z` on GitHub. `manifest.json` in the folder records the source URL, the size and the SHA-256 of each file.
+- The folder holds the loader, the bundle and its CSS, the decompression helpers, the localization files, and the cores for each console in `lib/constants.ts`. Each core has a WebGL 2 build and a legacy (WebGL 1) build.
+- The emulator CSP (in `public/emulator/index.html` and in `next.config.ts`) allows no other host in `connect-src`. When a core file is missing, EmulatorJS downloads the core from its CDN and runs it. The CSP blocks that download.
+- The emulator page accepts only the systems of Retro Arcade and ROMs from this site (`/api/roms` or a `blob:` URL of this site).
+
+Three tests check this: `emulator-pin.test.ts` (paths and CSP), `emulator-selfhost.test.ts` (the SHA-256 of each file and the core list) and `emulator-page.test.ts` (the page script).
+
+To change the version:
+
+1. Run `node scripts/vendor-emulatorjs.mjs <version>` in `apps/web`.
+2. Change the two paths in `public/emulator/index.html`.
+3. Change the version in the three tests.
+4. Play a game on each console.
 
 #### Iframe Approach (Required for React/Next.js)
 
@@ -203,7 +214,7 @@ Create a standalone HTML template that loads EmulatorJS:
     EJS_core = params.get('core') || 'nes';
     EJS_gameUrl = params.get('rom');
     EJS_gameName = params.get('name') || 'Game';
-    EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+    EJS_pathtodata = "/emulator/ejs/4.2.3/";
 
     // Kid-friendly defaults
     EJS_volume = 0.5;
@@ -225,7 +236,7 @@ Create a standalone HTML template that loads EmulatorJS:
       window.parent.postMessage({ type: 'ready' }, '*');
     };
   </script>
-  <script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
+  <script src="/emulator/ejs/4.2.3/loader.js"></script>
 </body>
 </html>
 ```
@@ -350,29 +361,46 @@ async function getRomUrl(key: string) {
 
 ### Save State Management
 
-Save states are binary blobs. Store them as base64 in the progress data:
+> This section replaces the first plan (base64 save states in the cloud
+> progress). That plan lost every save: the old message code turned the
+> EmulatorJS save object into an empty string.
 
-```typescript
-// Convert ArrayBuffer to base64
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
+Save states stay on the device. They never go to localStorage and never go to
+the cloud progress. A Game Boy state is about 200 KB and a Nintendo 64 state
+is about 16 MB. The cloud progress limit is 1 MB, and each upload costs the
+server money.
 
-// Convert base64 back to ArrayBuffer
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-```
+- **Store**: IndexedDB database `hh-retro-arcade-saves`, object store
+  `states`, key `[owner, gameId, slot]`
+  (`src/games/retro-arcade/lib/saveStates.ts`). Each record holds a binary
+  Blob. When WebKit cannot store the Blob ("Error preparing Blob/File data"),
+  the store tries once more with an ArrayBuffer.
+- **Owner**: "guest", or "u_" + the first 20 hex characters of
+  SHA-256("hh-retro-states:v1:" + user id) (`lib/ownerKey.ts`). Every read
+  names the owner, so one account on a shared iPad never loads the save of
+  another account.
+- **Slots**: each game keeps two slots. "manual" is the Save State button of
+  EmulatorJS. "auto" is the moment the kid left the game (Back to Games, or
+  the page went to the background). A new save replaces the old one in the
+  same slot.
+- **Load**: the Load State button loads the "manual" slot. When a game
+  starts, the "auto" slot loads, so the kid continues where they stopped. The
+  restart button in the top bar starts the game again without the "auto"
+  slot.
+- **Messages**: the emulator page sends the bytes as an ArrayBuffer in the
+  postMessage transfer list (no copy, no base64). `lib/emulatorMessages.ts`
+  lists each message.
+- **Failures**: a quota or write failure shows "Your save did not fit. Try
+  deleting an old game save." The message stays until the kid taps OK, and
+  it has a read-aloud button. "Your Game Saves" on the console screen lists
+  each save with its size and a Delete button.
+- **Battery saves**: the in-game save of a cartridge (SRAM) is a different
+  thing. EmulatorJS keeps it in its own IndexedDB, and this design does not
+  change it.
+- **Old data**: localStorage data of version 0 and old cloud progress can
+  hold a `saveStates` field. The store migration and `setProgress` drop it.
+  The server schema drops it from a save before validation, so old clients
+  can still save.
 
 ---
 
@@ -535,6 +563,24 @@ Minimal overlay - let the game shine:
 5. **No scary settings** - Hide advanced options, sensible defaults
 6. **Instant feedback** - Loading spinner, "Game starting..." text
 
+### Content Rules (Catalog Blocklist)
+
+Do not put a game with blood, gore, or sexual content in a catalog (Guardrail 1, issue #25).
+
+- The rules are in `apps/web/src/games/retro-arcade/lib/content-blocklist.json`. Each rule has a pattern, a reason, and a source (an ESRB rating or a description of the game).
+- The test `__tests__/catalog-content.test.ts` finds each `lib/*catalog*` file. The test fails when a catalog entry matches a rule. A catalog for a new console gets this check with no test change. The test also fails when a catalog file has no catalog array, or when an entry has no string `id`, `displayName` and `filename`. Thus a catalog with a different entry shape cannot pass with no check.
+- The ROM proxy (`src/app/api/roms/[...path]/route.ts`) reads the same rules. It returns 404 for a blocked ROM file name before it fetches from the bucket. Thus a title that is removed from a catalog cannot be played from its old URL.
+- The catalog generators (`scripts/upload_snes_roms.py`, `scripts/upload_atari_roms.py`) read the same rules through `scripts/retro_blocklist.py`. They do not upload or list a blocked ROM. They do not delete a ROM that is already in the bucket.
+- When you remove a title, also delete its ROM object from the bucket. This is a production write, so get approval first. Cloudflare keeps `.bin` ROMs in its cache (`cf-cache-status: HIT`) for up to one year, so also purge each old `/api/roms/...` URL from the Cloudflare cache.
+- A rule reads the display name, the ROM file name, and the id. Old ROM dumps often have short names (for example `custerev.bin`), so the display name alone is not sufficient.
+- To identify an unclear Atari 2600 ROM, compare its MD5 with the Stella ROM database (`src/emucore/DefProps.hxx` in the Stella source). Examine each ROM in the catalog, not only the ROMs with unclear names. Block every ROM from these adult publishers:
+  - Mystique (American Multiple Industries)
+  - PlayAround (J.H.M.)
+  - Multivision (Harem)
+  - Universal Gamex (X-Man)
+- Also block the re-releases and hacks of these adult games. Examples are the Dynacom "Beat 'Em & Eat 'Em" and the "Custer's Viagra" hacks.
+- To add a rule, add the pattern, the reason, the source, and examples to the JSON file. Then run `python3 scripts/retro_blocklist.py` and the catalog test.
+
 ---
 
 ## File Structure
@@ -625,16 +671,9 @@ interface RetroArcadeProgress {
     lastPlayed: number;  // timestamp
   }[];
 
-  // Save states (keyed by gameId)
-  saveStates: {
-    [gameId: string]: {
-      slot1?: string;  // base64 encoded save state
-      slot2?: string;
-      slot3?: string;
-      autoSave?: string;  // Auto-save on exit
-      lastSaved: number;  // timestamp
-    };
-  };
+  // Save states are NOT progress. They stay on this device in IndexedDB
+  // (see "Save State Management"). Old data can hold a saveStates field;
+  // the store and the server schema drop it.
 
   // Custom ROMs (metadata only - actual ROMs in IndexedDB)
   customRoms: {
@@ -678,7 +717,6 @@ import { persist } from 'zustand/middleware';
 interface RetroArcadeState {
   favorites: string[];
   recentlyPlayed: { gameId: string; system: string; lastPlayed: number }[];
-  saveStates: Record<string, { slot1?: string; slot2?: string; slot3?: string; autoSave?: string; lastSaved: number }>;
   customRoms: { id: string; system: string; name: string; addedAt: number }[];
   stats: { totalPlayTime: number; gamesPlayed: number; favoriteSystem: string; lastPlayedAt: number };
   settings: { volume: number; autoSaveOnExit: boolean; showTouchControls: boolean };
@@ -687,8 +725,6 @@ interface RetroArcadeState {
   addFavorite: (gameId: string) => void;
   removeFavorite: (gameId: string) => void;
   addRecentlyPlayed: (gameId: string, system: string) => void;
-  saveSaveState: (gameId: string, slot: string, data: string) => void;
-  loadSaveState: (gameId: string, slot: string) => string | undefined;
   updatePlayTime: (seconds: number) => void;
   updateSettings: (settings: Partial<RetroArcadeState['settings']>) => void;
 }
@@ -698,7 +734,6 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
     (set, get) => ({
       favorites: [],
       recentlyPlayed: [],
-      saveStates: {},
       customRoms: [],
       stats: { totalPlayTime: 0, gamesPlayed: 0, favoriteSystem: '', lastPlayedAt: 0 },
       settings: { volume: 0.5, autoSaveOnExit: true, showTouchControls: true },
@@ -722,22 +757,6 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
           }
         };
       }),
-
-      saveSaveState: (gameId, slot, data) => set((state) => ({
-        saveStates: {
-          ...state.saveStates,
-          [gameId]: {
-            ...state.saveStates[gameId],
-            [slot]: data,
-            lastSaved: Date.now()
-          }
-        }
-      })),
-
-      loadSaveState: (gameId, slot) => {
-        const states = get().saveStates[gameId];
-        return states?.[slot as keyof typeof states] as string | undefined;
-      },
 
       updatePlayTime: (seconds) => set((state) => ({
         stats: {
@@ -773,7 +792,6 @@ export function useRetroArcadeSync() {
     getState: () => ({
       favorites: store.favorites,
       recentlyPlayed: store.recentlyPlayed,
-      saveStates: store.saveStates,
       customRoms: store.customRoms,
       stats: store.stats,
       settings: store.settings,
@@ -782,7 +800,7 @@ export function useRetroArcadeSync() {
       // Hydrate store from server data
       useRetroArcadeStore.setState(data);
     },
-    debounceMs: 3000,  // Save states can be large, debounce more
+    debounceMs: 3000,
   });
 }
 ```
@@ -809,7 +827,7 @@ export function useRetroArcadeSync() {
 ### Phase 2: Persistence (Make Progress Stick)
 
 - [ ] Implement save state capture via postMessage
-- [ ] Base64 encoding for save state storage
+- [ ] Save states in IndexedDB, on this device only (never in cloud progress)
 - [ ] Save/Load UI buttons in emulator view
 - [ ] Auto-save on exit feature
 - [ ] `useAuthSync` integration for cloud sync
@@ -857,7 +875,7 @@ export function useRetroArcadeSync() {
 ## References
 
 - [EmulatorJS GitHub](https://github.com/EmulatorJS/EmulatorJS) - Source and documentation
-- [EmulatorJS CDN](https://cdn.emulatorjs.org/) - Hosted assets
+- [EmulatorJS 4.2.3 release](https://github.com/EmulatorJS/EmulatorJS/releases/tag/v4.2.3) - The source of the self-hosted files
 - [EmulatorJS Docs](https://emulatorjs.org/docs/) - Configuration options
 - [Homebrew Hub](https://hh.gbdev.io/) - Game Boy homebrew collection
 - [PDRoms](https://pdroms.de/) - Multi-system homebrew news and files
