@@ -20,8 +20,10 @@
  * command.
  *
  * Frame rate (plan 7): the row's fps is the capture rung weighted by media
- * time over the part (rungTimeline.ts). The recording starts at meta.fps, and
- * the main thread sends each rung change ("recordRung"). A rung change can
+ * time over the part (rungTimeline.ts). meta.fps is the rung before every
+ * step. At the start the main thread replays the session's rung history
+ * ("recordRung" for each step), because part 1 holds up to one GOP from
+ * before the press (the tee seed); then it sends each change. A rung change can
  * reach the worker before the chunks it covers, never after the part closes
  * for the normal flow: the tee sends a GOP's chunk only when the GOP ends.
  *

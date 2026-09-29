@@ -483,6 +483,54 @@ describe("EngineHost against the worker handlers", () => {
     env.engine.dispose();
   });
 
+  // Wave C int4: a Record's first part holds up to one GOP from before the
+  // press (the tee seed). It must get the rungs that covered that footage.
+  it("gives a Record's seed GOP the rungs that covered it when the rung changed inside it", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 3);
+    const top = 30;
+    env.power.listener?.({ pressure: "serious" });
+    const stepUs = env.engine.mediaEndUs();
+    const low = (env.events.filter((e) => e.t === "governor").at(-1) as Extract<EngineEvent, { t: "governor" }>).level.fps;
+    expect(low).toBeLessThan(top);
+    await env.play(50);
+    const handle = await env.engine.startRecording(env.meta("rec-seed", { kind: "record" }));
+    await env.play(2000);
+    const stopping = handle.stop();
+    await env.play(500);
+    await flushMicrotasks(50);
+    const part = (await stopping).parts[0];
+    // The seed reaches back across the step, so part of the part is top-rung footage.
+    expect(part.startUs).toBeLessThan(stepUs - 200_000);
+    const expected = (top * (stepUs - part.startUs) + low * (part.endUs - stepUs)) / (part.endUs - part.startUs);
+    expect(Math.abs(part.record.fps - expected)).toBeLessThanOrEqual(0.5);
+    env.engine.dispose();
+  });
+
+  it("gives a Record started while capture rests the rung of its seed, never the encoder's top rate", async () => {
+    const env = setup();
+    await armedAndPlaying(env, 3);
+    env.power.listener?.({ pressure: "serious" });
+    const low = (env.events.filter((e) => e.t === "governor").at(-1) as Extract<EngineEvent, { t: "governor" }>).level.fps;
+    await env.play(3000);
+    env.power.listener?.({ pressure: "critical" });
+    expect(env.events.at(-1)).toMatchObject({ t: "governor", resting: true });
+    const restUs = env.engine.mediaEndUs();
+    const handle = await env.engine.startRecording(env.meta("rec-rest", { kind: "record" }));
+    await env.play(2000);
+    const stopping = handle.stop();
+    await env.play(500);
+    await flushMicrotasks(50);
+    const part = (await stopping).parts[0];
+    // Record keeps the low-power rung while capture rests (15 fps at 60 Hz).
+    const lowPower = 15;
+    expect(low).toBeGreaterThan(lowPower);
+    expect(part.startUs).toBeLessThan(restUs);
+    const expected = (low * (restUs - part.startUs) + lowPower * (part.endUs - restUs)) / (part.endUs - part.startUs);
+    expect(Math.abs(part.record.fps - expected)).toBeLessThanOrEqual(0.5);
+    env.engine.dispose();
+  });
+
   it("gives a clip the capture rung weighted over the clip, not the rung at the press", async () => {
     const env = setup();
     await armedAndPlaying(env, 4);

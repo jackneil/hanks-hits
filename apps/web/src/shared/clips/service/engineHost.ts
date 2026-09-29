@@ -75,7 +75,7 @@ import { installRafDispatcher } from "../runtime/rafDispatcher";
 import { autoDiscover as runAutoDiscover, type AutoDiscovery } from "../sources/autoDiscover";
 import { installCanvasActivity, type ActivityRealm, type CanvasActivity, type CanvasRecord, type ContextType } from "../sources/canvasActivity";
 import { registerCanvasSource, type CanvasSource } from "../sources/canvasSource";
-import { RungTimeline, rowFps } from "../rungTimeline";
+import { RUNG_HISTORY_US, RungTimeline, rowFps } from "../rungTimeline";
 import { AudioTap } from "./audioTap";
 import {
   EngineFailure,
@@ -169,8 +169,6 @@ interface Session {
   rungFps: number;
 }
 
-/** Rung history kept beyond the longest ring (60 s), so a clip at the ring's start still finds its rung. */
-const RUNG_HISTORY_US = 120_000_000;
 
 interface SourceEntry {
   kind: "canvas" | "discover";
@@ -497,7 +495,7 @@ export class EngineHost implements CaptureEngine {
       width: s.preset.width,
       height: s.preset.height,
       // The rung that capture used over the clip, weighted by time (plan 7).
-      fps: rowFps(s.rungs.weighted(startUs, endUs)) || s.rungFps || s.plan.video.framerate,
+      fps: rowFps(s.rungs.weighted(startUs, endUs)) || s.rungs.lastNonZero() || s.plan.video.framerate,
       hasAudio: packets.audioConfig !== null && packets.audio.length > 0,
       mime: "video/mp4",
       moments: request.moments ? request.moments(packets.startUs, packets.endUs) : request.meta.moments,
@@ -544,14 +542,18 @@ export class EngineHost implements CaptureEngine {
     if (this.recording) throw new EngineFailure("encoder-error", "a recording is already running");
     const recordingId = meta.id;
     const channel = new MessageChannel();
-    // The rung that capture uses now. Each later change goes to the io worker
-    // (applyLevel), which weights the rungs over each part (plan 7).
+    // The io worker weights the rungs over each part (plan 7). meta.fps is
+    // the rung before the oldest step the session keeps; the steps follow
+    // below. While capture rests at the press it is never the encoder's top
+    // rate: the last rung that capture used.
+    const base = s.rungs.history()[0];
+    const baseFps = base && !Number.isFinite(base.atUs) ? base.fps : 0;
     const io = this.io.record(recordingId, channel.port2, {
       ...meta,
       kind: "record",
       width: s.preset.width,
       height: s.preset.height,
-      fps: s.rungFps || s.plan.video.framerate,
+      fps: baseFps || s.rungs.lastNonZero() || s.plan.video.framerate,
       mime: "video/mp4",
     });
     try {
@@ -564,6 +566,13 @@ export class EngineHost implements CaptureEngine {
       channel.port1.close();
       this.io.recordEnd(recordingId);
       throw new EngineFailure("encoder-error", "the encoder stopped");
+    }
+    // The first part holds up to one GOP from before the press (the tee
+    // seed). Replay the rung history, so that footage gets the rungs that
+    // really covered it. Older steps are harmless: each part is weighted
+    // over its own span only. Later changes follow from noteRung.
+    for (const step of s.rungs.history()) {
+      if (Number.isFinite(step.atUs)) this.io.recordRung(recordingId, step.atUs, step.fps);
     }
     s.worker.postMessage({ t: "record", on: true, recordingId, port: channel.port1 }, [channel.port1]);
     this.recording = recordingId;

@@ -21,12 +21,15 @@
  * service and the io worker both use it.
  */
 
-interface RungStep {
-  /** The rung starts here (media microseconds). */
+export interface RungStep {
+  /** The rung starts here (media microseconds). The oldest step can be -Infinity (the rung before any note). */
   atUs: number;
   /** Capture rate from atUs to the next step. 0 while capture rests. */
   fps: number;
 }
+
+/** Rung history kept beyond the longest ring (60 s), so a clip at the ring's start still finds its rung. */
+export const RUNG_HISTORY_US = 120_000_000;
 
 function validFps(fps: number): boolean {
   return Number.isFinite(fps) && fps >= 0;
@@ -86,6 +89,22 @@ export class RungTimeline {
     let keep = 0;
     while (keep + 1 < this.steps.length && this.steps[keep + 1].atUs <= atUs) keep++;
     if (keep > 0) this.steps = this.steps.slice(keep);
+  }
+
+  /**
+   * A copy of the steps, oldest first. The first one is the rung before
+   * every other step (its atUs is -Infinity until forgetBefore moves it). A
+   * Record replays them to the io worker, so the footage from before the
+   * press (the seed GOP) gets the rungs that really covered it.
+   */
+  history(): RungStep[] {
+    return this.steps.map((step) => ({ ...step }));
+  }
+
+  /** The newest rung that is not 0 (capture ran), or 0 when capture never ran. */
+  lastNonZero(): number {
+    for (let i = this.steps.length - 1; i >= 0; i--) if (this.steps[i].fps > 0) return this.steps[i].fps;
+    return 0;
   }
 
   /** The number of steps (tests). */

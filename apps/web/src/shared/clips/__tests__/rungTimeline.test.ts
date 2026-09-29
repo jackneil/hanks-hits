@@ -76,6 +76,33 @@ describe("RungTimeline", () => {
     expect(t.weighted(8 * S, 12 * S)).toBe(30);
   });
 
+  it("history() copies the steps, oldest first, and a replay of it gives the same weights", () => {
+    const t = new RungTimeline(30);
+    t.note(10 * S, 20);
+    t.note(20 * S, 0);
+    const steps = t.history();
+    expect(steps).toEqual([
+      { atUs: Number.NEGATIVE_INFINITY, fps: 30 },
+      { atUs: 10 * S, fps: 20 },
+      { atUs: 20 * S, fps: 0 },
+    ]);
+    steps[1].fps = 99;
+    expect(t.at(15 * S)).toBe(20);
+    // The io worker's copy: the base rung, then every finite step.
+    const copy = new RungTimeline(steps[0].fps);
+    for (const step of t.history()) if (Number.isFinite(step.atUs)) copy.note(step.atUs, step.fps);
+    expect(copy.weighted(5 * S, 25 * S)).toBeCloseTo(t.weighted(5 * S, 25 * S), 10);
+  });
+
+  it("lastNonZero() is the newest rung that capture used, also while it rests", () => {
+    const t = new RungTimeline(30);
+    expect(t.lastNonZero()).toBe(30);
+    t.note(10 * S, 20);
+    t.note(20 * S, 0);
+    expect(t.lastNonZero()).toBe(20);
+    expect(new RungTimeline(0).lastNonZero()).toBe(0);
+  });
+
   it("rowFps keeps one decimal and gives 0 for no rung", () => {
     expect(rowFps(30)).toBe(30);
     expect(rowFps(40.14)).toBe(40.1);
