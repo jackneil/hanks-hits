@@ -165,6 +165,27 @@ describe("PageCompositor", () => {
     expect(page.compositor.captureTrack(30)).toBeNull();
   });
 
+  it("touch() paints the same pixels again (the canvas onto itself); clear() paints the empty frame", () => {
+    const page = pagePaint(TALL, HUD, 480, 640);
+    const ops = page.main.context.ops;
+    const before = ops.length;
+    page.compositor.touch();
+    const touch = ops.slice(before).filter(isDraw);
+    expect(touch).toHaveLength(1);
+    expect(touch[0]).toMatchObject({ dx: 0, dy: 0 });
+    expect(touch[0].source).toMatchObject({ kind: "canvas", canvasId: page.main.id });
+    const cleared = ops.length;
+    page.compositor.clear();
+    const fills = ops.slice(cleared).filter((o) => o.op === "fillRect");
+    expect(fills).toEqual([expect.objectContaining({ x: 0, y: 0, w: 720, h: 1280 })]);
+    // After dispose, neither paints.
+    page.compositor.dispose();
+    const done = ops.length;
+    page.compositor.touch();
+    page.compositor.clear();
+    expect(ops.length).toBe(done);
+  });
+
   it("posterJpeg gives a small JPEG of the newest frame", async () => {
     const page = pagePaint(WIDE, HUD, 800, 450);
     const poster = (await page.compositor.posterJpeg())!;

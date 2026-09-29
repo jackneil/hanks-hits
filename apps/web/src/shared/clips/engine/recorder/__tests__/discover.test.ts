@@ -84,6 +84,7 @@ function fakeFeed(c: HTMLCanvasElement): CanvasFeed & { stopCalls: number; stopI
       return stopCalls;
     },
     snapshotPng: async () => null,
+    requestTouch: () => undefined,
     stop() {
       stopCalls++;
       stopped = true;

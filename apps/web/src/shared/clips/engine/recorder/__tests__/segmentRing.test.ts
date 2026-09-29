@@ -15,8 +15,8 @@ function index(overrides: Partial<SegmentIndex> = {}): SegmentIndex {
     container: "webm",
     videoCodec: "vp8",
     videoConfigKey: "vp8|960x544|",
-    audioConfigKey: "opus|48000|2|aa",
     keyframesUs: [0, S, 2 * S, 3 * S, 4 * S, 5 * S],
+    packetTimesUs: Array.from({ length: 158 }, (_, i) => Math.round((i * S) / 30)),
     durationUs: 5.25 * S,
     videoPackets: 158,
     firstIsKey: true,
@@ -26,7 +26,17 @@ function index(overrides: Partial<SegmentIndex> = {}): SegmentIndex {
 
 let ids = 0;
 function seg(startSec: number, endSec: number, idx: SegmentIndex | null = index()): RingSegment {
-  return { id: ++ids, blob: new Blob([`s${ids}`]), startUs: startSec * S, endUs: endSec * S, index: idx, broken: false };
+  return {
+    id: ++ids,
+    blob: new Blob([`s${ids}`]),
+    startUs: startSec * S,
+    startCallUs: startSec * S,
+    startEventUs: startSec * S,
+    endUs: endSec * S,
+    nextStartUs: null,
+    index: idx,
+    broken: false,
+  };
 }
 
 /** The rotation: [0, 5.25), [5, 10.25), [10, 15.25), ... */
@@ -129,13 +139,15 @@ describe("planClip", () => {
     expect(plan.segments.map((s) => s.startUs / S)).toEqual([5, 10]);
   });
 
-  it("joins segments with no sound to any sound config, but never two sound configs", () => {
-    const silentFirst = rotation(3, (i) => index({ audioConfigKey: i === 0 ? null : "opus|48000|2|aa" }));
-    expect(planClip(silentFirst, 3 * S, 14 * S)!.cut).toBe(false);
-    const twoSounds = rotation(3, (i) => index({ audioConfigKey: i === 0 ? "opus|48000|2|bb" : i === 1 ? null : "opus|48000|2|aa" }));
-    const plan = planClip(twoSounds, 3 * S, 14 * S)!;
-    expect(plan.cut).toBe(true);
-    expect(plan.segments.map((s) => s.startUs / S)).toEqual([5, 10]);
+  it("re-sorts when a segment's start moves to its first frame (the anchor)", () => {
+    const ring = new SegmentRing(60);
+    const [a, b] = rotation(2);
+    ring.add(b);
+    ring.add(a);
+    // b's anchor moves before a's start (a test value: the order must follow the start).
+    b.startUs = -1;
+    ring.resort();
+    expect(ring.segments.map((s) => s.id)).toEqual([b.id, a.id]);
   });
 
   it("cuts at a segment that does not parse, one with no keyframe first, or a gap", () => {

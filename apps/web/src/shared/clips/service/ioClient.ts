@@ -134,10 +134,21 @@ export interface RecordSession {
 
 /** A tier M or V recording in the io worker (plan 5, 8.4): segments go in one at a time. */
 export interface SegmentRecordSession extends RecordSession {
-  /** Sends the next finished segment. The io worker journals it at once. */
-  add(segment: RecorderSegmentRef): void;
+  /** Sends the next finished segment (and a JPEG of the game picture near its start). The io worker journals it at once. */
+  add(segment: RecorderSegmentRef, poster?: Blob | null): void;
   /** No more segments: the io worker stores the parts. `finished` settles after that. */
   end(): void;
+}
+
+/** What a tier M or V recording needs besides its row. */
+export interface SegmentRecordOptions {
+  container: SegmentContainer;
+  /** The capture timeline of the engine session (its game sound goes in). */
+  timeline: number;
+  /** Capture time of the Record tap. */
+  startUs: number;
+  /** A JPEG of the game picture at the tap. */
+  poster?: Blob | null;
 }
 
 function defaultCreateWorker(): Promise<IoWorkerLike> {
@@ -326,13 +337,42 @@ export class IoClient {
    * Tiers M and V Record (plan 8.4): opens a recording in the io worker. Send
    * each finished segment with add(), then end().
    */
-  segmentRecord(recordingId: string, container: SegmentContainer, meta: ClipMeta): SegmentRecordSession {
-    const session = this.recordSession({ t: "segmentRecord", recordingId, container, meta }, []);
+  segmentRecord(recordingId: string, meta: ClipMeta, options: SegmentRecordOptions): SegmentRecordSession {
+    const session = this.recordSession(
+      {
+        t: "segmentRecord",
+        recordingId,
+        container: options.container,
+        meta,
+        timeline: options.timeline,
+        startUs: options.startUs,
+        ...(options.poster ? { poster: options.poster } : {}),
+      },
+      [],
+    );
     return {
       ...session,
-      add: (segment) => void this.post({ t: "segmentRecordAdd", recordingId, segment }, [], null),
+      add: (segment, poster) => void this.post({ t: "segmentRecordAdd", recordingId, segment, ...(poster ? { poster } : {}) }, [], null),
       end: () => void this.post({ t: "segmentRecordEnd", recordingId }, [], null),
     };
+  }
+
+  /**
+   * Tiers M and V game sound (plan 5, 6.3): opens a sound run in the io
+   * worker. The caller sends the runs' commands in one ordered chain.
+   */
+  audioRun(runId: number, timeline: number, container: SegmentContainer, startUs: number, keepSeconds: number): void {
+    void this.post({ t: "audioRun", runId, timeline, container, startUs, keepSeconds }, [], null);
+  }
+
+  /** The next bytes of a sound run. The buffer is transferred. */
+  audioAppend(runId: number, bytes: ArrayBuffer): void {
+    void this.post({ t: "audioAppend", runId, bytes }, [bytes], null);
+  }
+
+  /** A sound run has no more bytes. */
+  audioEnd(runId: number): void {
+    void this.post({ t: "audioEnd", runId }, [], null);
   }
 
   /** Hands the Record tee port to the io worker (plan 8.4). */

@@ -23,7 +23,15 @@
  * Pace: the engine's Pacer says when a frame is due (the governor's stride
  * on the display's vsync grid). Warmup: the first BASELINE_WARMUP_MS of live
  * play are not captured, and those game frames are reported as the
- * governor's baseline.
+ * governor's baseline. The engine starts its recorders at the first paint
+ * after the warmup, so no recorder records the empty canvas.
+ *
+ * Touch: a recorder gets a frame only when the compositor canvas is painted.
+ * requestTouch() asks for one more display frame (the dispatcher's wake(),
+ * which runs even when the game queues no frame), and in its POST hook the
+ * feed calls `touch` when nothing was painted in that frame: the engine
+ * paints the last picture again there. A touch runs in the display frame, so
+ * its paint time is the time of the frame that the recorder gets.
  *
  * Pictures: snapshotPng() reads the game canvas with the same timing.
  */
@@ -75,8 +83,12 @@ export class Pacer {
 
 export interface CanvasFeedOptions {
   canvas: HTMLCanvasElement;
-  /** Paints the game canvas into the compositor. Throws what drawImage throws. */
-  draw(canvas: HTMLCanvasElement, hud: HudState): void;
+  /** Paints the game canvas into the compositor, in the display frame at pageMs. Throws what drawImage throws. */
+  draw(canvas: HTMLCanvasElement, hud: HudState, pageMs: number): void;
+  /** Paints the last picture again, in the display frame at pageMs (see requestTouch). */
+  touch?(pageMs: number): void;
+  /** Runs at the end of every display frame that the feed sees (a POST hook). */
+  onFrame?(pageMs: number): void;
   /** Game values for the band. Read at capture time. */
   hud(): HudState;
   pacer: Pacer;
@@ -109,6 +121,8 @@ export interface CanvasFeed {
    * buffer is clear. null: the canvas cannot be read.
    */
   snapshotPng(timeoutMs: number, timers: { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void }): Promise<{ png: ArrayBuffer; width: number; height: number } | "no-draw" | null>;
+  /** Asks for a touch in the next display frame (see the file comment). */
+  requestTouch(): void;
   stop(): void;
 }
 
@@ -150,6 +164,8 @@ export function startCanvasFeed(options: CanvasFeedOptions): CanvasFeed {
   let seqAtPre: number | null = null;
   let gameFramesAtPre = 0;
   let lastHud: HudState = { gameName: "", emoji: "" };
+  let touchWanted = false;
+  let paintedThisFrame = false;
   const snapshots = new Set<{ pre: (record: CanvasRecord | undefined) => void; post: (record: CanvasRecord | undefined, drew: boolean) => void }>();
 
   const record = (): CanvasRecord | undefined => activity.record(canvas);
@@ -188,10 +204,11 @@ export function startCanvasFeed(options: CanvasFeedOptions): CanvasFeed {
     if (!warm || !options.live() || !hasPixels() || !pacer.due(pageMs)) return;
     const t0 = now();
     try {
-      options.draw(canvas, readHud());
+      options.draw(canvas, readHud(), pageMs);
       pacer.mark(pageMs);
       frames++;
       errors = 0;
+      paintedThisFrame = true;
     } catch (error) {
       errors++;
       if (isSecurityError(error) || errors >= MAX_CONSECUTIVE_ERRORS) {
@@ -205,6 +222,7 @@ export function startCanvasFeed(options: CanvasFeedOptions): CanvasFeed {
 
   const removePre = dispatcher.addPreHook((ts) => {
     if (stopped) return;
+    paintedThisFrame = false;
     const r = record();
     seqAtPre = r?.drawSeq ?? null;
     gameFramesAtPre = dispatcher.gameFrames();
@@ -223,8 +241,12 @@ export function startCanvasFeed(options: CanvasFeedOptions): CanvasFeed {
     const r = record();
     const drew = !!r && r.drawSeq !== seqAtPre;
     for (const s of [...snapshots]) s.post(r, drew);
-    if (!r || keepsPixels(r.type)) return;
-    if (isGl(r.type) ? drew : ran) capture(pageMs, "D");
+    if (r && !keepsPixels(r.type) && (isGl(r.type) ? drew : ran)) capture(pageMs, "D");
+    if (touchWanted) {
+      touchWanted = false;
+      if (!paintedThisFrame && options.live()) options.touch?.(pageMs);
+    }
+    options.onFrame?.(pageMs);
   });
 
   const snapshotPng: CanvasFeed["snapshotPng"] = (timeoutMs, timers) =>
@@ -300,6 +322,11 @@ export function startCanvasFeed(options: CanvasFeedOptions): CanvasFeed {
       return stopped;
     },
     snapshotPng,
+    requestTouch() {
+      if (stopped || touchWanted) return;
+      touchWanted = true;
+      dispatcher.wake();
+    },
     stop,
   };
 }

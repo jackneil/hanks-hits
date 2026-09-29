@@ -1232,6 +1232,11 @@ export class ClipService implements ClipServiceApi {
       case "granularity":
         this.granularitySec = event.seconds;
         break;
+      case "tier":
+        // Another engine records now: its tier shows, and it measures its own granularity.
+        this.tier = event.tier;
+        this.granularitySec = null;
+        break;
       case "governor":
         this.governorResting = event.resting;
         this.preRest = event.resting;
@@ -1248,6 +1253,8 @@ export class ClipService implements ClipServiceApi {
         this.bufferedSec = 0;
         this.warmStartUs = 0;
         this.lastClip = null;
+        // The next session (perhaps another game) measures its own granularity.
+        this.granularitySec = null;
         if (this.attached) this.attached.moments = [];
         break;
       case "unavailable":

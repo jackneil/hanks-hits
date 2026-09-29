@@ -50,6 +50,14 @@ export type EngineEvent =
    * keep a keyframe every second and do not send this event.
    */
   | { t: "granularity"; seconds: number }
+  /**
+   * The engine switch (loadEngine.ts) moved the game to another engine: a
+   * fresh probe at arm found this tier (a tier M or V device whose first
+   * probe met a cold or busy video encoder, now tier W or W+). It comes
+   * before the new engine's first arm; the old engine's measurements, such
+   * as the replay granularity, no longer hold.
+   */
+  | { t: "tier"; tier: Tier }
   /** The governor moved. resting: capture stopped to protect the game. */
   | { t: "governor"; level: GovernorLevelLike; resting: boolean }
   /** A source was registered (present) or the last one went away. */

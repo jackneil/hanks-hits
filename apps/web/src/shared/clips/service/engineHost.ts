@@ -70,23 +70,10 @@ import {
 import { MIN_CLIP_SECONDS } from "./contract";
 import { chooseVideoEncoder, probeCapabilityReport, type CapabilityReport, type ContentKind, type EncoderPlan } from "../runtime/capabilities";
 import { FramePump } from "../runtime/framePump";
-import {
-  Governor,
-  MAX_BACKPRESSURE_DROPS,
-  governorInputs,
-  type GovernorLevel,
-  type PowerState,
-  type PressureState,
-} from "../runtime/governor";
+import { Governor, MAX_BACKPRESSURE_DROPS, governorInputs, type GovernorLevel, type PowerState } from "../runtime/governor";
 import { installRafDispatcher } from "../runtime/rafDispatcher";
 import { autoDiscover as runAutoDiscover, type AutoDiscovery } from "../sources/autoDiscover";
-import {
-  installCanvasActivity,
-  type ActivityRealm,
-  type CanvasActivity,
-  type CanvasRecord,
-  type ContextType,
-} from "../sources/canvasActivity";
+import { installCanvasActivity, type ActivityRealm, type CanvasActivity, type CanvasRecord, type ContextType } from "../sources/canvasActivity";
 import { registerCanvasSource, type CanvasSource } from "../sources/canvasSource";
 import { AudioTap } from "./audioTap";
 import {
@@ -100,19 +87,25 @@ import {
   type PrepareResult,
   type RecordingHandle,
 } from "./engine";
+import {
+  ARM_FAILURE_LIMIT,
+  PICTURE_WAIT_MS,
+  REARM_DELAY_MS,
+  REARM_MAX_DELAY_MS,
+  browserPowerSource,
+  contentKindOf,
+  type PowerSource,
+} from "./engineShared";
 import { IoError, getIoClient, type IoClient } from "./ioClient";
 import { randomId } from "./webLocks";
+
+// The values and helpers that the MediaRecorder engine shares live in engineShared.ts.
+export { ARM_FAILURE_LIMIT, PICTURE_WAIT_MS, REARM_DELAY_MS, REARM_MAX_DELAY_MS, browserPowerSource, contentKindOf, type PowerSource };
 
 /** No encoder output this long after the first frame: the cold start is slow (plan 5.1). */
 export const NO_OUTPUT_MS = 2500;
 /** The engine's housekeeping tick (governor windows, the no-output check). */
 export const ENGINE_TICK_MS = 500;
-/** Wait before arming again after a fatal encoder failure, so a bad config cannot spin. It doubles for each failure in a row. */
-export const REARM_DELAY_MS = 1000;
-/** The longest wait between two arms after failures. */
-export const REARM_MAX_DELAY_MS = 30_000;
-/** Arms in a row that fail before any output. After this many the engine stops ("unavailable"). */
-export const ARM_FAILURE_LIMIT = 6;
 /**
  * The encoder queue that the governor counts as behind (governor.ts: "queue
  * >= 2"). The encode worker refuses a frame when the codec queue holds this
@@ -123,11 +116,6 @@ export const ARM_FAILURE_LIMIT = 6;
 export const FULL_ENCODER_QUEUE = 2;
 /** Path E readback width at full scale (sources/pathE default). */
 export const BASE_READBACK_WIDTH = 640;
-/**
- * Longest wait for a game draw before a picture. After it, a 2D canvas is read
- * anyway (it keeps its pixels); a WebGL canvas gives no picture (snapshotPng).
- */
-export const PICTURE_WAIT_MS = 500;
 
 /** The encode worker, or a test double. */
 export interface EncodeWorkerLike {
@@ -135,11 +123,6 @@ export interface EncodeWorkerLike {
   onmessage: ((event: MessageEvent<EncodeEvent>) => void) | null;
   onerror: ((event: unknown) => void) | null;
   terminate(): void;
-}
-
-/** Power signals for the governor (plan 7). */
-export interface PowerSource {
-  subscribe(listener: (state: PowerState) => void): () => void;
 }
 
 export interface EngineHostDeps {
@@ -206,11 +189,6 @@ function realmOf(node: Element): ActivityRealm | null {
   return (node.ownerDocument?.defaultView as unknown as ActivityRealm | null) ?? null;
 }
 
-/** "3d" for a WebGL context (plan 5.1: 3D games get the higher bitrate), else "2d". */
-export function contentKindOf(type: ContextType): ContentKind {
-  return type === "webgl" || type === "webgl2" ? "3d" : "2d";
-}
-
 /**
  * True for a context whose drawing buffer the browser can clear after each
  * composite (WebGL with preserveDrawingBuffer false, and unknown types): a
@@ -267,53 +245,6 @@ function failureFromIo(error: unknown): EngineFailure {
 
 function defaultCreateWorker(): Promise<EncodeWorkerLike> {
   return import("./workers").then(({ createEncodeWorker }) => createEncodeWorker() as unknown as EncodeWorkerLike);
-}
-
-/** Compute Pressure (Chromium) and Battery Status (Chromium), where they exist. */
-export function browserPowerSource(): PowerSource {
-  return {
-    subscribe(listener) {
-      const stops: Array<() => void> = [];
-      const g = globalThis as unknown as {
-        PressureObserver?: new (cb: (records: Array<{ state: PressureState }>) => void) => {
-          observe(source: "cpu", options?: { sampleInterval?: number }): Promise<void>;
-          disconnect(): void;
-        };
-        navigator?: { getBattery?: () => Promise<EventTarget & { level: number; charging: boolean }> };
-      };
-      if (typeof g.PressureObserver === "function") {
-        try {
-          const observer = new g.PressureObserver((records) => {
-            const last = records[records.length - 1];
-            if (last) listener({ pressure: last.state });
-          });
-          observer.observe("cpu", { sampleInterval: 1000 }).catch(() => undefined);
-          stops.push(() => observer.disconnect());
-        } catch {
-          // No permission or no source: no pressure signal.
-        }
-      }
-      let stopped = false;
-      g.navigator
-        ?.getBattery?.()
-        .then((battery) => {
-          if (stopped) return;
-          const push = () => listener({ batteryLevel: battery.level, charging: battery.charging });
-          push();
-          battery.addEventListener("levelchange", push);
-          battery.addEventListener("chargingchange", push);
-          stops.push(() => {
-            battery.removeEventListener("levelchange", push);
-            battery.removeEventListener("chargingchange", push);
-          });
-        })
-        .catch(() => undefined);
-      return () => {
-        stopped = true;
-        for (const stop of stops.splice(0)) stop();
-      };
-    },
-  };
 }
 
 /**

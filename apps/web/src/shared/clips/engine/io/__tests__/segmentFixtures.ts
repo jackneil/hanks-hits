@@ -18,6 +18,15 @@
  * (N mod 50) of each decoded frame, so a test can prove that a joined file
  * shows every frame once, in order, across the hand-offs.
  *
+ * The engine tests need more than cuts of one source:
+ * - makeFramesSegment() makes a file of exactly the frames a recorder got,
+ *   each with its own picture code and its own (uneven) time;
+ * - makeSoundRun() makes an audio-only run (Opus in WebM, AAC in fragmented
+ *   MP4), and decodePcm() and toneSmoothness() show a drop-out or a click in
+ *   the sound of a joined file;
+ * - h264Pictures() reads the H.264 slice headers (IDR and idr_pic_id) at
+ *   every packet, for the plan 5.1 splice check.
+ *
  * Without ffmpeg (and libvpx, libopus, libx264), FFMPEG_SKIP_REASON says why,
  * and the tests that need it are skipped with that reason.
  */
@@ -255,11 +264,32 @@ export function decodeErrors(bytes: Uint8Array, ext: "mp4" | "webm"): string {
   return r.status === 0 ? r.stderr.trim() : `exit ${r.status}: ${r.stderr.trim()}`;
 }
 
-/** The frame code (N mod CODE_PERIOD) of each decoded video frame, in display order. */
+/**
+ * The frame code (N mod CODE_PERIOD) of each decoded video frame, in display
+ * order: one code per frame in the file (no frame is added or dropped to fit
+ * a frame rate, so a file with uneven frame times reads true).
+ */
 export function decodeCodes(bytes: Uint8Array, ext: "mp4" | "webm"): number[] {
   const file = writeTemp(bytes, ext);
   // yuv420p keeps the Y values the source wrote (no range conversion): 64 Y bytes, then 16 U and 16 V.
-  const r = run("ffmpeg", ["-hide_banner", "-v", "error", "-i", file, "-map", "0:v:0", "-vf", "scale=8:8", "-pix_fmt", "yuv420p", "-f", "rawvideo", "pipe:1"]);
+  const r = run("ffmpeg", [
+    "-hide_banner",
+    "-v",
+    "error",
+    "-i",
+    file,
+    "-map",
+    "0:v:0",
+    "-vf",
+    "scale=8:8",
+    "-pix_fmt",
+    "yuv420p",
+    "-fps_mode",
+    "passthrough",
+    "-f",
+    "rawvideo",
+    "pipe:1",
+  ]);
   if (r.status !== 0) throw new Error(`ffmpeg could not decode: ${r.stderr}`);
   const raw = new Uint8Array(r.stdout);
   const frameBytes = 64 + 16 + 16;
@@ -287,4 +317,254 @@ export function probeStreams(bytes: Uint8Array, ext: "mp4" | "webm"): Array<{ ty
 /** The bytes of a file as a Blob with the container's type. */
 export function blobOf(bytes: Uint8Array, container: "webm" | "mp4"): Blob {
   return new Blob([bytes.slice().buffer as ArrayBuffer], { type: container === "webm" ? "video/webm" : "video/mp4" });
+}
+
+// ---------------------------------------------------------------------------
+// Frame-true segments (the engine tests)
+// ---------------------------------------------------------------------------
+
+/** One frame of a recorder's file: its time on the capture timeline and its picture code. */
+export interface FrameSpec {
+  atUs: number;
+  code: number;
+}
+
+const FRAME_BYTES = 64 * 64 + 2 * 32 * 32;
+
+/**
+ * A segment file of exactly `frames`, like a MediaRecorder makes it from the
+ * frames its track got: frame i shows the gray level of `code` (decodeCodes
+ * reads it back), and its time in the file is its atUs minus the first
+ * frame's atUs. ffmpeg encodes the pictures (VP8, or H.264 baseline), and
+ * mediabunny writes them again with those uneven times (a WebM, or a
+ * fragmented MP4 like Chrome's). gop: frames between keyframes (default 30).
+ */
+export async function makeFramesSegment(spec: { frames: readonly FrameSpec[]; container: "webm" | "mp4"; gop?: number }): Promise<Uint8Array> {
+  if (spec.frames.length === 0) throw new Error("a segment needs at least one frame");
+  const raw = new Uint8Array(spec.frames.length * FRAME_BYTES);
+  spec.frames.forEach((frame, i) => {
+    const at = i * FRAME_BYTES;
+    raw.fill(16 + 4 * (((frame.code % CODE_PERIOD) + CODE_PERIOD) % CODE_PERIOD), at, at + 64 * 64);
+    raw.fill(128, at + 64 * 64, at + FRAME_BYTES);
+  });
+  const gop = String(spec.gop ?? 30);
+  const args = ["-hide_banner", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", "64x64", "-r", "30", "-i", "pipe:0"];
+  if (spec.container === "webm") {
+    args.push("-c:v", "libvpx", "-b:v", "600k", "-g", gop, "-keyint_min", gop, "-auto-alt-ref", "0", "-f", "webm", "pipe:1");
+  } else {
+    args.push("-c:v", "libx264", "-profile:v", "baseline", "-g", gop, "-keyint_min", gop, "-sc_threshold", "0", "-bf", "0");
+    args.push("-movflags", "+frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1");
+  }
+  const result = spawnSync("ffmpeg", args, { input: raw, encoding: "buffer", maxBuffer: 256 * 1024 * 1024 });
+  if (result.status !== 0 || !result.stdout || result.stdout.length === 0) {
+    throw new Error(`ffmpeg could not encode the frames: ${result.stderr?.toString("utf8")}`);
+  }
+  return retime(
+    new Uint8Array(result.stdout),
+    spec.container,
+    spec.frames.map((f) => f.atUs - spec.frames[0].atUs),
+  );
+}
+
+/** Writes the file again with the video packets at `timesUs` (decode order = presentation order: no B-frames). */
+async function retime(bytes: Uint8Array, container: "webm" | "mp4", timesUs: readonly number[]): Promise<Uint8Array> {
+  const mb = await import("mediabunny");
+  const input = new mb.Input({ formats: container === "webm" ? [mb.WEBM, mb.MATROSKA] : [mb.MP4], source: new mb.BufferSource(bytes) });
+  const track = await input.getPrimaryVideoTrack();
+  if (!track) throw new Error("the encoded frames have no video track");
+  const codec = await track.getCodec();
+  const config = await track.getDecoderConfig();
+  if (!codec || !config) throw new Error("the encoded frames have no codec");
+  const packets: InstanceType<typeof mb.EncodedPacket>[] = [];
+  for await (const packet of new mb.EncodedPacketSink(track).packets()) packets.push(packet);
+  input.dispose();
+  if (packets.length !== timesUs.length) throw new Error(`ffmpeg made ${packets.length} frames, not ${timesUs.length}`);
+  const format = container === "webm" ? new mb.WebMOutputFormat() : new mb.Mp4OutputFormat({ fastStart: "fragmented" });
+  const output = new mb.Output({ format, target: new mb.BufferTarget() });
+  const source = new mb.EncodedVideoPacketSource(codec);
+  output.addVideoTrack(source);
+  await output.start();
+  for (let i = 0; i < packets.length; i++) {
+    const t = timesUs[i] / 1e6;
+    const next = i + 1 < timesUs.length ? timesUs[i + 1] / 1e6 : t + 1 / 30;
+    await source.add(new mb.EncodedPacket(packets[i].data, packets[i].type, t, Math.max(0.001, next - t)), i === 0 ? { decoderConfig: config } : undefined);
+  }
+  source.close();
+  await output.finalize();
+  const buffer = (output.target as InstanceType<typeof mb.BufferTarget>).buffer;
+  if (!buffer) throw new Error("mediabunny wrote no bytes");
+  return new Uint8Array(buffer);
+}
+
+// ---------------------------------------------------------------------------
+// Sound runs
+// ---------------------------------------------------------------------------
+
+/**
+ * One sound run as an audio-only MediaRecorder makes it: a 440 Hz tone, Opus
+ * in a live WebM (tier V) or AAC in a fragmented MP4 (tier M, a fragment
+ * every fragmentMs). WebM clusters: clusterMs (default: ffmpeg's own, some
+ * seconds long; a browser can make them long too).
+ */
+export function makeSoundRun(spec: { container: "webm" | "mp4"; seconds: number; fragmentMs?: number; clusterMs?: number }): Uint8Array {
+  const args = ["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:sample_rate=48000", "-t", String(spec.seconds)];
+  if (spec.container === "webm") {
+    args.push("-c:a", "libopus", "-b:a", "128k");
+    if (spec.clusterMs) args.push("-cluster_time_limit", String(spec.clusterMs));
+    args.push("-f", "webm", "pipe:1");
+  } else {
+    args.push("-c:a", "aac", "-b:a", "128k", "-movflags", "+frag_keyframe+empty_moov+default_base_moof");
+    args.push("-frag_duration", String((spec.fragmentMs ?? 250) * 1000), "-f", "mp4", "pipe:1");
+  }
+  const r = run("ffmpeg", args);
+  if (r.status !== 0 || !r.stdout || r.stdout.length === 0) throw new Error(`ffmpeg could not make a sound run: ${r.stderr}`);
+  return new Uint8Array(r.stdout);
+}
+
+/** Byte offsets at which a fragmented MP4's fragments (moof boxes) start, and the file end. */
+export function mp4FragmentStarts(bytes: Uint8Array): number[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const out: number[] = [];
+  let at = 0;
+  while (at + 8 <= bytes.length) {
+    const size = view.getUint32(at);
+    const type = String.fromCharCode(bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]);
+    if (type === "moof") out.push(at);
+    if (size < 8) break;
+    at += size;
+  }
+  out.push(bytes.length);
+  return out;
+}
+
+/** The sound of a file as mono 48 kHz samples. */
+export function decodePcm(bytes: Uint8Array, ext: "mp4" | "webm"): Float32Array {
+  const file = writeTemp(bytes, ext);
+  const r = run("ffmpeg", ["-hide_banner", "-v", "error", "-i", file, "-map", "0:a:0", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]);
+  if (r.status !== 0) throw new Error(`ffmpeg could not decode the sound: ${r.stderr}`);
+  const buf = r.stdout as Buffer;
+  return new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+}
+
+/**
+ * How smooth a tone is: in 5 ms windows, the lowest RMS and the largest step
+ * from one sample to the next, leaving out `skipSec` at each end (the
+ * encoders' start and end). A drop-out shows as a low RMS, a click as a large
+ * step.
+ */
+export function toneSmoothness(pcm: Float32Array, skipSec = 0.1): { minRms: number; maxStep: number; windows: number } {
+  const win = 240;
+  const skip = Math.round(skipSec * 48_000);
+  let minRms = Infinity;
+  let maxStep = 0;
+  let windows = 0;
+  for (let at = skip; at + win + 1 < pcm.length - skip; at += win) {
+    let energy = 0;
+    let step = 0;
+    for (let i = at; i < at + win; i++) {
+      energy += pcm[i] * pcm[i];
+      step = Math.max(step, Math.abs(pcm[i + 1] - pcm[i]));
+    }
+    minRms = Math.min(minRms, Math.sqrt(energy / win));
+    maxStep = Math.max(maxStep, step);
+    windows++;
+  }
+  return { minRms, maxStep, windows };
+}
+
+// ---------------------------------------------------------------------------
+// H.264 slice headers (plan 5.1: the splice check)
+// ---------------------------------------------------------------------------
+
+/** The RBSP of a NAL unit: the emulation prevention bytes (00 00 03) taken out. */
+function rbsp(nal: Uint8Array): Uint8Array {
+  const out: number[] = [];
+  let zeros = 0;
+  for (const b of nal) {
+    if (zeros >= 2 && b === 3) {
+      zeros = 0;
+      continue;
+    }
+    out.push(b);
+    zeros = b === 0 ? zeros + 1 : 0;
+  }
+  return new Uint8Array(out);
+}
+
+class Bits {
+  private at = 0;
+  constructor(private readonly bytes: Uint8Array) {}
+  bit(): number {
+    const b = (this.bytes[this.at >> 3] >> (7 - (this.at & 7))) & 1;
+    this.at++;
+    return b;
+  }
+  bits(n: number): number {
+    let v = 0;
+    for (let i = 0; i < n; i++) v = v * 2 + this.bit();
+    return v;
+  }
+  ue(): number {
+    let zeros = 0;
+    while (this.bit() === 0) zeros++;
+    return 2 ** zeros - 1 + this.bits(zeros);
+  }
+}
+
+/** The SPS values a baseline slice header needs. */
+function readSps(sps: Uint8Array): { log2MaxFrameNum: number; frameMbsOnly: boolean } {
+  const r = new Bits(rbsp(sps).subarray(1));
+  const profile = r.bits(8);
+  r.bits(16);
+  r.ue();
+  if ([100, 110, 122, 244, 44, 83, 86, 118, 128].includes(profile)) throw new Error("the splice check reads baseline profile only");
+  const log2MaxFrameNum = r.ue() + 4;
+  const pocType = r.ue();
+  if (pocType === 0) r.ue();
+  else if (pocType === 1) throw new Error("the splice check does not read pic_order_cnt_type 1");
+  r.ue();
+  r.bit();
+  r.ue();
+  r.ue();
+  return { log2MaxFrameNum, frameMbsOnly: r.bit() === 1 };
+}
+
+/** For each video packet of an H.264 MP4 (in decode order): is it an IDR, and its idr_pic_id (H.264 7.4.3). */
+export async function h264Pictures(bytes: Uint8Array): Promise<Array<{ idr: boolean; idrPicId: number | null }>> {
+  const mb = await import("mediabunny");
+  const input = new mb.Input({ formats: [mb.MP4], source: new mb.BufferSource(bytes) });
+  try {
+    const track = await input.getPrimaryVideoTrack();
+    const config = await track!.getDecoderConfig();
+    const description = config!.description as ArrayBuffer | ArrayBufferView;
+    const avcc = ArrayBuffer.isView(description) ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength) : new Uint8Array(description);
+    const lengthSize = (avcc[4] & 3) + 1;
+    const spsLength = (avcc[6] << 8) | avcc[7];
+    const sps = readSps(avcc.subarray(8, 8 + spsLength));
+    const out: Array<{ idr: boolean; idrPicId: number | null }> = [];
+    for await (const packet of new mb.EncodedPacketSink(track!).packets()) {
+      const data = packet.data;
+      let at = 0;
+      let found: { idr: boolean; idrPicId: number | null } | null = null;
+      while (at + lengthSize <= data.length && !found) {
+        let size = 0;
+        for (let i = 0; i < lengthSize; i++) size = size * 256 + data[at + i];
+        const nal = data.subarray(at + lengthSize, at + lengthSize + size);
+        at += lengthSize + size;
+        const type = nal[0] & 0x1f;
+        if (type !== 1 && type !== 5) continue;
+        const r = new Bits(rbsp(nal).subarray(1));
+        r.ue();
+        r.ue();
+        r.ue();
+        r.bits(sps.log2MaxFrameNum);
+        if (!sps.frameMbsOnly && r.bit()) r.bit();
+        found = { idr: type === 5, idrPicId: type === 5 ? r.ue() : null };
+      }
+      out.push(found ?? { idr: false, idrPicId: null });
+    }
+    return out;
+  } finally {
+    input.dispose();
+  }
 }

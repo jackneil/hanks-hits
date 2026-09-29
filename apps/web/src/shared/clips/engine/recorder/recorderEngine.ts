@@ -11,12 +11,23 @@
  * The pipeline, on the main thread:
  *   game canvas -> canvas feed (drawImage, in the game's rAF task) ->
  *   page compositor (band, HUD and host, the worker compositor's rules) ->
- *   canvas.captureStream() -> rotating MediaRecorders -> segment ring.
- *   game-audio bus tap point -> MediaStreamAudioDestinationNode -> the same
- *   recorders (the sound before the sound switch).
- * The io worker indexes each segment (keyframes, decoder configs), joins the
- * segments of a clip into one file (MP4 for M, WebM for V), and stores it
- * with the library's write protocol (verify, move, row, broadcast).
+ *   canvas.captureStream() -> rotating video-only MediaRecorders -> ring.
+ *   game-audio bus tap point -> MediaStreamAudioDestinationNode -> one
+ *   sound recorder that does not restart while capture runs
+ *   (soundRecorder.ts) -> the io worker's sound store.
+ * The io worker indexes each segment (keyframes, packet times, decoder
+ * config), joins the segments of a clip into one file (MP4 for M, WebM for
+ * V) with the sound of the same span, and stores it with the library's write
+ * protocol (verify, move, row, broadcast).
+ *
+ * First frames: a recorder gets a frame only when the compositor is painted.
+ * Capture starts at the first paint after the governor warmup (so no
+ * recorder records the empty canvas), and each recorder's start() asks for a
+ * repaint of the last picture in the next display frame (a "touch"). While
+ * the game draws nothing, a touch comes every KEEPALIVE_MS. The engine keeps
+ * the capture time of each paint, and when a segment's index comes, it puts
+ * the segment's first frame on the paint that its packet times fit
+ * (anchor.ts), not on the recorder's "start" event.
  *
  * Replay granularity: a clip starts at the last keyframe at or before the
  * asked start. Tier M asks for a keyframe every KEYFRAME_INTERVAL_MS where
@@ -30,13 +41,18 @@
  * resume.
  *
  * Record: the segments from the tap on go to the io worker as they finish
- * ("segmentRecordAdd", journaled in OPFS for crash recovery), and the io
- * worker makes the parts at the end.
+ * ("segmentRecordAdd", journaled in OPFS for crash recovery), with the sound
+ * of the session's timeline, and the io worker makes the parts at the end.
  *
  * Failures: a recorder that fails is dropped with its segment. When no
  * recorder records any more, the engine says "encoder-error" and starts a
  * new one after a wait. RECORDER_FAILURE_LIMIT failures in a row (with no
  * good segment between them) stop the engine ("unavailable").
+ *
+ * Tier change: every arm probes again (plan 5). When a fresh probe finds a
+ * working VideoEncoder (tier W or W+), the engine asks onTierChange (the
+ * engine switch in service/loadEngine.ts) to move the game to the WebCodecs
+ * engine before it arms.
  */
 
 import { PRESETS, type ClipMeta, type ClipRecord, type HudState, type OutputPreset, type SegmentContainer, type SegmentIndex, type Tier } from "../../protocol";
@@ -63,8 +79,9 @@ import {
   browserPowerSource,
   contentKindOf,
   type PowerSource,
-} from "../../service/engineHost";
+} from "../../service/engineShared";
 import { IoError, getIoClient, type IoClient, type SegmentRecordSession } from "../../service/ioClient";
+import { anchorSegment } from "./anchor";
 import { RecorderAudio } from "./audioTrack";
 import { CaptureClock } from "./captureClock";
 import { Pacer, startCanvasFeed, type CanvasFeed } from "./canvasFeed";
@@ -73,8 +90,10 @@ import {
   GRANULARITY_WINDOW,
   HANDOFF_OVERLAP_MS,
   HANDOFF_RETRY_MS,
+  KEEPALIVE_MS,
   KEYFRAME_INTERVAL_MS,
-  RECORDER_AUDIO_BITRATE,
+  PAINT_LOG_MAX,
+  PURGE_FRAMES,
   RECORDER_CONTAINERS,
   RECORDER_FAILURE_LIMIT,
   RECORDER_FPS,
@@ -82,29 +101,41 @@ import {
   RECORDER_TYPES,
   ROTATION_MS,
   SEQUENTIAL_AFTER_FAILURES,
+  SOUND_TYPES,
   START_TIMEOUT_MS,
   STOP_TIMEOUT_MS,
+  TAKEOVER_GRACE_MS,
 } from "./constants";
 import { discoverFeed, type FeedDiscovery } from "./discover";
 import { Rotator, type FinishedSegment, type MediaRecorderLike, type RotatorFailure } from "./rotator";
 import { SegmentRing, keyframeGapUs, planClip, type RingSegment } from "./segmentRing";
+import { SoundRecorder } from "./soundRecorder";
 
 /** The io worker calls that this engine uses. IoClient fits it. */
-export type RecorderIo = Pick<IoClient, "configure" | "index" | "concat" | "picture" | "segmentRecord">;
+export type RecorderIo = Pick<IoClient, "configure" | "index" | "concat" | "picture" | "segmentRecord" | "audioRun" | "audioAppend" | "audioEnd">;
 
-/** The options every recorder gets. */
+/** The options every video recorder gets. */
 export interface RecorderOptions {
   mimeType: string;
   videoBitsPerSecond: number;
-  audioBitsPerSecond: number;
   /** Chromium: the keyframe spacing to use. Other browsers ignore it. */
   videoKeyFrameIntervalDuration: number;
+}
+
+/** The options of the sound recorder. */
+export interface SoundRecorderMakeOptions {
+  mimeType: string;
+  audioBitsPerSecond: number;
 }
 
 /** The page compositor, or a test double. */
 export interface CompositorLike {
   readonly preset: OutputPreset;
   paint(source: FrameSource, hud: HudState, scale: number): void;
+  /** Paints the last picture again (canvas capture then gives one more frame). */
+  touch(): void;
+  /** Paints the empty frame. */
+  clear(): void;
   captureTrack(fps: number): MediaStreamTrack | null;
   posterJpeg(): Promise<Blob | null>;
   dispose(): void;
@@ -116,6 +147,10 @@ export interface RecorderEngineDeps {
   probe?: (options: { force?: boolean }) => Promise<CapabilityReport>;
   io?: RecorderIo;
   createRecorder?: (stream: MediaStream, options: RecorderOptions) => MediaRecorderLike;
+  /** Makes the sound recorder. Default: the same MediaRecorder constructor. */
+  createSoundRecorder?: (stream: MediaStream, options: SoundRecorderMakeOptions) => MediaRecorderLike;
+  /** MediaRecorder.isTypeSupported (the sound recorder's types). */
+  isTypeSupported?: (mimeType: string) => boolean;
   createStream?: (tracks: MediaStreamTrack[]) => MediaStream;
   createCompositor?: (preset: OutputPreset, brandHost: string) => CompositorLike;
   /** The sound tap. null: no game sound in clips (tests, or no Web Audio). */
@@ -123,6 +158,12 @@ export interface RecorderEngineDeps {
   power?: PowerSource | null;
   /** True when this browser can record a canvas (MediaRecorder, MediaStream, captureStream). */
   canRecord?: () => boolean;
+  /**
+   * A fresh probe at arm found tier W or W+ (a working VideoEncoder). The
+   * engine switch moves the game to the WebCodecs engine and settles true;
+   * false keeps this engine. Absent: this engine keeps recording.
+   */
+  onTierChange?: (report: CapabilityReport) => Promise<boolean>;
   now?: () => number;
   setTimeout?: (fn: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
@@ -150,15 +191,20 @@ interface SessionRecording {
   startUs: number;
   /** Set when stop() starts: segments after it are not part of the recording. */
   stopUs: number | null;
-  /** Segments are sent in order, each after its index. */
+  /** Segments are sent in order of arrival, each after its index. */
   chain: Promise<void>;
-  sentAny: boolean;
   /** Segments that could not be read, so they are not in the video (reported as failed). */
   lost: number;
   /** No more segments are sent (the last one is out, or the recording ended). */
   closed: boolean;
   /** The end of the recording, once it started (stop() and a disarm share it). */
   ending: Promise<void> | null;
+}
+
+/** A Record tap whose io recording is opening: the segments that finish meanwhile wait here. */
+interface RecordingStart {
+  startUs: number;
+  held: RingSegment[];
 }
 
 interface Session {
@@ -174,12 +220,17 @@ interface Session {
   clock: CaptureClock;
   ring: SegmentRing;
   rotator: Rotator;
+  sound: SoundRecorder;
   governor: Governor;
   pacer: Pacer;
   /** Content scale inside the coded frame (a governor step). */
   scale: number;
-  /** Capture runs: the clock runs and a recorder records (or starts). */
+  /** The clock runs (no pause reason, not parked). */
   live: boolean;
+  /** The compositor holds a picture (a paint came after arm). */
+  hasContent: boolean;
+  /** Capture was started for this live span (recorders and sound). */
+  captureOn: boolean;
   outputSent: boolean;
   recovering: boolean;
   failuresInRow: number;
@@ -190,14 +241,22 @@ interface Session {
   finished: number;
   /**
    * How far the segments that came out cover the capture timeline when each
-   * one is used only up to its successor's first frame (Record uses them so).
+   * one is used only up to its successor's start (Record uses them so).
    */
   coveredToUs: number;
   indexes: WeakMap<RingSegment, Promise<SegmentIndex | null>>;
   granularitySec: number | null;
-  /** Segments that start before this capture time hold footage from before a purge: no clip uses them. */
+  /** Segments whose recorder started before this capture time hold footage from before a purge: no clip uses them. */
   purgeUs: number;
+  /** Display frames left before the hand-off of a purge (0: none waits). */
+  purgeFrames: number;
+  /** Capture times of the compositor paints (and touches), in order (anchor.ts). */
+  paints: number[];
+  /** Page time of the newest paint. */
+  lastPaintMs: number;
+  anchorMisses: number;
   recording: SessionRecording | null;
+  recordStarting: RecordingStart | null;
 }
 
 const CONTAINER_MIMES: Readonly<Record<SegmentContainer, "video/mp4" | "video/webm">> = { mp4: "video/mp4", webm: "video/webm" };
@@ -234,8 +293,7 @@ function failureFromIo(error: unknown): EngineFailure {
 /**
  * The recorder tier that a probe report allows: M when MediaRecorder makes
  * MP4 (H.264 and AAC), else V when it makes WebM (VP8 and Opus), else null.
- * The same order as selectTier (plan 5). A later probe that finds a working
- * VideoEncoder does not stop this engine: MediaRecorder still works.
+ * The same order as selectTier (plan 5).
  */
 export function recorderTierOf(report: CapabilityReport): "M" | "V" | null {
   if (report.caps.mediaRecorderMp4) return "M";
@@ -253,6 +311,11 @@ export function browserCanRecord(): boolean {
   return typeof g.MediaRecorder === "function" && typeof g.MediaStream === "function" && typeof g.HTMLCanvasElement?.prototype?.captureStream === "function";
 }
 
+function browserIsTypeSupported(mimeType: string): boolean {
+  const recorder = (globalThis as unknown as { MediaRecorder?: { isTypeSupported?: (t: string) => boolean } }).MediaRecorder;
+  return typeof recorder?.isTypeSupported === "function" ? recorder.isTypeSupported(mimeType) : false;
+}
+
 /** The tall or wide shape of the first source (plan 6.1: the shape follows the source). */
 function orientationOf(entry: Entry): "tall" | "wide" {
   if (entry.canvas && entry.canvas.width > 0 && entry.canvas.height > 0) return entry.canvas.height > entry.canvas.width ? "tall" : "wide";
@@ -265,11 +328,14 @@ export class RecorderEngine implements CaptureEngine {
   private readonly probe: (options: { force?: boolean }) => Promise<CapabilityReport>;
   private readonly io: RecorderIo;
   private readonly createRecorder: (stream: MediaStream, options: RecorderOptions) => MediaRecorderLike;
+  private readonly createSoundRecorder: (stream: MediaStream, options: SoundRecorderMakeOptions) => MediaRecorderLike;
+  private readonly isTypeSupported: (mimeType: string) => boolean;
   private readonly createStream: (tracks: MediaStreamTrack[]) => MediaStream;
   private readonly createCompositor: (preset: OutputPreset, brandHost: string) => CompositorLike;
   private readonly audio: RecorderAudio | null;
   private readonly power: PowerSource | null;
   private readonly canRecord: () => boolean;
+  private readonly onTierChange: ((report: CapabilityReport) => Promise<boolean>) | null;
   private readonly now: () => number;
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (handle: unknown) => void;
@@ -288,6 +354,8 @@ export class RecorderEngine implements CaptureEngine {
   private halted = false;
   private parked = false;
   private disposed = false;
+  /** The engine switch said no once: this engine records on, and does not ask again. */
+  private keepTier = false;
   private rearmTimer: unknown = null;
   private contentWait: { entry: Entry; cancel: () => void } | null = null;
   private readonly entries = new Set<Entry>();
@@ -309,11 +377,16 @@ export class RecorderEngine implements CaptureEngine {
     this.createRecorder =
       deps.createRecorder ??
       ((stream, options) => new MediaRecorder(stream, options as MediaRecorderOptions) as unknown as MediaRecorderLike);
+    this.createSoundRecorder =
+      deps.createSoundRecorder ??
+      ((stream, options) => new MediaRecorder(stream, options as MediaRecorderOptions) as unknown as MediaRecorderLike);
+    this.isTypeSupported = deps.isTypeSupported ?? browserIsTypeSupported;
     this.createStream = deps.createStream ?? ((tracks) => new MediaStream(tracks));
     this.createCompositor = deps.createCompositor ?? ((preset, host) => new PageCompositor(preset, host, { document }));
     this.audio = deps.audio === undefined ? new RecorderAudio() : deps.audio;
     this.power = deps.power === undefined ? browserPowerSource() : deps.power;
     this.canRecord = deps.canRecord ?? browserCanRecord;
+    this.onTierChange = deps.onTierChange ?? null;
     this.now = deps.now ?? (() => performance.now());
     this.setTimer = deps.setTimeout ?? ((fn, ms) => setTimeout(fn, ms));
     this.clearTimer = deps.clearTimeout ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
@@ -381,7 +454,10 @@ export class RecorderEngine implements CaptureEngine {
     void reason;
     // The pause that caused this reached the engine first: the recorders stop there.
     const s = this.session;
-    if (s && !s.live) void s.rotator.stop();
+    if (s && !s.live) {
+      void s.rotator.stop();
+      s.sound.stop();
+    }
   }
 
   mediaEndUs(): number {
@@ -393,12 +469,21 @@ export class RecorderEngine implements CaptureEngine {
     const s = this.session;
     if (!s || !s.outputSent) throw new EngineFailure("warming", "no footage yet");
     const endUs = request.endAtUs ?? s.clock.nowUs(this.now());
+    // The newest sound bytes go to the io worker now: the join waits for the sound up to its end.
+    s.sound.flush();
     await this.finishFootageTo(s, endUs, () => Math.max(0, ...s.ring.segments.map((segment) => segment.endUs)));
     if (this.session !== s) throw new EngineFailure("encoder-error", "the recorder stopped");
     const fromUs = Math.max(0, endUs - request.seconds * 1e6);
-    const needed = s.ring.needed(fromUs, endUs);
-    await Promise.all(needed.map((segment) => this.ensureIndex(s, segment)));
-    if (this.session !== s) throw new EngineFailure("encoder-error", "the recorder stopped");
+    // Each index moves its segment's start to its first frame, and that can change which segments the span needs.
+    let needed = s.ring.needed(fromUs, endUs);
+    for (let pass = 0; pass < 3; pass++) {
+      await Promise.all(needed.map((segment) => this.ensureIndex(s, segment)));
+      if (this.session !== s) throw new EngineFailure("encoder-error", "the recorder stopped");
+      const again = s.ring.needed(fromUs, endUs);
+      const same = again.length === needed.length && again.every((segment, i) => segment === needed[i]);
+      needed = again;
+      if (same) break;
+    }
     const plan = planClip(needed, fromUs, endUs);
     const coveredSec = plan ? (plan.endUs - plan.startUs) / 1e6 : 0;
     if (!plan || coveredSec < MIN_CLIP_SECONDS) throw new EngineFailure("warming", `only ${coveredSec.toFixed(1)} s of footage`);
@@ -417,7 +502,10 @@ export class RecorderEngine implements CaptureEngine {
       moments: request.moments ? request.moments(plan.startUs, plan.endUs) : request.meta.moments,
     };
     try {
-      const record = await this.io.concat({ container: s.container, segments: plan.segments, ...(poster ? { poster } : {}) }, meta);
+      const record = await this.io.concat(
+        { container: s.container, segments: plan.segments, timeline: s.gen, ...(poster ? { poster } : {}) },
+        meta,
+      );
       return { record, startUs: plan.startUs, endUs: plan.endUs };
     } catch (error) {
       throw failureFromIo(error);
@@ -449,37 +537,49 @@ export class RecorderEngine implements CaptureEngine {
   async startRecording(meta: ClipMeta): Promise<RecordingHandle> {
     const s = this.session;
     if (!s || !s.outputSent) throw new EngineFailure("warming", "no footage yet");
-    if (s.recording) throw new EngineFailure("encoder-error", "a recording is already running");
+    if (s.recording || s.recordStarting) throw new EngineFailure("encoder-error", "a recording is already running");
     const startUs = s.clock.nowUs(this.now());
-    const io = this.io.segmentRecord(meta.id, s.container, {
-      ...meta,
-      kind: "record",
-      width: s.preset.width,
-      height: s.preset.height,
-      fps: RECORDER_FPS,
-      mime: CONTAINER_MIMES[s.container],
-    });
+    // From the tap on, a segment that finishes waits here until the io recording is open.
+    const starting: RecordingStart = { startUs, held: [] };
+    s.recordStarting = starting;
+    let io: SegmentRecordSession | null = null;
     try {
+      const poster = await s.compositor.posterJpeg();
+      io = this.io.segmentRecord(
+        meta.id,
+        {
+          ...meta,
+          kind: "record",
+          width: s.preset.width,
+          height: s.preset.height,
+          fps: RECORDER_FPS,
+          mime: CONTAINER_MIMES[s.container],
+        },
+        { container: s.container, timeline: s.gen, startUs, poster },
+      );
       await io.started;
     } catch (error) {
+      if (s.recordStarting === starting) s.recordStarting = null;
       throw failureFromIo(error);
     }
-    if (this.session !== s || s.recording) {
+    if (this.session !== s || s.recordStarting !== starting) {
       io.end();
       throw new EngineFailure("encoder-error", "the recorder stopped");
     }
+    s.recordStarting = null;
     const rec: SessionRecording = {
       id: meta.id,
       io,
       startUs,
       stopUs: null,
       chain: Promise.resolve(),
-      sentAny: false,
       lost: 0,
       closed: false,
       ending: null,
     };
     s.recording = rec;
+    // The segments that finished while the io recording opened (the tap is in one of them).
+    for (const segment of starting.held) this.feedRecording(s, rec, segment);
     this.applyLevel();
     return {
       recordingId: meta.id,
@@ -501,7 +601,13 @@ export class RecorderEngine implements CaptureEngine {
     s.ring.clear();
     // The recorder that runs now holds footage from before the purge: no clip may use it.
     s.purgeUs = s.clock.nowUs(this.now());
-    if (s.live && s.rotator.running) void s.rotator.handOff();
+    // The last picture is from before the purge: a repaint must never show it again.
+    s.compositor.clear();
+    if (s.live && s.rotator.running) {
+      // A new recorder, once the empty frame is the track's frame (PURGE_FRAMES).
+      s.purgeFrames = PURGE_FRAMES;
+      this.requestTouch(s);
+    }
     this.emit({ t: "buffered", seconds: 0 });
   }
 
@@ -618,7 +724,16 @@ export class RecorderEngine implements CaptureEngine {
   private feedFor(s: Session, canvas: HTMLCanvasElement, onError: () => void): CanvasFeed {
     return startCanvasFeed({
       canvas,
-      draw: (source, hud) => s.compositor.paint(source, hud, s.scale),
+      draw: (source, hud, pageMs) => {
+        s.compositor.paint(source, hud, s.scale);
+        this.onPaint(s, pageMs);
+      },
+      touch: (pageMs) => {
+        if (this.session !== s || !s.hasContent) return;
+        s.compositor.touch();
+        this.logPaint(s, pageMs);
+      },
+      onFrame: () => this.onFrame(s),
       hud: () => this.hud(),
       pacer: s.pacer,
       live: () => this.session === s && s.live,
@@ -656,6 +771,41 @@ export class RecorderEngine implements CaptureEngine {
     entry.feed = null;
     entry.discovery?.stop();
     entry.discovery = null;
+  }
+
+  // ---- paints ------------------------------------------------------------------
+
+  /** A game frame was painted into the compositor. The first one starts capture. */
+  private onPaint(s: Session, pageMs: number): void {
+    if (this.session !== s) return;
+    this.logPaint(s, pageMs);
+    s.hasContent = true;
+    if (s.live && !s.captureOn) this.startCapture(s);
+  }
+
+  private logPaint(s: Session, pageMs: number): void {
+    const us = s.clock.nowUs(pageMs);
+    const last = s.paints[s.paints.length - 1];
+    if (last === undefined || us >= last) s.paints.push(us);
+    if (s.paints.length > PAINT_LOG_MAX) s.paints.splice(0, s.paints.length - PAINT_LOG_MAX);
+    s.lastPaintMs = this.now();
+  }
+
+  /** The end of a display frame: counts the frames of a purge's wait, then hands off. */
+  private onFrame(s: Session): void {
+    if (this.session !== s || s.purgeFrames === 0) return;
+    s.purgeFrames--;
+    if (s.purgeFrames > 0) {
+      this.requestTouch(s);
+      return;
+    }
+    if (s.live && s.rotator.running) void s.rotator.handOff();
+  }
+
+  /** A recorder was started: it needs a frame now. */
+  private requestTouch(s: Session): void {
+    if (this.session !== s || !s.hasContent) return;
+    this.newestFeed()?.requestTouch();
   }
 
   // ---- arm -------------------------------------------------------------------
@@ -724,6 +874,25 @@ export class RecorderEngine implements CaptureEngine {
       if (gen === this.gen) this.armAgain = true;
       return;
     }
+    const probed = report.caps.tier;
+    if ((probed === "W" || probed === "W+") && this.onTierChange && !this.keepTier) {
+      // A working VideoEncoder now (the first probe met a cold or busy one): the WebCodecs engine takes over.
+      let switched = false;
+      try {
+        switched = await this.onTierChange(report);
+      } catch {
+        switched = false;
+      }
+      if (switched) {
+        this.halted = true;
+        return;
+      }
+      this.keepTier = true;
+      if (gen !== this.gen || this.disposed || !this.entries.has(first)) {
+        if (gen === this.gen) this.armAgain = true;
+        return;
+      }
+    }
     const tier = recorderTierOf(report);
     if (!tier || !this.canRecord()) {
       this.log("[clips] this browser cannot record the game's picture");
@@ -768,10 +937,11 @@ export class RecorderEngine implements CaptureEngine {
       },
     });
     const clock = new CaptureClock();
+    const container = RECORDER_CONTAINERS[tier];
     const created: Session = {
       gen,
       tier,
-      container: RECORDER_CONTAINERS[tier],
+      container,
       mimeType: RECORDER_TYPES[tier],
       preset,
       bitrate,
@@ -781,10 +951,26 @@ export class RecorderEngine implements CaptureEngine {
       clock,
       ring: new SegmentRing(ringSeconds),
       rotator: null as unknown as Rotator,
+      sound: new SoundRecorder({
+        createRecorder: (stream, options) => this.createSoundRecorder(stream, options),
+        createStream: (tracks) => this.createStream(tracks),
+        isTypeSupported: this.isTypeSupported,
+        types: SOUND_TYPES[tier],
+        container,
+        timeline: gen,
+        keepSeconds: ringSeconds,
+        captureUs: () => clock.nowUs(this.now()),
+        io: this.io,
+        setTimeout: this.setTimer,
+        clearTimeout: this.clearTimer,
+        log: this.log,
+      }),
       governor,
       pacer: new Pacer(report.caps.displayHz),
       scale: 1,
       live: false,
+      hasContent: false,
+      captureOn: false,
       outputSent: false,
       recovering: false,
       failuresInRow: 0,
@@ -796,7 +982,12 @@ export class RecorderEngine implements CaptureEngine {
       indexes: new WeakMap(),
       granularitySec: null,
       purgeUs: 0,
+      purgeFrames: 0,
+      paints: [],
+      lastPaintMs: 0,
+      anchorMisses: 0,
       recording: null,
+      recordStarting: null,
     };
     session = created;
     created.rotator = new Rotator({
@@ -811,8 +1002,10 @@ export class RecorderEngine implements CaptureEngine {
       stopTimeoutMs: STOP_TIMEOUT_MS,
       retryMs: HANDOFF_RETRY_MS,
       sequentialAfterFailures: SEQUENTIAL_AFTER_FAILURES,
+      takeoverGraceMs: TAKEOVER_GRACE_MS,
       onSegment: (segment) => this.onSegment(created, segment),
       onStarted: () => this.onRecorderStarted(created),
+      onStartCall: () => this.requestTouch(created),
       onFailure: (kind, info) => this.onRecorderFailure(created, kind, info),
       log: this.log,
     });
@@ -833,14 +1026,11 @@ export class RecorderEngine implements CaptureEngine {
     this.applyLive();
   }
 
+  /** A video-only recorder: the sound has its own recorder (soundRecorder.ts). */
   private makeRecorder(s: Session): MediaRecorderLike {
-    const tracks: MediaStreamTrack[] = [s.videoTrack];
-    const audio = this.audio?.track;
-    if (audio && audio.readyState !== "ended") tracks.push(audio);
-    return this.createRecorder(this.createStream(tracks), {
+    return this.createRecorder(this.createStream([s.videoTrack]), {
       mimeType: s.mimeType,
       videoBitsPerSecond: s.bitrate,
-      audioBitsPerSecond: RECORDER_AUDIO_BITRATE,
       videoKeyFrameIntervalDuration: KEYFRAME_INTERVAL_MS,
     });
   }
@@ -876,6 +1066,10 @@ export class RecorderEngine implements CaptureEngine {
     s.restartTimer = null;
     for (const entry of this.entries) this.detachEntry(entry);
     s.live = false;
+    s.captureOn = false;
+    s.recordStarting = null;
+    // The sound run ends: its last bytes and its end go to the io worker before any later run.
+    s.sound.dispose();
     const cleanup = () => {
       s.rotator.dispose();
       try {
@@ -899,7 +1093,11 @@ export class RecorderEngine implements CaptureEngine {
 
   // ---- capture on and off ------------------------------------------------------
 
-  /** Capture runs while no pause reason is set and the engine is not parked. */
+  /**
+   * Capture runs while no pause reason is set and the engine is not parked.
+   * The recorders start at once when the compositor holds a picture, else at
+   * the first paint (after the governor warmup).
+   */
   private applyLive(): void {
     const s = this.session;
     if (!s) return;
@@ -909,15 +1107,26 @@ export class RecorderEngine implements CaptureEngine {
       s.live = true;
       s.clock.run(now);
       s.pacer.reset();
-      s.rotator.start();
+      if (s.hasContent) this.startCapture(s);
     } else if (!run && s.live) {
       s.live = false;
+      s.captureOn = false;
       if (s.restartTimer !== null) this.clearTimer(s.restartTimer);
       s.restartTimer = null;
       // Each recorder's segment ends at this capture time, then the clock stands still.
       void s.rotator.stop();
+      s.sound.stop();
       s.clock.pause(now);
     }
+  }
+
+  /** Starts the recorders and the sound for this live span. */
+  private startCapture(s: Session): void {
+    if (this.session !== s || !s.live) return;
+    s.captureOn = true;
+    s.rotator.start();
+    const track = this.audio?.track;
+    if (track && track.readyState !== "ended") s.sound.start(track);
   }
 
   /** The governor level, with Record kept at the low-power rung while resting (plan 7). */
@@ -938,8 +1147,34 @@ export class RecorderEngine implements CaptureEngine {
     const now = this.now();
     s.governor.tick(now);
     this.evict(s);
-    const seconds = s.live || s.ring.segments.length > 0 ? Math.min(s.ring.ringSeconds, s.ring.coveredSec(s.clock.nowUs(now))) : 0;
-    this.emit({ t: "buffered", seconds });
+    if (s.captureOn && s.hasContent && s.rotator.running && now - s.lastPaintMs >= KEEPALIVE_MS) {
+      // The game draws nothing: the recorders still need frames.
+      this.requestTouch(s);
+    }
+    if (s.captureOn && s.rotator.idle && s.restartTimer === null && !this.halted) {
+      // No recorder records and nothing will start one (a failure that left no successor).
+      this.recoverCapture(s, "no recorder runs");
+    }
+    this.emit({ t: "buffered", seconds: this.bufferedSec(s) });
+  }
+
+  /**
+   * Seconds of footage back from now: from the oldest usable segment's start,
+   * or from the running recorder's start when no segment reaches back
+   * further (the first rotation after an arm or a purge).
+   */
+  private bufferedSec(s: Session): number {
+    let oldest = Infinity;
+    for (const segment of s.ring.segments) {
+      if (!segment.broken) {
+        oldest = segment.startUs;
+        break;
+      }
+    }
+    const running = s.rotator.currentStartUs;
+    if (running !== null && running >= s.purgeUs) oldest = Math.min(oldest, running);
+    if (!Number.isFinite(oldest)) return 0;
+    return Math.min(s.ring.ringSeconds, Math.max(0, (s.clock.nowUs(this.now()) - oldest) / 1e6));
   }
 
   private evict(s: Session): void {
@@ -947,9 +1182,10 @@ export class RecorderEngine implements CaptureEngine {
   }
 
   private onAudioTrack(s: Session, track: MediaStreamTrack | null): void {
-    void track;
-    // A new sound track: the next segment records it. Start that segment now.
-    if (this.session === s && s.live && s.rotator.running) void s.rotator.handOff();
+    if (this.session !== s || !s.captureOn) return;
+    // A new sound track (a new bus): a new sound run records it from now on.
+    s.sound.stop();
+    if (track && track.readyState !== "ended") s.sound.start(track);
   }
 
   // ---- recorder events ---------------------------------------------------------
@@ -981,14 +1217,19 @@ export class RecorderEngine implements CaptureEngine {
       this.disarmSession();
       return;
     }
-    if (s.rotator.running || !s.live) return;
-    // No recorder carries the footage now: say so, and start again after a wait.
+    if (!s.rotator.idle || !s.captureOn) return;
+    this.recoverCapture(s, "the recorder failed");
+  }
+
+  /** No recorder carries the footage: say so, and start one again after a wait. */
+  private recoverCapture(s: Session, why: string): void {
+    if (s.restartTimer !== null) return;
+    this.log(`[clips] ${why}; capture starts again`);
     s.recovering = true;
     this.emit({ t: "encoder-error", fatal: !s.outputSent });
-    if (s.restartTimer !== null) this.clearTimer(s.restartTimer);
     s.restartTimer = this.setTimer(() => {
       s.restartTimer = null;
-      if (this.session === s && s.live && !s.rotator.running) s.rotator.start();
+      if (this.session === s && s.captureOn && s.rotator.idle) s.rotator.start();
     }, Math.min(REARM_MAX_DELAY_MS, HANDOFF_RETRY_MS * 2 ** Math.max(0, s.failuresInRow - 1)));
   }
 
@@ -996,15 +1237,27 @@ export class RecorderEngine implements CaptureEngine {
     s.finished++;
     s.coveredToUs = Math.max(s.coveredToUs, finished.nextStartUs ?? finished.endUs);
     s.failuresInRow = 0;
-    const segment: RingSegment = { id: s.nextId++, blob: finished.blob, startUs: finished.startUs, endUs: finished.endUs, index: null, broken: false };
-    if (this.session === s && segment.startUs >= s.purgeUs) {
+    const segment: RingSegment = {
+      id: s.nextId++,
+      blob: finished.blob,
+      startUs: finished.startUs,
+      startCallUs: finished.startCallUs,
+      startEventUs: finished.startUs,
+      endUs: finished.endUs,
+      nextStartUs: finished.nextStartUs,
+      index: null,
+      broken: false,
+    };
+    // A recorder started before the purge can hold footage from before it.
+    if (this.session === s && segment.startCallUs >= s.purgeUs) {
       s.ring.add(segment);
-      // Index now: the keyframes set the granularity, and a clip does not wait for it later.
+      // Index now: the keyframes set the granularity, the packet times set the start, and a clip does not wait for it later.
       void this.ensureIndex(s, segment);
       this.evict(s);
     }
     const rec = s.recording;
-    if (rec && !rec.closed) this.feedRecording(s, rec, segment, finished.nextStartUs);
+    if (rec && !rec.closed) this.feedRecording(s, rec, segment);
+    else if (s.recordStarting) s.recordStarting.held.push(segment);
   }
 
   private ensureIndex(s: Session, segment: RingSegment): Promise<SegmentIndex | null> {
@@ -1018,6 +1271,7 @@ export class RecorderEngine implements CaptureEngine {
             segment.broken = true;
             this.log("[clips] a recorder segment does not start with a keyframe");
           }
+          this.anchor(s, segment, index);
           this.updateGranularity(s);
           return index;
         },
@@ -1030,6 +1284,22 @@ export class RecorderEngine implements CaptureEngine {
       s.indexes.set(segment, pending);
     }
     return pending;
+  }
+
+  /** Puts the segment's first frame on the paint that its packet times fit (anchor.ts). */
+  private anchor(s: Session, segment: RingSegment, index: SegmentIndex): void {
+    const found = anchorSegment({
+      paintsUs: s.paints,
+      startCallUs: segment.startCallUs,
+      startEventUs: segment.startEventUs,
+      packetTimesUs: index.packetTimesUs,
+    });
+    if (!found.matched) {
+      s.anchorMisses++;
+      if (s.anchorMisses === 1) this.log(`[clips] a segment's frames do not fit the paint times (${Math.round(found.errorUs)} us); its start is the first paint after the recorder started`);
+    }
+    segment.startUs = found.startUs;
+    if (this.session === s) s.ring.resort();
   }
 
   /** The largest keyframe gap of the newest indexed segments (plan 5 replay granularity). */
@@ -1071,17 +1341,22 @@ export class RecorderEngine implements CaptureEngine {
       await s.rotator.handOff();
       if (s.finished === before && this.session === s && s.rotator.running) {
         await s.rotator.stop();
-        if (this.session === s && s.live) s.rotator.start();
+        if (this.session === s && s.live && s.captureOn) s.rotator.start();
       }
     }
   }
 
   // ---- Record --------------------------------------------------------------------
 
-  /** Sends one finished segment to the recording, in order, with its window. */
-  private feedRecording(s: Session, rec: SessionRecording, segment: RingSegment, nextStartUs: number | null): void {
+  /**
+   * Sends one finished segment to the recording, after its index. A segment
+   * that holds the tap starts at its own last keyframe at or before the tap;
+   * the io worker puts the segments in order, makes their windows meet, and
+   * starts the recording at the latest of those keyframes.
+   */
+  private feedRecording(s: Session, rec: SessionRecording, segment: RingSegment): void {
     const stopUs = rec.stopUs ?? Infinity;
-    if (segment.endUs <= rec.startUs || segment.startUs >= stopUs) return;
+    if (segment.endUs <= rec.startUs || segment.startCallUs >= stopUs) return;
     rec.chain = rec.chain.then(async () => {
       const index = await this.ensureIndex(s, segment);
       if (!index || segment.broken) {
@@ -1089,17 +1364,18 @@ export class RecorderEngine implements CaptureEngine {
         return;
       }
       let fromUs = segment.startUs;
-      if (!rec.sentAny && rec.startUs > segment.startUs) {
+      if (rec.startUs > segment.startUs) {
         // The recording starts at the last keyframe at or before the tap (plan 6.6).
         for (const k of index.keyframesUs) {
           if (segment.startUs + k <= rec.startUs) fromUs = segment.startUs + k;
           else break;
         }
       }
-      const toUs = Math.min(nextStartUs ?? segment.endUs, stopUs);
+      const toUs = Math.min(segment.endUs, stopUs);
       if (!(toUs > fromUs)) return;
-      rec.io.add({ blob: segment.blob, startUs: segment.startUs, fromUs, toUs });
-      rec.sentAny = true;
+      // A tile picture for a part that could start with this segment (a device with no video decoder).
+      const poster = await s.compositor.posterJpeg();
+      rec.io.add({ blob: segment.blob, startUs: segment.startUs, fromUs, toUs }, poster);
     });
   }
 
@@ -1115,6 +1391,8 @@ export class RecorderEngine implements CaptureEngine {
   private async runEndRecording(s: Session, rec: SessionRecording): Promise<void> {
     if (rec.stopUs === null) rec.stopUs = s.clock.nowUs(this.now());
     const stopUs = rec.stopUs;
+    // The sound up to the stop tap goes to the io worker now.
+    s.sound.flush();
     if (this.session === s && s.live) {
       // Capture goes on after the recording: end the segment that holds the stop tap.
       await this.finishFootageTo(s, stopUs, () => s.coveredToUs);
@@ -1126,6 +1404,8 @@ export class RecorderEngine implements CaptureEngine {
     if (s.recording === rec) s.recording = null;
     if (this.session === s) this.applyLevel();
     await rec.chain;
+    // Every sound byte up to here is on its way before the end.
+    await s.sound.sent();
     rec.io.end();
   }
 

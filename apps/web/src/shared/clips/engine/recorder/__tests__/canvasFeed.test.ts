@@ -119,6 +119,51 @@ describe("canvas feed timing", () => {
     expect(h.gameFrames.at(-1)!.baseline).toBe(false);
   });
 
+  it("gives each paint its display frame's time (the engine's paint times)", () => {
+    const times: number[] = [];
+    const h = setup("2d", { draw: (_c, _hud, pageMs) => void times.push(pageMs) });
+    h.run(4);
+    expect(times).toHaveLength(3);
+    // The frames' own times (60 Hz), as the page sees them: the realm shares the page's time origin.
+    for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1]).toBeCloseTo(FRAME_MS, 5);
+  });
+
+  it("a touch: one more display frame, even when the game queues none, and a repaint when nothing was painted", () => {
+    const touches: number[] = [];
+    // A game that stopped its loop: no frame is queued.
+    const realm = new CanvasRealm(performance.timeOrigin);
+    const canvas = realm.createCanvas(64, 48);
+    (canvas.getContext("2d") as FakeContext2D).drawPicture(1);
+    const pacer = new Pacer(60, 2);
+    const feed = startCanvasFeed({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      draw: () => undefined,
+      touch: (pageMs) => void touches.push(pageMs),
+      hud: () => ({ gameName: "", emoji: "" }),
+      pacer,
+      live: () => true,
+      warmupMs: 0,
+    });
+    // The pacer is not due (a paint just now): the wake's frame paints nothing, so the touch runs.
+    pacer.mark(0);
+    feed.requestTouch();
+    realm.frame(5);
+    expect(touches).toEqual([5]);
+    // No request, no touch.
+    realm.frame(22);
+    expect(touches).toHaveLength(1);
+    feed.stop();
+  });
+
+  it("no touch in a frame that painted: the paint is the frame the recorder gets", () => {
+    const touches: number[] = [];
+    const h = setup("2d", { touch: (ms) => void touches.push(ms) });
+    h.feed.requestTouch();
+    h.run(2);
+    expect(h.read.length).toBeGreaterThan(0);
+    expect(touches).toEqual([]);
+  });
+
   it("a canvas it cannot read (SecurityError) stops the feed and reports once", () => {
     const errors: unknown[] = [];
     const h = setup("2d", { onError: (e) => errors.push(e), ...({ throwOn: 3 } as object) });

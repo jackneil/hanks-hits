@@ -145,6 +145,23 @@ export class PageCompositor {
     if (brand) ctx.drawImage(brand.canvas, layout.brand.x, layout.brand.y);
   }
 
+  /**
+   * Paints the canvas again with the same pixels (it draws itself onto
+   * itself), so canvas capture gives the recorders one more frame of the
+   * last picture.
+   */
+  touch(): void {
+    if (this.disposed) return;
+    this.ctx.drawImage(this.canvas, 0, 0);
+  }
+
+  /** Paints the empty frame: no picture from before a purge can reach a later frame. */
+  clear(): void {
+    if (this.disposed) return;
+    this.ctx.fillStyle = COMPOSITOR_COLORS.frame;
+    this.ctx.fillRect(0, 0, this.preset.width, this.preset.height);
+  }
+
   /** The video track of the canvas at `fps`. Null when this browser has no canvas capture. */
   captureTrack(fps: number): MediaStreamTrack | null {
     const capture = (this.canvas as HTMLCanvasElement & { captureStream?: (fps?: number) => MediaStream }).captureStream;

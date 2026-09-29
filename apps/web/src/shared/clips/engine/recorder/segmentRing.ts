@@ -18,10 +18,22 @@ import type { RecorderSegmentRef, SegmentIndex } from "../../protocol";
 export interface RingSegment {
   readonly id: number;
   readonly blob: Blob;
-  /** Capture time of the segment's first frame. */
-  readonly startUs: number;
+  /**
+   * Capture time of the segment's first frame. Until the index comes, the
+   * recorder's "start" event time; then the time that anchor.ts finds.
+   */
+  startUs: number;
+  /** Capture time of the recorder's start() call. */
+  readonly startCallUs: number;
+  /** Capture time of the recorder's "start" event. */
+  readonly startEventUs: number;
   /** Capture time at which the recorder was stopped. */
   readonly endUs: number;
+  /**
+   * The next segment's "start" event (the hand-off), or null. Used only to see
+   * how far the finished segments reach; windows use the anchored starts.
+   */
+  readonly nextStartUs: number | null;
   /** The io worker's index (keyframes and configs), or null until it comes. */
   index: SegmentIndex | null;
   /** The index failed: the segment does not parse, so no clip uses it. */
@@ -60,6 +72,11 @@ export class SegmentRing {
   /** Adds a finished segment, in start order. */
   add(segment: RingSegment): void {
     this.list.push(segment);
+    this.resort();
+  }
+
+  /** Puts the segments in start order again (a segment's start moved when its index came). */
+  resort(): void {
     this.list.sort((a, b) => a.startUs - b.startUs || a.id - b.id);
   }
 
@@ -122,8 +139,8 @@ export interface ClipPlan {
   endUs: number;
   /**
    * True when the clip was cut to its newest segments (plan 6.6): an older
-   * segment has another decoder config, does not parse, or is missing (a
-   * gap). The clip is then shorter than asked, and says so.
+   * segment has another video decoder config, does not parse, or is missing
+   * (a gap). The clip is then shorter than asked, and says so.
    */
   cut: boolean;
 }
@@ -134,10 +151,10 @@ export interface ClipPlan {
  * Returns null when no segment covers the span.
  *
  * - The clip keeps only the newest run of segments that can share a track:
- *   the same video config, and one audio config (a segment with no audio
- *   fits any), with no gap between them. An older segment with another
- *   config, one that does not parse, or a gap cuts the clip there (never
- *   silent: `cut`).
+ *   the same video config, with no gap between them. An older segment with
+ *   another config, one that does not parse, or a gap cuts the clip there
+ *   (never silent: `cut`). The segments hold no sound: the io worker adds the
+ *   sound of the span from its sound runs.
  * - It starts at the last keyframe at or before fromUs in the first segment,
  *   or at that segment's first frame when the ring does not reach back to
  *   fromUs. Plan 6.6: a clip starts at a keyframe, at most one keyframe gap
@@ -147,16 +164,13 @@ export interface ClipPlan {
 export function planClip(segments: readonly RingSegment[], fromUs: number, toUs: number): ClipPlan | null {
   let first = segments.length;
   let video: string | null = null;
-  let audio: string | null = null;
   for (let i = segments.length - 1; i >= 0; i--) {
     const index = usableIndex(segments[i]);
     if (!index) break;
     video ??= index.videoConfigKey;
     if (index.videoConfigKey !== video) break;
-    if (index.audioConfigKey !== null && audio !== null && index.audioConfigKey !== audio) break;
     const later = segments[i + 1];
     if (later && segments[i].endUs < later.startUs - SEGMENT_GAP_US) break;
-    audio ??= index.audioConfigKey;
     first = i;
   }
   if (first >= segments.length) return null;

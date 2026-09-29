@@ -345,7 +345,10 @@ export type SegmentContainer = "mp4" | "webm";
 
 /**
  * One finished MediaRecorder segment: a whole file, with its own header and a
- * keyframe first. Rotating recorders make one segment every few seconds.
+ * keyframe first. Rotating recorders make one segment every few seconds. A
+ * segment holds video only: the game sound comes from one sound recorder
+ * that does not restart (the "audioRun" command), so a hand-off never splices
+ * the sound.
  */
 export interface RecorderSegmentRef {
   blob: Blob;
@@ -375,6 +378,12 @@ export interface SegmentJob {
    * decoder for the clip (plan 8.1 tiles). Optional.
    */
   poster?: Blob;
+  /**
+   * The capture timeline (the engine session) of the segments. The io worker
+   * adds the game sound of the same timeline from its sound runs ("audioRun").
+   * Absent: the file has no sound.
+   */
+  timeline?: number;
 }
 
 /**
@@ -390,10 +399,14 @@ export interface SegmentIndex {
    * one string. Two segments with equal keys can share one track (plan 6.6).
    */
   videoConfigKey: string;
-  /** The same for audio, or null when the segment has no audio track. */
-  audioConfigKey: string | null;
   /** Presentation times of the keyframes, from the first video packet. */
   keyframesUs: number[];
+  /**
+   * Presentation times of every video packet, from the first one, in order.
+   * The engine matches them to its paint times to find the capture time of
+   * the segment's first frame (engine/recorder/anchor.ts).
+   */
+  packetTimesUs: number[];
   /** End of the last video packet. */
   durationUs: number;
   videoPackets: number;
@@ -516,17 +529,50 @@ export type IoCmd = (
    * Tiers M and V Record (plan 8.4): opens a recording that gets its segments
    * one at a time ("segmentRecordAdd"). Each segment is also journaled in
    * OPFS, so a tab that closes or crashes keeps it (the next startup stores
-   * it: the "recovered" event). Answer: "recording".
+   * it: the "recovered" event). The game sound of `timeline` goes into the
+   * recording and its journal too. startUs: the capture time of the Record
+   * tap (the recording starts at the last keyframe at or before it). poster:
+   * a JPEG of the game picture at the tap. Answer: "recording".
    */
-  | { t: "segmentRecord"; recordingId: string; container: SegmentContainer; meta: ClipMeta }
-  /** Adds the next segment to an open segment recording. No answer; a failure comes at the end. */
-  | { t: "segmentRecordAdd"; recordingId: string; segment: RecorderSegmentRef }
+  | {
+      t: "segmentRecord";
+      recordingId: string;
+      container: SegmentContainer;
+      meta: ClipMeta;
+      timeline: number;
+      startUs: number;
+      poster?: Blob;
+    }
+  /**
+   * Adds the next segment to an open segment recording. The segments can come
+   * in any order: the io worker sorts them by start at the end. poster: a
+   * JPEG of the game picture near the segment's start, for the tile of a part
+   * that starts with this segment. No answer; a failure comes at the end.
+   */
+  | { t: "segmentRecordAdd"; recordingId: string; segment: RecorderSegmentRef; poster?: Blob }
   /**
    * Ends a segment recording: its segments become record parts (a new part at
    * a different decoder config or at the part size limit, like the Record
    * tee). Answer: "saved" (or "error") for each part, then "recorded".
    */
   | { t: "segmentRecordEnd"; recordingId: string }
+  /**
+   * Tiers M and V game sound (plan 5, 6.3). One audio-only MediaRecorder on
+   * the main thread records the game sound with no restart while capture runs
+   * (a "run"), so the sound of a clip never has a splice at a video hand-off.
+   * This command opens run `runId`: its bytes come in order with
+   * "audioAppend", and the io worker reads the sound packets from them as
+   * they arrive. The run's first packet is at capture time startUs.
+   * keepSeconds: how much sound the io worker keeps (the ring length). A run
+   * of a new timeline replaces the runs of older timelines. The io worker
+   * runs the three sound commands at once, not in its command queue. No
+   * event answers them.
+   */
+  | { t: "audioRun"; runId: number; timeline: number; container: SegmentContainer; startUs: number; keepSeconds: number }
+  /** The next bytes of an open sound run (one MediaRecorder chunk). */
+  | { t: "audioAppend"; runId: number; bytes: ArrayBuffer }
+  /** The sound run has no more bytes (its recorder stopped). */
+  | { t: "audioEnd"; runId: number }
 ) &
   IoTag;
 

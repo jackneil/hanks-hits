@@ -7,18 +7,31 @@
  * hand-off overlap and then stops. So two recorders run together only across
  * a hand-off, and the segments cover the capture timeline with no gap.
  *
- * Times: a segment starts at the capture time of its recorder's "start"
- * event and ends at the capture time of its stop() call. The io worker puts
- * each segment's first frame at its start time (engine/io/concat.ts).
+ * Times: the rotator notes the capture time of each recorder's start() call
+ * and of its "start" event, and a segment ends at the capture time of its
+ * stop() call. Neither time is the segment's first frame: the engine finds
+ * that from the segment's packet times and its paint times (anchor.ts).
  *
  * Hand-off on demand: a clip calls handOff(), so the newest footage is in a
- * finished segment. A hand-off that runs already is shared.
+ * finished segment. A hand-off that runs already is shared. A hand-off while
+ * the current recorder still starts waits for it first.
  *
  * Failures: a recorder that cannot be made, does not start in time, fires
  * "error", or gives no data after stop(), is a failure (onFailure). Its
- * segment is dropped. A failed new recorder in a hand-off leaves the old
- * one recording, and the hand-off is tried again later. A failed current
- * recorder leaves the rotator stopped: the engine decides what comes next.
+ * segment is dropped.
+ * - A new recorder that fails in a hand-off (before or after its "start"
+ *   event) leaves the old one recording, and the hand-off is tried again
+ *   later. So does a new recorder that fails within TAKEOVER_GRACE_MS after
+ *   it took over (Chromium fires "start" and then "error" for an encoder that
+ *   cannot open). SEQUENTIAL_AFTER_FAILURES of these in a row turn on the
+ *   hand-off with no overlap (a device with one encoder session).
+ * - An old recorder that fails in a hand-off leaves the new one as the
+ *   current recorder.
+ * - A current recorder that fails with no hand-off leaves the rotator
+ *   stopped: the engine decides what comes next (and `idle` tells it).
+ * - A stop() or dispose() during a hand-off is not a failure of the hand-off.
+ * At most one recorder is current, and every other live recorder is the other
+ * half of a hand-off: no recorder is ever left recording outside rotation.
  *
  * No browser API is read here: the engine gives the recorder factory, the
  * clocks and the timers, so tests drive it with a fake recorder.
@@ -34,18 +47,23 @@ export interface MediaRecorderLike {
   onerror: ((event: unknown) => void) | null;
   start(timeslice?: number): void;
   stop(): void;
+  requestData?(): void;
 }
 
 /** One finished recorder. */
 export interface FinishedSegment {
   blob: Blob;
+  /** Capture time of the recorder's "start" event. */
   startUs: number;
+  /** Capture time of the recorder's start() call. */
+  startCallUs: number;
+  /** Capture time of the recorder's stop() call. */
   endUs: number;
   mimeType: string;
   /**
-   * The start of the recorder that took over in the hand-off (the next
-   * segment's first frame), or null when this recorder stopped with no
-   * successor (a pause, a stop, or the browser stopped it).
+   * The "start" event of the recorder that took over in the hand-off, or null
+   * when this recorder stopped with no successor (the browser stopped it, or
+   * a sequential hand-off). After it, the footage is in the next segment.
    */
   nextStartUs: number | null;
 }
@@ -72,9 +90,13 @@ export interface RotatorOptions {
    * After this many, hand-offs stop the old recorder first (no overlap).
    */
   sequentialAfterFailures: number;
+  /** A new recorder that fails this soon after it took over counts as a failed hand-off. */
+  takeoverGraceMs: number;
   onSegment(segment: FinishedSegment): void;
   /** A recorder fired "start" (capture runs). */
   onStarted?(): void;
+  /** A recorder's start() was called: it needs a frame now (the engine paints the last picture again). */
+  onStartCall?(): void;
   /** A recorder failed. current: it was the recorder that carries the footage. */
   onFailure(kind: RotatorFailure, info: { current: boolean }): void;
   log?(message: string): void;
@@ -86,9 +108,12 @@ interface Live {
   recorder: MediaRecorderLike;
   chunks: Blob[];
   startUs: number | null;
-  startedAtMs: number | null;
+  startCallUs: number;
+  startCallMs: number;
   endUs: number | null;
   nextStartUs: number | null;
+  /** Page time at which it took over in a hand-off, or null. */
+  takeoverAtMs: number | null;
   state: LiveState;
   started: Promise<boolean>;
   finished: Promise<void>;
@@ -101,13 +126,22 @@ function nameOf(error: unknown): string {
   return (error as { name?: string } | null)?.name ?? "Error";
 }
 
+/** Reads the state now (an await can change it, which type narrowing cannot see). */
+function isRecording(live: Live): boolean {
+  return live.state === "recording";
+}
+
 export class Rotator {
   private current: Live | null = null;
   private handing: Promise<void> | null = null;
+  /** The two recorders of the hand-off that runs now. */
+  private handoff: { old: Live; next: Live } | null = null;
   private rotationTimer: unknown = null;
   /** The overlap wait of a running hand-off: stop() and dispose() end it at once. */
   private overlap: { timer: unknown; end: () => void } | null = null;
   private disposed = false;
+  /** Goes up at each stop() and dispose(): a hand-off that sees a change was ended by them. */
+  private stopGen = 0;
   private readonly all = new Set<Live>();
   /** Hand-offs in a row whose new recorder failed next to the old one. */
   private overlapFailures = 0;
@@ -118,6 +152,16 @@ export class Rotator {
   /** True while a recorder records or starts (capture runs). */
   get running(): boolean {
     return this.current !== null && (this.current.state === "starting" || this.current.state === "recording");
+  }
+
+  /** True when no recorder runs and no hand-off will start one: the engine must start capture again. */
+  get idle(): boolean {
+    return !this.running && this.handing === null;
+  }
+
+  /** The "start" event time of the recorder that records now, or null. */
+  get currentStartUs(): number | null {
+    return this.current?.state === "recording" ? this.current.startUs : null;
   }
 
   /**
@@ -135,9 +179,9 @@ export class Rotator {
     return n;
   }
 
-  /** Starts the first recorder. Does nothing while one runs. */
+  /** Starts the first recorder. Does nothing while one runs or a hand-off runs. */
   start(): void {
-    if (this.disposed || this.running) return;
+    if (this.disposed || this.running || this.handing) return;
     const live = this.open();
     if (!live) return;
     this.current = live;
@@ -176,14 +220,17 @@ export class Rotator {
 
   /** Stops every recorder. Settles when their segments are out (or failed). */
   async stop(): Promise<void> {
+    this.stopGen++;
     this.clearRotation();
+    // A hand-off in its overlap: the old segment is used up to the new segment's start.
+    const pair = this.handoff;
+    if (pair && pair.old.state === "recording" && pair.next.state === "recording") pair.old.nextStartUs = pair.next.startUs;
     const waits: Promise<void>[] = [];
     for (const live of [...this.all]) {
       if (live.state === "starting" || live.state === "recording") this.stopLive(live);
       waits.push(live.finished);
     }
     this.current = null;
-    // A hand-off in its overlap has nothing more to do: both recorders are stopping.
     this.endOverlap();
     await Promise.all(waits);
     if (this.handing) await this.handing.catch(() => undefined);
@@ -193,6 +240,7 @@ export class Rotator {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.stopGen++;
     this.clearRotation();
     this.endOverlap();
     for (const live of [...this.all]) {
@@ -211,9 +259,17 @@ export class Rotator {
   // ---------------------------------------------------------------------------
 
   private async runHandOff(old: Live): Promise<void> {
+    const gen = this.stopGen;
     this.clearRotation();
+    if (old.state === "starting") {
+      // A hand-off ends a segment that exists: wait for the current recorder first.
+      const ok = await old.started;
+      if (!ok || this.disposed || gen !== this.stopGen || this.current !== old || !isRecording(old)) return;
+    }
+    // The old recorder took over earlier and outlived its grace: its hand-off worked.
+    if (old.takeoverAtMs !== null) this.overlapFailures = 0;
     if (this.noOverlap) {
-      await this.runSequentialHandOff(old);
+      await this.runSequentialHandOff(old, gen);
       return;
     }
     const next = this.open();
@@ -222,41 +278,59 @@ export class Rotator {
       this.retryLater(old);
       return;
     }
-    const ok = await next.started;
-    if (this.disposed) return;
-    if (!ok) {
-      // The old recorder records on; try again later.
-      this.overlapFailed();
-      this.retryLater(old);
-      return;
-    }
-    this.overlapFailures = 0;
-    if (this.current !== old || old.state !== "recording") {
-      // The old recorder failed meanwhile: the new one carries the footage now.
-      // After stop() (a pause) the new one is stopped too, and nothing changes.
-      if ((this.current === null || this.current === old) && next.state === "recording") {
-        this.current = next;
-        this.scheduleRotation(next);
+    this.handoff = { old, next };
+    try {
+      const ok = await next.started;
+      // A stop() or dispose() ended both recorders: not a failed hand-off.
+      if (this.disposed || gen !== this.stopGen) return;
+      if (!ok) {
+        // The old recorder records on; try again later.
+        this.overlapFailed();
+        this.retryLater(old);
+        return;
       }
-      return;
+      if (this.current !== old || old.state !== "recording") {
+        // The old recorder failed meanwhile: the new one carries the footage now (fail() made it current).
+        if (this.current === next && next.state === "recording") this.scheduleRotation(next);
+        return;
+      }
+      if (next.state !== "recording") {
+        // "start" and then "error" in one task (Chromium, an encoder that cannot open).
+        this.overlapFailed();
+        this.retryLater(old);
+        return;
+      }
+      // Both record now. The old one records on for the overlap, then stops.
+      await this.overlapWait();
+      if (this.disposed || gen !== this.stopGen) return;
+      if (next.state !== "recording") {
+        // The new recorder failed in the overlap (Chromium: "start", then "error"). The old one records on.
+        this.overlapFailed();
+        if (this.current === old && old.state === "recording") this.retryLater(old);
+        return;
+      }
+      if (this.current === old || this.current === null) this.current = next;
+      next.takeoverAtMs = this.options.now();
+      if (old.state === "recording") {
+        // The old segment is used up to the new segment's first frame.
+        old.nextStartUs = next.startUs;
+        this.stopLive(old);
+      }
+      if (this.current === next) this.scheduleRotation(next);
+      await old.finished;
+    } finally {
+      if (this.handoff?.next === next) this.handoff = null;
     }
-    // Both record now. The old one records on for the overlap, then stops.
-    await new Promise<void>((resolve) => {
+  }
+
+  private overlapWait(): Promise<void> {
+    return new Promise<void>((resolve) => {
       const timer = this.options.setTimeout(() => {
         this.overlap = null;
         resolve();
       }, this.options.overlapMs);
       this.overlap = { timer, end: resolve };
     });
-    if (this.disposed) return;
-    if (this.current === old) this.current = next;
-    if (old.state === "recording") {
-      // The old segment is used up to the new segment's first frame.
-      if (next.state === "recording") old.nextStartUs = next.startUs;
-      this.stopLive(old);
-    }
-    if (this.current === next && next.state === "recording") this.scheduleRotation(next);
-    await old.finished;
   }
 
   /** A second recorder could not run next to the old one. */
@@ -269,25 +343,24 @@ export class Rotator {
   }
 
   /**
-   * A hand-off with no overlap: the old recorder stops now, then the new one
-   * starts. The footage misses only the new recorder's start-up.
+   * A hand-off with no overlap: the old recorder stops, and when it has given
+   * its file (its encoder is free again) the new one starts. The footage
+   * misses only that wait and the new recorder's start-up.
    */
-  private async runSequentialHandOff(old: Live): Promise<void> {
+  private async runSequentialHandOff(old: Live, gen: number): Promise<void> {
     if (this.current !== old || old.state !== "recording") return;
     this.stopLive(old);
     this.current = null;
+    await old.finished;
+    if (this.disposed || gen !== this.stopGen) return;
     // A failure of the new recorder is reported by open(); nothing records then,
-    // and the engine starts a recorder again later.
+    // and the engine starts a recorder again later (idle).
     const next = this.open();
-    if (!next) {
-      await old.finished;
-      return;
-    }
+    if (!next) return;
     this.current = next;
     void next.started.then((ok) => {
       if (ok && this.current === next) this.scheduleRotation(next);
     });
-    await old.finished;
   }
 
   private retryLater(old: Live): void {
@@ -299,9 +372,10 @@ export class Rotator {
     }, this.options.retryMs);
   }
 
+  /** The next hand-off, ROTATION_MS after this recorder's start() call (its first frame comes then). */
   private scheduleRotation(live: Live): void {
     this.clearRotation();
-    const ranMs = live.startedAtMs === null ? 0 : this.options.now() - live.startedAtMs;
+    const ranMs = this.options.now() - live.startCallMs;
     this.rotationTimer = this.options.setTimeout(() => {
       this.rotationTimer = null;
       if (this.current === live) void this.handOff();
@@ -344,9 +418,11 @@ export class Rotator {
       recorder,
       chunks: [],
       startUs: null,
-      startedAtMs: null,
+      startCallUs: this.options.captureUs(),
+      startCallMs: this.options.now(),
       endUs: null,
       nextStartUs: null,
+      takeoverAtMs: null,
       state: "starting",
       started,
       finished,
@@ -363,7 +439,6 @@ export class Rotator {
       this.clearTimer(live);
       live.state = "recording";
       live.startUs = this.options.captureUs();
-      live.startedAtMs = this.options.now();
       live.settleStarted(true);
       this.options.onStarted?.();
     };
@@ -391,6 +466,7 @@ export class Rotator {
       const segment: FinishedSegment = {
         blob,
         startUs: live.startUs,
+        startCallUs: live.startCallUs,
         endUs: live.endUs,
         mimeType: recorder.mimeType,
         nextStartUs: live.nextStartUs,
@@ -400,9 +476,11 @@ export class Rotator {
       if (this.disposed) return;
       this.options.onSegment(segment);
       if (byItself && wasCurrent) {
-        this.current = null;
-        this.clearRotation();
-        this.options.onFailure("record", { current: true });
+        this.current = this.promotable(live);
+        if (!this.current) {
+          this.clearRotation();
+          this.options.onFailure("record", { current: true });
+        }
       }
     };
     live.timer = this.options.setTimeout(() => {
@@ -416,7 +494,18 @@ export class Rotator {
       this.fail(live, "start");
       return live.state === "failed" ? null : live;
     }
+    this.options.onStartCall?.();
     return live;
+  }
+
+  /**
+   * The recorder that carries the footage when `gone` (the current one) ends
+   * in a hand-off: the hand-off's new recorder, when it still runs. Else null.
+   */
+  private promotable(gone: Live): Live | null {
+    const pair = this.handoff;
+    if (!pair || pair.old !== gone) return null;
+    return pair.next.state === "starting" || pair.next.state === "recording" ? pair.next : null;
   }
 
   /** Stops one recorder: its segment ends now on the capture timeline. */
@@ -452,6 +541,8 @@ export class Rotator {
   private fail(live: Live, kind: RotatorFailure): void {
     if (live.state === "done" || live.state === "failed") return;
     const wasCurrent = this.current === live;
+    // A new recorder that fails just after it took over could not run next to the old one.
+    if (live.takeoverAtMs !== null && this.options.now() - live.takeoverAtMs < this.options.takeoverGraceMs) this.overlapFailed();
     if (live.state === "starting" || live.state === "recording") {
       try {
         live.recorder.stop();
@@ -460,11 +551,16 @@ export class Rotator {
       }
     }
     this.finish(live, "failed");
+    let footageGone = false;
     if (wasCurrent) {
-      this.current = null;
-      this.clearRotation();
+      // The old half of a hand-off: the new recorder carries the footage on.
+      this.current = this.promotable(live);
+      if (!this.current) {
+        this.clearRotation();
+        footageGone = true;
+      }
     }
-    if (!this.disposed) this.options.onFailure(kind, { current: wasCurrent });
+    if (!this.disposed) this.options.onFailure(kind, { current: footageGone });
   }
 
   private finish(live: Live, state: "done" | "failed"): void {

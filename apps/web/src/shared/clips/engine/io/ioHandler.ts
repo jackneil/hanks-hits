@@ -20,6 +20,10 @@
  *   "segmentRecordAdd" and "segmentRecordEnd" make Record parts from
  *   segments, with a segment journal in OPFS (segmentRecording.ts). The
  *   joined file goes through the same write protocol as a muxed clip.
+ * - Tiers M and V game sound: "audioRun", "audioAppend" and "audioEnd" feed
+ *   the sound store (soundStore.ts). They run at once, not in the queue:
+ *   the store must read the newest sound while a join waits for it, and a
+ *   join can be long.
  * - After the first library open, the journals that dead tabs left are stored
  *   as record clips (plan 8.4 crash recovery), in their own queue task, and
  *   one "recovered" event lists the stored rows.
@@ -30,13 +34,30 @@ import { InvalidInputError, LibraryError, errorText } from "../../library/errors
 import type { StorageLike } from "../../library/fsTypes";
 import { ClipLibrary, type LibraryEnv } from "../../library/opfsStore";
 import { isClipId, isOwnerKey } from "../../library/ownerKey";
-import { ConcatError, concatSegments, indexSegment } from "./concat";
+import { ConcatError, concatSegments, indexSegment, type SoundSource } from "./concat";
 import { MoovPatchError, addAacRollGroups } from "./moovPatch";
 import { MuxError, muxClip } from "./mux";
 import { PLACEHOLDER_POSTER, makePoster, makePosterFromImage } from "./poster";
 import { PartJournal, holdRecordingLock, recoverJournals, type JournalEnv, type JournalLocks } from "./recordJournal";
 import { RECORD_ID_MAX_LENGTH, RECORD_PART_MAX_BYTES, Recording } from "./recorder";
-import { SegmentJournal, SegmentRecording, isSegmentRef, recoverSegmentJournals, type StoredPart } from "./segmentRecording";
+import {
+  RECORD_SOUND_WAIT_MS,
+  SegmentJournal,
+  SegmentRecording,
+  isSegmentRef,
+  recoverSegmentJournals,
+  type SegmentRecordingHost,
+  type StoredPart,
+} from "./segmentRecording";
+import { SoundStore } from "./soundStore";
+
+/**
+ * How long a clip waits for the game sound up to its end. The main thread
+ * asks the sound recorder for its newest bytes just before the clip, so the
+ * wait is one message and one read; after it, the clip is stored with the
+ * sound it has (the sound ends early, the video is whole).
+ */
+export const CLIP_SOUND_WAIT_MS = 2000;
 
 type IoErrorEvent = Extract<IoEvent, { t: "error" }>;
 type Post = (event: IoEvent) => void;
@@ -66,6 +87,10 @@ export interface IoHandlerEnv {
    */
   journal?: JournalEnv | null;
   now?: () => number;
+  /** Timers for the sound waits. Default: the global ones. */
+  setTimeout?: (fn: () => void, ms: number) => unknown;
+  clearTimeout?: (handle: unknown) => void;
+  log?: (message: string) => void;
 }
 
 /** The worker's own OPFS and Web Locks, or null where there are none. */
@@ -159,6 +184,13 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
   const segmentRecordings = new Map<string, OpenSegmentRecording>();
   const journalEnv = env.journal === undefined ? defaultJournalEnv() : env.journal;
   let recoveryQueued = false;
+  const setTimer = env.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+  const clearTimer = env.clearTimeout ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
+  const sound = new SoundStore({
+    log: env.log ?? ((m) => console.warn(m)),
+    setTimeout: setTimer,
+    clearTimeout: clearTimer,
+  });
 
   const getLibrary = (): Promise<IoLibrary> => {
     if (!library) {
@@ -250,12 +282,12 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
    * the save check comes from the packet plan, not from the written file, so
    * a short write shows as a difference.
    */
-  const concatAndStore = async (job: SegmentJob, meta: ClipMeta, post: Post): Promise<StoredPart | null> => {
+  const concatAndStore = async (job: SegmentJob, meta: ClipMeta, post: Post, withSound: SoundSource | null): Promise<StoredPart | null> => {
     const started = now();
     let joined: Awaited<ReturnType<typeof concatSegments>>;
     let bytes: Uint8Array;
     try {
-      joined = await concat(job);
+      joined = await concat(job, withSound);
       bytes = joined.aacInMp4 ? patch(joined.bytes).bytes : joined.bytes;
     } catch (error) {
       const code = error instanceof ConcatError || error instanceof MoovPatchError ? error.code : "error";
@@ -294,8 +326,23 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
   const runConcat = async (cmd: Extract<IoCmd, { t: "concat" }>, post: Post): Promise<void> => {
     if (!validMeta(cmd.meta, "mux-failed", post)) return;
     if (!validJob(cmd.job, cmd.meta.id, post)) return;
-    await concatAndStore(cmd.job, cmd.meta, post);
+    const timeline = cmd.job.timeline;
+    let withSound: SoundSource | null = null;
+    if (typeof timeline === "number" && Number.isFinite(timeline)) {
+      // The sound up to the clip's end can still be on its way from the main thread.
+      const endUs = cmd.job.segments.reduce((most, s) => Math.max(most, s.toUs), -Infinity);
+      await sound.ready(timeline, endUs, CLIP_SOUND_WAIT_MS);
+      withSound = (fromUs, toUs) => sound.take(timeline, fromUs, toUs);
+    }
+    await concatAndStore(cmd.job, cmd.meta, post, withSound);
   };
+
+  /** The segment recording's parts: joined with the recording's own sound. */
+  const recordingHost = (): Omit<SegmentRecordingHost, "openJournal"> => ({
+    storePart: (job, meta, partPost, partSound) => concatAndStore(job, meta, partPost, partSound),
+    index: (blob, container) => index(blob, container),
+    maxPartBytes: () => RECORD_PART_MAX_BYTES[memoryClass ?? "low"],
+  });
 
   const runSegmentRecord = async (cmd: Extract<IoCmd, { t: "segmentRecord" }>, post: Post): Promise<void> => {
     if (!isClipId(cmd.recordingId)) {
@@ -311,6 +358,11 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
       post(errorEvent("bad-command", "the recording has no segment container", cmd.meta.id));
       return;
     }
+    const timeline = cmd.timeline;
+    if (typeof timeline !== "number" || !Number.isFinite(timeline) || typeof cmd.startUs !== "number" || !Number.isFinite(cmd.startUs)) {
+      post(errorEvent("bad-command", "the recording has no capture timeline", cmd.meta.id));
+      return;
+    }
     if (recordings.has(cmd.recordingId) || segmentRecordings.has(cmd.recordingId)) {
       post(errorEvent("bad-command", `recording "${cmd.recordingId}" is already open`, cmd.meta.id));
       return;
@@ -319,20 +371,30 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
     const lock = journalEnv ? holdRecordingLock(journalEnv.locks, cmd.recordingId) : null;
     const recording = new SegmentRecording(
       {
-        storePart: (job, meta, partPost) => concatAndStore(job, meta, partPost),
-        index: (blob, container) => index(blob, container),
-        maxPartBytes: () => RECORD_PART_MAX_BYTES[memoryClass ?? "low"],
-        openJournal: async (journalMeta) => {
+        ...recordingHost(),
+        openJournal: async (journalMeta, poster) => {
           if (!journalEnv || !lock) return null;
           // The lock is held before the journal file exists.
           await lock;
-          return SegmentJournal.open(journalEnv, journalMeta);
+          return SegmentJournal.open(journalEnv, journalMeta, poster);
         },
       },
-      cmd.recordingId,
-      cmd.container,
-      { ...cmd.meta, kind: "record" },
-      post,
+      {
+        recordingId: cmd.recordingId,
+        container: cmd.container,
+        meta: { ...cmd.meta, kind: "record" },
+        tapUs: cmd.startUs,
+        poster: cmd.poster instanceof Blob ? cmd.poster : null,
+        post,
+        sound: {
+          held: () => sound.held(timeline),
+          subscribe: (listener) =>
+            sound.subscribe((packetTimeline, packet) => {
+              if (packetTimeline === timeline) listener(packet);
+            }),
+          ready: (untilUs) => sound.ready(timeline, untilUs, RECORD_SOUND_WAIT_MS),
+        },
+      },
     );
     segmentRecordings.set(cmd.recordingId, { recording, post, lock });
     await recording.start();
@@ -346,7 +408,7 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
       return;
     }
     // A segment that fails is reported with the recording's own rid.
-    await open.recording.add(cmd.segment);
+    await open.recording.add(cmd.segment, cmd.poster instanceof Blob ? cmd.poster : null);
   };
 
   const runSegmentRecordEnd = async (cmd: Extract<IoCmd, { t: "segmentRecordEnd" }>, post: Post): Promise<void> => {
@@ -467,15 +529,7 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
     if (!journalEnv) return;
     const records = await recoverJournals(journalEnv, ({ packets, meta }) => muxAndStore(packets, meta, env.post));
     // Tiers M and V: the segment journals of recordings that a tab left open.
-    const fromSegments = await recoverSegmentJournals(
-      journalEnv,
-      {
-        storePart: (job, meta, partPost) => concatAndStore(job, meta, partPost),
-        index: (blob, container) => index(blob, container),
-        maxPartBytes: () => RECORD_PART_MAX_BYTES[memoryClass ?? "low"],
-      },
-      env.post,
-    );
+    const fromSegments = await recoverSegmentJournals(journalEnv, recordingHost(), env.post);
     records.push(...fromSegments);
     if (records.length > 0) env.post({ t: "recovered", records });
   };
@@ -594,11 +648,30 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
     return next;
   }
 
+  /** The sound commands: at once, never behind a join in the queue. True when `cmd` was one. */
+  const runSound = (cmd: IoCmd): boolean => {
+    switch (cmd?.t) {
+      case "audioRun":
+        if (cmd.container !== "mp4" && cmd.container !== "webm") return true;
+        sound.open(cmd.runId, cmd.timeline, cmd.container, cmd.startUs, cmd.keepSeconds);
+        return true;
+      case "audioAppend":
+        if (cmd.bytes instanceof ArrayBuffer) sound.append(cmd.runId, cmd.bytes);
+        return true;
+      case "audioEnd":
+        sound.end(cmd.runId);
+        return true;
+      default:
+        return false;
+    }
+  };
+
   return {
     start(): Promise<void> {
       return enqueue(getLibrary);
     },
     handle(cmd: IoCmd): Promise<void> {
+      if (runSound(cmd)) return Promise.resolve();
       return enqueue(() => run(cmd));
     },
     idle(): Promise<void> {
