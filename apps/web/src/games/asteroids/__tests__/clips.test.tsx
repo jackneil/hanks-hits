@@ -54,7 +54,7 @@ function mount(game: AttachedGame | null, first: AsteroidsClipState) {
     );
 }
 
-const at = (status: GameStatus, score = 0, highScore = 0): AsteroidsClipState => ({ status, score, highScore });
+const at = (status: GameStatus, score = 0, highScore = 0, runId = 0): AsteroidsClipState => ({ status, score, highScore, runId });
 
 describe("Asteroids clips", () => {
   it("turns clips on with the metadata literal, and the generated lookup has it", () => {
@@ -118,6 +118,49 @@ describe("Asteroids clips", () => {
     expect(game.markMoment).toHaveBeenCalledTimes(1);
     update(at("playing", 1600, 1500));
     expect(game.markMoment).toHaveBeenCalledTimes(2);
+  });
+
+  it("a restart during a run (header or pause-menu Restart) is a new run that can mark a new best again", () => {
+    const { game, calls } = fakeGame();
+    const update = mount(game, at("ready", 0, 1000, 0));
+    update(at("playing", 0, 1000, 1));
+    update(at("playing", 1020, 1000, 1));
+    expect(game.markMoment).toHaveBeenCalledTimes(1);
+    calls.length = 0;
+
+    // The header Restart during play: startGame gives a new runId, the status stays "playing".
+    update(at("playing", 0, 1000, 2));
+    expect(calls.filter((c) => c.startsWith("run:"))).toEqual(["run:end", "run:start"]);
+    update(at("playing", 1030, 1000, 2));
+    expect(game.markMoment).toHaveBeenCalledTimes(2);
+
+    // The pause menu's Restart: paused, then playing with a new runId.
+    calls.length = 0;
+    update(at("paused", 1030, 1000, 2));
+    update(at("playing", 0, 1000, 3));
+    expect(calls.filter((c) => c.startsWith("run:"))).toEqual(["run:end", "run:start"]);
+    update(at("playing", 1040, 1000, 3));
+    expect(game.markMoment).toHaveBeenCalledTimes(3);
+
+    // A resume and a new wave keep the run.
+    calls.length = 0;
+    update(at("paused", 1040, 1000, 3));
+    update(at("playing", 1040, 1000, 3));
+    update(at("waveComplete", 1040, 1000, 3));
+    update(at("playing", 1040, 1000, 3));
+    expect(calls.filter((c) => c.startsWith("run:"))).toEqual([]);
+  });
+
+  it("the store counts every start as a new run, and never saves the count", async () => {
+    const { useAsteroidsStore } = await import("../lib/store");
+    const first = useAsteroidsStore.getState().runId;
+    useAsteroidsStore.getState().startGame();
+    expect(useAsteroidsStore.getState().runId).toBe(first + 1);
+    // A restart during play is a start too.
+    useAsteroidsStore.getState().startGame();
+    expect(useAsteroidsStore.getState()).toMatchObject({ status: "playing", runId: first + 2 });
+    const saved = JSON.parse(window.localStorage.getItem("asteroids-game-state") ?? "{}");
+    expect(saved.state).not.toHaveProperty("runId");
   });
 
   it("a first-ever score breaks no record: no moment", () => {

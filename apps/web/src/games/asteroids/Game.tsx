@@ -248,7 +248,12 @@ export function AsteroidsGame() {
   const render = useCanvasRenderer(canvasRef, isCoarse);
 
   // Gameplay clips: the canvas, the run phases and the new-best moment.
-  useAsteroidsClips(canvasRef, { status: store.status, score: store.score, highScore: store.progress.highScore });
+  useAsteroidsClips(canvasRef, {
+    status: store.status,
+    score: store.score,
+    highScore: store.progress.highScore,
+    runId: store.runId,
+  });
 
   // Sound: the first tap starts the shared game-audio bus, the sound switch
   // is this game's speaker (also after the saved setting loads), and the

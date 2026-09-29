@@ -56,6 +56,12 @@ export type AsteroidsGameState = {
   score: number;
   lives: number;
   wave: number;
+  /**
+   * Counts the runs of this page: startGame adds one (the start card, Play
+   * again, and the header or pause-menu Restart). Not saved. The clips hook
+   * reads it, so a restart during a run is a new run.
+   */
+  runId: number;
 
   ship: Ship;
   bullets: Bullet[];
@@ -176,6 +182,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
   persist(
     (set, get) => ({
       ...createInitialState() as AsteroidsGameState,
+      runId: 0,
       progress: defaultProgress,
 
       startGame: () => {
@@ -183,6 +190,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
         set({
           ...createInitialState(1),
           status: "playing",
+          runId: state.runId + 1,
           progress: {
             ...state.progress,
             gamesPlayed: state.progress.gamesPlayed + 1,
