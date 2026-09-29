@@ -26,8 +26,8 @@
   ],
   "notice": {
     "path": "NOTICE.txt",
-    "bytes": 16106,
-    "sha256": "52f267d3976def2412e3b44027921567a30ef9288652b487fe09a7804e06e274"
+    "bytes": 17311,
+    "sha256": "54fb23dcddb56d057e90fc98cb96e7ac197dbdbb82b3512ed0e5735ff004d03b"
   },
   "cores": {
     "fceumm": {

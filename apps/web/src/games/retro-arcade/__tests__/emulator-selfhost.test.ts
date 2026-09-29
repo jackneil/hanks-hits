@@ -484,6 +484,26 @@ describe("self-hosted EmulatorJS licenses and source code", () => {
     expect(missing).toEqual([]);
   });
 
+  it("state the known license problem of the upstream core files", () => {
+    // Each core file links the core with GPL-3.0 RetroArch. The licenses of
+    // the non-commercial cores and of Stella 2014 (GPL-2.0 only) do not agree
+    // with GPL-3.0. NOTICE.txt says so, names the upstream copies and points
+    // to the source code.
+    const section = notice.split(/\n(?=[A-Z]\. )/).find((s) => s.startsWith("D. A known license problem"));
+    expect(section, "NOTICE.txt has no section about the license problem").toBeDefined();
+    const names = new Map([...notice.matchAll(/^ {3}4\.\d+ (.+?) \((\w+)\)/gm)].map((m) => [m[2], m[1]]));
+    const nonCommercial = Object.entries(manifest.cores)
+      .filter(([, info]) => /non-commercial/.test(info.license))
+      .map(([core]) => core);
+    expect(nonCommercial.sort()).toEqual(["genesis_plus_gx", "picodrive", "snes9x"]);
+    for (const core of [...nonCommercial, "stella2014"]) {
+      expect(names.get(core), `${core} has no part in NOTICE.txt`).toBeDefined();
+      expect(section, core).toContain(names.get(core)!);
+    }
+    expect(section).toContain(`https://cdn.emulatorjs.org/${PINNED_EMULATORJS_VERSION}/data/cores/`);
+    expect(section).toContain("source/");
+  });
+
   it("have a NOTICE.txt in plain text for people", () => {
     // User-facing text on this site has no em dash or en dash.
     expect(notice).not.toMatch(/[\u2013\u2014]/);

@@ -309,7 +309,31 @@ C. The parts
    License: not known. EmulatorJS gives them with its GPL-3.0 release.
 
 
-D. Your rights
+D. A known license problem in the upstream core files
+-----------------------------------------------------
+
+Each core file holds RetroArch and one emulator core, compiled together
+into one program (part B). RetroArch has the GPL-3.0-or-later license. The
+licenses of four cores do not agree with the GPL-3.0:
+  - Stella 2014 (part 4.9) has the GPL-2.0 license only. Its license does
+    not give the option of a later version.
+  - Snes9x (part 4.8), Genesis Plus GX (part 4.2) and PicoDrive (part 4.7)
+    allow non-commercial use only. The GPL-3.0 does not allow this
+    condition on a combined program.
+
+We did not make these combinations, and we did not change these files.
+EmulatorJS made these core files. EmulatorJS also sends the same files,
+with the same SHA-256 values as in manifest.json, from
+https://cdn.emulatorjs.org/4.2.3/data/cores/. libretro, the RetroArch
+project, compiles Snes9x, Genesis Plus GX and PicoDrive together with
+RetroArch in the same way for its web version of RetroArch:
+https://buildbot.libretro.com/nightly/emscripten/.
+
+The full source code of each part is in the folder source/ on this site.
+Part B tells you how to get it. Part C gives the archive for each part.
+
+
+E. Your rights
 --------------
 
 The GPL and the MPL let you get the source code, change it and share it.
