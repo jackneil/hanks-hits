@@ -40,7 +40,7 @@ export function GamesIMade({ catalog = GAME_METADATA }: GamesIMadeProps) {
           <Link
             key={appId}
             href={hrefForCategory(appId, metadata.category)}
-            className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20 hover:bg-white/20 transition-colors flex items-center gap-3"
+            className="bg-white/10 rounded-xl p-4 border border-white/20 hover:bg-white/20 transition-colors flex items-center gap-3"
           >
             <span className="text-3xl">{metadata.icon}</span>
             <div className="flex-1 min-w-0">

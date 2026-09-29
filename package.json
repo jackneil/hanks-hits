@@ -8,7 +8,8 @@
     "clean": "turbo clean",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "clips:e2e": "node scripts/clips/run-e2e.mjs",
-    "e2e:start-cards": "node scripts/e2e/run-playwright.mjs e2e/start-cards/playwright.config.ts"
+    "e2e:start-cards": "node scripts/e2e/run-playwright.mjs e2e/start-cards/playwright.config.ts",
+    "e2e:install-sheet": "node scripts/e2e/run-playwright.mjs e2e/install-sheet/playwright.config.ts"
   },
   "devDependencies": {
     "prettier": "^3.9.5",

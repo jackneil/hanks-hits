@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useBottomSheetSpace } from '../lib/bottomSheetSpace';
@@ -35,6 +35,12 @@ import { ReadAloudButton } from './ReadAloudButton';
  * to the sheet's height (bottomSheetSpace.ts), so the kid can scroll the
  * last thing on the page up clear of the sheet. The tip inside a break
  * surface is part of that surface and needs no space.
+ *
+ * On a short screen (the short: variant in globals.css, a phone held
+ * sideways) the sheet is one row: the icon, the steps, Read it to me,
+ * Don't show this again and Close. The full sheet was 200 px tall there,
+ * over half of the screen. The row keeps the 44 px targets, and the
+ * reserved space follows its height.
  *
  * Requested (`requested`, used by the 📲 button): the kid asked for the
  * steps, so the sheet opens at once, in any state, above the pause menu.
@@ -87,9 +93,10 @@ function ShareIcon() {
   );
 }
 
-function Steps() {
+/** The two steps. `className` adds to the box (the sheet makes it part of its row). */
+function Steps({ className = "" }: { className?: string }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm bg-blue-800 rounded-lg p-2 mb-3">
+    <div className={`flex flex-wrap items-center gap-2 text-sm bg-blue-800 rounded-lg p-2 mb-3 ${className}`}>
       <ShareIcon />
       <span>Tap</span>
       <span className="font-bold bg-blue-900 px-2 py-0.5 rounded">Share</span>
@@ -99,12 +106,12 @@ function Steps() {
   );
 }
 
-function DontShowAgainButton({ onClick }: { onClick: () => void }) {
+function DontShowAgainButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="min-h-[44px] px-2 text-sm text-blue-100 underline hover:text-white"
+      className={`min-h-[44px] px-2 text-sm text-blue-100 underline hover:text-white ${className}`}
     >
       Don&apos;t show this again
     </button>
@@ -135,34 +142,38 @@ function InstallSheet({
       aria-label="Play full screen"
       data-testid="ios-install-sheet"
       data-layer={layer}
-      className={`ios-install-sheet fixed inset-x-0 bottom-0 ${z} px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]`}
+      className={`ios-install-sheet fixed inset-x-0 bottom-0 ${z} pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))]`}
     >
-      <div className="relative bg-blue-700 text-white rounded-2xl p-4 shadow-lg">
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center text-3xl leading-none text-blue-100 hover:text-white"
-          aria-label="Close"
-        >
-          ×
-        </button>
-
-        <div className="flex items-start gap-3 pr-10">
-          <span className="shrink-0 text-4xl" aria-hidden="true">
+      {/* Upright: a card with the title, the steps, then the buttons, and
+          Close in the corner. Short screen (sideways): one row in the same
+          order as the DOM, so it reads and tabs from left to right. The
+          row wraps only if the steps have less than 10rem. */}
+      <div className="relative bg-blue-700 text-white rounded-2xl p-4 shadow-lg short:flex short:flex-wrap short:items-center short:gap-x-3 short:gap-y-2 short:p-2 short:pl-3">
+        <div className="flex items-start gap-3 pr-10 short:shrink-0 short:pr-0">
+          <span className="shrink-0 text-4xl short:text-3xl" aria-hidden="true">
             📲
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 short:hidden">
             <h3 className="font-bold text-lg mb-1">Play Fullscreen!</h3>
             <p className="text-sm text-blue-100 mb-3">Add this game to your Home Screen:</p>
           </div>
         </div>
 
-        <Steps />
+        <Steps className="short:mb-0 short:min-w-40 short:flex-1 short:gap-x-1.5 short:gap-y-1 short:bg-transparent short:p-0" />
 
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 short:shrink-0">
           <ReadAloudButton variant="icon" text={IOS_INSTALL_SHEET_SPOKEN} />
-          <DontShowAgainButton onClick={onDontShowAgain} />
+          <DontShowAgainButton onClick={onDontShowAgain} className="short:whitespace-nowrap" />
         </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center text-3xl leading-none text-blue-100 hover:text-white short:static short:shrink-0"
+          aria-label="Close"
+        >
+          ×
+        </button>
       </div>
 
       <style>{`
@@ -213,6 +224,22 @@ export function IOSInstallPrompt({ onClose, requested = false }: IOSInstallPromp
   const shellMounted = useGameShellMounted();
   const breakSlot = useBreakSlot();
 
+  // Decide where to show only after the first layout pass. A start card or
+  // a game shell that mounts in the same commit counts itself in a layout
+  // effect, but the store hooks above subscribe only after paint, so the
+  // first render cannot see those counts: it showed the sheet over the
+  // start card for one frame (/apps/trivia). The layout effect below makes
+  // a second render before paint, and that render reads the counts.
+  const [laidOut, setLaidOut] = useState(false);
+  useLayoutEffect(() => {
+    // One extra render per mount, before paint, is the point here: the
+    // render after the layout pass is the first one that can read the
+    // counts. (React documents layout effect + setState for a correction
+    // that must land before paint.)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLaidOut(true);
+  }, []);
+
   const close = () => {
     setClosed(true);
     onClose?.();
@@ -228,7 +255,7 @@ export function IOSInstallPrompt({ onClose, requested = false }: IOSInstallPromp
     close();
   };
 
-  if (closed) return null;
+  if (closed || !laidOut) return null;
 
   if (requested) {
     return createPortal(

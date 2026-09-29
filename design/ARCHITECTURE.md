@@ -304,7 +304,27 @@ end of the page. While a sheet shows, it calls `useBottomSheetSpace`
 sheet on `<html>` as `--bottom-sheet-space`. `globals.css` adds that much
 padding at the end of the body, so the kid can scroll every element up
 clear of the sheet. When the sheet closes, the space goes away. A new
-bottom sheet must use the same hook.
+bottom sheet must use the same hook. On a short screen (the `short:`
+variant, a phone held sideways) the install sheet is one row: the icon,
+the steps, Read it to me, Don't show this again, and Close. The row is
+at most a quarter of the screen height and keeps the 44 px targets. The
+sheet also keeps clear of the side safe areas (the notch). The check in
+`e2e/install-sheet` tests the sheet on each app page that shows it, at
+844x390, 667x375, 568x320, 932x430 and 390x844. Run it with
+`pnpm e2e:install-sheet <base-url>` from the repo root, against a server
+that runs. A start card and a game shell count themselves in a layout
+effect. The store hooks subscribe only after paint, so a nudge must not
+decide in its first render: the install prompt renders nothing in its
+first commit and decides in the render after its layout pass, before
+paint. If it decided in its first render, the sheet showed over the Trivia
+start card for one frame.
+
+**No decoration tells:** do not put a colored stripe on one edge of a
+card, a note or a row (`border-l-4` and a color). Give a note a plain
+fill. Mark a selected row with a row background and bold words. The
+shared components and the profile pages use solid colors, not
+decorative gradients. `src/__tests__/no-design-tells.test.ts` enforces
+both rules.
 
 **Layout under the shell:** content is offset by the header
 (`pt-12 md:pt-14`); full-height modules size against
