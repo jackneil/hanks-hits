@@ -18,7 +18,11 @@
  *   it again.
  *
  * Contracts:
- * - Stacking: z-index 1050, portaled to document.body (plan 11.4).
+ * - Stacking: z-index 1050, portaled to document.body (plan 11.4). It is
+ *   above the header (1000) and below the Retro Arcade emulator view
+ *   (1100), which covers the whole screen (the Retro Arcade has no clips).
+ *   A celebration (1150) can show over it for a few seconds. The
+ *   celebration layer takes no taps except on its own Yay! button.
  * - Taps: the strip itself takes no taps (pointer-events: none), so the
  *   game under it still gets them. Only the chip, the star, the read-aloud
  *   buttons and "Got it" take taps. They act on the pointer, not on the

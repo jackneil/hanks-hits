@@ -29,10 +29,11 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *
  * Contracts:
  * - Stacking: z-index 1200 (plan 11.4). It sits above the header row
- *   (1000), the in-play toast slot (1050) and the toast lane (1100), and
- *   below the leaderboard (1500), the pause menu (2000), the clip sheets
- *   (2500) and the restart question (3000). Like every layer above 1000,
- *   it portals to document.body, so no game container can trap it.
+ *   (1000), the in-play toast slot (1050), the Retro Arcade emulator view
+ *   (1100) and the celebrations (1150), and below the leaderboard (1500),
+ *   the pause menu (2000), the clip sheets (2500) and the restart question
+ *   (3000). Like every layer above 1000, it portals to document.body, so no
+ *   game container can trap it.
  * - Taps stay here: the events of a press that starts on the bar stop at
  *   the bar. React sends portal events up the COMPONENT tree, so without
  *   this a tap on "Play again" would also reach the game's canvas handler

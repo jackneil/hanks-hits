@@ -9,7 +9,8 @@
  * between the home button and the control cluster, which is `relative`),
  * through the shell mount (see ClipUiRuntime.tsx). It then lies over the
  * title, never over a control, and takes no taps. It is part of the header
- * row (z-1000), so it needs no portal.
+ * row (z-1000), so it needs no portal. Like the header, it is below the
+ * Retro Arcade emulator view (1100) and the celebrations (1150).
  *
  * Fit: the pill is all or nothing, a check mark AND the words. A container
  * query shows it only when the title region has room for the words

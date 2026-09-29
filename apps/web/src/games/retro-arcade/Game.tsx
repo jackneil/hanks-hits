@@ -200,9 +200,11 @@ function RomUploader({
 }
 
 /**
- * Stacking contract of the site (z-index, low to high): GameShell header
- * 1000, toasts 1050, emulator view 1100, celebrations 1150
- * (AchievementCelebrations), sheets 2500, dialogs 3000.
+ * Stacking contract of the site (z-index, low to high; the full list is in
+ * design/ARCHITECTURE.md): GameShell header 1000, toasts 1050 (the clip
+ * toast slot too), emulator view 1100, celebrations 1150
+ * (AchievementCelebrations), result chip 1200, modals 1500, pause menu
+ * 2000, sheets 2500 (the clip sheets too), dialogs 3000.
  *
  * The emulator view is full screen above the header and the toasts, so its
  * Back button is never under the header and a toast never covers the game.

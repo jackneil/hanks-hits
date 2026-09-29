@@ -264,8 +264,9 @@ same button, in the same place: under the words, above the action buttons.
 **Stacking order (z-index, low to high):**
 
 - 60 or less: game HUDs, touch controls and game modals.
-- 90: GameStartOverlay. It covers the viewport, so it must be above every
-  game layer.
+- 90: GameStartOverlay, and the own start screen of a module with its own
+  launcher (four-wheeler). It covers the viewport, so it must be above
+  every game layer.
 - 100: OrientationWarning (phone-width portrait only).
 - 200: the install sheet that shows by itself on a page with no play.
 - 1000: the GameShell header. The clip confirmation (`InPlayConfirm`) lies
@@ -292,6 +293,10 @@ stacking context, so it does not need a portal. The celebration layer is
 button. It stays below the result chip, the modals, the sheets and the
 dialogs, so it never covers a question that the kid must answer. The
 comment in `AchievementCelebrations.tsx` holds the same list.
+`src/__tests__/stacking-contract.test.ts` reads this list and the code. It
+fails when a named layer is not at its level, or when the code uses a z
+level above 60 that the list does not name. A new layer takes a level of
+this list, or it adds a line here.
 
 **Bottom sheets:** a sheet fixed to the bottom of the screen covers the
 end of the page. While a sheet shows, it calls `useBottomSheetSpace`

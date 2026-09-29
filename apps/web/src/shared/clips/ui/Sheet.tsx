@@ -7,7 +7,9 @@
  * Contracts:
  * - Stacking: z-index 2500. It portals to document.body (every layer above
  *   z-1000 does), so no game container can trap it. It sits above the
- *   pause menu (2000) and below the restart question (3000).
+ *   Retro Arcade emulator view (1100), the celebrations (1150) and the
+ *   pause menu (2000), and below the restart question (3000). So a
+ *   celebration never covers a sheet.
  * - Shape: "menu" is a bottom sheet on phones and a small dialog on wider
  *   screens. "full" fills a phone screen and is a dialog on wider screens.
  *   Both scroll inside, so nothing is cut off on a 320x568 phone.
