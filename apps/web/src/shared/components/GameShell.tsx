@@ -133,9 +133,13 @@ export function GameShell({
   });
 
   return (
-    // Gameplay clips (plan 4.1): only a module with the metadata literal
-    // clips: true gets the clip service and, when the flag turns capture on,
-    // the clip UI. Every other game renders exactly as before.
+    // Gameplay clips (plan 4.1): only the clip service and the clip UI are
+    // gated on the metadata literal clips: true (and, for the UI, on the flag
+    // turning capture on). The shell itself is the same for every game: the
+    // plan 11.2 header work (the solid header, the emoji title below 480 px,
+    // the white restart glyph, the width budget), the moved toast and the
+    // start-card and pause-menu parts change every GameShell route, with or
+    // without clips.
     <ClipShellScope appId={appId} gameName={gameName} canPause={canPause} paused={isPaused} pause={pause} resume={resume}>
       <GameShellFrame
         gameName={gameName}
