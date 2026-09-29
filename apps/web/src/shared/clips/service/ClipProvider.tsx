@@ -19,7 +19,9 @@
  *   (useClipSource isPlaying, or setAtBreak on the attached game). The
  *   provider joins these into one setAtBreak, so no source overrides another.
  * - Runs (plan 11.5 zero-code rule): a start card that goes away starts a
- *   run, and a start card that comes back ends it.
+ *   run, and a start card that comes back ends it. The service loads late
+ *   (the flag read and a dynamic import), so a start card that went away
+ *   before the attach starts the run at the attach.
  * - The signed-in player reaches the service through the session bus
  *   (ClipSessionWatcher in AuthProvider), on every page.
  *
@@ -83,6 +85,12 @@ export function ClipProvider({ game, children, paused = false, loadService = def
   const startCardBefore = useRef(startCard);
   /** A start card went away while this game was attached: a run is on. */
   const runOn = useRef(false);
+  /**
+   * A start card went away before the service attached (the flag read and
+   * the dynamic import take a moment), and no start card came back since: a
+   * run is on. The attach replays it, so runPhase("start") is never lost.
+   */
+  const runBeforeAttach = useRef(false);
 
   useEffect(() => {
     gameRef.current = game;
@@ -127,10 +135,17 @@ export function ClipProvider({ game, children, paused = false, loadService = def
       resume: () => latest.current.resume?.(),
       score: () => latest.current.score?.(),
     });
-    // A new attachment plays until a break source says otherwise, with no run yet.
+    // A new attachment plays until a break source says otherwise. It gets
+    // the current break state at once, and a run that started before it
+    // attached (a Start tap before the service loaded) starts here.
     breaks.current.game = false;
     runOn.current = false;
     applyBreak(handle);
+    if (runBeforeAttach.current && !breaks.current.startCard) {
+      runOn.current = true;
+      handle.runPhase("start");
+    }
+    runBeforeAttach.current = false;
     setAttached(handle);
     return () => {
       handle.detach();
@@ -156,7 +171,12 @@ export function ClipProvider({ game, children, paused = false, loadService = def
     applyBreak(attached);
     const before = startCardBefore.current;
     startCardBefore.current = startCard;
-    if (!attached || before === startCard) return;
+    if (before === startCard) return;
+    if (!attached) {
+      // No attachment yet: remember the run for the attach to replay.
+      runBeforeAttach.current = !startCard;
+      return;
+    }
     if (!startCard) {
       runOn.current = true;
       attached.runPhase("start");

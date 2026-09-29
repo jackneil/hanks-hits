@@ -268,6 +268,78 @@ describe("breaks and runs (plan 11.1, 11.5)", () => {
     expect(lastBreak(f)).toBe(true);
   });
 
+  /** A service that loads only when the test lets it (the flag read and the dynamic import). */
+  function lateService(f: ReturnType<typeof fakeService>) {
+    let arrive: (service: ClipService) => void = () => undefined;
+    const pending = new Promise<ClipService>((resolve) => {
+      arrive = resolve;
+    });
+    return { load: () => pending, arrive: () => arrive(f.service) };
+  }
+
+  it("a Start tap before the service loads still starts the run at the attach", async () => {
+    const f = fakeService();
+    const late = lateService(f);
+    act(() => useStartOverlayPresence.getState().enter());
+    render(
+      <ClipProvider game={game()} loadService={late.load}>
+        <Probe />
+      </ClipProvider>,
+    );
+    await act(async () => undefined);
+    // The kid taps Start while the service still loads.
+    act(() => useStartOverlayPresence.getState().leave());
+    expect(f.handles).toHaveLength(0);
+    await act(async () => late.arrive());
+    expect(f.handles[0].runPhase.mock.calls).toEqual([["start"]]);
+    expect(lastBreak(f)).toBe(false);
+    // So the start card that comes back ends that run (the result post-roll, the whole-run button).
+    act(() => useStartOverlayPresence.getState().enter());
+    expect(f.handles[0].runPhase.mock.calls).toEqual([["start"], ["end"]]);
+    expect(lastBreak(f)).toBe(true);
+  });
+
+  it("a Start tap and a pause before the service loads: the run starts at a break", async () => {
+    const f = fakeService();
+    const late = lateService(f);
+    act(() => useStartOverlayPresence.getState().enter());
+    const view = render(
+      <ClipProvider game={game()} loadService={late.load}>
+        <Probe />
+      </ClipProvider>,
+    );
+    await act(async () => undefined);
+    act(() => useStartOverlayPresence.getState().leave());
+    view.rerender(
+      <ClipProvider game={game()} paused loadService={late.load}>
+        <Probe />
+      </ClipProvider>,
+    );
+    await act(async () => late.arrive());
+    expect(f.handles[0].runPhase.mock.calls).toEqual([["start"]]);
+    expect(lastBreak(f)).toBe(true);
+  });
+
+  it("starts no run at the attach when the start card is still up, or came back before the service loaded", async () => {
+    const f = fakeService();
+    const late = lateService(f);
+    act(() => useStartOverlayPresence.getState().enter());
+    render(
+      <ClipProvider game={game()} loadService={late.load}>
+        <Probe />
+      </ClipProvider>,
+    );
+    await act(async () => undefined);
+    act(() => useStartOverlayPresence.getState().leave());
+    act(() => useStartOverlayPresence.getState().enter());
+    await act(async () => late.arrive());
+    expect(f.handles[0].runPhase).not.toHaveBeenCalled();
+    expect(lastBreak(f)).toBe(true);
+    // The next Start tap starts the run as usual.
+    act(() => useStartOverlayPresence.getState().leave());
+    expect(f.handles[0].runPhase.mock.calls).toEqual([["start"]]);
+  });
+
   it("ends no run when a start card appears with no run before it (it mounted after the game attached)", async () => {
     const f = fakeService();
     render(
