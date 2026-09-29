@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRailwayContext, project, type ServiceNode } from "railway/iac";
 
@@ -149,13 +149,19 @@ function normalizeSetting(setting: string, value: unknown): unknown {
 }
 
 // The variables that the hanks-garage service had on Railway (read-only
-// `railway config plan`, 2026-09-28). An apply deletes a variable that is
-// missing from railway.ts. Edit this list only together with railway.ts.
+// `railway config plan`, 2026-09-28), and the clips variables that the app
+// reads in production (CLIPS_MODE, CLIPS_DOGFOOD_USER_IDS; not set on
+// Railway yet). An apply deletes a variable that is missing from
+// railway.ts. Edit this list only together with railway.ts.
+// NEVER add CLIPS_LAB: the /clips-lab page answers 404 in production only
+// because that variable is not set.
 const RAILWAY_VARIABLES = [
   "AUTH_GOOGLE_ID",
   "AUTH_GOOGLE_SECRET",
   "AUTH_SECRET",
   "AUTH_URL",
+  "CLIPS_DOGFOOD_USER_IDS",
+  "CLIPS_MODE",
   "DATABASE_URL",
   "NEXT_PUBLIC_ROM_CDN_URL",
   "S3_ACCESS_KEY_ID",
@@ -220,6 +226,36 @@ describe("Railway configuration", () => {
     for (const [name, value] of Object.entries(variables)) {
       expect({ name, value }).toEqual({ name, value: { type: "preserve" } });
     }
+  });
+
+  it("declares every variable that the app reads in production, and never the lab switch", async () => {
+    // A variable that the app reads but railway.ts leaves out is deleted by
+    // the next apply, and the feature behind it goes quiet with no error.
+    const srcDir = join(REPO_ROOT, "apps", "web", "src");
+    const read = new Set<string>();
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name !== "__tests__") walk(full);
+        } else if (/\.(ts|tsx)$/.test(entry.name) && !/\.(test|spec)\.tsx?$/.test(entry.name)) {
+          for (const match of readFileSync(full, "utf8").matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) read.add(match[1]);
+        }
+      }
+    };
+    walk(srcDir);
+    // Names that the platform or Next.js sets, never a Railway variable.
+    const PLATFORM = new Set(["NODE_ENV"]);
+    const web = await loadService();
+    const declared = new Set(Object.keys(web.variables ?? {}));
+    const missing = [...read].filter((name) => !PLATFORM.has(name) && !declared.has(name)).sort();
+    expect(missing).toEqual([]);
+    // A control: the scan finds the clips variables.
+    expect(read.has("CLIPS_MODE") && read.has("CLIPS_DOGFOOD_USER_IDS")).toBe(true);
+    // The lab switch stays out of production, in the file and in the list.
+    expect(declared.has("CLIPS_LAB")).toBe(false);
+    expect(RAILWAY_VARIABLES).not.toContain("CLIPS_LAB");
+    expect(readRepoFile(".railway/railway.ts")).not.toMatch(/CLIPS_LAB\s*:/);
   });
 
   it("holds the same settings in railway.toml and railway.ts while both files exist", async () => {

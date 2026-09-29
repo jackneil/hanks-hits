@@ -34,13 +34,25 @@ export default defineRailway(() => {
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 3,
     },
-    // Every variable that the service has on Railway. preserve() keeps the
-    // value that Railway holds, so no value is written into this repository.
+    // Every variable that the service has on Railway, and every variable
+    // that the app reads in production. preserve() keeps the value that
+    // Railway holds, so no value is written into this repository.
+    //
+    // NEVER add CLIPS_LAB here, in any form: the clips lab page (/clips-lab)
+    // answers 404 in production only because that variable is not set.
     env: {
       AUTH_GOOGLE_ID: preserve(),
       AUTH_GOOGLE_SECRET: preserve(),
       AUTH_SECRET: preserve(),
       AUTH_URL: preserve(),
+      // Gameplay clips (GET /api/clips-config). Not set on Railway on
+      // 2026-09-29, so production has clips off (the production default)
+      // and no dogfood players. They are here so that the dogfood step can
+      // set them in the dashboard and a later apply keeps them. Without them
+      // an apply would delete them, and every dogfood browser would lose
+      // capture at its next page load with no error anywhere.
+      CLIPS_DOGFOOD_USER_IDS: preserve(),
+      CLIPS_MODE: preserve(),
       DATABASE_URL: preserve(),
       NEXT_PUBLIC_ROM_CDN_URL: preserve(),
       S3_ACCESS_KEY_ID: preserve(),

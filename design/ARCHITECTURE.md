@@ -455,6 +455,9 @@ engine, mediabunny, WASM or the clip UI without a dynamic import.
 An unknown value means `off`. `dogfood` turns capture on only for the
 signed-in ids in `CLIPS_DOGFOOD_USER_IDS` that have the signed dogfood
 cookie (`POST /api/clips-config/dogfood`, signed with `AUTH_SECRET`).
+Both variables are declared with `preserve()` in `.railway/railway.ts`, so
+`railway config apply` keeps their Railway values. Never declare
+`CLIPS_LAB` there.
 
 **The clips lab.** `/clips-lab` answers 404 unless `CLIPS_LAB=1` is set at
 run time. It plays a flash and a 1 kHz beep each second and makes clips
