@@ -31,6 +31,8 @@
 import { useEffect } from "react";
 import type React from "react";
 
+import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { ClipSnapshot } from "../service/contract";
 import { useClipUi, useClipUiState } from "./uiContext";
@@ -88,8 +90,7 @@ export function resultChipClipActions(
   return actions;
 }
 
-const ACTION_BUTTON =
-  "btn h-14 min-h-14 short:h-11 short:min-h-11 gap-2 px-4 text-lg normal-case active:scale-[0.97] touch-manipulation";
+const ACTION_BUTTON = `btn ${SECONDARY_ACTION} h-14 min-h-14 short:h-11 short:min-h-11 gap-2 px-4 text-lg normal-case active:scale-[0.97] touch-manipulation`;
 
 const ICONS: Record<ResultChipClipActionId, React.ReactNode> = {
   watch: <PlayGlyph />,

@@ -11,6 +11,8 @@
  * It renders nothing when clips are off for this game.
  */
 
+import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+
 import { useClipService, useClipSnapshot } from "../service/context";
 import { useClipUi } from "./uiContext";
 import { PAUSE_ENTRY_LABEL } from "./copy";
@@ -31,7 +33,7 @@ export function ClipsPauseEntry({ className = "" }: ClipsPauseEntryProps) {
       data-testid="clips-pause-entry"
       aria-haspopup="dialog"
       onClick={() => ui.openMenu(null, "pause-menu")}
-      className={`btn btn-lg w-full gap-3 border-base-300 bg-base-100 text-xl text-base-content shadow-lg hover:scale-105 transition-transform ${className}`}
+      className={`btn btn-lg w-full gap-3 ${SECONDARY_ACTION} text-xl shadow-lg hover:scale-105 transition-transform ${className}`}
     >
       {/* An emoji paired with a word is a picture for kids who cannot read (plan decision 11). */}
       <span aria-hidden="true" className="text-2xl">

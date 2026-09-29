@@ -6,6 +6,7 @@ import {
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
 
+import { SECONDARY_ACTION } from "../buttonStyles";
 import { ReadAloudButton } from "../ReadAloudButton";
 
 
@@ -62,6 +63,8 @@ describe("ReadAloudButton", () => {
     expect(button.className).toMatch(/min-h-\[56px\]/);
     expect(button.className).toMatch(/w-full/);
     expect(button.className).toMatch(/mb-4/);
+    // A white button on the white start card: it needs a visible edge.
+    expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(SECONDARY_ACTION.split(" ")));
   });
 });
 

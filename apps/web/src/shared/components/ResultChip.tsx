@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { useClipShellUi } from "@/shared/clips";
 import { getGameMetadata } from "../lib/gameMetadata.generated";
+import { SECONDARY_ACTION } from "./buttonStyles";
 import { createPressOwnership } from "../lib/input/pressOwnership";
 import {
   DEFAULT_RESTART_GRACE_MS,
@@ -282,7 +283,7 @@ export function ResultChip({
           <button
             type="button"
             onClick={() => setIsLeaderboardOpen(true)}
-            className={ACTION_BUTTON}
+            className={`${ACTION_BUTTON} ${SECONDARY_ACTION}`}
           >
             <span aria-hidden="true">🏆</span>
             {RESULT_CHIP_LABELS.leaderboard}

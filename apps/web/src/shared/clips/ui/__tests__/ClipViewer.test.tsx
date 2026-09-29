@@ -2,6 +2,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
+import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
 import type { ClipRecord } from "../../protocol";
 import type { ShareOutcome } from "../../service/contract";
@@ -401,6 +402,10 @@ describe("ClipViewer: Keep and Delete", () => {
     const keep = action("keep");
     expect(keep).toHaveTextContent(VIEWER_COPY.keep);
     expect(keep.getAttribute("aria-pressed")).toBe("false");
+    // Keep and Delete are secondary buttons: a visible edge, not white on white.
+    for (const button of [keep, action("delete")]) {
+      expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(SECONDARY_ACTION.split(" ")));
+    }
     fireEvent.click(keep);
     expect(action("keep")).toHaveTextContent(VIEWER_COPY.kept);
     expect(action("keep").getAttribute("aria-pressed")).toBe("true");

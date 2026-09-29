@@ -1,6 +1,8 @@
 import { act, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+
 import { HIDDEN_SNAPSHOT, type ClipSnapshot } from "../../service/contract";
 import { MENU_COPY, RESULT_ACTION_COPY, VIEWER_TITLES, wholeRunLabel } from "../copy";
 import { ResultChipClipActions, resultChipClipActions } from "../ResultChipClipActions";
@@ -33,6 +35,8 @@ describe("result chip clip actions (plan 11.4)", () => {
     for (const button of screen.getAllByRole("button")) {
       expect(button.className).toMatch(/(^|\s)min-h-14(\s|$)/);
       expect(button.className).toMatch(/(^|\s)short:min-h-11(\s|$)/);
+      // White buttons on the white chip: each needs a visible edge.
+      expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(SECONDARY_ACTION.split(" ")));
     }
   });
 

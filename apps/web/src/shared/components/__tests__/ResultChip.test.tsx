@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
+import { SECONDARY_ACTION } from "../buttonStyles";
 import { RESULT_CHIP_LABELS, RESULT_CHIP_Z_INDEX, ResultChip } from "../ResultChip";
 
 vi.mock("../Leaderboard", () => ({
@@ -105,6 +106,10 @@ describe("ResultChip actions", () => {
   it("opens the leaderboard above the chip", () => {
     render(<ResultChip resultText="Game over!" appId="snake" />);
     passGrace();
+    // A white button on the white chip: it needs a visible edge.
+    expect(screen.getByRole("button", { name: /leaderboard/i }).className.split(/\s+/)).toEqual(
+      expect.arrayContaining(SECONDARY_ACTION.split(" "))
+    );
     fireEvent.click(screen.getByRole("button", { name: /leaderboard/i }));
     const dialog = screen.getByRole("dialog");
     expect(dialog.className).toContain("z-[1500]");

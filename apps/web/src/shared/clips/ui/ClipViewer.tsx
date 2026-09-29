@@ -41,6 +41,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+
 import type { ClipRecord } from "../protocol";
 import { useClipService } from "../service/context";
 import type { ShareOutcome } from "../service/contract";
@@ -415,7 +417,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
       data-autofocus={saveFirst ? undefined : "true"}
       disabled={!readyMedia}
       onClick={onShare}
-      className={`${ACTION} ${saveFirst ? "border-base-300 bg-base-100" : "btn-primary"}`}
+      className={`${ACTION} ${saveFirst ? SECONDARY_ACTION : "btn-primary"}`}
     >
       <ShareGlyph />
       {VIEWER_COPY.share}
@@ -431,7 +433,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
       data-autofocus={saveFirst ? "true" : undefined}
       disabled={!readyMedia}
       onClick={onSave}
-      className={`${ACTION} ${highlightSave ? "btn-primary" : "border-base-300 bg-base-100"}`}
+      className={`${ACTION} ${highlightSave ? "btn-primary" : SECONDARY_ACTION}`}
     >
       <SaveGlyph />
       {saveLabel}
@@ -444,7 +446,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
       data-action="delete"
       disabled={!record}
       onClick={() => record && setConfirmDeleteId(record.id)}
-      className={`${ACTION} border-base-300 bg-base-100`}
+      className={`${ACTION} ${SECONDARY_ACTION}`}
     >
       <TrashGlyph />
       {VIEWER_COPY.delete}
@@ -464,7 +466,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
           data-action="delete-no"
           data-autofocus="true"
           onClick={() => setConfirmDeleteId(null)}
-          className={`${ACTION} border-base-300 bg-base-100`}
+          className={`${ACTION} ${SECONDARY_ACTION}`}
         >
           {VIEWER_COPY.deleteNo}
         </button>
@@ -576,7 +578,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
                   aria-pressed={isKept}
                   disabled={!record}
                   onClick={onKeep}
-                  className={`${ACTION} ${isKept ? "btn-neutral" : "border-base-300 bg-base-100"}`}
+                  className={`${ACTION} ${isKept ? "btn-neutral" : SECONDARY_ACTION}`}
                 >
                   <KeepGlyph filled={isKept} />
                   {isKept ? VIEWER_COPY.kept : VIEWER_COPY.keep}

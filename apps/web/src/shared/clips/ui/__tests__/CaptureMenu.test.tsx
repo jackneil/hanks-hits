@@ -2,6 +2,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
+import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
 import { DEFAULT_CLIP_SECONDS } from "../../service/contract";
 import { ClipsPauseEntry } from "../ClipsPauseEntry";
@@ -47,6 +48,18 @@ describe("CaptureMenu (plan 11.4)", () => {
     expect(within(menu()).getByTestId("read-aloud-button")).toBeInTheDocument();
     for (const row of menu().querySelectorAll("[data-row]")) {
       expect(row.className).toMatch(/(^|\s)min-h-14(\s|$)/);
+    }
+  });
+
+  it("gives every row after the first a visible edge (3:1 on the sheet), not white on white", () => {
+    renderWithClips(<OpenMenu />);
+    fireEvent.click(screen.getByTestId("open-menu"));
+    const [first, ...rest] = Array.from(menu().querySelectorAll("[data-row]"));
+    expect(first.className.split(/\s+/)).toContain("btn-primary");
+    expect(rest).toHaveLength(4);
+    for (const row of rest) {
+      expect(row.className.split(/\s+/)).toEqual(expect.arrayContaining(SECONDARY_ACTION.split(" ")));
+      expect(row.className).not.toContain("border-base-300");
     }
   });
 

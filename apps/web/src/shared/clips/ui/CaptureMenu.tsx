@@ -19,6 +19,8 @@
 
 import type React from "react";
 
+import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { PressToken } from "../service/contract";
 import { useClipUi } from "./uiContext";
@@ -134,7 +136,7 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
               data-row={row.id}
               data-autofocus={index === 0 ? "true" : undefined}
               onClick={row.onSelect}
-              className={`${ROW_BASE} ${index === 0 ? "btn-primary" : "border-base-300 bg-base-100"}`}
+              className={`${ROW_BASE} ${index === 0 ? "btn-primary" : SECONDARY_ACTION}`}
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center">{row.icon}</span>
               <span className="min-w-0 whitespace-normal text-left leading-tight">{row.label}</span>
