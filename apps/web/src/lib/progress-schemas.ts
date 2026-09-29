@@ -353,7 +353,20 @@ const platformerSchema = z.object({
 // ============================================================================
 // Retro Arcade
 // ============================================================================
-const retroArcadeSchema = z.object({
+// Save states are not progress. They stay on the device in IndexedDB
+// (games/retro-arcade/lib/saveStates.ts). Clients from before that change
+// still send a "saveStates" field, and rows saved by them still hold one: the
+// preprocess step drops it, so those saves pass and the field is never stored
+// again. Every other unknown field is an error (.strict()).
+function dropLegacyRetroSaveStates(data: unknown): unknown {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  if (!Object.prototype.hasOwnProperty.call(data, "saveStates")) return data;
+  const { saveStates: _legacy, ...rest } = data as Record<string, unknown>;
+  void _legacy;
+  return rest;
+}
+
+const retroArcadeSchema = z.preprocess(dropLegacyRetroSaveStates, z.object({
   favorites: z.array(boundedString).max(500),
   recentlyPlayed: z.array(z.object({
     gameId: boundedString,
@@ -361,13 +374,6 @@ const retroArcadeSchema = z.object({
     system: boundedString,
     lastPlayed: z.number(),
   })).max(100),
-  saveStates: boundedRecord(z.object({
-    slot1: z.string().max(1_000_000).optional(),
-    slot2: z.string().max(1_000_000).optional(),
-    slot3: z.string().max(1_000_000).optional(),
-    autoSave: z.string().max(1_000_000).optional(),
-    lastSaved: z.number(),
-  })),
   customRoms: z.array(z.object({
     id: boundedString,
     name: boundedString,
@@ -386,7 +392,7 @@ const retroArcadeSchema = z.object({
     showTouchControls: z.boolean(),
   }),
   lastModified: timestampSchema,
-});
+}).strict());
 
 // ============================================================================
 // Apps (non-games)

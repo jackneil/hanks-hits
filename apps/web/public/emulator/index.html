@@ -72,6 +72,7 @@
     .hidden {
       display: none !important;
     }
+
   </style>
 </head>
 <body>
@@ -301,10 +302,31 @@
       window.parent.postMessage({ type: 'ready' }, PARENT_ORIGIN);
     };
 
-    // Handle save states
+    // Save states. The Retro Arcade page (the parent) keeps them on this
+    // device in IndexedDB; this page only moves the bytes. EmulatorJS 4.2.3
+    // calls EJS_onSaveState with { screenshot, format, state }, where state
+    // is a Uint8Array. The bytes go to the parent as an ArrayBuffer in the
+    // transfer list, so a 16 MB state is not copied.
+    // src/games/retro-arcade/lib/emulatorMessages.ts lists every message.
+    function stateBuffer(state) {
+      if (!(state instanceof Uint8Array) || state.byteLength === 0) return null;
+      if (state.byteOffset === 0 && state.byteLength === state.buffer.byteLength) return state.buffer;
+      return state.buffer.slice(state.byteOffset, state.byteOffset + state.byteLength);
+    }
+
+    function gameManager() {
+      const emulator = window.EJS_emulator;
+      return emulator && emulator.gameManager ? emulator.gameManager : null;
+    }
+
     // SECURITY: Use specific origin instead of wildcard '*'
-    window.EJS_onSaveState = function(data) {
-      window.parent.postMessage({ type: 'saveState', data: data }, PARENT_ORIGIN);
+    window.EJS_onSaveState = function(event) {
+      const buffer = stateBuffer(event && event.state);
+      if (!buffer) {
+        window.parent.postMessage({ type: 'saveStateFailed' }, PARENT_ORIGIN);
+        return;
+      }
+      window.parent.postMessage({ type: 'saveState', state: buffer }, PARENT_ORIGIN, [buffer]);
     };
 
     window.EJS_onLoadState = function() {
@@ -312,19 +334,48 @@
     };
 
     // Listen for messages from parent
-    // SECURITY: Validate message origin before processing
+    // SECURITY: Accept a message only from the parent window, on this origin.
     window.addEventListener('message', function(event) {
-      // Only accept messages from same origin
-      if (event.origin !== PARENT_ORIGIN) {
+      if (event.origin !== PARENT_ORIGIN || event.source !== window.parent) {
         console.warn('Ignoring message from unauthorized origin:', event.origin);
         return;
       }
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
 
-      if (event.data.type === 'loadState' && event.data.data) {
-        // Handle load state from parent
-        if (window.EJS_emulator && window.EJS_emulator.gameManager) {
-          window.EJS_emulator.gameManager.loadState(event.data.data);
+      if (data.type === 'loadState') {
+        const reason = data.reason === 'resume' ? 'resume' : 'manual';
+        const manager = gameManager();
+        if (!manager || !(data.state instanceof ArrayBuffer) || data.state.byteLength === 0) {
+          window.parent.postMessage({ type: 'stateLoadFailed', reason: reason }, PARENT_ORIGIN);
+          return;
         }
+        try {
+          manager.loadState(new Uint8Array(data.state));
+          window.parent.postMessage({ type: 'stateLoaded', reason: reason }, PARENT_ORIGIN);
+        } catch (e) {
+          console.warn('Could not load the save state', e);
+          window.parent.postMessage({ type: 'stateLoadFailed', reason: reason }, PARENT_ORIGIN);
+        }
+        return;
+      }
+
+      // The parent asks for the current state when the kid leaves the game
+      // or the page goes to the background (the "auto" save).
+      if (data.type === 'captureState') {
+        const requestId = typeof data.requestId === 'number' ? data.requestId : 0;
+        let buffer = null;
+        try {
+          const manager = gameManager();
+          buffer = manager ? stateBuffer(manager.getState()) : null;
+        } catch (e) {
+          console.warn('Could not make a save state', e);
+        }
+        window.parent.postMessage(
+          { type: 'capturedState', requestId: requestId, state: buffer },
+          PARENT_ORIGIN,
+          buffer ? [buffer] : []
+        );
       }
     });
 

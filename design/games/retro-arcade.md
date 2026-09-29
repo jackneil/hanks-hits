@@ -27,7 +27,7 @@ CLICK a game to start
     |
 PLAY with on-screen controls (mobile) or keyboard (desktop)
     |
-SAVE progress (auto-save to localStorage/DB)
+SAVE progress (save states stay on this device in IndexedDB)
     |
 RETURN later and continue where you left off
 ```
@@ -361,29 +361,46 @@ async function getRomUrl(key: string) {
 
 ### Save State Management
 
-Save states are binary blobs. Store them as base64 in the progress data:
+> This section replaces the first plan (base64 save states in the cloud
+> progress). That plan lost every save: the old message code turned the
+> EmulatorJS save object into an empty string.
 
-```typescript
-// Convert ArrayBuffer to base64
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
+Save states stay on the device. They never go to localStorage and never go to
+the cloud progress. A Game Boy state is about 200 KB and a Nintendo 64 state
+is about 16 MB. The cloud progress limit is 1 MB, and each upload costs the
+server money.
 
-// Convert base64 back to ArrayBuffer
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-```
+- **Store**: IndexedDB database `hh-retro-arcade-saves`, object store
+  `states`, key `[owner, gameId, slot]`
+  (`src/games/retro-arcade/lib/saveStates.ts`). Each record holds a binary
+  Blob. When WebKit cannot store the Blob ("Error preparing Blob/File data"),
+  the store tries once more with an ArrayBuffer.
+- **Owner**: "guest", or "u_" + the first 20 hex characters of
+  SHA-256("hh-retro-states:v1:" + user id) (`lib/ownerKey.ts`). Every read
+  names the owner, so one account on a shared iPad never loads the save of
+  another account.
+- **Slots**: each game keeps two slots. "manual" is the Save State button of
+  EmulatorJS. "auto" is the moment the kid left the game (Back to Games, or
+  the page went to the background). A new save replaces the old one in the
+  same slot.
+- **Load**: the Load State button loads the "manual" slot. When a game
+  starts, the "auto" slot loads, so the kid continues where they stopped. The
+  restart button in the top bar starts the game again without the "auto"
+  slot.
+- **Messages**: the emulator page sends the bytes as an ArrayBuffer in the
+  postMessage transfer list (no copy, no base64). `lib/emulatorMessages.ts`
+  lists each message.
+- **Failures**: a quota or write failure shows "Your save did not fit. Try
+  deleting an old game save." The message stays until the kid taps OK, and
+  it has a read-aloud button. "Your Game Saves" on the console screen lists
+  each save with its size and a Delete button.
+- **Battery saves**: the in-game save of a cartridge (SRAM) is a different
+  thing. EmulatorJS keeps it in its own IndexedDB, and this design does not
+  change it.
+- **Old data**: localStorage data of version 0 and old cloud progress can
+  hold a `saveStates` field. The store migration and `setProgress` drop it.
+  The server schema drops it from a save before validation, so old clients
+  can still save.
 
 ---
 
@@ -654,16 +671,9 @@ interface RetroArcadeProgress {
     lastPlayed: number;  // timestamp
   }[];
 
-  // Save states (keyed by gameId)
-  saveStates: {
-    [gameId: string]: {
-      slot1?: string;  // base64 encoded save state
-      slot2?: string;
-      slot3?: string;
-      autoSave?: string;  // Auto-save on exit
-      lastSaved: number;  // timestamp
-    };
-  };
+  // Save states are NOT progress. They stay on this device in IndexedDB
+  // (see "Save State Management"). Old data can hold a saveStates field;
+  // the store and the server schema drop it.
 
   // Custom ROMs (metadata only - actual ROMs in IndexedDB)
   customRoms: {
@@ -707,7 +717,6 @@ import { persist } from 'zustand/middleware';
 interface RetroArcadeState {
   favorites: string[];
   recentlyPlayed: { gameId: string; system: string; lastPlayed: number }[];
-  saveStates: Record<string, { slot1?: string; slot2?: string; slot3?: string; autoSave?: string; lastSaved: number }>;
   customRoms: { id: string; system: string; name: string; addedAt: number }[];
   stats: { totalPlayTime: number; gamesPlayed: number; favoriteSystem: string; lastPlayedAt: number };
   settings: { volume: number; autoSaveOnExit: boolean; showTouchControls: boolean };
@@ -716,8 +725,6 @@ interface RetroArcadeState {
   addFavorite: (gameId: string) => void;
   removeFavorite: (gameId: string) => void;
   addRecentlyPlayed: (gameId: string, system: string) => void;
-  saveSaveState: (gameId: string, slot: string, data: string) => void;
-  loadSaveState: (gameId: string, slot: string) => string | undefined;
   updatePlayTime: (seconds: number) => void;
   updateSettings: (settings: Partial<RetroArcadeState['settings']>) => void;
 }
@@ -727,7 +734,6 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
     (set, get) => ({
       favorites: [],
       recentlyPlayed: [],
-      saveStates: {},
       customRoms: [],
       stats: { totalPlayTime: 0, gamesPlayed: 0, favoriteSystem: '', lastPlayedAt: 0 },
       settings: { volume: 0.5, autoSaveOnExit: true, showTouchControls: true },
@@ -751,22 +757,6 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
           }
         };
       }),
-
-      saveSaveState: (gameId, slot, data) => set((state) => ({
-        saveStates: {
-          ...state.saveStates,
-          [gameId]: {
-            ...state.saveStates[gameId],
-            [slot]: data,
-            lastSaved: Date.now()
-          }
-        }
-      })),
-
-      loadSaveState: (gameId, slot) => {
-        const states = get().saveStates[gameId];
-        return states?.[slot as keyof typeof states] as string | undefined;
-      },
 
       updatePlayTime: (seconds) => set((state) => ({
         stats: {
@@ -802,7 +792,6 @@ export function useRetroArcadeSync() {
     getState: () => ({
       favorites: store.favorites,
       recentlyPlayed: store.recentlyPlayed,
-      saveStates: store.saveStates,
       customRoms: store.customRoms,
       stats: store.stats,
       settings: store.settings,
@@ -811,7 +800,7 @@ export function useRetroArcadeSync() {
       // Hydrate store from server data
       useRetroArcadeStore.setState(data);
     },
-    debounceMs: 3000,  // Save states can be large, debounce more
+    debounceMs: 3000,
   });
 }
 ```
@@ -838,7 +827,7 @@ export function useRetroArcadeSync() {
 ### Phase 2: Persistence (Make Progress Stick)
 
 - [ ] Implement save state capture via postMessage
-- [ ] Base64 encoding for save state storage
+- [ ] Save states in IndexedDB, on this device only (never in cloud progress)
 - [ ] Save/Load UI buttons in emulator view
 - [ ] Auto-save on exit feature
 - [ ] `useAuthSync` integration for cloud sync

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useRetroArcadeStore } from "../lib/store";
+import {
+  RETRO_ARCADE_STORAGE_VERSION,
+  useRetroArcadeStore,
+  type RetroArcadeProgress,
+} from "../lib/store";
 
 describe("Retro Arcade store favorites", () => {
   beforeEach(() => {
@@ -17,7 +21,6 @@ describe("Retro Arcade store favorites", () => {
       restartNonce: 0,
       favorites: [],
       recentlyPlayed: [],
-      saveStates: {},
       customRoms: [],
       stats: {
         totalPlayTime: 0,
@@ -57,7 +60,6 @@ describe("Retro Arcade store favorites", () => {
       isPlaying: true,
       restartNonce: 0,
       favorites: ["snes-alpha"],
-      saveStates: { "snes-Game": { autoSave: "state", lastSaved: 1 } },
     });
 
     useRetroArcadeStore.getState().restartGame();
@@ -66,7 +68,6 @@ describe("Retro Arcade store favorites", () => {
     expect(state.isPlaying).toBe(true);
     expect(state.restartNonce).toBe(1);
     expect(state.favorites).toEqual(["snes-alpha"]);
-    expect(state.saveStates["snes-Game"]?.autoSave).toBe("state");
   });
 
   it("clears revoked upload blob URLs when stopping a custom ROM", () => {
@@ -93,5 +94,66 @@ describe("Retro Arcade store favorites", () => {
     expect(state.isPlaying).toBe(false);
     expect(state.currentRomUrl).toBeNull();
     expect(state.customRoms[0].blobUrl).toBeUndefined();
+  });
+});
+
+describe("Retro Arcade store: save states left the progress", () => {
+  const legacyProgress = {
+    favorites: ["snes-Super Mario World"],
+    recentlyPlayed: [{ gameId: "gb-tetris.gb", name: "tetris.gb", system: "gb", lastPlayed: 5 }],
+    // What the old message code stored: an empty string for each save.
+    saveStates: {
+      "gb-tetris.gb": { autoSave: "", lastSaved: 5 },
+      "snes-Super Mario World": { slot1: "", autoSave: "AAAA", lastSaved: 6 },
+    },
+    customRoms: [{ id: "gb-tetris.gb-1", name: "tetris.gb", system: "gb", addedAt: 1 }],
+    stats: { totalPlayTime: 12, gamesPlayed: 3, favoriteSystem: "gb", lastPlayedAt: 5 },
+    settings: { volume: 0.5, autoSaveOnExit: true, showTouchControls: true },
+    lastModified: 1_790_000_000_000,
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("never puts save states in the progress that goes to the cloud", () => {
+    const progress = useRetroArcadeStore.getState().getProgress();
+    expect(progress).not.toHaveProperty("saveStates");
+  });
+
+  it("drops the saveStates field of old cloud progress and keeps the rest", () => {
+    useRetroArcadeStore.getState().setProgress(legacyProgress as RetroArcadeProgress);
+    const state = useRetroArcadeStore.getState();
+    expect(state).not.toHaveProperty("saveStates");
+    expect(state.getProgress()).not.toHaveProperty("saveStates");
+    expect(state.favorites).toEqual(["snes-Super Mario World"]);
+    expect(state.stats.gamesPlayed).toBe(3);
+    expect(state.lastModified).toBe(1_790_000_000_000);
+  });
+
+  it("loads old localStorage data (version 0) without error and removes its saveStates", async () => {
+    localStorage.setItem(
+      "retro-arcade-progress",
+      JSON.stringify({ state: legacyProgress, version: 0 })
+    );
+    await useRetroArcadeStore.persist.rehydrate();
+
+    const state = useRetroArcadeStore.getState();
+    expect(state).not.toHaveProperty("saveStates");
+    expect(state.favorites).toEqual(["snes-Super Mario World"]);
+    expect(state.customRoms).toEqual(legacyProgress.customRoms);
+
+    // The migrated data is written back without the field.
+    const stored = JSON.parse(localStorage.getItem("retro-arcade-progress") ?? "{}");
+    expect(stored.version).toBe(RETRO_ARCADE_STORAGE_VERSION);
+    expect(stored.state).not.toHaveProperty("saveStates");
+    expect(stored.state.favorites).toEqual(["snes-Super Mario World"]);
+  });
+
+  it("writes no saveStates field to localStorage", () => {
+    useRetroArcadeStore.getState().addFavorite("gb-tetris.gb");
+    const stored = JSON.parse(localStorage.getItem("retro-arcade-progress") ?? "{}");
+    expect(stored.state).not.toHaveProperty("saveStates");
+    expect(JSON.stringify(stored)).not.toMatch(/saveState/);
   });
 });

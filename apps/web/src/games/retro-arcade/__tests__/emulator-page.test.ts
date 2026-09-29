@@ -215,3 +215,130 @@ describe("emulator page: old Game Boy saves", () => {
   });
 });
 
+
+/** Runs the page for a console and returns its message listener and a fake emulator. */
+function startSavePage(core = "gb") {
+  const page = runPage({ core, rom: `/api/roms/${core}/demo.bin` });
+  const addListener = page.win.addEventListener as ReturnType<typeof vi.fn>;
+  const call = addListener.mock.calls.find(([type]) => type === "message");
+  if (!call) throw new Error("the page adds no message listener");
+  const listener = call[1] as (event: { origin: string; source: unknown; data: unknown }) => void;
+  const loadState = vi.fn();
+  const getState = vi.fn();
+  page.win.EJS_emulator = { on: vi.fn(), gameManager: { loadState, getState } };
+  const parent = page.win.parent as { postMessage: ReturnType<typeof vi.fn> };
+  const send = (data: unknown, from: { origin?: string; source?: unknown } = {}) =>
+    listener({ origin: from.origin ?? ORIGIN, source: from.source ?? parent, data });
+  return { page, parent, send, loadState, getState };
+}
+
+const pattern = (length: number) => {
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; i++) bytes[i] = (i * 31 + 7) & 0xff;
+  return bytes;
+};
+
+describe("emulator page: save states", () => {
+  it("sends the bytes of a Save State to the parent as a transferred ArrayBuffer", () => {
+    const { page, parent } = startSavePage();
+    const state = pattern(202_840);
+    // EmulatorJS 4.2.3 calls the handler with this object (emulator.js, saveState button).
+    (page.win.EJS_onSaveState as (event: unknown) => void)({ screenshot: undefined, format: "png", state });
+    expect(parent.postMessage).toHaveBeenCalledTimes(1);
+    const [message, origin, transfer] = parent.postMessage.mock.calls[0];
+    expect(origin).toBe(ORIGIN);
+    expect(message.type).toBe("saveState");
+    expect(Object.prototype.toString.call(message.state)).toBe("[object ArrayBuffer]");
+    expect(message.state.byteLength).toBe(202_840);
+    expect(new Uint8Array(message.state)).toEqual(pattern(202_840));
+    expect(transfer).toEqual([message.state]);
+  });
+
+  it("sends only the bytes of the state when the Uint8Array is a view into a bigger buffer", () => {
+    const { page, parent } = startSavePage();
+    const heap = pattern(64);
+    (page.win.EJS_onSaveState as (event: unknown) => void)({ state: heap.subarray(8, 24) });
+    const [message] = parent.postMessage.mock.calls[0];
+    expect(message.state.byteLength).toBe(16);
+    expect(new Uint8Array(message.state)).toEqual(pattern(64).slice(8, 24));
+  });
+
+  it.each([
+    ["an empty state", { state: new Uint8Array(0) }],
+    ["no state", {}],
+    ["no event", undefined],
+    ["a plain object", { state: { length: 3 } }],
+  ])("reports a failed save for %s", (_label, event) => {
+    const { page, parent } = startSavePage();
+    (page.win.EJS_onSaveState as (event: unknown) => void)(event);
+    expect(parent.postMessage).toHaveBeenCalledWith({ type: "saveStateFailed" }, ORIGIN);
+  });
+
+  it("asks the parent for the manual save when the kid presses Load State", () => {
+    const { page, parent } = startSavePage();
+    (page.win.EJS_onLoadState as () => void)();
+    expect(parent.postMessage).toHaveBeenCalledWith({ type: "requestLoadState" }, ORIGIN);
+  });
+
+  it("loads a state that the parent sends and answers with the reason", () => {
+    const { parent, send, loadState } = startSavePage();
+    const bytes = pattern(1000);
+    send({ type: "loadState", state: bytes.slice().buffer, reason: "resume" });
+    expect(loadState).toHaveBeenCalledTimes(1);
+    expect(loadState.mock.calls[0][0]).toBeInstanceOf(Uint8Array);
+    expect(loadState.mock.calls[0][0]).toEqual(bytes);
+    expect(parent.postMessage).toHaveBeenCalledWith({ type: "stateLoaded", reason: "resume" }, ORIGIN);
+  });
+
+  it("answers stateLoadFailed when the state is empty or the core refuses it", () => {
+    const { parent, send, loadState } = startSavePage();
+    send({ type: "loadState", state: new ArrayBuffer(0) });
+    expect(loadState).not.toHaveBeenCalled();
+    expect(parent.postMessage).toHaveBeenLastCalledWith({ type: "stateLoadFailed", reason: "manual" }, ORIGIN);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    loadState.mockImplementation(() => {
+      throw new Error("bad state");
+    });
+    send({ type: "loadState", state: pattern(4).buffer, reason: "manual" });
+    expect(parent.postMessage).toHaveBeenLastCalledWith({ type: "stateLoadFailed", reason: "manual" }, ORIGIN);
+    warn.mockRestore();
+  });
+
+  it("sends the current state when the parent asks (the auto save)", () => {
+    const { parent, send, getState } = startSavePage();
+    getState.mockReturnValue(pattern(300));
+    send({ type: "captureState", requestId: 7 });
+    const [message, origin, transfer] = parent.postMessage.mock.calls[0];
+    expect(origin).toBe(ORIGIN);
+    expect(message).toMatchObject({ type: "capturedState", requestId: 7 });
+    expect(new Uint8Array(message.state)).toEqual(pattern(300));
+    expect(transfer).toEqual([message.state]);
+  });
+
+  it("answers a null state when the core cannot make one", () => {
+    const { parent, send, getState } = startSavePage();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    getState.mockImplementation(() => {
+      throw new Error("not running");
+    });
+    send({ type: "captureState", requestId: 2 });
+    expect(parent.postMessage).toHaveBeenCalledWith({ type: "capturedState", requestId: 2, state: null }, ORIGIN, []);
+    warn.mockRestore();
+  });
+
+  it.each([
+    ["another origin", { origin: "https://example.com" }],
+    ["another window of this origin", { source: { postMessage: vi.fn() } }],
+  ])("ignores a message from %s", (_label, from) => {
+    const { parent, send, loadState, getState } = startSavePage();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    getState.mockReturnValue(pattern(10));
+    send({ type: "loadState", state: pattern(10).buffer }, from);
+    send({ type: "captureState", requestId: 1 }, from);
+    expect(loadState).not.toHaveBeenCalled();
+    expect(getState).not.toHaveBeenCalled();
+    expect(parent.postMessage).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+

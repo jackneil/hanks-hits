@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useRetroArcadeStore } from "./lib/store";
 import {
   SYSTEMS,
@@ -23,6 +23,16 @@ import {
   getRomUrl as getAtariRomUrl,
 } from "./lib/atari-2600-catalog";
 import { recentGamesToShow, type CatalogNamesBySystem } from "./lib/recentGames";
+import { saveStateStore, type SaveSlot, type SaveStateStore } from "./lib/saveStates";
+import {
+  parseEmulatorMessage,
+  SAVE_MESSAGES,
+  type LoadReason,
+  type ParentMessage,
+} from "./lib/emulatorMessages";
+import { useSaveOwner } from "./hooks/useSaveOwner";
+import { SaveNotice, type Notice, type NoticeTone } from "./components/SaveNotice";
+import { SavedGames } from "./components/SavedGames";
 
 // Recently Played shows only games that a catalog still lists (or that the
 // player uploaded), so a removed title's name does not stay on screen.
@@ -189,90 +199,224 @@ function RomUploader({
   );
 }
 
+/** How long the parent waits for the emulator to send its state. */
+const CAPTURE_TIMEOUT_MS = 4000;
+/** How long a save waits for the session to name the owner. */
+const OWNER_TIMEOUT_MS = 5000;
+
 // Emulator view with iframe
 function EmulatorView({
   romUrl,
   romName,
   system,
   gameId,
-  saveSaveState,
-  loadSaveState,
+  owner,
+  autoSaveOnExit,
   onExit,
   skipAutoLoad = false,
+  store = saveStateStore,
 }: {
   romUrl: string;
   romName: string;
   system: SystemType;
   gameId: string;
-  saveSaveState: (gameId: string, slot: string, data: string) => void;
-  loadSaveState: (gameId: string, slot: string) => string | undefined;
-  onExit: () => void;
+  /** The owner of the saves (see lib/ownerKey.ts). Null while the session loads. */
+  owner: string | null;
+  autoSaveOnExit: boolean;
+  /** Leaves the game. `problem` is a message for the next screen. */
+  onExit: (problem?: string) => void;
   skipAutoLoad?: boolean;
+  store?: SaveStateStore;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [isReady, setIsReady] = useState(false);
+  const readyRef = useRef(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [exiting, setExiting] = useState(false);
+  const exitingRef = useRef(false);
+  const capturesRef = useRef(new Map<number, (state: ArrayBuffer | null) => void>());
+  const nextRequestRef = useRef(1);
+
+  // The owner can arrive after the game starts (the session loads). A save
+  // waits for it; it never goes to a guessed owner.
+  const ownerRef = useRef<string | null>(owner);
+  const ownerWaitersRef = useRef<((owner: string) => void)[]>([]);
+  useEffect(() => {
+    ownerRef.current = owner;
+    if (!owner) return;
+    const waiters = ownerWaitersRef.current;
+    ownerWaitersRef.current = [];
+    for (const resolve of waiters) resolve(owner);
+  }, [owner]);
+  const getOwner = useCallback((): Promise<string | null> => {
+    if (ownerRef.current) return Promise.resolve(ownerRef.current);
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(() => {
+        ownerWaitersRef.current = ownerWaitersRef.current.filter((w) => w !== done);
+        resolve(null);
+      }, OWNER_TIMEOUT_MS);
+      const done = (value: string) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      };
+      ownerWaitersRef.current.push(done);
+    });
+  }, []);
+
+  const show = useCallback((text: string, tone: NoticeTone) => setNotice({ text, tone }), []);
+  const dismiss = useCallback(() => setNotice(null), []);
+
+  const meta = useMemo(() => ({ gameId, name: romName, system }), [gameId, romName, system]);
+
+  const post = useCallback((message: ParentMessage, transfer: Transferable[] = []) => {
+    const target = iframeRef.current?.contentWindow;
+    if (!target) return false;
+    target.postMessage(message, window.location.origin, transfer);
+    return true;
+  }, []);
+
+  /** Asks the emulator for its current state. Null when it does not answer. */
+  const capture = useCallback((): Promise<ArrayBuffer | null> => {
+    if (!readyRef.current) return Promise.resolve(null);
+    const requestId = nextRequestRef.current++;
+    return new Promise((resolve) => {
+      const finish = (state: ArrayBuffer | null) => {
+        window.clearTimeout(timer);
+        capturesRef.current.delete(requestId);
+        resolve(state);
+      };
+      const timer = window.setTimeout(() => finish(null), CAPTURE_TIMEOUT_MS);
+      capturesRef.current.set(requestId, finish);
+      if (!post({ type: "captureState", requestId })) finish(null);
+    });
+  }, [post]);
+
+  /**
+   * Keeps the current state in the "auto" slot. Returns a message for the
+   * kid when that fails, or null.
+   */
+  const autoSave = useCallback(async (): Promise<string | null> => {
+    if (!autoSaveOnExit || !readyRef.current) return null;
+    const state = await capture();
+    if (!state) return SAVE_MESSAGES.saveFailed;
+    const ownerKey = await getOwner();
+    if (!ownerKey) return SAVE_MESSAGES.saveFailed;
+    try {
+      await store.put(ownerKey, meta, "auto", state);
+      return null;
+    } catch (error) {
+      console.warn("Retro Arcade could not keep the auto save", error);
+      return SAVE_MESSAGES.didNotFit;
+    }
+  }, [autoSaveOnExit, capture, getOwner, meta, store]);
+
+  const handleExit = useCallback(async () => {
+    if (exitingRef.current) return;
+    exitingRef.current = true;
+    setExiting(true);
+    const problem = await autoSave();
+    onExit(problem ?? undefined);
+  }, [autoSave, onExit]);
+
+  // A kid who switches apps or locks the iPad keeps their spot.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== "hidden" || exitingRef.current) return;
+      void autoSave().then((problem) => {
+        if (problem) show(problem, "error");
+      });
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [autoSave, show]);
+
+  const loadSlot = useCallback(
+    async (slot: SaveSlot, reason: LoadReason) => {
+      const ownerKey = await getOwner();
+      if (!ownerKey) {
+        if (reason === "manual") show(SAVE_MESSAGES.loadFailed, "error");
+        return;
+      }
+      let state: ArrayBuffer | null;
+      try {
+        state = await store.get(ownerKey, gameId, slot);
+      } catch (error) {
+        console.warn("Retro Arcade could not read a save", error);
+        show(SAVE_MESSAGES.loadFailed, "error");
+        return;
+      }
+      if (!state) {
+        if (reason === "manual") show(SAVE_MESSAGES.noSave, "info");
+        return;
+      }
+      if (!post({ type: "loadState", state, reason }, [state])) {
+        show(SAVE_MESSAGES.loadFailed, "error");
+      }
+    },
+    [gameId, getOwner, post, show, store]
+  );
+
+  const saveManual = useCallback(
+    async (state: ArrayBuffer) => {
+      const ownerKey = await getOwner();
+      if (!ownerKey) {
+        show(SAVE_MESSAGES.saveFailed, "error");
+        return;
+      }
+      try {
+        await store.put(ownerKey, meta, "manual", state);
+        show(SAVE_MESSAGES.saved, "info");
+      } catch (error) {
+        console.warn("Retro Arcade could not keep a save", error);
+        show(SAVE_MESSAGES.didNotFit, "error");
+      }
+    },
+    [getOwner, meta, show, store]
+  );
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // Only accept messages from same origin
+      // Only this game's emulator iframe, on this site.
       if (event.origin !== window.location.origin) return;
+      const frame = iframeRef.current?.contentWindow;
+      if (!frame || event.source !== frame) return;
+      const message = parseEmulatorMessage(event.data);
+      if (!message) return;
 
-      if (event.data.type === "ready") {
-        setIsReady(true);
-
-        // Auto-load save state if one exists
-        const savedState = skipAutoLoad ? undefined : loadSaveState(gameId, "autoSave");
-        if (savedState && iframeRef.current?.contentWindow) {
-          try {
-            // Convert base64 back to Uint8Array
-            const binary = Uint8Array.from(atob(savedState), (c) => c.charCodeAt(0));
-            iframeRef.current.contentWindow.postMessage(
-              { type: "loadState", data: binary },
-              window.location.origin
-            );
-          } catch (e) {
-            console.error("Failed to load save state:", e);
-          }
-        }
-      }
-
-      // Handle save state from emulator
-      if (event.data.type === "saveState" && event.data.data) {
-        try {
-          // Convert binary data to base64 for storage
-          const uint8Array = new Uint8Array(event.data.data);
-          const base64 = btoa(String.fromCharCode(...uint8Array));
-          saveSaveState(gameId, "autoSave", base64);
-        } catch (e) {
-          console.error("Failed to save state:", e);
-        }
-      }
-
-      // Handle load state request from emulator
-      if (event.data.type === "requestLoadState") {
-        const savedState = skipAutoLoad ? undefined : loadSaveState(gameId, "autoSave");
-        if (savedState && iframeRef.current?.contentWindow) {
-          try {
-            const binary = Uint8Array.from(atob(savedState), (c) => c.charCodeAt(0));
-            iframeRef.current.contentWindow.postMessage(
-              { type: "loadState", data: binary },
-              window.location.origin
-            );
-          } catch (e) {
-            console.error("Failed to send load state:", e);
-          }
-        }
-      }
-
-      // Handle exit from EmulatorJS controls
-      if (event.data.type === "emulator-exit") {
-        onExit();
+      switch (message.type) {
+        case "ready":
+          readyRef.current = true;
+          setIsReady(true);
+          // Start where the kid stopped, unless they asked to start over.
+          if (!skipAutoLoad) void loadSlot("auto", "resume");
+          break;
+        case "saveState":
+          void saveManual(message.state);
+          break;
+        case "saveStateFailed":
+          show(SAVE_MESSAGES.saveFailed, "error");
+          break;
+        case "requestLoadState":
+          void loadSlot("manual", "manual");
+          break;
+        case "capturedState":
+          capturesRef.current.get(message.requestId)?.(message.state);
+          break;
+        case "stateLoaded":
+          show(message.reason === "resume" ? SAVE_MESSAGES.resumed : SAVE_MESSAGES.loaded, "info");
+          break;
+        case "stateLoadFailed":
+          show(SAVE_MESSAGES.loadFailed, "error");
+          break;
+        case "emulator-exit":
+          void handleExit();
+          break;
       }
     };
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [gameId, saveSaveState, loadSaveState, onExit, skipAutoLoad]);
+  }, [handleExit, loadSlot, saveManual, show, skipAutoLoad]);
 
   // Build the emulator URL with params. "core" is the Retro Arcade console
   // (the name of the parameter is historical). The emulator page sets the
@@ -284,18 +428,20 @@ function EmulatorView({
     <div className="fixed inset-0 bg-black flex flex-col z-50">
       {/* Floating back button - always visible, even in fullscreen */}
       <button
-        onClick={onExit}
+        onClick={() => void handleExit()}
+        disabled={exiting}
         className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-black/80 hover:bg-red-600
                    text-white rounded-lg flex items-center gap-2 text-sm font-bold
                    shadow-lg backdrop-blur-sm transition-all active:scale-95 border border-white/20"
       >
-        ← Back to Games
+        {exiting ? "Saving..." : "← Back to Games"}
       </button>
 
       {/* Header bar */}
       <div className="bg-gray-900 p-2 flex items-center justify-between shrink-0">
         <button
-          onClick={onExit}
+          onClick={() => void handleExit()}
+          disabled={exiting}
           className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors"
         >
           Exit
@@ -324,6 +470,8 @@ function EmulatorView({
           allow="autoplay; fullscreen; gamepad"
           allowFullScreen
         />
+
+        <SaveNotice notice={notice} onDismiss={dismiss} className="absolute inset-x-0 top-2 z-20" />
       </div>
     </div>
   );
@@ -333,6 +481,11 @@ function EmulatorView({
 export function RetroArcadeGame() {
   const store = useRetroArcadeStore();
   const [showUploader, setShowUploader] = useState(false);
+  const saveOwner = useSaveOwner();
+  // A save problem that happened while the kid left a game. It shows on the
+  // next screen, so it is never silent.
+  const [exitNotice, setExitNotice] = useState<Notice | null>(null);
+  const dismissExitNotice = useCallback(() => setExitNotice(null), []);
 
   // Auth sync
   const { isAuthenticated, syncStatus } = useAuthSync({
@@ -372,9 +525,18 @@ export function RetroArcadeGame() {
     }
   };
 
-  const handleExit = () => {
+  const handleExit = (problem?: string) => {
     store.stopGame();
+    setExitNotice(problem ? { text: problem, tone: "error" } : null);
   };
+
+  const exitNoticeView = (
+    <SaveNotice
+      notice={exitNotice}
+      onDismiss={dismissExitNotice}
+      className="fixed inset-x-0 top-16 z-[1050]"
+    />
+  );
 
   // If playing, show emulator
   if (store.isPlaying && store.currentRomUrl && store.currentSystem) {
@@ -387,8 +549,8 @@ export function RetroArcadeGame() {
         romName={store.currentRomName || "Game"}
         system={store.currentSystem}
         gameId={gameId}
-        saveSaveState={store.saveSaveState}
-        loadSaveState={store.loadSaveState}
+        owner={saveOwner}
+        autoSaveOnExit={store.settings.autoSaveOnExit}
         onExit={handleExit}
         skipAutoLoad={store.restartNonce > 0}
       />
@@ -430,6 +592,7 @@ export function RetroArcadeGame() {
         <div
           className={`min-h-screen bg-gradient-to-b ${system.bgGradient} p-4 sm:p-6 flex flex-col`}
         >
+          {exitNoticeView}
           <header className="mb-4 sm:mb-6">
             <div className="flex items-center justify-between mb-2">
               <button
@@ -484,6 +647,7 @@ export function RetroArcadeGame() {
       <div
         className={`min-h-screen bg-gradient-to-b ${system.bgGradient} p-6 flex flex-col`}
       >
+        {exitNoticeView}
         <header className="mb-8">
           <button
             onClick={() => {
@@ -527,6 +691,7 @@ export function RetroArcadeGame() {
   const recentGames = recentGamesToShow(store.recentlyPlayed, CATALOG_NAMES, store.customRoms);
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 p-6 flex flex-col">
+      {exitNoticeView}
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
@@ -570,6 +735,9 @@ export function RetroArcadeGame() {
           </div>
         </div>
       )}
+
+      {/* Save states on this device, with Delete for each game */}
+      <SavedGames owner={saveOwner} />
 
       {/* Sync status */}
       {isAuthenticated && (
