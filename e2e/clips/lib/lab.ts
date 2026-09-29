@@ -9,6 +9,8 @@
  *   Content Security Policy blocks fetch() of a blob: URL, so the bytes come
  *   through window.__clipsLab.readClipBase64.
  * - analyzeFile: runs scripts/clips/analyze-sync.mjs on the pulled file.
+ * - watchPressure / readPressure: the Compute Pressure that the governor
+ *   reads (plan 7), so a rung step in a file has its cause in the report.
  *
  * Environment:
  *   CLIPS_E2E_CHANNEL  "chrome" (default, branded Chrome), "msedge", or
@@ -86,6 +88,57 @@ export async function waitForStatus(page: Page, done: (status: LabStatus) => boo
   }
 }
 
+/** One Compute Pressure reading: page time (performance.now(), ms) and the state. */
+export interface PressureReading {
+  atMs: number;
+  state: string;
+}
+
+/**
+ * Starts a Compute Pressure ("cpu") watch in the page. The clip governor
+ * reads the same pressure: "serious" steps the capture rung down one step,
+ * "critical" rests capture (plan 7). The readings go to
+ * window.__hhPressure. Gives false when the browser has no PressureObserver
+ * (Safari, Firefox) or refuses the watch.
+ */
+export async function watchPressure(page: Page): Promise<boolean> {
+  return page.evaluate(async () => {
+    interface PressureRecordLike {
+      state: string;
+      time: number;
+    }
+    type ObserverCtor = new (callback: (records: PressureRecordLike[]) => void) => {
+      observe(source: "cpu", options?: { sampleInterval?: number }): Promise<void>;
+    };
+    const w = window as unknown as { PressureObserver?: ObserverCtor; __hhPressure?: Array<{ atMs: number; state: string }> };
+    if (typeof w.PressureObserver !== "function") return false;
+    const readings: Array<{ atMs: number; state: string }> = [];
+    try {
+      const observer = new w.PressureObserver((records) => {
+        for (const record of records) readings.push({ atMs: record.time, state: record.state });
+      });
+      await observer.observe("cpu", { sampleInterval: 500 });
+    } catch {
+      return false;
+    }
+    w.__hhPressure = readings;
+    return true;
+  });
+}
+
+/** The readings of watchPressure so far, or null when no watch runs. */
+export async function readPressure(page: Page): Promise<PressureReading[] | null> {
+  return page.evaluate(() => {
+    const readings = (window as unknown as { __hhPressure?: Array<{ atMs: number; state: string }> }).__hhPressure;
+    return readings ? readings.slice() : null;
+  });
+}
+
+/** The page's performance.now() (ms), for times relative to a step of the flow. */
+export async function pageNow(page: Page): Promise<number> {
+  return page.evaluate(() => performance.now());
+}
+
 /** Reads the last clip of the lab, byte for byte. */
 export async function pullClip(page: Page, bytes: number): Promise<Buffer> {
   const parts: Buffer[] = [];
@@ -129,6 +182,22 @@ export async function analyzeFile(file: string, options: Record<string, unknown>
   const sync = (await import(pathToFileURL(path.join(REPO_ROOT, "scripts/clips/lib/sync.mjs")).href)) as SyncModule;
   const result = await analyzer.analyzeSync(file, options);
   return { ...result, beepText: sync.formatBeepTable(result.beeps) };
+}
+
+export interface PressureTimeline {
+  value: string;
+  changes: Array<{ atSec: number; state: string }>;
+  worst: string | null;
+}
+
+interface PressureModule {
+  pressureTimeline(readings: PressureReading[], zeroMs: number): PressureTimeline;
+}
+
+/** The pressure changes, with times in seconds from zeroMs (scripts/clips/lib/pressure.mjs). */
+export async function pressureTimeline(readings: PressureReading[], zeroMs: number): Promise<PressureTimeline> {
+  const pressure = (await import(pathToFileURL(path.join(REPO_ROOT, "scripts/clips/lib/pressure.mjs")).href)) as PressureModule;
+  return pressure.pressureTimeline(readings, zeroMs);
 }
 
 /** A short text of a status for a row value. */

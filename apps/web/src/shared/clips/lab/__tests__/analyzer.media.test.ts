@@ -83,6 +83,8 @@ describe.skipIf(REASON !== "")(`analyze-sync on ffmpeg fixtures with known offse
     late20: { offsetMs: 20 },
     early60: { offsetMs: -60 },
     dropped: { offsetMs: 0, dropFrames: [60, 66] as [number, number] },
+    // 60 fps for 3 s, then every second frame only: a governor step from the 60 to the 30 fps rung.
+    stepped: { offsetMs: 0, fps: 60, rateStep: { from: 180, every: 2 } },
   };
 
   beforeAll(async () => {
@@ -104,6 +106,7 @@ describe.skipIf(REASON !== "")(`analyze-sync on ffmpeg fixtures with known offse
     ["late20", 20],
     ["early60", -60],
     ["dropped", 0],
+    ["stepped", 0],
   ] as const)("reads the %s file's offset (%i ms) within 5 ms at every beep", (name, expected) => {
     const result = results.get(name)!;
     const ffmpeg = offsets(result, "ffmpeg");
@@ -156,6 +159,26 @@ describe.skipIf(REASON !== "")(`analyze-sync on ffmpeg fixtures with known offse
     expect(row(dropped.rows, "live A/V, BT.1359 (ffmpeg)").status).toBe("PASS");
     expect(row(dropped.rows, "capture fps").status).toBe("PASS");
     expect(dropped.ok).toBe(false);
+  });
+
+  it("shows a rung step in the file, and judges the capture fps against the given rung, never a fixed 60", async () => {
+    const stepped = results.get("stepped")!;
+    const rates = row(stepped.rows, "frame rate over time (ffmpeg)");
+    expect(rates.status).toBe("INFO");
+    expect(rates.value).toBe("60 > 30 fps");
+    // The step is at frame 180 (3.000 s): the first 30 fps interval starts there.
+    expect(rates.detail).toMatch(/^60 fps 0\.00-3\.0[0-3] s, 30 fps 3\.0[0-3]-5\.97 s$/);
+    expect(row(stepped.rows, "largest video gap (ffmpeg)").status).toBe("PASS");
+    // 180 + 90 frames in 5.967 s: about 45 fps.
+    const judge = async (rungFps: number) => row((await analyzeSync(stepped.file, { mode: "live", rungFps, expectSeconds: 6, tools: TOOLS })).rows, "capture fps");
+    const claims60 = await judge(60);
+    expect(claims60.status).toBe("FAIL");
+    expect(claims60.value).toBe("45.1 fps");
+    // Most intervals are 16.7 ms, so the cadence matches 60: the rate change is the clue.
+    expect(claims60.detail).toBe("the rate changed in the file: 60 > 30 fps");
+    // The time-weighted rung of the file (45 fps) passes, and so does the rung at the end (30).
+    expect((await judge(45)).status).toBe("PASS");
+    expect((await judge(30)).status).toBe("PASS");
   });
 
   it.skipIf(AVF_REASON !== "")(`agrees with AVFoundation, the decoder of iPhone Photos${AVF_REASON ? ` (SKIPPED: ${AVF_REASON})` : ""}`, () => {

@@ -9,8 +9,12 @@
  *   2. WebGL2 canvas (?gl=2, capture path E): the same.
  *   3. 2D canvas: Record a video for 20 s.
  * Every test prints one PASS / FAIL / SKIPPED / INFO row per check, then the
- * offset of each beep. A missing tool (the browser, ffmpeg, swiftc) gives a
- * SKIPPED row and never fails the run. Any FAIL row fails the test.
+ * offset of each beep. The INFO rows "CPU pressure" and "frame rate over
+ * time" show why the capture rung changed: a busy machine makes the
+ * governor step down (plan 7), and the capture fps row then judges the file
+ * against the rung that the library row gives. A missing tool (the
+ * browser, ffmpeg, swiftc) gives a SKIPPED row and never fails the run. Any
+ * FAIL row fails the test.
  */
 import { cpus, loadavg } from "node:os";
 
@@ -22,8 +26,12 @@ import {
   keep,
   labStatus,
   launchLabBrowser,
+  pageNow,
+  pressureTimeline,
   pullClip,
+  readPressure,
   waitForStatus,
+  watchPressure,
   type LabStatus,
 } from "./lib/lab";
 import { RowReport } from "./lib/report";
@@ -76,8 +84,13 @@ async function runLab(flow: Flow, baseURL: string): Promise<{ report: RowReport;
       return { report, beeps };
     }
 
+    // The governor reads Compute Pressure (plan 7): watch it too, so a rung step has its cause in the report.
+    const watching = await watchPressure(page);
+
     // A real click: the lab starts the game-audio bus inside it.
     await page.getByTestId("lab-start").click();
+    const zeroMs = await pageNow(page);
+    let recordAtSec: number | null = null;
     const sound = await waitForStatus(page, (s) => s.audio === "running" && s.running, 15_000);
     if (!report.check("game sound runs after a real click", sound.ok, sound.status?.audio ?? "none", "running")) return { report, beeps };
     const started = sound.status as LabStatus;
@@ -106,6 +119,7 @@ async function runLab(flow: Flow, baseURL: string): Promise<{ report: RowReport;
       report.check("clip button ready", warm.ok, describeStatus(warm.status), "ready");
       report.info("display", `${warm.status?.displayHz ?? "?"} Hz, flash ${warm.status?.holdFrames ?? "?"} frames, target ${warm.status?.targetFps ?? "?"} fps, tier ${warm.status?.tier ?? "?"}`);
       before = warm.status?.results ?? 0;
+      recordAtSec = ((await pageNow(page)) - zeroMs) / 1000;
       await page.getByTestId("lab-record-start").click();
       const recording = await waitForStatus(page, (s) => s.recording, 15_000);
       if (!report.check("recording started", recording.ok, describeStatus(recording.status), "recording")) return { report, beeps };
@@ -126,6 +140,13 @@ async function runLab(flow: Flow, baseURL: string): Promise<{ report: RowReport;
     report.check("library row type", record.mime === "video/mp4", record.mime, "video/mp4");
     report.check("library row has game sound", record.hasAudio, String(record.hasAudio), "true");
     report.info("library row", `${record.width}x${record.height}, ${record.fps} fps, ${(record.durationMs / 1000).toFixed(2)} s, ${record.bytes} bytes`);
+    const readings = watching ? await readPressure(page) : null;
+    const recordText = recordAtSec === null ? "" : `, and Record at +${recordAtSec.toFixed(1)} s`;
+    report.info(
+      "CPU pressure (Compute Pressure)",
+      readings ? (await pressureTimeline(readings, zeroMs)).value : "not in this browser",
+      readings ? `times from Start${recordText}; serious steps the capture rung down, critical rests capture (plan 7)` : "the governor has no pressure signal here",
+    );
 
     const bytes = await pullClip(page, last!.bytes);
     report.check("pulled bytes match the file and the row", bytes.length === last!.bytes && bytes.length === record.bytes, `${bytes.length} bytes`, `${record.bytes} bytes`);

@@ -11,6 +11,12 @@
  *
  * `dropFrames` removes a run of frames and keeps the time stamps of the
  * others, so the file has a real gap in its video track.
+ *
+ * `rateStep` keeps one frame in `every` from frame `from` on, with the time
+ * stamps of the frames it keeps: the frame rate steps down in the file, as it
+ * does when the governor steps the capture rung down (plan 7). Flash frames
+ * sit at n = fps * k + fps / 2, so keep them with an `every` that divides
+ * fps / 2.
  */
 import { spawnSync } from "node:child_process";
 
@@ -30,7 +36,7 @@ export function fixtureToolsReason(ffmpeg = "ffmpeg") {
  * Makes one fixture file.
  *
  * @param {string} out the .mp4 path
- * @param {{ offsetMs?: number, seconds?: number, fps?: number, dropFrames?: [number, number] | null, ffmpeg?: string }} [options]
+ * @param {{ offsetMs?: number, seconds?: number, fps?: number, dropFrames?: [number, number] | null, rateStep?: { from: number, every: number } | null, ffmpeg?: string }} [options]
  */
 export function makeLabFixture(out, options = {}) {
   const offset = (options.offsetMs ?? 0) / 1000;
@@ -43,10 +49,17 @@ export function makeLabFixture(out, options = {}) {
     `drawbox=x=0:y=0:w=iw:h=${band}:color=0x2a3f55:t=fill`,
     `drawbox=x=0:y=${band}:w=iw:h=ih-${band}:color=white:t=fill:enable='eq(mod(n\\,${fps})\\,${half})'`,
   ];
+  // One select: a second select would number its frames again from 0.
+  const keep = [];
   if (options.dropFrames) {
     const [from, to] = options.dropFrames;
-    video.push(`select='not(between(n\\,${from}\\,${to}))'`);
+    keep.push(`not(between(n\\,${from}\\,${to}))`);
   }
+  if (options.rateStep) {
+    const { from, every } = options.rateStep;
+    keep.push(`(lt(n\\,${from})+not(mod(n\\,${every})))`);
+  }
+  if (keep.length) video.push(`select='${keep.join("*")}'`);
   video.push("format=yuv420p");
   const u = `(t-(${offset.toFixed(4)}))`;
   const tone = `0.5*sin(2*PI*1000*${u})*gte(mod(${u}\\,1)\\,0.5)*lt(mod(${u}\\,1)\\,0.56)*gte(${u}\\,0)`;

@@ -63,6 +63,16 @@ export const DETECT = Object.freeze({
   quietMs: 100,
 });
 
+/** Settings for the frame rate over time (rateParts). */
+export const RATE = Object.freeze({
+  /** Frame intervals in the moving median (an odd number). */
+  medianWindow: 9,
+  /** A part shorter than this joins a part next to it (s). A short run of missed frames is not a rung. */
+  minPartSec: 0.5,
+  /** Two cadences closer than this share of the smaller one are the same rate. */
+  sameShare: 0.05,
+});
+
 /** Round to 0.1 ms (or to 0.1 of any unit). */
 export function round1(value) {
   return Math.round(value * 10) / 10;
@@ -188,16 +198,25 @@ export function videoStats(frames) {
   const span = times.length >= 2 ? times[times.length - 1] - times[0] : 0;
   // The cadence: the most common frame interval (to 0.1 ms). A clip can span
   // two governor rungs, so this names the rung that most frames came at.
+  // The rate comes from the mean of the intervals in that group, not from
+  // the rounded key (1000 / 16.7 would say 59.9 for a 60 fps file).
   const counts = new Map();
   for (let i = 1; i < times.length; i++) {
-    const key = Math.round((times[i] - times[i - 1]) * 10000) / 10;
-    if (key > 0) counts.set(key, (counts.get(key) ?? 0) + 1);
+    const interval = times[i] - times[i - 1];
+    const key = Math.round(interval * 10000) / 10;
+    if (key <= 0) continue;
+    const group = counts.get(key) ?? { count: 0, sum: 0 };
+    group.count++;
+    group.sum += interval;
+    counts.set(key, group);
   }
   let cadenceMs = null;
   let best = 0;
-  for (const [key, count] of counts) {
-    if (count > best || (count === best && key < cadenceMs)) {
-      best = count;
+  let bestSum = 0;
+  for (const [key, group] of counts) {
+    if (group.count > best || (group.count === best && key < cadenceMs)) {
+      best = group.count;
+      bestSum = group.sum;
       cadenceMs = key;
     }
   }
@@ -209,9 +228,92 @@ export function videoStats(frames) {
     maxGapAt,
     effectiveFps: span > 0 ? round1((times.length - 1) / span) : null,
     cadenceMs,
-    cadenceFps: cadenceMs ? round1(1000 / cadenceMs) : null,
+    cadenceFps: cadenceMs ? round1(best / bestSum) : null,
     cadenceShare: times.length >= 2 ? round1((best / (times.length - 1)) * 100) / 100 : null,
   };
+}
+
+/**
+ * The frame rate over time. The governor can change the capture rung during
+ * a clip or a recording (plan 7: Compute Pressure "serious" steps down one
+ * rung at once), so one number for the whole file can hide a change. This
+ * gives the file's parts, each with one rate:
+ * - each frame interval gets the median of the RATE.medianWindow intervals
+ *   around it, so a missed frame here and there does not change the rate;
+ * - a run of intervals with the same median (RATE.sameShare) is a part;
+ * - a part shorter than RATE.minPartSec joins the part before it (the part
+ *   after it, for the first part), then parts with the same rate join.
+ * The rate of a part is 1 / (the median interval of the part, in seconds).
+ * The frames alone cannot tell a rung from lost frames: at 60 Hz, a 30 fps
+ * rung and a 60 fps rung that loses every second frame give the same file.
+ * So this is a report, never a check. The check is the capture fps row
+ * against the rung that the library row gives.
+ *
+ * @param {Array<[number, number]>} frames [time s, luma]
+ * @returns {Array<{ from: number, to: number, cadenceMs: number, fps: number, intervals: number, effectiveFps: number }>}
+ */
+export function rateParts(frames, rate = RATE) {
+  const times = finiteFrames(frames).map((frame) => frame[0]);
+  if (times.length < 2) return [];
+  const intervals = [];
+  for (let i = 1; i < times.length; i++) intervals.push(times[i] - times[i - 1]);
+  const half = Math.floor(rate.medianWindow / 2);
+  const local = intervals.map((_, i) => median(intervals.slice(Math.max(0, i - half), Math.min(intervals.length, i + half + 1)).sort((a, b) => a - b)));
+  const same = (a, b) => Math.abs(a - b) <= rate.sameShare * Math.min(a, b);
+  // A part holds the intervals first..last; its rate is the local median of its first interval until the parts join.
+  let parts = [];
+  for (let i = 0; i < intervals.length; i++) {
+    const open = parts[parts.length - 1];
+    if (open && same(open.cadence, local[i])) open.last = i;
+    else parts.push({ first: i, last: i, cadence: local[i] });
+  }
+  const seconds = (part) => times[part.last + 1] - times[part.first];
+  for (;;) {
+    const joined = [];
+    for (const part of parts) {
+      const before = joined[joined.length - 1];
+      if (before && same(before.cadence, part.cadence)) before.last = part.last;
+      else joined.push({ ...part });
+    }
+    parts = joined;
+    if (parts.length < 2) break;
+    let shortest = -1;
+    parts.forEach((part, i) => {
+      if (seconds(part) < rate.minPartSec && (shortest < 0 || seconds(part) < seconds(parts[shortest]))) shortest = i;
+    });
+    if (shortest < 0) break;
+    const into = shortest === 0 ? 1 : shortest - 1;
+    parts[into].first = Math.min(parts[into].first, parts[shortest].first);
+    parts[into].last = Math.max(parts[into].last, parts[shortest].last);
+    parts.splice(shortest, 1);
+  }
+  return parts.map((part) => {
+    const cadence = median(intervals.slice(part.first, part.last + 1).sort((a, b) => a - b));
+    const span = seconds(part);
+    const count = part.last - part.first + 1;
+    return {
+      from: times[part.first],
+      to: times[part.last + 1],
+      cadenceMs: Math.round(cadence * 10000) / 10,
+      fps: cadence > 0 ? round1(1 / cadence) : 0,
+      intervals: count,
+      effectiveFps: span > 0 ? round1(count / span) : 0,
+    };
+  });
+}
+
+/** "60" for 59.96..60.04, else one decimal ("37.5"). */
+export function fpsText(fps) {
+  const whole = Math.round(fps);
+  return Math.abs(fps - whole) < 0.05 ? String(whole) : fps.toFixed(1);
+}
+
+/** The rate parts as a row value ("60 > 30 > 20 fps") and detail ("60 fps 0.00-2.83 s, ..."). */
+export function ratePartsText(parts) {
+  if (!parts.length) return { value: "?", detail: "fewer than 2 frames" };
+  const value = `${parts.map((part) => fpsText(part.fps)).join(" > ")} fps`;
+  if (parts.length === 1) return { value, detail: `one rate from ${parts[0].from.toFixed(2)} s to ${parts[0].to.toFixed(2)} s` };
+  return { value, detail: parts.map((part) => `${fpsText(part.fps)} fps ${part.from.toFixed(2)}-${part.to.toFixed(2)} s`).join(", ") };
 }
 
 /**
@@ -263,6 +365,7 @@ export function analyzeDecode(decode, limits = LIMITS, detect = DETECT) {
     },
     span,
     video: videoStats(decode.frames),
+    rates: rateParts(decode.frames),
     audioGaps: audioGaps(decode.segments),
   };
 }
@@ -427,6 +530,9 @@ export function evaluate(measure, options = {}, limits = LIMITS) {
         v.cadenceMs === null ? undefined : `${Math.round((v.cadenceShare ?? 0) * 100)}% of the frames are ${v.cadenceMs} ms apart`,
       ),
     );
+    const rates = primary.rates ?? [];
+    const ratesText = ratePartsText(rates);
+    rows.push(row("INFO", `frame rate over time (${primaryName})`, ratesText.value, "-", ratesText.detail));
 
     const share = limits.fpsShare[profile] ?? limits.fpsShare.desktop;
     if (options.rungFps && options.rungFps > 0) {
@@ -435,7 +541,12 @@ export function evaluate(measure, options = {}, limits = LIMITS) {
       // A rung that the file's own cadence does not match is worth a look: the
       // rung may be the encoder's nominal rate, not the governor's rung.
       const mismatch = v.cadenceFps !== null && Math.abs(v.cadenceFps - options.rungFps) > options.rungFps * 0.1;
-      const detail = mismatch ? `the file's cadence is ${v.cadenceFps.toFixed(1)} fps, not the given rung ${options.rungFps}` : undefined;
+      // A rate change in the file is worth a look too: one rung for the whole
+      // file can be the rung of one part only.
+      const notes = [];
+      if (mismatch) notes.push(`the file's cadence is ${v.cadenceFps.toFixed(1)} fps, not the given rung ${options.rungFps}`);
+      if (rates.length > 1) notes.push(`the rate changed in the file: ${ratesText.value}`);
+      const detail = notes.length ? notes.join("; ") : undefined;
       rows.push(row(ok ? "PASS" : "FAIL", `capture fps (${profile})`, `${v.effectiveFps === null ? "?" : v.effectiveFps.toFixed(1)} fps`, `>= ${need.toFixed(1)} fps (${Math.round(share * 100)}% of ${options.rungFps})`, detail));
     } else {
       rows.push(row("SKIPPED", `capture fps (${profile})`, `${v.effectiveFps === null ? "?" : v.effectiveFps.toFixed(1)} fps`, "-", "no settled rung was given"));

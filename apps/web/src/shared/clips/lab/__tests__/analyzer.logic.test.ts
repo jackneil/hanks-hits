@@ -10,6 +10,7 @@ import { envelopeSegments, parseAudioFrameLog, parseLumaLog } from "../../../../
 import {
   DETECT,
   LIMITS,
+  RATE,
   analyzeDecode,
   audioGaps,
   beepOnsets,
@@ -19,9 +20,12 @@ import {
   flashOnsets,
   formatBeepTable,
   formatRows,
+  fpsText,
   offsetDeltas,
   pairEvents,
   passed,
+  rateParts,
+  ratePartsText,
   videoStats,
 } from "../../../../../../../scripts/clips/lib/sync.mjs";
 
@@ -200,6 +204,102 @@ describe("videoStats and audioGaps", () => {
   });
 });
 
+/**
+ * Frames in parts with one rate each: [fps, from s, to s]. Each part starts
+ * on its own `from`, so a step lands where a governor rung change lands.
+ * A frame within half an interval of a flash time is white.
+ */
+function stepped(parts: Array<[number, number, number]>, flashes: number[] = []): Frames {
+  const frames: Frames = [];
+  for (const [fps, from, to] of parts) {
+    for (let t = from; t < to - 1e-9; t += 1 / fps) {
+      const white = flashes.some((f) => Math.abs(f - t) < 0.5 / fps);
+      frames.push([Math.round(t * 1e6) / 1e6, white ? 235 : 30]);
+    }
+  }
+  return frames;
+}
+
+/** The Record run of 2026-09-29 (scratch run with governor logs): 60 fps, Compute Pressure "serious" at +3 s (30 fps), again at +13 s (20 fps). */
+const PRESSURE_STEPS: Array<[number, number, number]> = [
+  [60, 0, 3],
+  [30, 3, 13],
+  [20, 13, 20],
+];
+
+describe("rateParts", () => {
+  it("gives one part for a steady file, also when some frames are missed", () => {
+    // 60 fps for 5 s with every 7th frame missed: the median interval stays 16.7 ms.
+    const frames = lab({ seconds: 5, fps: 60 }).filter((_, i) => i % 7 !== 3);
+    const parts = rateParts(frames);
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toMatchObject({ from: 0, fps: 60, cadenceMs: 16.7 });
+    expect(parts[0].to).toBeCloseTo(299 / 60, 6);
+    // 6 of 7 frames: the effective rate of the part, not its cadence.
+    expect(parts[0].effectiveFps).toBeCloseTo(60 * (6 / 7), 0);
+    expect(ratePartsText(parts)).toEqual({ value: "60 fps", detail: "one rate from 0.00 s to 4.98 s" });
+  });
+
+  it("finds each governor rung of a file that steps down, to within one frame", () => {
+    const parts = rateParts(stepped(PRESSURE_STEPS));
+    expect(parts.map((p) => p.fps)).toEqual([60, 30, 20]);
+    expect(parts[0].from).toBe(0);
+    expect(Math.abs(parts[0].to - 3)).toBeLessThanOrEqual(1 / 30 + 1e-6);
+    expect(parts[1].from).toBe(parts[0].to);
+    expect(Math.abs(parts[1].to - 13)).toBeLessThanOrEqual(1 / 20 + 1e-6);
+    expect(parts[2].to).toBeCloseTo(19.95, 6);
+    expect(ratePartsText(parts)).toEqual({
+      value: "60 > 30 > 20 fps",
+      detail: `60 fps 0.00-${parts[0].to.toFixed(2)} s, 30 fps ${parts[1].from.toFixed(2)}-${parts[1].to.toFixed(2)} s, 20 fps ${parts[2].from.toFixed(2)}-19.95 s`,
+    });
+  });
+
+  it("shows a step up too, and rates that are not whole numbers", () => {
+    // 90 Hz rungs: 22.5 fps, then 45 fps.
+    const parts = rateParts(stepped([
+      [22.5, 0, 4],
+      [45, 4, 8],
+    ]));
+    expect(parts.map((p) => p.fps)).toEqual([22.5, 45]);
+    expect(ratePartsText(parts).value).toBe("22.5 > 45 fps");
+    expect(fpsText(59.96)).toBe("60");
+    expect(fpsText(17.14)).toBe("17.1");
+  });
+
+  it("joins a run shorter than 0.5 s to the part next to it", () => {
+    // 0.3 s at 30 fps inside 60 fps, and 0.2 s at 30 fps at the very start.
+    const middle = rateParts(stepped([
+      [60, 0, 2],
+      [30, 2, 2.3],
+      [60, 2.3, 5],
+    ]));
+    expect(middle.map((p) => p.fps)).toEqual([60]);
+    expect(middle[0].from).toBe(0);
+    const first = rateParts(stepped([
+      [30, 0, 0.2],
+      [60, 0.2, 4],
+    ]));
+    expect(first.map((p) => p.fps)).toEqual([60]);
+    expect(first[0].from).toBe(0);
+    // 0.6 s is long enough to be its own part.
+    expect(rateParts(stepped([
+      [60, 0, 2],
+      [30, 2, 2.6],
+      [60, 2.6, 5],
+    ])).map((p) => p.fps)).toEqual([60, 30, 60]);
+  });
+
+  it("gives no parts for fewer than 2 frames", () => {
+    expect(rateParts([])).toEqual([]);
+    expect(rateParts([[0, 30]])).toEqual([]);
+    expect(ratePartsText([])).toEqual({ value: "?", detail: "fewer than 2 frames" });
+  });
+
+  it("has the settings that the file comment gives", () => {
+    expect(RATE).toEqual({ medianWindow: 9, minPartSec: 0.5, sameShare: 0.05 });
+  });
+});
+
 describe("offsetDeltas", () => {
   it("joins the beeps of two decoders by flash time", () => {
     const a = [
@@ -319,6 +419,37 @@ describe("evaluate", () => {
     const matching = rowOf(evaluate(measure, { rungFps: 30 }), "capture fps");
     expect(matching.status).toBe("PASS");
     expect(matching.detail).toBeUndefined();
+  });
+
+  it("judges the capture fps against the rung the library row gives, never a fixed 60 (the Record run of 2026-09-29)", () => {
+    // The governor stepped the recording down from 60 to 30 to 20 fps
+    // (Compute Pressure "serious"), and every frame it asked for is in the file.
+    const flashes = Array.from({ length: 20 }, (_, i) => i + 0.5);
+    const decode = analyzeDecode({ frames: stepped(PRESSURE_STEPS, flashes), segments: [beeps({ seconds: 20, at: flashes })] });
+    const measure = { container: { ...CONTAINER, durationSec: 20 }, ffmpeg: decode, ffmpegRaw: decode, avfoundation: null, skipped: { ffmpeg: null, avfoundation: "x" } };
+    const fps = (rungFps?: number) => rowOf(evaluate(measure, rungFps === undefined ? {} : { rungFps, expectSeconds: 20 }), "capture fps");
+
+    const rows = evaluate(measure, { rungFps: 60, expectSeconds: 20 });
+    expect(rowOf(rows, "live A/V, BT.1359 (ffmpeg)").status).toBe("PASS");
+    expect(rowOf(rows, "largest video gap").status).toBe("PASS");
+    expect(rowOf(rows, "frame rate over time (ffmpeg)")).toMatchObject({ status: "INFO", value: "60 > 30 > 20 fps" });
+
+    // A row that claims 60 for this file fails: the file ran at 60 fps for 3 s only.
+    const claims60 = fps(60);
+    expect(claims60.status).toBe("FAIL");
+    expect(claims60.value).toBe("31.0 fps");
+    expect(claims60.detail).toBe("the file's cadence is 30.0 fps, not the given rung 60; the rate changed in the file: 60 > 30 > 20 fps");
+    // A row that gives the rungs the frames came at (time-weighted: 31 fps), or the rung it settled at (20), passes.
+    expect(fps(31).status).toBe("PASS");
+    expect(fps(20).status).toBe("PASS");
+    // With no rung, there is nothing to judge against: SKIPPED, never an assumed 60.
+    expect(fps().status).toBe("SKIPPED");
+    // The same file with half of the 30 fps frames lost fails against the time-weighted rung.
+    const lossy = analyzeDecode({
+      frames: stepped(PRESSURE_STEPS, flashes).filter(([t], i) => !(t >= 3 && t < 13 && i % 2 === 1 && !flashes.some((f) => Math.abs(f - t) < 0.05))),
+      segments: [beeps({ seconds: 20, at: flashes })],
+    });
+    expect(rowOf(evaluate({ ...measure, ffmpeg: lossy, ffmpegRaw: lossy }, { rungFps: 31 }), "capture fps").status).toBe("FAIL");
   });
 
   it("fails a jump in the sound track", () => {
