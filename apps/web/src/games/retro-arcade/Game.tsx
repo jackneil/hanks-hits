@@ -12,6 +12,8 @@ import {
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
+import { RestartGameButton } from "@/shared/components/RestartGameButton";
 import { RETRO_ARCADE_INSTRUCTIONS } from "./lib/readAloud";
 import { GameBrowser, type CatalogGame } from "./components/GameBrowser";
 import {
@@ -199,6 +201,14 @@ function RomUploader({
   );
 }
 
+/**
+ * Stacking contract of the site: GameShell header 1000, toasts 1050, sheets
+ * 2500, dialogs 3000. The emulator view is full screen above the header and
+ * the toasts (1100), so its Back button is never under the header, and a
+ * sheet or a dialog (the restart question) still opens above it.
+ */
+export const EMULATOR_VIEW_Z = 1100;
+
 /** How long the parent waits for the emulator to send its state. */
 const CAPTURE_TIMEOUT_MS = 4000;
 /** How long a save waits for the session to name the owner. */
@@ -213,6 +223,7 @@ function EmulatorView({
   owner,
   autoSaveOnExit,
   onExit,
+  onRestart,
   skipAutoLoad = false,
   store = saveStateStore,
 }: {
@@ -225,6 +236,7 @@ function EmulatorView({
   autoSaveOnExit: boolean;
   /** Leaves the game. `problem` is a message for the next screen. */
   onExit: (problem?: string) => void;
+  onRestart: () => void;
   skipAutoLoad?: boolean;
   store?: SaveStateStore;
 }) {
@@ -234,6 +246,8 @@ function EmulatorView({
   const [notice, setNotice] = useState<Notice | null>(null);
   const [exiting, setExiting] = useState(false);
   const exitingRef = useRef(false);
+  const [restartOpen, setRestartOpen] = useState(false);
+  const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const capturesRef = useRef(new Map<number, (state: ArrayBuffer | null) => void>());
   const nextRequestRef = useRef(1);
 
@@ -425,40 +439,44 @@ function EmulatorView({
   const emulatorUrl = `/emulator/index.html?core=${encodeURIComponent(system)}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(romName)}`;
 
   return (
-    <div className="fixed inset-0 bg-black flex flex-col z-50">
-      {/* Floating back button - always visible, even in fullscreen */}
-      <button
-        onClick={() => void handleExit()}
-        disabled={exiting}
-        className="fixed top-4 left-4 z-[9999] px-4 py-2 bg-black/80 hover:bg-red-600
-                   text-white rounded-lg flex items-center gap-2 text-sm font-bold
-                   shadow-lg backdrop-blur-sm transition-all active:scale-95 border border-white/20"
+    <div
+      data-testid="emulator-view"
+      className="fixed inset-0 z-[1100] flex flex-col bg-black"
+      style={{
+        paddingLeft: "env(safe-area-inset-left)",
+        paddingRight: "env(safe-area-inset-right)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
+    >
+      {/* Top bar: the one way back, always on screen above the game. */}
+      <div
+        className="flex shrink-0 items-center gap-2 bg-gray-900 px-2 pb-1"
+        style={{ paddingTop: "max(0.25rem, env(safe-area-inset-top))" }}
       >
-        {exiting ? "Saving..." : "← Back to Games"}
-      </button>
-
-      {/* Header bar */}
-      <div className="bg-gray-900 p-2 flex items-center justify-between shrink-0">
         <button
+          type="button"
           onClick={() => void handleExit()}
           disabled={exiting}
-          className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors"
+          className="min-h-[44px] shrink-0 rounded-lg bg-red-600 px-4 font-bold text-white transition-transform hover:bg-red-500 active:scale-95 disabled:opacity-80"
         >
-          Exit
+          {exiting ? "Saving..." : "← Back to Games"}
         </button>
-        <span className="text-white font-semibold truncate mx-4">{romName}</span>
-        <div className="text-white/60 text-sm">{SYSTEMS[system].name}</div>
+        <span className="min-w-0 flex-1 truncate font-semibold text-white">{romName}</span>
+        <span className="hidden shrink-0 text-sm text-white/60 sm:inline">{SYSTEMS[system].name}</span>
+        <RestartGameButton
+          ref={restartTriggerRef}
+          onClick={() => setRestartOpen(true)}
+          className="shrink-0 text-white"
+        />
       </div>
 
       {/* Emulator iframe */}
-      <div className="flex-1 relative">
+      <div className="relative flex-1">
         {!isReady && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black">
             <div className="text-center">
-              <div className="text-6xl mb-4 animate-bounce">
-                {SYSTEMS[system].icon}
-              </div>
-              <p className="text-white text-xl">Loading emulator...</p>
+              <div className="mb-4 text-6xl animate-bounce">{SYSTEMS[system].icon}</div>
+              <p className="text-xl text-white">Loading emulator...</p>
             </div>
           </div>
         )}
@@ -466,13 +484,26 @@ function EmulatorView({
         <iframe
           ref={iframeRef}
           src={emulatorUrl}
-          className="w-full h-full border-0"
+          title={`${romName} on the ${SYSTEMS[system].name}`}
+          className="h-full w-full border-0"
           allow="autoplay; fullscreen; gamepad"
           allowFullScreen
         />
 
         <SaveNotice notice={notice} onDismiss={dismiss} className="absolute inset-x-0 top-2 z-20" />
       </div>
+
+      <RestartConfirmationDialog
+        isOpen={restartOpen}
+        gameName={romName}
+        message={`Start ${romName} again from the beginning? Your saves stay safe.`}
+        triggerRef={restartTriggerRef}
+        onCancel={() => setRestartOpen(false)}
+        onConfirm={() => {
+          setRestartOpen(false);
+          onRestart();
+        }}
+      />
     </div>
   );
 }
@@ -552,6 +583,7 @@ export function RetroArcadeGame() {
         owner={saveOwner}
         autoSaveOnExit={store.settings.autoSaveOnExit}
         onExit={handleExit}
+        onRestart={store.restartGame}
         skipAutoLoad={store.restartNonce > 0}
       />
     );

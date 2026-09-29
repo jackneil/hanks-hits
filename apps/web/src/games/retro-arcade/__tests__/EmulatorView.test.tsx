@@ -24,7 +24,7 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
 
-import { RetroArcadeGame } from "../Game";
+import { EMULATOR_VIEW_Z, RetroArcadeGame } from "../Game";
 import { SaveStateError } from "../lib/saveStates";
 import { useRetroArcadeStore } from "../lib/store";
 
@@ -66,6 +66,26 @@ beforeEach(() => {
 
 afterEach(() => {
   useRetroArcadeStore.setState({ isPlaying: false, currentRomUrl: null, currentRomName: null, restartNonce: 0 });
+});
+
+describe("emulator view: stacking", () => {
+  it("sits above the site header (1000) and toasts (1050), below sheets (2500) and dialogs (3000)", () => {
+    play();
+    const view = screen.getByTestId("emulator-view");
+    const z = Number(/(?:^|\s)z-\[(\d+)\]/.exec(view.className)?.[1] ?? /(?:^|\s)z-(\d+)/.exec(view.className)?.[1]);
+    expect(z).toBe(EMULATOR_VIEW_Z);
+    expect(z).toBeGreaterThan(1050);
+    expect(z).toBeLessThan(2500);
+    expect(view.className).toMatch(/(^|\s)fixed(\s|$)/);
+    expect(view.className).toMatch(/(^|\s)inset-0(\s|$)/);
+  });
+
+  it("has one Back to Games button, inside the emulator view", () => {
+    play();
+    const backs = screen.getAllByRole("button", { name: /Back to Games/ });
+    expect(backs).toHaveLength(1);
+    expect(screen.getByTestId("emulator-view")).toContainElement(backs[0]);
+  });
 });
 
 describe("emulator view: save states", () => {
@@ -217,5 +237,15 @@ describe("emulator view: save states", () => {
     fromFrame({ type: "saveState", state: bytes(64) }, null);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(fakeStore.put).not.toHaveBeenCalled();
+  });
+
+  it("asks before it starts the game over, in a dialog above the emulator", async () => {
+    play();
+    fireEvent.click(screen.getByRole("button", { name: "Restart game" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Your saves stay safe.");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm restart" }));
+    expect(useRetroArcadeStore.getState().restartNonce).toBe(1);
+    expect(useRetroArcadeStore.getState().isPlaying).toBe(true);
   });
 });
