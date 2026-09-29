@@ -13,10 +13,13 @@ export interface SystemInfo {
   icon: string;
   extensions: string[];
   /**
-   * The EJS_core value for this console: an EmulatorJS system name (EmulatorJS
-   * then picks its first core for it) or a core name. The emulator page
-   * (public/emulator/index.html) has the same value for each console, and
-   * emulator-page.test.ts checks that the two agree.
+   * The EJS_core value for this console: an EmulatorJS system name or a core
+   * name. For a system name, EmulatorJS picks the first core of the system
+   * and the player can pick another in its Settings. A core name pins that
+   * core: the emulator page hides the Core setting and forgets a stored core
+   * choice, so EmulatorJS loads that core only, on every device. The emulator
+   * page (public/emulator/index.html) has the same value for each console,
+   * and emulator-page.test.ts checks that the two agree.
    */
   ejsCore: string;
   /**
@@ -93,7 +96,16 @@ export const SYSTEMS: Record<SystemType, SystemInfo> = {
     bgGradient: "from-orange-500 via-green-500 to-blue-500",
     icon: "🎮",
     extensions: [".n64", ".z64", ".v64", ".zip"],
-    ejsCore: "n64",
+    // mupen64plus_next on every device. For "n64", EmulatorJS 4.2.3 picks
+    // parallel_n64 on a phone with Safari (it reverses the N64 core order
+    // there) and mupen64plus_next everywhere else. On a real iPhone SE
+    // (iOS 27), parallel_n64 stopped at frame 24 with "RuntimeError: Out of
+    // bounds memory access" (a black picture), and a start from its save
+    // state hung the tab; Chromium did the same. mupen64plus_next booted,
+    // saved, loaded and resumed its 16.8 MB state on that iPhone. The core
+    // name pins it, so the site hosts no parallel_n64.
+    ejsCore: "mupen64plus_next",
+    ejsControlScheme: "n64",
   },
   atari2600: {
     id: "atari2600",

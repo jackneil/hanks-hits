@@ -410,6 +410,8 @@
     // site hosts the cores for these consoles only. The values are the same
     // as ejsCore and ejsControlScheme in
     // src/games/retro-arcade/lib/constants.ts (emulator-page.test.ts checks).
+    // "coreSystem" marks a core name: the EmulatorJS system that lists the
+    // core. The page pins that core (see pinCore below).
     const SYSTEM_CONFIG = {
       nes: { core: 'nes' },
       snes: { core: 'snes' },
@@ -419,12 +421,17 @@
       gb: {
         core: 'mgba',
         controlScheme: 'gb',
+        coreSystem: 'gba',
         oldSaveFolder: '/data/saves/Gambatte',
         saveFolder: '/data/saves/mGBA',
       },
       gba: { core: 'gba' },
       segaMD: { core: 'segaMD' },
-      n64: { core: 'n64' },
+      // Nintendo 64 games run on mupen64plus_next on every device. For
+      // "n64", EmulatorJS picks parallel_n64 on an iPhone, and on a real
+      // iPhone that core stopped at boot and hung the tab on a resume (see
+      // constants.ts).
+      n64: { core: 'mupen64plus_next', controlScheme: 'n64', coreSystem: 'n64' },
       atari2600: { core: 'atari2600' },
     };
 
@@ -446,6 +453,32 @@
         copied.push(name);
       }
       return copied;
+    }
+
+    /**
+     * Pins the core of a console whose EJS_core is a core name: EmulatorJS
+     * loads that core only. It hides the Core setting, and it removes a core
+     * choice that EmulatorJS kept for this game, because a stored choice
+     * beats EJS_core (preGetSetting "retroarch_core"). EmulatorJS keeps the
+     * settings of a game in localStorage under "ejs-<game id>-<system>-<game
+     * name>-settings" (getLocalStorageKey); the page sets no game id, so the
+     * id is 1.
+     */
+    function pinCore(win, coreSystem, name) {
+      win.EJS_hideSettings = ['retroarch_core'];
+      const key = 'ejs-1-' + coreSystem + '-' + name + '-settings';
+      try {
+        const storage = win.localStorage;
+        const raw = storage ? storage.getItem(key) : null;
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (!saved || !saved.settings || !Object.prototype.hasOwnProperty.call(saved.settings, 'retroarch_core')) return;
+        delete saved.settings.retroarch_core;
+        storage.setItem(key, JSON.stringify(saved));
+      } catch (e) {
+        // The pinned core still loads unless the player picked another one.
+        console.warn('Could not remove the stored core choice', e);
+      }
     }
 
     function isValidRomUrl(url) {
@@ -536,6 +569,7 @@
     window.EJS_player = '#game';
     window.EJS_core = system.core;
     if (system.controlScheme) window.EJS_controlScheme = system.controlScheme;
+    if (system.coreSystem) pinCore(window, system.coreSystem, gameName);
 
     // Keep a kid's Game Boy progress after the change of core. EmulatorJS
     // mounts the saves folder, sends "saveDatabaseLoaded", and only then
