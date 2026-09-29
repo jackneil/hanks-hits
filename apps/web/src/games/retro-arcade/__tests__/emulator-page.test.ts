@@ -395,8 +395,14 @@ describe("emulator page: on-screen gamepad touch targets", () => {
     expect(menuButton, "a rule for the menu bar buttons").toBeDefined();
     expect(px(menuButton.getPropertyValue("min-height"))).toBeGreaterThanOrEqual(44);
     expect(px(menuButton.getPropertyValue("min-width"))).toBeGreaterThanOrEqual(44);
-    const [phoneMenu] = find("#game .ejs_small_screen .ejs_menu_bar");
+    // EmulatorJS puts "ejs_small_screen" on #game itself (handleResize), so
+    // "#game .ejs_small_screen ..." never matched a thing.
+    const selector = "#game.ejs_small_screen .ejs_menu_bar";
+    const [phoneMenu] = find(selector);
     expect(phoneMenu.getPropertyValue("overflow-y")).toBe("auto");
+    document.body.innerHTML = '<div id="game" class="ejs_parent ejs_small_screen"><div class="ejs_menu_bar"></div></div>';
+    expect(document.querySelector(".ejs_menu_bar")!.matches(selector)).toBe(true);
+    expect(rules.some((rule) => /#game \.ejs_small_screen/.test(rule.selector))).toBe(false);
   });
 
   it("gives each button of the bottom row its own slot in portrait", () => {
