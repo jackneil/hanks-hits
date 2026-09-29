@@ -46,6 +46,13 @@
   --radius-box: 1rem;
   --radius-btn: 0.75rem;
   --radius-badge: 0.5rem;
+
+  /* Flat: no daisyUI depth or noise. A custom theme inherits --depth: 1
+     from daisyUI's default light theme, and depth gives every .btn a drop
+     shadow in its own color (a blue shadow under each blue button, an
+     AI-design tell). Add a neutral shadow-* utility where lift is wanted. */
+  --depth: 0;
+  --noise: 0;
 }
 
 /* Dark theme for nighttime gaming */
@@ -77,6 +84,10 @@
   --radius-box: 1rem;
   --radius-btn: 0.75rem;
   --radius-badge: 0.5rem;
+
+  /* Flat, as in the light theme above */
+  --depth: 0;
+  --noise: 0;
 }
 
 /* Kid-friendly base styles */
