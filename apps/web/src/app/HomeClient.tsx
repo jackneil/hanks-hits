@@ -448,6 +448,16 @@ export function HomeClient({ categories }: HomeClientProps) {
             Made for {SITE.owner} with ❤️
           </p>
         </div>
+        {/* The notices for the open-source software in the clip maker
+            (FFmpeg LGPL-2.1 and Mediabunny MPL-2.0 ask for them). */}
+        <nav aria-label="Site information" className="max-w-6xl mx-auto mt-2 flex justify-center">
+          <Link
+            href="/licenses"
+            className="inline-flex min-h-[44px] items-center px-2 font-semibold text-white underline underline-offset-4 hover:text-cyan-200"
+          >
+            Licenses
+          </Link>
+        </nav>
       </footer>
 
       {/* Custom animations */}
