@@ -257,7 +257,7 @@ export const THIRD_PARTY_COMPONENTS: readonly ThirdPartyComponent[] = [
     purpose:
       "The cores play the games of the old game consoles in Retro Arcade. Each core file holds RetroArch, one emulator core and the Emscripten runtime, compiled together.",
     license:
-      "Each part has its own license. RetroArch: GPL-3.0-or-later. The core build scripts: GPL-3.0. FCEUmm and Nestopia UE: GPL-2.0-or-later. Mupen64Plus-Next, ParaLLEl N64 and Stella 2014: GPL-2.0. mGBA: MPL-2.0. Genesis Plus GX, PicoDrive and Snes9x: their own licenses, for non-commercial use only. The Emscripten runtime and musl: MIT.",
+      "Each part has its own license. RetroArch: GPL-3.0-or-later. The core build scripts: GPL-3.0. FCEUmm and Nestopia UE: GPL-2.0-or-later. Mupen64Plus-Next and Stella 2014: GPL-2.0. mGBA: MPL-2.0. Genesis Plus GX, PicoDrive and Snes9x: their own licenses, for non-commercial use only. The Emscripten runtime and musl: MIT.",
     licenseText: emulatorLicense("GPL 3.0 license text (RetroArch and the build scripts)", "GPL-3.0.txt"),
     moreLicenseTexts: [
       emulatorLicense("GPL 2.0 license text", "GPL-2.0.txt"),
@@ -267,7 +267,6 @@ export const THIRD_PARTY_COMPONENTS: readonly ThirdPartyComponent[] = [
       emulatorLicense("mGBA license text", "cores/mgba.txt"),
       emulatorLicense("Mupen64Plus-Next license text", "cores/mupen64plus_next.txt"),
       emulatorLicense("Nestopia UE license text", "cores/nestopia.txt"),
-      emulatorLicense("ParaLLEl N64 license text", "cores/parallel_n64.txt"),
       emulatorLicense("PicoDrive license text", "cores/picodrive.txt"),
       emulatorLicense("Snes9x license text", "cores/snes9x.txt"),
       emulatorLicense("Stella 2014 license text", "cores/stella2014.txt"),
@@ -283,7 +282,6 @@ export const THIRD_PARTY_COMPONENTS: readonly ThirdPartyComponent[] = [
       emulatorSource("mGBA (Game Boy and Game Boy Advance) source code", "mgba-1d9dbb1dc8d5.tar.gz", "15.1 MB"),
       emulatorSource("Mupen64Plus-Next (Nintendo 64) source code", "mupen64plus-libretro-nx-c35e55e87cba.tar.gz", "15.0 MB"),
       emulatorSource("Nestopia UE (NES) source code", "nestopia-6b08ec9148bd.tar.gz", "1.2 MB"),
-      emulatorSource("ParaLLEl N64 (Nintendo 64) source code", "parallel-n64-56f4daf8ec9b.tar.gz", "5.1 MB"),
       emulatorSource("PicoDrive (Sega Genesis) source code", "picodrive-3cf1e2617958.tar.gz", "2.0 MB"),
       emulatorSource("PicoDrive part libpicofe source code", "picodrive-libpicofe-86a086ed64aa.tar.gz", "0.1 MB"),
       emulatorSource("PicoDrive part cyclone68000 source code", "picodrive-cyclone68000-3ac7cf1bdeec.tar.gz", "0.1 MB"),

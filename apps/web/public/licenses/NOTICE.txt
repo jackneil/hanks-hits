@@ -178,15 +178,14 @@ Each part has its own license. The license texts are in
     non-commercial use only. cores/genesis_plus_gx.txt and LGPL-2.1.txt
   mGBA (Game Boy and Game Boy Advance): MPL-2.0. cores/mgba.txt and
     MPL-2.0.txt
-  Mupen64Plus-Next (Nintendo 64): GPL-2.0. cores/mupen64plus_next.txt
-  Nestopia UE (NES): GPL-2.0-or-later. cores/nestopia.txt
-  ParaLLEl N64 (Nintendo 64): GPL-2.0. cores/parallel_n64.txt and
+  Mupen64Plus-Next (Nintendo 64): GPL-2.0. cores/mupen64plus_next.txt and
     GPL-2.0.txt
+  Nestopia UE (NES): GPL-2.0-or-later. cores/nestopia.txt
   PicoDrive (Sega Genesis): the PicoDrive license, for non-commercial use
     only. cores/picodrive.txt
   Snes9x (Super NES): the Snes9x license, for non-commercial use only.
     cores/snes9x.txt
-  Stella 2014 (Atari 2600): GPL-2.0. cores/stella2014.txt
+  Stella 2014 (Atari 2600): GPL-2.0. cores/stella2014.txt and GPL-2.0.txt
   The Emscripten runtime and musl: MIT. Emscripten-4.0.8-LICENSE.txt and
     musl-COPYRIGHT.txt
 
@@ -204,7 +203,6 @@ for the git commit that the core file names):
   /emulator/ejs/4.2.3/source/mgba-1d9dbb1dc8d5.tar.gz (15.1 MB)
   /emulator/ejs/4.2.3/source/mupen64plus-libretro-nx-c35e55e87cba.tar.gz (15.0 MB)
   /emulator/ejs/4.2.3/source/nestopia-6b08ec9148bd.tar.gz (1.2 MB)
-  /emulator/ejs/4.2.3/source/parallel-n64-56f4daf8ec9b.tar.gz (5.1 MB)
   /emulator/ejs/4.2.3/source/picodrive-3cf1e2617958.tar.gz (2.0 MB)
   /emulator/ejs/4.2.3/source/picodrive-libpicofe-86a086ed64aa.tar.gz (0.1 MB)
   /emulator/ejs/4.2.3/source/picodrive-cyclone68000-3ac7cf1bdeec.tar.gz (0.1 MB)
