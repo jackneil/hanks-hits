@@ -37,6 +37,11 @@
  *
  * The game pauses before the viewer opens, where it can: the controller does
  * that (controller.openViewer), so every way in behaves the same.
+ *
+ * Layout: on a phone the sheet fills the screen, the clip sits at the top,
+ * and the status line and the buttons sit at the bottom, in the thumb zone
+ * (mt-auto in the sheet's column). On a wider screen the sheet is a dialog
+ * that fits its content, so the buttons follow the clip.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -554,38 +559,41 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
             </div>
           )}
 
-          <p role="status" aria-live="polite" data-testid="clip-viewer-status" className="mb-2 min-h-6 text-center text-base font-semibold">
-            {statusText}
-          </p>
+          {/* The thumb zone: pinned to the bottom of a phone screen. */}
+          <div data-testid="clip-viewer-actions" className="mt-auto flex flex-col pt-2">
+            <p role="status" aria-live="polite" data-testid="clip-viewer-status" className="mb-2 min-h-6 text-center text-base font-semibold">
+              {statusText}
+            </p>
 
-          {confirmBlock ??
-            (broken ? (
-              <div className="flex flex-col gap-2">{deleteButton}</div>
-            ) : (
-              <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2">
-                {saveFirst ? [saveButton, shareButton] : [shareButton, saveButton]}
-                {coachSaveVideo && (
-                  <p data-testid="clip-viewer-coach" className="flex items-center gap-3 rounded-xl bg-base-200 px-4 py-2 text-base sm:col-span-2">
-                    <span className="min-w-0 flex-1">{VIEWER_COPY.photosCoach}</span>
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-base-100 text-primary">
-                      <SaveGlyph size={26} />
-                    </span>
-                  </p>
-                )}
-                <button
-                  type="button"
-                  data-action="keep"
-                  aria-pressed={isKept}
-                  disabled={!record}
-                  onClick={onKeep}
-                  className={`${ACTION} ${isKept ? "btn-neutral" : SECONDARY_ACTION}`}
-                >
-                  <KeepGlyph filled={isKept} />
-                  {isKept ? VIEWER_COPY.kept : VIEWER_COPY.keep}
-                </button>
-                {deleteButton}
-              </div>
-            ))}
+            {confirmBlock ??
+              (broken ? (
+                <div className="flex flex-col gap-2">{deleteButton}</div>
+              ) : (
+                <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2">
+                  {saveFirst ? [saveButton, shareButton] : [shareButton, saveButton]}
+                  {coachSaveVideo && (
+                    <p data-testid="clip-viewer-coach" className="flex items-center gap-3 rounded-xl bg-base-200 px-4 py-2 text-base sm:col-span-2">
+                      <span className="min-w-0 flex-1">{VIEWER_COPY.photosCoach}</span>
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-base-100 text-primary">
+                        <SaveGlyph size={26} />
+                      </span>
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    data-action="keep"
+                    aria-pressed={isKept}
+                    disabled={!record}
+                    onClick={onKeep}
+                    className={`${ACTION} ${isKept ? "btn-neutral" : SECONDARY_ACTION}`}
+                  >
+                    <KeepGlyph filled={isKept} />
+                    {isKept ? VIEWER_COPY.kept : VIEWER_COPY.keep}
+                  </button>
+                  {deleteButton}
+                </div>
+              ))}
+          </div>
         </>
       )}
     </Sheet>

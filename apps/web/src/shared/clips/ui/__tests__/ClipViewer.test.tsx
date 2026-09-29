@@ -395,6 +395,49 @@ describe("ClipViewer: Save per platform (plan 12)", () => {
   });
 });
 
+describe("ClipViewer: the thumb zone (plan 11.4, phones)", () => {
+  /** The column the sheet stacks its content in: the dialog panel. */
+  function column(): HTMLElement {
+    return screen.getByRole("dialog");
+  }
+
+  it("pins the status line and every button to the bottom of a phone screen, the clip above", async () => {
+    await openClip(makeRecord({ id: "c1" }));
+    const panel = column();
+    // Full screen on a phone: a flex column over the whole screen (Sheet "full").
+    for (const token of ["flex", "flex-col", "inset-0"]) expect(panel.className.split(/\s+/)).toContain(token);
+    const actions = screen.getByTestId("clip-viewer-actions");
+    expect(actions.parentElement).toBe(panel);
+    // mt-auto takes the free space above it, so the group sits at the bottom.
+    expect(actions.className.split(/\s+/)).toContain("mt-auto");
+    // The status line stays directly above the buttons.
+    expect(actions.firstElementChild).toBe(screen.getByTestId("clip-viewer-status"));
+    for (const name of ["share", "save", "keep", "delete"]) expect(actions.contains(action(name))).toBe(true);
+    // The clip itself is above the group.
+    const video = screen.getByTestId("clip-viewer-video");
+    expect(actions.contains(video)).toBe(false);
+    expect(video.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps the delete question and a broken clip's Delete in the thumb zone too", async () => {
+    const view = await openClip(makeRecord({ id: "c1" }));
+    fireEvent.click(action("delete"));
+    expect(screen.getByTestId("clip-viewer-actions").contains(screen.getByTestId("clip-viewer-confirm"))).toBe(true);
+    view.unmount();
+
+    const record = makeRecord({ id: "c2" });
+    const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
+    vi.mocked(fake.service.library.file).mockRejectedValueOnce(Object.assign(new Error("gone"), { name: "NotReadableError" }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await openClip(record, { fake });
+    expect(screen.getByTestId("clip-viewer-broken")).toBeInTheDocument();
+    const actions = screen.getByTestId("clip-viewer-actions");
+    expect(actions.parentElement).toBe(column());
+    expect(actions.className.split(/\s+/)).toContain("mt-auto");
+    expect(actions.contains(action("delete"))).toBe(true);
+  });
+});
+
 describe("ClipViewer: Keep and Delete", () => {
   it("toggles Keep and Kept as a filled control", async () => {
     const record = makeRecord({ id: "c1", kept: false });
