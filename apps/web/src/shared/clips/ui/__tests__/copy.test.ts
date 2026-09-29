@@ -20,8 +20,8 @@ import {
   SETTINGS_COPY,
   shareReply,
   saveReply,
-  spokenLength,
-  spokenWithLength,
+  lengthInWords,
+  actionWithLength,
   TOAST_COPY,
   watchRunLabel,
   wholeRunLabel,
@@ -222,14 +222,14 @@ describe("result chip clip words (decision D1)", () => {
   });
 
   it("says a length in words for the voice", () => {
-    expect(spokenLength(16.9)).toBe("16 seconds");
-    expect(spokenLength(1)).toBe("1 second");
-    expect(spokenLength(60)).toBe("1 minute");
-    expect(spokenLength(61)).toBe("1 minute and 1 second");
-    expect(spokenLength(102)).toBe("1 minute and 42 seconds");
-    expect(spokenLength(180)).toBe("3 minutes");
-    expect(spokenLength(Number.NaN)).toBe("0 seconds");
-    expect(spokenWithLength(RESULT_ACTION_COPY.watchRun, 16)).toBe("Watch the whole run, 16 seconds");
+    expect(lengthInWords(16.9)).toBe("16 seconds");
+    expect(lengthInWords(1)).toBe("1 second");
+    expect(lengthInWords(60)).toBe("1 minute");
+    expect(lengthInWords(61)).toBe("1 minute and 1 second");
+    expect(lengthInWords(102)).toBe("1 minute and 42 seconds");
+    expect(lengthInWords(180)).toBe("3 minutes");
+    expect(lengthInWords(Number.NaN)).toBe("0 seconds");
+    expect(actionWithLength(RESULT_ACTION_COPY.watchRun, 16)).toBe("Watch the whole run, 16 seconds");
   });
 });
 

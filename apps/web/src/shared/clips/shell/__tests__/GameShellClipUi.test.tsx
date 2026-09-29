@@ -277,7 +277,7 @@ describe("GameShell with clips on", () => {
     expect(spoken.startsWith("Game over! You got 12 points.")).toBe(true);
     // The voice says the length in words, after the chip's own buttons.
     const watchSpoken = `${RESULT_ACTION_COPY.watchRun}, 20 seconds`;
-    expect(spoken).toContain(watchSpoken);
+    expect(spoken.split(watchSpoken)).toHaveLength(2); // said once
     expect(spoken).not.toContain("0:20");
     expect(spoken.indexOf("Play again")).toBeLessThan(spoken.indexOf(watchSpoken));
   });

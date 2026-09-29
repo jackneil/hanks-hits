@@ -47,7 +47,7 @@ import {
   type RunClipPart,
 } from "../service/contract";
 import { useClipUi, useClipUiState } from "./uiContext";
-import { RESULT_ACTION_COPY, spokenWithLength, watchRunLabel, wholeRunLabel } from "./copy";
+import { RESULT_ACTION_COPY, actionWithLength, watchRunLabel, wholeRunLabel } from "./copy";
 import { formatDuration } from "./format";
 import { PlayGlyph } from "./glyphs";
 import { capturedSecSince } from "./uiStore";
@@ -118,12 +118,12 @@ export function resultChipClipActions(
   };
   if (run.seconds <= DEFAULT_CLIP_SECONDS) {
     if (!holdsRun) return [watchEnd];
-    return [{ id: "watchRun", label: watchRunLabel(length), spoken: spokenWithLength(RESULT_ACTION_COPY.watchRun, run.seconds), part: "whole" }];
+    return [{ id: "watchRun", label: watchRunLabel(length), spoken: actionWithLength(RESULT_ACTION_COPY.watchRun, run.seconds), part: "whole" }];
   }
   if (!holdsRun) return [watchEnd];
   return [
     watchEnd,
-    { id: "wholeRun", label: wholeRunLabel(length), spoken: spokenWithLength(RESULT_ACTION_COPY.wholeRun, run.seconds), part: "whole" },
+    { id: "wholeRun", label: wholeRunLabel(length), spoken: actionWithLength(RESULT_ACTION_COPY.wholeRun, run.seconds), part: "whole" },
   ];
 }
 

@@ -105,8 +105,9 @@ describe("public barrel", () => {
       );
     // ClipUiMount renders ClipUiRuntime; a provider component would be a second mount.
     expect(exported.filter((name) => /Provider$/.test(name))).toEqual([]);
-    // GameShell and ResultChip read the visible labels out loud: word lists
-    // for a spokenExtras prop would say every clip button twice.
+    // GameShell and ResultChip read each control's own words out loud (its
+    // visible label, or its data-spoken words, which replace that label):
+    // word lists for a spokenExtras prop would say every clip button twice.
     expect(exported.filter((name) => /spoken/i.test(name))).toEqual([]);
     const parts = await import("../ui/shellParts");
     expect(Object.keys(parts).sort()).toEqual(

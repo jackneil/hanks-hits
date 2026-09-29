@@ -444,7 +444,7 @@ export function wholeRunLabel(length: string): string {
  * A length for the voice: "16 seconds", "1 minute", "1 minute and 42
  * seconds". The voice would say "0:16" as numbers with no unit.
  */
-export function spokenLength(seconds: number): string {
+export function lengthInWords(seconds: number): string {
   const whole = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
   const minutes = Math.floor(whole / 60);
   const rest = whole % 60;
@@ -456,8 +456,8 @@ export function spokenLength(seconds: number): string {
 }
 
 /** What the voice says for a clip action with a length: "Watch the whole run, 16 seconds". */
-export function spokenWithLength(action: string, seconds: number): string {
-  return `${action}, ${spokenLength(seconds)}`;
+export function actionWithLength(action: string, seconds: number): string {
+  return `${action}, ${lengthInWords(seconds)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -526,7 +526,7 @@ export function allCopyStrings(): string[] {
     out.push(saveReply({ kind: "failed", reason: "unknown" }, save));
   }
   out.push(PAUSE_ENTRY_LABEL, ...Object.values(RESULT_ACTION_COPY), watchRunLabel("0:16"), wholeRunLabel("0:42"));
-  out.push(spokenWithLength(RESULT_ACTION_COPY.watchRun, 16), spokenWithLength(RESULT_ACTION_COPY.wholeRun, 102), spokenLength(60));
+  out.push(actionWithLength(RESULT_ACTION_COPY.watchRun, 16), actionWithLength(RESULT_ACTION_COPY.wholeRun, 102), lengthInWords(60));
   out.push(...Object.values(SETTINGS_COPY), storageLine(0, "0 MB"), storageLine(1, "3 MB"), storageLine(12, "40 MB"));
   return out;
 }
