@@ -563,15 +563,14 @@ export function BlitzBomberGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Game container. On a narrow/tall phone the 4:3 box is only ~270px
-          tall, which clips the full-height start overlay (all three difficulty
-          buttons). min-h-[34rem] on small screens gives the overlay room to
-          show every button inside the viewport with no inner scrolling; it is
-          reset on sm+ where the 4:3 height is already tall enough. The canvas
-          stays centered and width-limited, so its scale is unchanged. */}
+      {/* Game container: a 4:3 box, the canvas's own shape. The start card
+          portals to document.body and covers the viewport, so it needs no
+          room here (this box used to carry min-h-[34rem] on phones only to
+          fit the card, which left about 275px of empty space around the
+          canvas during play). */}
       <div
         ref={containerRef}
-        className="relative w-full max-w-4xl aspect-[4/3] min-h-[34rem] sm:min-h-0 flex items-center justify-center"
+        className="relative w-full max-w-4xl aspect-[4/3] flex items-center justify-center"
       >
         <canvas
           ref={canvasRef}

@@ -260,8 +260,9 @@ export function MathAttackGame() {
     <div className="relative min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white">
       <IOSInstallPrompt />
 
-      {/* Shared start screen — mounted on the full-height page container so the
-          card, the age picker and the Play button never clip on a phone. */}
+      {/* Shared start screen. It covers the page (it portals to
+          document.body), so the card, the age picker and the Play button
+          never clip on a phone. */}
       {gameState === "ready" && (
         <GameStartOverlay
           title="Math Attack"

@@ -13,10 +13,10 @@ export function TitleScreen() {
   const [month, setMonth] = useState<Month>("march");
 
   if (gamePhase === "title") {
-    // The shared start screen replaces the old bespoke title card. It needs a
-    // positioned ancestor, so the title phase gets a relative full-height
-    // container of its own. Play moves to the first setup step, exactly like
-    // the old "Start Journey!" button did.
+    // The shared start screen replaces the old bespoke title card. It covers
+    // the page on its own (it portals to document.body); this container is
+    // the amber page behind it. Play moves to the first setup step, exactly
+    // like the old "Start Journey!" button did.
     return (
       <div className="relative min-h-screen bg-amber-900 text-amber-100">
         <GameStartOverlay

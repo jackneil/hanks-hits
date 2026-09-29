@@ -164,16 +164,18 @@ describe("hill-climb start card after a finished run", () => {
 });
 
 describe("hill-climb start card clipping", () => {
-  it("keeps overflow-hidden off the root, so the sticky start card is not clipped", () => {
-    // Regression: overflow-hidden made this root the card's scroll container,
-    // which offset the sticky box by the header height and pushed Play off the
-    // bottom on a phone held sideways (844x390). The canvas is absolute
-    // inset-0, so there is nothing to clip.
+  it("puts the start card over the page, so the game root cannot clip it", () => {
+    // Regression: when the card lived in this root, overflow-hidden made the
+    // root the card's scroll container and pushed Play off the bottom on a
+    // phone held sideways (844x390). The shared overlay now portals to
+    // document.body, outside the root, with Play in the pinned action row.
     const { container } = render(<HillClimbGame />);
 
-    const root = container.firstElementChild as HTMLElement;
-    expect(root.className).toContain("relative");
-    expect(root.className).not.toContain("overflow-hidden");
-    expect(screen.getByRole("button", { name: /Play Now/ })).toBeInTheDocument();
+    const overlay = screen.getByTestId("game-start-overlay");
+    expect(overlay.parentElement).toBe(document.body);
+    expect(container).not.toContainElement(overlay);
+    expect(screen.getByTestId("start-card-actions")).toContainElement(
+      screen.getByRole("button", { name: /Play Now/ })
+    );
   });
 });

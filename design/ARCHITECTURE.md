@@ -221,9 +221,14 @@ floating fullscreen buttons — that chrome comes from the shell or not at all.
 
 **Games own the play area and overlay content.** Start screens are DOM, not
 canvas. Every game and every playable app uses **GameStartOverlay**
-(`src/shared/components/GameStartOverlay.tsx`). Mount it inside the game's
-`relative` canvas container, or as a direct child of the full-height page
-container. It renders the title once (the only in-content heading, visible
+(`src/shared/components/GameStartOverlay.tsx`). Render it conditionally on
+the start state, at any place in the game. It portals to `document.body` and
+covers the viewport under the header, so the size of the game box does not
+change the card. The card has a body and an action row. The body (the title,
+the hints, and the picker when Play shows) scrolls on a short screen. The
+action row (the read-aloud button, then Play or the picker choices) stays at
+the bottom of the card, so the start action is always on screen with no
+scroll. It renders the title once (the only in-content heading, visible
 only before start), pointer-aware controls copy (`useCoarsePointer` /
 `matchMedia("(pointer: coarse)")`: touch viewports never see keyboard-only
 instructions), a 🔊 "Read it to me" button (`ReadAloudButton`, see below),
@@ -246,10 +251,10 @@ The kid must tap it. When the browser has no speech support, the button
 does not render. Any new text surface a kid meets mid-game must use the
 same button, in the same place: under the words, above the action buttons.
 
-**Stacking order (z-index, low to high):** GameStartOverlay 40, game
-HUDs/touch controls <= 50 (never visible at the same time as the overlay —
-HUDs render while playing, the overlay pre-start), OrientationWarning 100
-(phone-width portrait only), GameShell header 1000, PauseMenu 2000.
+**Stacking order (z-index, low to high):** game HUDs, touch controls and
+game modals <= 60, GameStartOverlay 90 (it covers the viewport, so it must
+be above every game layer), OrientationWarning 100 (phone-width portrait
+only), GameShell header 1000, PauseMenu 2000.
 
 **Layout under the shell:** content is offset by the header
 (`pt-12 md:pt-14`); full-height modules size against
