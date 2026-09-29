@@ -406,8 +406,10 @@ with a new bus. `removeAudioMock()` also resets the bus.
 ## Gameplay Clips
 
 A kid taps the clip button in the header, and the game keeps the last 30
-seconds as a video. The code is in `src/shared/clips/`. Import clip
-features only from the barrel `@/shared/clips`.
+seconds as a video. A hold of 500 ms opens the Capture menu. A press that
+the kid drags more than 48 px off the button before letting go makes no
+clip, like a native iOS button. The code is in `src/shared/clips/`. Import
+clip features only from the barrel `@/shared/clips`.
 
 **Turn clips on for a game.** Put the plain literal `clips: true` in the
 game's `metadata.ts`. Then give the game's canvas to the clip service with
