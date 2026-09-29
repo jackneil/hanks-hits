@@ -18,6 +18,10 @@ const PINNED_BASE = `https://cdn.emulatorjs.org/${PINNED_EMULATORJS_VERSION}/dat
 
 const WEB_ROOT = join(__dirname, "..", "..", "..", "..");
 const EMULATOR_PAGE = join(WEB_ROOT, "public", "emulator", "index.html");
+// The vendored EmulatorJS release (public/emulator/ejs/). Its bundle holds
+// the CDN URLs of EmulatorJS's own update check and core fallback.
+// emulator-selfhost.test.ts checks these files by SHA-256 instead.
+const VENDORED_ROOT = join(WEB_ROOT, "public", "emulator", "ejs");
 const SCAN_ROOTS = [join(WEB_ROOT, "src"), join(WEB_ROOT, "public")];
 const SCAN_EXTENSIONS = /\.(ts|tsx|js|jsx|mjs|cjs|html|json)$/;
 
@@ -34,6 +38,7 @@ function collectFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     if (entry === "node_modules" || entry === "__tests__") continue;
     const full = join(dir, entry);
+    if (full === VENDORED_ROOT) continue;
     if (statSync(full).isDirectory()) collectFiles(full, out);
     else if (SCAN_EXTENSIONS.test(entry)) out.push(full);
   }

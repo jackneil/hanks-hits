@@ -13,6 +13,10 @@ const eslintConfig = defineConfig([
     "build/**",
     "coverage/**",
     "next-env.d.ts",
+    // Vendored EmulatorJS release files, checked by SHA-256 against their
+    // manifest (src/games/retro-arcade/__tests__/emulator-selfhost.test.ts).
+    // They are not our code, so lint does not check them.
+    "public/emulator/ejs/**",
   ]),
 ]);
 

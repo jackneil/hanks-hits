@@ -1,0 +1,439 @@
+{
+  "name": "EmulatorJS",
+  "version": "4.2.3",
+  "license": "GPL-3.0",
+  "licenseFile": "LICENSE",
+  "homepage": "https://emulatorjs.org",
+  "sourceCode": "https://github.com/EmulatorJS/EmulatorJS/tree/v4.2.3",
+  "release": {
+    "url": "https://github.com/EmulatorJS/EmulatorJS/releases/tag/v4.2.3",
+    "asset": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z",
+    "bytes": 303554683,
+    "sha256": "07d451bc06fa3ad04ab30d9b94eb63ac34ad0babee52d60357b002bde8f3850b"
+  },
+  "notes": [
+    "Retro Arcade loads EmulatorJS only from this folder. The site does not load code from the EmulatorJS CDN.",
+    "Each file comes from the release asset above. The SHA-256 of the asset is the digest that GitHub publishes for it.",
+    "The source of each file is the asset URL plus the path of the file in the asset.",
+    "The -thread- core builds are not here. EmulatorJS uses them only when SharedArrayBuffer exists, and this site is not cross-origin isolated.",
+    "localization/retroarch.json is not here. The loader does not request it.",
+    "Each core file (.data) is a 7z archive. It holds the core, core.json and, for most cores, license.txt.",
+    "To change the version, run apps/web/scripts/vendor-emulatorjs.mjs with the new version. Then change the paths in public/emulator/index.html and the version in the tests."
+  ],
+  "cores": {
+    "fceumm": {
+      "systems": [
+        "nes"
+      ],
+      "license": "GPL-2.0",
+      "source": "https://github.com/EmulatorJS/libretro-fceumm"
+    },
+    "gambatte": {
+      "systems": [
+        "gb"
+      ],
+      "license": "GPL-2.0",
+      "source": "https://github.com/EmulatorJS/gambatte-libretro"
+    },
+    "genesis_plus_gx": {
+      "systems": [
+        "segaMD"
+      ],
+      "license": "Genesis Plus GX license (non-commercial use only)",
+      "source": "https://github.com/EmulatorJS/Genesis-Plus-GX"
+    },
+    "mgba": {
+      "systems": [
+        "gba"
+      ],
+      "license": "MPL-2.0",
+      "source": "https://github.com/EmulatorJS/mgba"
+    },
+    "mupen64plus_next": {
+      "systems": [
+        "n64"
+      ],
+      "license": "GPL-2.0",
+      "source": "https://github.com/EmulatorJS/mupen64plus-libretro-nx"
+    },
+    "nestopia": {
+      "systems": [
+        "nes"
+      ],
+      "license": "GPL-2.0",
+      "source": "https://github.com/EmulatorJS/nestopia"
+    },
+    "parallel_n64": {
+      "systems": [
+        "n64"
+      ],
+      "license": "GPL-2.0 (Mupen64Plus-Core; the core archive has no license file)",
+      "source": "https://github.com/EmulatorJS/parallel-n64"
+    },
+    "picodrive": {
+      "systems": [
+        "segaMD"
+      ],
+      "license": "PicoDrive license (non-commercial use only)",
+      "source": "https://github.com/EmulatorJS/picodrive"
+    },
+    "snes9x": {
+      "systems": [
+        "snes"
+      ],
+      "license": "Snes9x license (non-commercial use only)",
+      "source": "https://github.com/EmulatorJS/snes9x"
+    },
+    "stella2014": {
+      "systems": [
+        "atari2600"
+      ],
+      "license": "GPL-2.0 (Stella; the core archive has no license file)",
+      "source": "https://github.com/EmulatorJS/stella2014-libretro"
+    }
+  },
+  "files": [
+    {
+      "path": "loader.js",
+      "bytes": 7594,
+      "sha256": "69e0903bf1e2f62ced78895e7e511fa26e11316f7eb734925c35e919ba1287b2",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/loader.js"
+    },
+    {
+      "path": "emulator.min.js",
+      "bytes": 426343,
+      "sha256": "6aec3fd7bb2721255801b0a6af02e47e78b05e28a1822b1f213aacbd348abaee",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/emulator.min.js"
+    },
+    {
+      "path": "emulator.min.css",
+      "bytes": 25630,
+      "sha256": "16406c60b2dc3b04ae9b115e308613e6f567a0cc7068e21d9d0c1e5030fb395e",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/emulator.min.css"
+    },
+    {
+      "path": "compression/extract7z.js",
+      "bytes": 280155,
+      "sha256": "4ac9933b995a516cb6b3ca4027db860278372a20c21c405d93ceb1998498853a",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/compression/extract7z.js"
+    },
+    {
+      "path": "compression/extractzip.js",
+      "bytes": 196199,
+      "sha256": "3cc825428724213acd43d30552a78008e0869b2326de17dee240dbff9ee2f629",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/compression/extractzip.js"
+    },
+    {
+      "path": "compression/libunrar.js",
+      "bytes": 66684,
+      "sha256": "bc35b98ec95020ec047f4762de3e66629741eee3826022195498d2a1e0fc102c",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/compression/libunrar.js"
+    },
+    {
+      "path": "compression/libunrar.wasm",
+      "bytes": 173799,
+      "sha256": "e4ea9bd0b13a9767916b424469e30205f47f267ecd9125ed56fb9ff0b9bc1b58",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/compression/libunrar.wasm"
+    },
+    {
+      "path": "localization/af-FR.json",
+      "bytes": 10847,
+      "sha256": "98c0a0748b8a79c4888b756cc032721203bd07ab1e01c82ceb78bf507531bae9",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/af-FR.json"
+    },
+    {
+      "path": "localization/ar-AR.json",
+      "bytes": 9834,
+      "sha256": "7f08398ad9cf828c1c6d8cdaa65f9352d4873691475e14b76cbb11b802f8dc28",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/ar-AR.json"
+    },
+    {
+      "path": "localization/ben-BEN.json",
+      "bytes": 12548,
+      "sha256": "09a2adec9d6d26cbf1b007f1f39f3787f487fe421cae499048712a261e540545",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/ben-BEN.json"
+    },
+    {
+      "path": "localization/de-GER.json",
+      "bytes": 8758,
+      "sha256": "370590727debfb65fbd07c6622bb4ddc8ab25c465aeaa83f9d4ec7ad6552d8dd",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/de-GER.json"
+    },
+    {
+      "path": "localization/el-GR.json",
+      "bytes": 11271,
+      "sha256": "304ebd42b2275028deab2806022238e80f4c0470f982f86788ad4cafec8b94bd",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/el-GR.json"
+    },
+    {
+      "path": "localization/en-US.json",
+      "bytes": 9825,
+      "sha256": "b0c9a9bb92ecd2d03614ee2b0eeda160e883ee79ea94d9e8131addb92c5803f9",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/en-US.json"
+    },
+    {
+      "path": "localization/es-ES.json",
+      "bytes": 9601,
+      "sha256": "88be7f8de1e1fce480ce8883a975fc7c7985208e5b100a297591cea07bc97e46",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/es-ES.json"
+    },
+    {
+      "path": "localization/fa-AF.json",
+      "bytes": 10778,
+      "sha256": "e9e21fb390ebcc5c1170ccf4fbc62caece7997f0c14bd4da5da2e3720c864103",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/fa-AF.json"
+    },
+    {
+      "path": "localization/hi-HI.json",
+      "bytes": 12787,
+      "sha256": "63b7e7a676facd3e29e352e92f716f4a1065b606e2bf302e5fdd3dec531b1182",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/hi-HI.json"
+    },
+    {
+      "path": "localization/it-IT.json",
+      "bytes": 8721,
+      "sha256": "90b2febc77fa1c4ed672f5669dfedddc5f40409e2ddbe0d84e43366ea9e957c3",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/it-IT.json"
+    },
+    {
+      "path": "localization/ja-JA.json",
+      "bytes": 9543,
+      "sha256": "bcde0373941009e441094c2a75736598ca7ed0e6b7c09ab7f7a6bc5a7afa068a",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/ja-JA.json"
+    },
+    {
+      "path": "localization/jv-JV.json",
+      "bytes": 8388,
+      "sha256": "16e5f8d17eae444268a1c7fd7833a955201e7090af54d69ddfb4c075cd53e710",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/jv-JV.json"
+    },
+    {
+      "path": "localization/ko-KO.json",
+      "bytes": 10925,
+      "sha256": "c5822e658e952dc1f20cfee36a1be8b3d6f5ad3026e3b4ad5ab42af6aebdefa9",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/ko-KO.json"
+    },
+    {
+      "path": "localization/pt-BR.json",
+      "bytes": 13209,
+      "sha256": "6aced4ba66a75ffaac8b43db3e4bd1678e9d6a781b508ecf38a21b8bc3047474",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/pt-BR.json"
+    },
+    {
+      "path": "localization/ro-RO.json",
+      "bytes": 9350,
+      "sha256": "a58ad0f67d49c56db5f4e274e2cd1a03581b593ba4a6321dffc6ef129ecc373a",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/ro-RO.json"
+    },
+    {
+      "path": "localization/ru-RU.json",
+      "bytes": 10950,
+      "sha256": "9ac48f105165af995fe48180f2f9fc84661755a44647cfa571a3f69e33ca1476",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/ru-RU.json"
+    },
+    {
+      "path": "localization/tr-TR.json",
+      "bytes": 8849,
+      "sha256": "37aa1368de761196f439604a1b04b0d11e2858a3bdcc7c392db37e6306d02ecc",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/tr-TR.json"
+    },
+    {
+      "path": "localization/vi-VN.json",
+      "bytes": 9014,
+      "sha256": "60c6d3a730a067f3f8af8cb12cec96d275221b5c6c89cade8285345e38e99605",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/vi-VN.json"
+    },
+    {
+      "path": "localization/zh-CN.json",
+      "bytes": 10521,
+      "sha256": "a20b7d3c3395d3cce4d697b45555e4228c076f07caba1c2bcf76bb66bedb79d2",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/localization/zh-CN.json"
+    },
+    {
+      "path": "cores/reports/fceumm.json",
+      "bytes": 120,
+      "sha256": "13dbbfba0ea1bea087c97c38f47dd49c3fb8f16c3f5ed5678dd75d352b737132",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/fceumm.json"
+    },
+    {
+      "path": "cores/fceumm-wasm.data",
+      "bytes": 1054015,
+      "sha256": "8c449fd5c36646fb0769423ed6ffa9efbdfc21fbfdc9bac7952b559d34d5b493",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/fceumm-wasm.data"
+    },
+    {
+      "path": "cores/fceumm-legacy-wasm.data",
+      "bytes": 1053006,
+      "sha256": "f1054b094e7149fd6278485bc1b2e51ff75c5259048ddb1134171e53d651f239",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/fceumm-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/gambatte.json",
+      "bytes": 122,
+      "sha256": "a240a47bd6b2a38a6c46ee63c80bdcd24befbd50474453df4898d49282bd5f57",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/gambatte.json"
+    },
+    {
+      "path": "cores/gambatte-wasm.data",
+      "bytes": 967156,
+      "sha256": "ad67c7bf57f8f8b62606048e6ea498afac5b5abc76ad8de5f9dfc2a6719374bb",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/gambatte-wasm.data"
+    },
+    {
+      "path": "cores/gambatte-legacy-wasm.data",
+      "bytes": 967022,
+      "sha256": "940a7381d51223c0be0c0f98d1a988d42cc98d03c27b392cbd29cb9f357b5f62",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/gambatte-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/genesis_plus_gx.json",
+      "bytes": 129,
+      "sha256": "5936a8ce8d7f010d5bfdd8c3bba2b2414f103b3a703121e56f2724b24dbe7ff3",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/genesis_plus_gx.json"
+    },
+    {
+      "path": "cores/genesis_plus_gx-wasm.data",
+      "bytes": 1203661,
+      "sha256": "190297a6f86757405090f1a2266f67dfe1a570a528c583434ed3641a5664f768",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/genesis_plus_gx-wasm.data"
+    },
+    {
+      "path": "cores/genesis_plus_gx-legacy-wasm.data",
+      "bytes": 1204803,
+      "sha256": "2a1edeb68d7ec882149ed3cd5d3aa95a6ac231ebabaf82cdb56175a8b62967cc",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/genesis_plus_gx-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/mgba.json",
+      "bytes": 118,
+      "sha256": "08219f6c855a9d996f04ed21169bb0c5ac64d469a8a536468b9876205b5c268d",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/mgba.json"
+    },
+    {
+      "path": "cores/mgba-wasm.data",
+      "bytes": 1055616,
+      "sha256": "01fcaf6d4296ef1db6676e0c69400c4474e24572d0b2b99cc097e4ae885e02d7",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/mgba-wasm.data"
+    },
+    {
+      "path": "cores/mgba-legacy-wasm.data",
+      "bytes": 1054993,
+      "sha256": "e300d2f368c82bf61d77c972c36e367cf16408ec3d50beede080337519a3d696",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/mgba-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/mupen64plus_next.json",
+      "bytes": 153,
+      "sha256": "270105553cec57fd1058c50e0541b8b89dbd30b2323fd70682036f6919b805cc",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/mupen64plus_next.json"
+    },
+    {
+      "path": "cores/mupen64plus_next-wasm.data",
+      "bytes": 1451795,
+      "sha256": "2da1cbce9fda395e3ae83ca5787353baa159142d45ef3ea90f108b92524f76cc",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/mupen64plus_next-wasm.data"
+    },
+    {
+      "path": "cores/mupen64plus_next-legacy-wasm.data",
+      "bytes": 1451870,
+      "sha256": "425072f4bf94eec02633cbe9b84f47d6803dc0ec1b3c3b8de3ebbd2eb5617c3f",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/mupen64plus_next-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/nestopia.json",
+      "bytes": 122,
+      "sha256": "b85bf8f126f0f0a08ee4fac3e0d358c32da5a5db918b4bee4bd610dd445dc5ef",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/nestopia.json"
+    },
+    {
+      "path": "cores/nestopia-wasm.data",
+      "bytes": 1219547,
+      "sha256": "051de1b67a5b582b8a1bac6b99471d4f9f883ce3b3603d00330c1a066e546375",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/nestopia-wasm.data"
+    },
+    {
+      "path": "cores/nestopia-legacy-wasm.data",
+      "bytes": 1218931,
+      "sha256": "d3b1e6d3f0abd55a174d666303e51e06a208c257207ebeb734982a32595e1ac7",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/nestopia-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/parallel_n64.json",
+      "bytes": 126,
+      "sha256": "fc72e6320ba1225b041dfedf3e62406c0dc954696cc91a13b7d71303de349f24",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/parallel_n64.json"
+    },
+    {
+      "path": "cores/parallel_n64-wasm.data",
+      "bytes": 1028134,
+      "sha256": "873755608d41a604f3eee11b631f1cbe7e4d8c4d10c92859c27941299c8ef6a6",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/parallel_n64-wasm.data"
+    },
+    {
+      "path": "cores/parallel_n64-legacy-wasm.data",
+      "bytes": 1027660,
+      "sha256": "de0db87bb2d99c8aa6c9d70e9a101025cecf8dcd83d1c5a7ade25ac919b20485",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/parallel_n64-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/picodrive.json",
+      "bytes": 123,
+      "sha256": "2b09f29e095a003c15abf8e5bdfb0eaca96d6c6121183b3bd92ed85e860918d3",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/picodrive.json"
+    },
+    {
+      "path": "cores/picodrive-wasm.data",
+      "bytes": 1034483,
+      "sha256": "bb5d50b8b88111b583977d2f7a16d01a822b3deda9205048d99ecaad2c56d861",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/picodrive-wasm.data"
+    },
+    {
+      "path": "cores/picodrive-legacy-wasm.data",
+      "bytes": 1035609,
+      "sha256": "cc42b0c95e9edfd0e5c689211e8e85e45f4525be2d814af8ca9331ef90e0620b",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/picodrive-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/snes9x.json",
+      "bytes": 120,
+      "sha256": "dc7ac963eb7935a7ac78956235ac0b8912ec785c57026336825aa2ed8031b3ad",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/snes9x.json"
+    },
+    {
+      "path": "cores/snes9x-wasm.data",
+      "bytes": 1093765,
+      "sha256": "eaa0bcfce67673809886e50387a80a616b719502175db64c090d04c9d75958ee",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/snes9x-wasm.data"
+    },
+    {
+      "path": "cores/snes9x-legacy-wasm.data",
+      "bytes": 1092437,
+      "sha256": "7d427a575cefad98ff400493fa1d7e892da63fe7bab68979babd9cea0bfaaf3b",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/snes9x-legacy-wasm.data"
+    },
+    {
+      "path": "cores/reports/stella2014.json",
+      "bytes": 124,
+      "sha256": "c9920b95db48f678294daa72a289c19846e74ba69ca6d6094a76fb9f560fb39a",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/stella2014.json"
+    },
+    {
+      "path": "cores/stella2014-wasm.data",
+      "bytes": 1051659,
+      "sha256": "6c96c6b1746f3f05ca599066abe131a36c77ca61fc20a9e2a7560540457c487d",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/stella2014-wasm.data"
+    },
+    {
+      "path": "cores/stella2014-legacy-wasm.data",
+      "bytes": 1051741,
+      "sha256": "6dc81bb0c3c5833af69aa750491a6ecd547ec9b91c21bd55ed9a77d5b0a8dd08",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/stella2014-legacy-wasm.data"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 35111,
+      "sha256": "a617fab6d251b3302b1cb2c1c94f52d1c584f6fcb2fc218ec1a475bc08053a61",
+      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#LICENSE"
+    }
+  ]
+}
