@@ -69,12 +69,13 @@ afterEach(() => {
 });
 
 describe("emulator view: stacking", () => {
-  it("sits above the site header (1000) and toasts (1050), below sheets (2500) and dialogs (3000)", () => {
+  it("sits above the site header (1000) and toasts (1050), below celebrations (1150), sheets (2500) and dialogs (3000)", () => {
     play();
     const view = screen.getByTestId("emulator-view");
     const z = Number(/(?:^|\s)z-\[(\d+)\]/.exec(view.className)?.[1] ?? /(?:^|\s)z-(\d+)/.exec(view.className)?.[1]);
     expect(z).toBe(EMULATOR_VIEW_Z);
     expect(z).toBeGreaterThan(1050);
+    expect(z).toBeLessThan(1150);
     expect(z).toBeLessThan(2500);
     expect(view.className).toMatch(/(^|\s)fixed(\s|$)/);
     expect(view.className).toMatch(/(^|\s)inset-0(\s|$)/);

@@ -200,10 +200,14 @@ function RomUploader({
 }
 
 /**
- * Stacking contract of the site: GameShell header 1000, toasts 1050, sheets
- * 2500, dialogs 3000. The emulator view is full screen above the header and
- * the toasts (1100), so its Back button is never under the header, and a
- * sheet or a dialog (the restart question) still opens above it.
+ * Stacking contract of the site (z-index, low to high): GameShell header
+ * 1000, toasts 1050, emulator view 1100, celebrations 1150
+ * (AchievementCelebrations), sheets 2500, dialogs 3000.
+ *
+ * The emulator view is full screen above the header and the toasts, so its
+ * Back button is never under the header and a toast never covers the game.
+ * A celebration shows above the game on purpose. A sheet or a dialog (the
+ * restart question) opens above all of them.
  */
 export const EMULATOR_VIEW_Z = 1100;
 
