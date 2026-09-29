@@ -404,6 +404,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       store.showReply(reasonText("mux-failed"), true);
       return;
     }
+    // A refused result (the owner changed, or is read again) is invisible.
+    if (!result.ok && result.refused) return;
     if (!result.ok) {
       logClipUiFailure(result.action, undefined, result.reason);
       store.showReply(reasonText(result.reason), true);

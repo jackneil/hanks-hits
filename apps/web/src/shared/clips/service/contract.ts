@@ -146,7 +146,21 @@ export type ClipActionResult =
       /** "record" only: parts that could not be stored (each also failed with a reason). */
       failedParts?: number;
     }
-  | { ok: false; action: "clip" | "extend" | "record" | "picture"; reason: ClipReasonCode; atMs: number };
+  | {
+      ok: false;
+      action: "clip" | "extend" | "record" | "picture";
+      reason: ClipReasonCode;
+      atMs: number;
+      /**
+       * True when the service refused the action for the player on screen:
+       * the owner changed while it ran (the clip is kept under the owner who
+       * made it), or the owner is read again after a back-forward restore.
+       * The reason is then "hidden". A refused result is invisible: the UI
+       * shows no reply, no chip and no error state for it, and the service
+       * changes no snapshot field.
+       */
+      refused?: true;
+    };
 
 /**
  * Taken on pointerdown (plan 11.1). The ring bounds are frozen at the press,
@@ -171,8 +185,12 @@ export type PressOutcome =
    * pointercancel, a controller button that stays the game's own, the
    * Capture menu opened without a hold, and the result chip's frozen end.
    * The token keeps its frozen end for clipLast(seconds, token).
+   *
+   * "refused": the owner is read again after a back-forward restore, so the
+   * press commits nothing. Like a refused result, it is invisible: the UI
+   * shows no reply for it.
    */
-  | { kind: "ignored"; reason: ClipReasonCode | "busy" | "cancelled" };
+  | { kind: "ignored"; reason: ClipReasonCode | "busy" | "cancelled" | "refused" };
 
 /** Plan 11.1 tap semantics. */
 export const HOLD_FOR_MENU_MS = 500;

@@ -589,8 +589,9 @@ export class ClipService implements ClipServiceApi {
     if (info.cancelled) return { kind: "ignored", reason: "cancelled" };
     const snap = this.snapshot;
     if (!this.attached || snap.button === "hidden") return { kind: "ignored", reason: snap.reason ?? "flag-off" };
-    // While the owner is read again (a bfcache restore), the ring can hold another player's footage.
-    if (!this.ownerConfirmed) return { kind: "ignored", reason: "hidden" };
+    // While the owner is read again (a bfcache restore), the ring can hold
+    // another player's footage. A refusal is invisible (contract.ts).
+    if (!this.ownerConfirmed) return { kind: "ignored", reason: "refused" };
     const heldMs = info.upAtMs - token.downAtMs;
     const button = snap.button;
     if (button === "recording" || button === "saving" || button === "exporting") return { kind: "ignored", reason: "busy" };
@@ -624,11 +625,13 @@ export class ClipService implements ClipServiceApi {
   }
 
   /**
-   * An action that cannot run while the owner is read again. It fails with
-   * "hidden" (the button shows Suspended then) and changes no snapshot field.
+   * An action that cannot run for the player on screen: the owner is read
+   * again (a bfcache restore), or the owner changed while it ran. It fails
+   * with "hidden" and refused: true, changes no snapshot field, and the UI
+   * shows nothing for it (contract.ts ClipActionResult.refused).
    */
   private refuse(action: Action): ClipActionResult {
-    return { ok: false, action, reason: "hidden", atMs: this.now() };
+    return { ok: false, action, reason: "hidden", atMs: this.now(), refused: true };
   }
 
   /** States with footage to clip: ready, made, suspended (pre-pause) and resting (pre-rest). */

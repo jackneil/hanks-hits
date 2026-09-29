@@ -1092,7 +1092,7 @@ describe("owner changes never leak a clip to the next player (plan 7.1, 8.1)", (
     await w.service.setSessionUser("kid-2");
     release();
     const result = await resultOf(outcome);
-    expect(result).toMatchObject({ ok: false, reason: "hidden" });
+    expect(result).toMatchObject({ ok: false, reason: "hidden", refused: true });
     // Stored under kid-1 (the meta was made at the press).
     const stored = [...w.rows.values()][0];
     expect(stored.ownerKey).toBe(await keyOf("kid-1"));
@@ -1126,12 +1126,18 @@ describe("owner changes never leak a clip to the next player (plan 7.1, 8.1)", (
     w.win.dispatchEvent(show);
     await flush();
     expect(w.engine.paused.has("owner")).toBe(true);
-    expect(press(w, 100)).toEqual({ kind: "ignored", reason: "hidden" });
-    expect(await w.service.clipLast()).toMatchObject({ ok: false, reason: "hidden" });
-    expect(await w.service.startRecording()).toMatchObject({ ok: false, action: "record", reason: "hidden" });
-    expect(await w.service.takePicture()).toMatchObject({ ok: false, action: "picture", reason: "hidden" });
+    const before = w.service.getSnapshot();
+    expect(press(w, 100)).toEqual({ kind: "ignored", reason: "refused" });
+    expect(await w.service.clipLast()).toMatchObject({ ok: false, reason: "hidden", refused: true });
+    expect(await w.service.startRecording()).toMatchObject({ ok: false, action: "record", reason: "hidden", refused: true });
+    expect(await w.service.takePicture()).toMatchObject({ ok: false, action: "picture", reason: "hidden", refused: true });
     expect(w.engine.clipRequests).toHaveLength(0);
     expect(w.engine.recordings).toHaveLength(0);
+    // A refusal changes no snapshot field: no result, no chip, no error.
+    const after = w.service.getSnapshot();
+    expect(after.lastResult).toBe(before.lastResult);
+    expect(after.unwatchedClipId).toBe(before.unwatchedClipId);
+    expect(after.button).not.toBe("error");
   });
 
   it("after an offline bfcache restore it purges once, keeps capture paused, and retries until the owner is read", async () => {
