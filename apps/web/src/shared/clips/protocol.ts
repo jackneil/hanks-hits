@@ -366,6 +366,12 @@ export interface RecorderSegmentRef {
    */
   fromUs: number;
   toUs: number;
+  /**
+   * Record only: the capture rung weighted by time over [fromUs, toUs)
+   * (plan 7, rungTimeline.ts). A Record part's row fps is these rates
+   * weighted by each window's length. Absent: the recording's meta.fps.
+   */
+  fps?: number;
 }
 
 /** Segments to join into one file (a clip) or into Record parts. */

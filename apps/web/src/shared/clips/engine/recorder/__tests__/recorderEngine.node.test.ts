@@ -38,6 +38,8 @@ import { inspectClip } from "../../../library/verify";
 import type { ClipMeta, HudState, IoCmd, IoEvent, OutputPreset } from "../../../protocol";
 import type { CapabilityReport } from "../../../runtime/capabilities";
 import type { EngineEvent } from "../../../service/engine";
+import type { PowerSource } from "../../../service/engineShared";
+import type { PowerState } from "../../../runtime/governor";
 import { IoClient, type IoWorkerLike } from "../../../service/ioClient";
 import { createIoHandler } from "../../io/ioHandler";
 import {
@@ -175,6 +177,19 @@ interface Options {
   probe?: () => CapabilityReport;
   onTierChange?: (report: CapabilityReport) => Promise<boolean>;
   seed?: number;
+  /** A power source the test drives (Compute Pressure), so the governor changes the rung. */
+  power?: TestPower;
+}
+
+/** A power source whose pressure the test sets. */
+class TestPower implements PowerSource {
+  listener: ((state: PowerState) => void) | null = null;
+  subscribe(listener: (state: PowerState) => void): () => void {
+    this.listener = listener;
+    return () => {
+      this.listener = null;
+    };
+  }
 }
 
 const libraries: ClipLibrary[] = [];
@@ -330,7 +345,7 @@ function setup(options: Options = {}) {
       return made;
     },
     audio: new RecorderAudio({ bus, log: () => undefined }),
-    power: null,
+    power: options.power ?? null,
     canRecord: () => true,
     ...(options.onTierChange ? { onTierChange: options.onTierChange } : {}),
     now: clock.now,
@@ -716,6 +731,49 @@ describe.skipIf(SKIP)("RecorderEngine: Record", () => {
     h.check(decodeCodes(h.file("rec1"), "webm"), part.startUs, part.endUs);
     // It ends at the stop tap (13 s), within one frame.
     expect(Math.abs(part.endUs - 13 * S)).toBeLessThan(70_000);
+  });
+
+  // Wave C int3: the governor changes the paint rate mid-file on tiers M and
+  // V too. A clip row and a Record part row get the rung weighted over their
+  // span (rungTimeline.ts), never the rung at the press or RECORDER_FPS.
+  it("a clip across a rung step gets the rung weighted over the clip, not the rung at the press", async () => {
+    const power = new TestPower();
+    const h = setup({ power });
+    await h.start();
+    await h.toCapture(4 * S);
+    power.listener?.({ pressure: "serious" });
+    const stepUs = h.engine.mediaEndUs();
+    const low = (h.events.filter((e) => e.t === "governor").at(-1) as Extract<EngineEvent, { t: "governor" }>).level.fps;
+    const top = 30;
+    expect(low).toBeLessThan(top);
+    await h.toCapture(stepUs + 4 * S);
+    const made = await h.during(h.engine.clip({ seconds: 7, meta: h.meta("rung-clip") }));
+    expect(made.startUs).toBeLessThan(stepUs - S);
+    const expected = (top * (stepUs - made.startUs) + low * (made.endUs - stepUs)) / (made.endUs - made.startUs);
+    expect(Math.abs(made.record.fps - expected)).toBeLessThanOrEqual(0.5);
+  });
+
+  it("a Record across a rung step gets the weighted rung, and its footage from before the tap counts at its own rung", async () => {
+    const power = new TestPower();
+    const h = setup({ power });
+    await h.start();
+    await h.toCapture(4 * S);
+    power.listener?.({ pressure: "serious" });
+    const stepUs = h.engine.mediaEndUs();
+    const low = (h.events.filter((e) => e.t === "governor").at(-1) as Extract<EngineEvent, { t: "governor" }>).level.fps;
+    const top = 30;
+    await h.toCapture(stepUs + 50_000);
+    const handle = await h.during(h.engine.startRecording(h.meta("rung-rec", { kind: "record" })));
+    await h.toCapture(stepUs + 5 * S);
+    const result = await h.during(handle.stop(), 6000);
+    expect(result.failed).toBe(0);
+    expect(result.parts).toHaveLength(1);
+    const part = result.parts[0];
+    // It starts at the keyframe before the tap, before the step.
+    expect(part.startUs).toBeLessThan(stepUs);
+    const expected = (top * (stepUs - part.startUs) + low * (part.endUs - stepUs)) / (part.endUs - part.startUs);
+    expect(part.record.fps).toBeLessThan(top);
+    expect(Math.abs(part.record.fps - expected)).toBeLessThanOrEqual(0.6);
   });
 
   it("a stop tap in the middle of a rotation hand-off still keeps the footage up to the tap", async () => {

@@ -43,6 +43,7 @@
 import type { ClipMeta, ClipRecord, IoEvent, RecorderSegmentRef, SegmentContainer, SegmentIndex, SegmentJob } from "../../protocol";
 import type { DirectoryHandleLike, FileHandleLike, SyncAccessHandleLike } from "../../library/fsTypes";
 import { isClipId, isOwnerKey } from "../../library/ownerKey";
+import { rowFps } from "../../rungTimeline";
 import { audioConfigKey, orderRecordSegments, planRecordParts, type SoundSource } from "./concat";
 import {
   JOURNAL_DIR,
@@ -92,6 +93,8 @@ interface SegmentFrameHeader {
   toUs: number;
   /** The poster's byte count after the segment bytes, or 0. */
   posterBytes: number;
+  /** The segment's weighted capture rung (RecorderSegmentRef.fps), when it had one. */
+  fps?: number;
 }
 
 interface SoundFrameHeader {
@@ -147,6 +150,29 @@ function isSoundHeader(value: unknown): value is SoundFrameHeader {
     Array.isArray(h.packets) &&
     h.packets.every((p) => !!p && isFiniteNumber(p.capUs) && isFiniteNumber(p.durUs) && isFiniteNumber(p.n) && typeof p.key === "boolean")
   );
+}
+
+/** A usable weighted rung: a finite rate above 0. */
+function isRung(value: unknown): value is number {
+  return isFiniteNumber(value) && value > 0;
+}
+
+/**
+ * A Record part's row fps (plan 7): the capture rung weighted by time over
+ * the part, the same rule as the Record tee of tiers W and W+ (recorder.ts).
+ * Each segment carries the rung weighted over its window; a segment without
+ * one counts at `fallback` (the recording's meta.fps).
+ */
+export function partFps(segments: readonly RecorderSegmentRef[], fallback: number): number {
+  let frames = 0;
+  let span = 0;
+  for (const segment of segments) {
+    const length = segment.toUs - segment.fromUs;
+    if (!(length > 0)) continue;
+    frames += (isRung(segment.fps) ? segment.fps : fallback) * length;
+    span += length;
+  }
+  return (span > 0 ? rowFps(frames / span) : 0) || fallback;
 }
 
 /** A segment's window is usable: finite, not empty. */
@@ -205,6 +231,7 @@ export function readSegmentJournal(
           startUs: h.startUs,
           fromUs: h.fromUs,
           toUs: h.toUs,
+          ...(isRung(h.fps) ? { fps: h.fps } : {}),
         },
         poster: h.posterBytes > 0 ? blobOf(frame.body.subarray(segmentBytes), JPEG) : null,
       });
@@ -317,6 +344,7 @@ export class SegmentJournal {
         fromUs: segment.fromUs,
         toUs: segment.toUs,
         posterBytes: posterBytes?.length ?? 0,
+        ...(isRung(segment.fps) ? { fps: segment.fps } : {}),
       };
       await this.write(encodeFrame(header, posterBytes ? [body, posterBytes] : [body]));
     });
@@ -553,6 +581,8 @@ export class SegmentRecording {
         // Later parts sort after earlier ones: each part is dated at its start in the recording.
         createdAt: this.meta.createdAt + offsetMs,
         kind: "record",
+        // The rung that capture used over this part, weighted by time (plan 7).
+        fps: partFps(part, this.meta.fps),
       };
       const poster = partEntries.find((e) => e.poster)?.poster ?? (i === 0 ? this.tapPoster : null);
       const job: SegmentJob = { container: this.container, segments: part, ...(poster ? { poster } : {}) };

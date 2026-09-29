@@ -59,6 +59,7 @@ import { PRESETS, type ClipMeta, type ClipRecord, type HudState, type OutputPres
 import { bitrateFor, probeCapabilityReport, SOFTWARE_PRESETS, type CapabilityReport, type ContentKind } from "../../runtime/capabilities";
 import { Governor, type GovernorLevel, type PowerState } from "../../runtime/governor";
 import { installCanvasActivity, type ActivityRealm, type CanvasActivity } from "../../sources/canvasActivity";
+import { RUNG_HISTORY_US, RungTimeline, rowFps } from "../../rungTimeline";
 import { MIN_CLIP_SECONDS } from "../../service/contract";
 import {
   EngineFailure,
@@ -223,6 +224,14 @@ interface Session {
   sound: SoundRecorder;
   governor: Governor;
   pacer: Pacer;
+  /**
+   * The capture rung over capture time (plan 7). A clip's row fps and each
+   * Record segment's fps is the rung weighted over its span, never the rung
+   * of one moment or the recorder's constant rate (rungTimeline.ts).
+   */
+  rungs: RungTimeline;
+  /** The rung of the newest note (the rung that capture uses now). */
+  rungFps: number;
   /** Content scale inside the coded frame (a governor step). */
   scale: number;
   /** The clock runs (no pause reason, not parked). */
@@ -263,6 +272,11 @@ const CONTAINER_MIMES: Readonly<Record<SegmentContainer, "video/mp4" | "video/we
 
 function ringSecondsFor(memoryClass: string): number {
   return memoryClass === "low" ? 30 : 60;
+}
+
+/** The capture rate of a governor level: its paint rate (at most the recorders' rate), or 0 while it rests. */
+function rungOf(level: GovernorLevel): number {
+  return level.k > 0 ? Math.min(RECORDER_FPS, level.fps) : 0;
 }
 
 function realmOf(node: Element): ActivityRealm | null {
@@ -495,7 +509,8 @@ export class RecorderEngine implements CaptureEngine {
       durationMs: Math.round(coveredSec * 1000),
       width: s.preset.width,
       height: s.preset.height,
-      fps: s.governor.level.fps ? Math.min(RECORDER_FPS, s.governor.level.fps) : RECORDER_FPS,
+      // The rung that capture used over the clip, weighted by time (plan 7).
+      fps: rowFps(s.rungs.weighted(plan.startUs, plan.endUs)) || s.rungs.lastNonZero() || RECORDER_FPS,
       // The io worker sets it from the joined file.
       hasAudio: false,
       mime: CONTAINER_MIMES[s.container],
@@ -552,7 +567,10 @@ export class RecorderEngine implements CaptureEngine {
           kind: "record",
           width: s.preset.width,
           height: s.preset.height,
-          fps: RECORDER_FPS,
+          // Each segment carries its own weighted rung (feedRecording); this is
+          // the fallback for a segment without one. While capture rests at
+          // the tap: the last rung that capture used.
+          fps: rowFps(s.rungs.at(startUs)) || s.rungs.lastNonZero() || RECORDER_FPS,
           mime: CONTAINER_MIMES[s.container],
         },
         { container: s.container, timeline: s.gen, startUs, poster },
@@ -967,6 +985,8 @@ export class RecorderEngine implements CaptureEngine {
       }),
       governor,
       pacer: new Pacer(report.caps.displayHz),
+      rungs: new RungTimeline(rungOf(governor.level)),
+      rungFps: rungOf(governor.level),
       scale: 1,
       live: false,
       hasContent: false,
@@ -1137,9 +1157,23 @@ export class RecorderEngine implements CaptureEngine {
     const resting = level.kind === "resting";
     if (resting && s.recording) level = s.governor.ladder[s.governor.ladder.length - 2];
     if (level.k > 0) s.pacer.setStride(level.k);
+    this.noteRung(s, rungOf(level));
     s.scale = level.scale;
     s.ring.setRingSeconds(level.keepSeconds ?? s.ringSeconds);
     this.setPaused("rest", resting && !s.recording);
+  }
+
+  /**
+   * The capture rung changed (plan 7): note it at the capture time of now.
+   * While capture rests with no Record, the clock stands still, so the 0
+   * rung covers no capture time.
+   */
+  private noteRung(s: Session, fps: number): void {
+    if (fps === s.rungFps) return;
+    const atUs = s.clock.nowUs(this.now());
+    s.rungFps = fps;
+    s.rungs.note(atUs, fps);
+    s.rungs.forgetBefore(atUs - RUNG_HISTORY_US);
   }
 
   private tick(s: Session): void {
@@ -1373,9 +1407,13 @@ export class RecorderEngine implements CaptureEngine {
       }
       const toUs = Math.min(segment.endUs, stopUs);
       if (!(toUs > fromUs)) return;
+      // The rung that capture used over this window, weighted by time (plan 7).
+      // The io worker weights a part's segments the same way. It includes the
+      // footage from the keyframe before the tap, at the rung that covered it.
+      const fps = rowFps(s.rungs.weighted(fromUs, toUs));
       // A tile picture for a part that could start with this segment (a device with no video decoder).
       const poster = await s.compositor.posterJpeg();
-      rec.io.add({ blob: segment.blob, startUs: segment.startUs, fromUs, toUs }, poster);
+      rec.io.add({ blob: segment.blob, startUs: segment.startUs, fromUs, toUs, ...(fps > 0 ? { fps } : {}) }, poster);
     });
   }
 

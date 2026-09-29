@@ -28,7 +28,7 @@ import { indexSegment } from "../concat";
 import { createIoHandler } from "../ioHandler";
 import { PLACEHOLDER_POSTER } from "../poster";
 import { JOURNAL_DIR, RECORD_LOCK_PREFIX, encodeFrame, holdRecordingLock } from "../recordJournal";
-import { SEGMENT_JOURNAL_SUFFIX, readSegmentJournal } from "../segmentRecording";
+import { SEGMENT_JOURNAL_SUFFIX, partFps, readSegmentJournal } from "../segmentRecording";
 import {
   CODE_PERIOD,
   FFMPEG_SKIP_REASON,
@@ -320,6 +320,23 @@ describe.skipIf(SKIP)("segment Record", () => {
     expect(h.mock.exists(`${JOURNAL_DIR}/recA${SEGMENT_JOURNAL_SUFFIX}`)).toBe(false);
     await settleLocks();
     expect(locks.holderOf(`${RECORD_LOCK_PREFIX}recA`)).toBeNull();
+  });
+
+  it("gives a part the segments' rungs weighted by window, and keeps each rung in the journal for recovery", async () => {
+    const h = harness({ locks: new FakeLockManager() });
+    h.soundRun("webm", 1, 211);
+    await h.handler.handle({ ...open("recF", { poster: JPEG(1) }), rid: 1 });
+    const rates = [30, 20, 15];
+    const segments = windows(made.webm, 2 * S, 11 * S).map((segment, i) => ({ ...segment, fps: rates[i] }));
+    for (const segment of segments) await h.handler.handle({ t: "segmentRecordAdd", recordingId: "recF", segment, poster: JPEG(2) });
+    const journal = readSegmentJournal(h.mock.readFile(`${JOURNAL_DIR}/recF${SEGMENT_JOURNAL_SUFFIX}`)!)!;
+    expect(journal.segments.map((s) => s.segment.fps)).toEqual(rates);
+    await h.handler.handle({ t: "segmentRecordEnd", recordingId: "recF" });
+    const recorded = h.events.find((e) => e.t === "recorded") as Extract<IoEvent, { t: "recorded" }>;
+    const span = segments.reduce((sum, s) => sum + (s.toUs - s.fromUs), 0);
+    const expected = segments.reduce((sum, s) => sum + s.fps * (s.toUs - s.fromUs), 0) / span;
+    expect(recorded.parts[0].record.fps).toBeCloseTo(expected, 1);
+    expect(partFps([{ ...segments[0], fps: undefined }], 24)).toBe(24);
   });
 
   it("segments that come out of order with windows that overlap (a pause in a hand-off) make one whole part", async () => {
