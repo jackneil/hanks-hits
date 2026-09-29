@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useRetroArcadeStore } from "./lib/store";
+import { useRetroArcadeStore, type RomSource } from "./lib/store";
 import {
   SYSTEMS,
   SYSTEM_IDS,
@@ -69,7 +69,7 @@ function RomUploader({
   onRomLoaded,
 }: {
   system: SystemInfo;
-  onRomLoaded: (url: string, name: string) => void;
+  onRomLoaded: (rom: Blob, name: string) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,19 +87,17 @@ function RomUploader({
         return;
       }
 
-      // Create blob URL for the ROM
-      const blobUrl = URL.createObjectURL(file);
-
-      // Add to custom ROMs list
+      // Keep the file itself. EmulatorView makes a new object URL for each
+      // start (see RomSource in lib/store.ts).
       store.addCustomRom({
         id: `${system.id}-${file.name}-${Date.now()}`,
         name: file.name,
         system: system.id,
         addedAt: Date.now(),
-        blobUrl,
+        file,
       });
 
-      onRomLoaded(blobUrl, file.name);
+      onRomLoaded(file, file.name);
     },
     [system, onRomLoaded, store]
   );
@@ -181,16 +179,16 @@ function RomUploader({
               <button
                 key={rom.id}
                 onClick={() => {
-                  if (rom.blobUrl) {
-                    onRomLoaded(rom.blobUrl, rom.name);
+                  if (rom.file) {
+                    onRomLoaded(rom.file, rom.name);
                   }
                 }}
-                disabled={!rom.blobUrl}
+                disabled={!rom.file}
                 className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-lg text-left text-white flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="truncate">{rom.name}</span>
                 <span className="text-white/40 text-sm">
-                  {rom.blobUrl ? "Play" : "Expired"}
+                  {rom.file ? "Play" : "Expired"}
                 </span>
               </button>
             ))}
@@ -216,7 +214,7 @@ const OWNER_TIMEOUT_MS = 5000;
 
 // Emulator view with iframe
 function EmulatorView({
-  romUrl,
+  rom,
   romName,
   system,
   gameId,
@@ -227,7 +225,7 @@ function EmulatorView({
   skipAutoLoad = false,
   store = saveStateStore,
 }: {
-  romUrl: string;
+  rom: RomSource;
   romName: string;
   system: SystemType;
   gameId: string;
@@ -436,7 +434,21 @@ function EmulatorView({
   // (the name of the parameter is historical). The emulator page sets the
   // EmulatorJS core and control layout of the console (SYSTEMS[system].ejsCore
   // and ejsControlScheme; emulator-page.test.ts keeps the two the same).
-  const emulatorUrl = `/emulator/index.html?core=${encodeURIComponent(system)}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(romName)}`;
+  // Start the emulator page with the ROM of this start. A catalog ROM is a
+  // URL on this site. For an uploaded file, each start (each mount; Start
+  // over remounts this view) gets a new object URL, and the URL is revoked
+  // when that start ends. EmulatorJS revokes the URL after it reads the ROM,
+  // so no start may use the URL of an earlier start (RomSource, lib/store.ts).
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const objectUrl = typeof rom === "string" ? null : URL.createObjectURL(rom);
+    const romUrl = objectUrl ?? (rom as string);
+    iframe.src = `/emulator/index.html?core=${encodeURIComponent(system)}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(romName)}`;
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [rom, romName, system]);
 
   return (
     <div
@@ -481,9 +493,9 @@ function EmulatorView({
           </div>
         )}
 
+        {/* The effect above sets src, with the ROM URL of this start. */}
         <iframe
           ref={iframeRef}
-          src={emulatorUrl}
           title={`${romName} on the ${SYSTEMS[system].name}`}
           className="h-full w-full border-0"
           allow="autoplay; fullscreen; gamepad"
@@ -531,9 +543,9 @@ export function RetroArcadeGame() {
     store.setCurrentSystem(system);
   };
 
-  const handleRomLoaded = (url: string, name: string) => {
+  const handleRomLoaded = (rom: Blob, name: string) => {
     if (store.currentSystem) {
-      store.startGame(url, name, store.currentSystem);
+      store.startGame(rom, name, store.currentSystem);
     }
   };
 
@@ -570,13 +582,13 @@ export function RetroArcadeGame() {
   );
 
   // If playing, show emulator
-  if (store.isPlaying && store.currentRomUrl && store.currentSystem) {
+  if (store.isPlaying && store.currentRom && store.currentSystem) {
     // Generate a consistent gameId for save states
     const gameId = `${store.currentSystem}-${store.currentRomName || "unknown"}`;
     return (
       <EmulatorView
         key={store.restartNonce}
-        romUrl={store.currentRomUrl}
+        rom={store.currentRom}
         romName={store.currentRomName || "Game"}
         system={store.currentSystem}
         gameId={gameId}

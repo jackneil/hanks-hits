@@ -402,6 +402,21 @@ server money.
   The server schema drops it from a save before validation, so old clients
   can still save.
 
+### Uploaded ROMs
+
+- The page keeps an uploaded ROM as a file (`RomSource` in `lib/store.ts`).
+  It never keeps a `blob:` URL of the ROM.
+- Each start of the emulator gets a new object URL for the file.
+  `EmulatorView` makes the URL when it mounts and revokes it when it
+  unmounts. Start over mounts a new `EmulatorView`.
+- The reason: EmulatorJS 4.2.3 revokes a `blob:` game URL after it reads the
+  ROM. The emulator page is on this site, so that revoke kills the URL for
+  the site. A second start with the same URL stays on "Loading emulator..."
+  forever.
+- The file stays in memory for this visit only. "Your ROMs" plays it again
+  after Back to Games. After a page reload, the kid uploads the ROM again.
+  The name and the console go to the progress; the file never does.
+
 ---
 
 ## Legal ROM Sources

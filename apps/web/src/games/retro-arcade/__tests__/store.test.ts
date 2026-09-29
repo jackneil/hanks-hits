@@ -14,7 +14,7 @@ describe("Retro Arcade store favorites", () => {
     });
     useRetroArcadeStore.setState({
       currentSystem: null,
-      currentRomUrl: null,
+      currentRom: null,
       currentRomName: null,
       isPlaying: false,
       isLoading: false,
@@ -55,7 +55,7 @@ describe("Retro Arcade store favorites", () => {
   it("relaunches the selected ROM without changing saved progress", () => {
     useRetroArcadeStore.setState({
       currentSystem: "snes",
-      currentRomUrl: "/roms/game.sfc",
+      currentRom: "/roms/game.sfc",
       currentRomName: "Game",
       isPlaying: true,
       restartNonce: 0,
@@ -70,30 +70,44 @@ describe("Retro Arcade store favorites", () => {
     expect(state.favorites).toEqual(["snes-alpha"]);
   });
 
-  it("clears revoked upload blob URLs when stopping a custom ROM", () => {
-    useRetroArcadeStore.setState({
-      currentSystem: "nes",
-      currentRomUrl: "blob:rom-1",
-      currentRomName: "hank.nes",
-      isPlaying: true,
-      customRoms: [
-        {
-          id: "rom-1",
-          name: "hank.nes",
-          system: "nes",
-          addedAt: 1,
-          blobUrl: "blob:rom-1",
-        },
-      ],
-    });
+  it("keeps an uploaded file (never a URL) so the kid can play it again after the game stops", () => {
+    const file = new Blob([new Uint8Array([1, 2, 3])]);
+    const store = useRetroArcadeStore.getState();
+    store.addCustomRom({ id: "rom-1", name: "hank.nes", system: "nes", addedAt: 1, file });
+    store.startGame(file, "hank.nes", "nes");
+    expect(useRetroArcadeStore.getState().currentRom).toBe(file);
 
     useRetroArcadeStore.getState().stopGame();
 
     const state = useRetroArcadeStore.getState();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:rom-1");
     expect(state.isPlaying).toBe(false);
-    expect(state.currentRomUrl).toBeNull();
-    expect(state.customRoms[0].blobUrl).toBeUndefined();
+    expect(state.currentRom).toBeNull();
+    expect(state.customRoms[0].file).toBe(file);
+    // The store makes no object URL, so it has none to revoke.
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("never persists or syncs the uploaded file", () => {
+    const file = new Blob([new Uint8Array([1, 2, 3])]);
+    useRetroArcadeStore.getState().addCustomRom({ id: "rom-1", name: "hank.nes", system: "nes", addedAt: 1, file });
+    expect(useRetroArcadeStore.getState().getProgress().customRoms).toEqual([
+      { id: "rom-1", name: "hank.nes", system: "nes", addedAt: 1 },
+    ]);
+    const persisted = JSON.parse(localStorage.getItem("retro-arcade-progress") ?? "{}");
+    expect(persisted.state.customRoms).toEqual([{ id: "rom-1", name: "hank.nes", system: "nes", addedAt: 1 }]);
+  });
+
+  it("keeps one entry for each ROM name on a console when the kid uploads it again", () => {
+    const store = useRetroArcadeStore.getState();
+    const first = new Blob([new Uint8Array([1])]);
+    const again = new Blob([new Uint8Array([1])]);
+    store.addCustomRom({ id: "nes-hank.nes-1", name: "hank.nes", system: "nes", addedAt: 1, file: first });
+    store.addCustomRom({ id: "gb-hank.nes-2", name: "hank.nes", system: "gb", addedAt: 2 });
+    store.addCustomRom({ id: "nes-hank.nes-3", name: "hank.nes", system: "nes", addedAt: 3, file: again });
+
+    const roms = useRetroArcadeStore.getState().customRoms;
+    expect(roms.map((rom) => rom.id)).toEqual(["nes-hank.nes-3", "gb-hank.nes-2"]);
+    expect(roms[0].file).toBe(again);
   });
 });
 
