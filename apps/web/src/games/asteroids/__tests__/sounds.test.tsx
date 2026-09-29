@@ -8,7 +8,15 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { installAudioMock, pathExists, removeAudioMock, type AudioMock, type FakeAudioNode, type FakeOscillatorNode } from "@/__tests__/audio-mock";
+import {
+  installAudioMock,
+  isConnected,
+  pathExists,
+  removeAudioMock,
+  type AudioMock,
+  type FakeAudioNode,
+  type FakeOscillatorNode,
+} from "@/__tests__/audio-mock";
 import { getGameAudio, getGameAudioTapPoint, isGameSpeakerEnabled } from "@/shared/lib/audio";
 
 import { AsteroidsGame } from "../Game";
@@ -42,18 +50,36 @@ function lastOscillator(): FakeOscillatorNode {
 describe("Asteroids sounds on the game-audio bus", () => {
   const SOUNDS: AsteroidsSound[] = ["shoot", "thrust", "explode", "hyperspace", "death", "wave"];
 
-  it.each(SOUNDS)("%s reaches the clip tap point and the speakers", (sound) => {
+  it.each(SOUNDS)("%s reaches the clip tap point and the speakers, only through the game's channel", (sound) => {
     // A channel exists only after a tap made the bus.
     expect(getGameAudio()).not.toBeNull();
+    const ctx = mock.lastContext();
+    const oscillatorsBefore = ctx.createOscillator.mock.results.length;
+    const gainsBefore = ctx.createGain.mock.results.length;
     playSound(sound);
     const oscillator = lastOscillator();
     expect(oscillator.started).toBe(true);
     const tap = getGameAudioTapPoint() as unknown as FakeAudioNode;
     expect(tap).not.toBeNull();
     expect(pathExists(oscillator, tap)).toBe(true);
-    expect(pathExists(oscillator, mock.lastContext().destination)).toBe(true);
-    // Never straight to the speakers: that path would skip the tap and the sound switch.
-    expect(oscillator.context).toBe(mock.lastContext());
+    expect(pathExists(oscillator, ctx.destination)).toBe(true);
+
+    // Never straight to the speakers: that edge would skip the tap and the
+    // sound switch. Check the edges themselves: the oscillator feeds only
+    // its own gain, and that gain feeds only the channel input.
+    const soundGain = ctx.createGain.mock.results.at(-1)!.value as FakeAudioNode;
+    expect([...oscillator.outputs]).toEqual([soundGain]);
+    expect(soundGain.outputs.size).toBe(1);
+    const [channelInput] = [...soundGain.outputs] as FakeAudioNode[];
+    expect(channelInput).not.toBe(ctx.destination);
+    expect(pathExists(channelInput, tap)).toBe(true);
+    // No node this sound made has an edge to the speakers.
+    const made = [
+      ...ctx.createOscillator.mock.results.slice(oscillatorsBefore),
+      ...ctx.createGain.mock.results.slice(gainsBefore),
+    ].map((result) => result.value as FakeAudioNode);
+    expect(made.length).toBeGreaterThanOrEqual(2);
+    for (const node of made) expect(isConnected(node, ctx.destination)).toBe(false);
   });
 
   it("uses one channel for every sound, and a new one after the game lets go", () => {
