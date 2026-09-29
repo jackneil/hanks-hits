@@ -112,17 +112,26 @@ html, body {
 }
 
 /* Scroll cue: a soft shadow at the top or bottom edge of a scroll box
-   shows that there is more to see past that edge. Two covers in the box
-   color scroll with the content (local), so each shadow hides when the
-   box is at that end. Used by the start card body (GameStartOverlay). */
+   shows that there is more to see past that edge. useScrollCue
+   (shared/hooks/useScrollCue.ts) measures the box and sets
+   data-more-above and data-more-below, so a shadow shows only on an edge
+   that has more past it. (The old pure-CSS cue hid each shadow under a
+   cover that scrolled with the content. The cover stopped one device
+   pixel short, so a box that did not scroll at all showed a gray line.)
+   Used by the start card body (GameStartOverlay). */
 @layer components {
   .scroll-cue {
+    --scroll-cue-above: transparent;
+    --scroll-cue-below: transparent;
     background:
-      linear-gradient(var(--color-base-100) 30%, transparent) top / 100% 2.5rem no-repeat local,
-      linear-gradient(transparent, var(--color-base-100) 70%) bottom / 100% 2.5rem no-repeat local,
-      radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 0.22), transparent) top / 100% 0.75rem no-repeat scroll,
-      radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 0.22), transparent) bottom / 100% 0.75rem no-repeat scroll;
-    background-color: var(--color-base-100);
+      radial-gradient(farthest-side at 50% 0, var(--scroll-cue-above), transparent) top / 100% 0.75rem no-repeat,
+      radial-gradient(farthest-side at 50% 100%, var(--scroll-cue-below), transparent) bottom / 100% 0.75rem no-repeat;
+  }
+  .scroll-cue[data-more-above] {
+    --scroll-cue-above: rgb(0 0 0 / 0.22);
+  }
+  .scroll-cue[data-more-below] {
+    --scroll-cue-below: rgb(0 0 0 / 0.22);
   }
 }
 

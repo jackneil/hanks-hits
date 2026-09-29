@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { useScrollCue } from "../hooks/useScrollCue";
 import { useStartOverlayPresence } from "../lib/startOverlayPresence";
 import { ReadAloudButton } from "./ReadAloudButton";
 import { useRegisterBreakSlot } from "../lib/gameBreaks";
@@ -247,6 +248,10 @@ export function GameStartOverlay({
     };
   }, [breakRoom, isClient]);
 
+  // The body's shadow at an edge shows only while there is more past that
+  // edge (measured, so a body that fits draws no line).
+  useScrollCue(bodyRef, bodyContentRef, isClient);
+
   const hints = isCoarse ? touchHints : keyboardHints;
   // Also tell the kid HOW to start: some games hide the Play button and
   // start from a picker choice instead, and a non-reader cannot tell.
@@ -284,9 +289,10 @@ export function GameStartOverlay({
             className="flex max-h-full min-h-0 w-full flex-col overflow-y-auto rounded-3xl bg-base-100 text-center text-base-content shadow-2xl short:min-w-0 short:max-w-2xl short:flex-1 short:flex-row"
           >
             {/* Body: scrolls when the screen is short. The scroll-cue
-                shadow shows that more is below. On a short screen (a phone
-                held sideways) the body and the action row sit side by
-                side, so the words keep their room. */}
+                shadow shows at an edge only while more is past that edge
+                (useScrollCue). On a short screen (a phone held sideways)
+                the body and the action row sit side by side, so the words
+                keep their room. */}
             <div
               ref={bodyRef}
               data-testid="start-card-body"

@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   installSpeechMock,
@@ -234,6 +234,48 @@ describe("GameStartOverlay layout: the start action is always on screen", () => 
     // "safe" centering: a row taller than the card starts at the top, where
     // the card's own scroll can reach it.
     expect(actions.className).toMatch(/(^|\s)short:\[align-self:safe_center\](\s|$)/);
+  });
+
+  describe("the body's scroll cue", () => {
+    // Regression (verify finding R8): the cue was pure CSS and drew a gray
+    // "more below" line under the hints on a 375x667 iPhone, on cards whose
+    // body did not scroll at all. It is measured now (useScrollCue).
+    let bodyScrollHeight = 300;
+    beforeEach(() => {
+      bodyScrollHeight = 300;
+      Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.dataset.testid === "start-card-body" ? bodyScrollHeight : 0;
+        },
+      });
+      Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.dataset.testid === "start-card-body" ? 300 : 0;
+        },
+      });
+    });
+    afterEach(() => {
+      delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    });
+
+    it("shows no cue on a body that fits", () => {
+      render(<GameStartOverlay title="2048" touchHints={["Swipe to move"]} onStart={() => {}} />);
+      const body = screen.getByTestId("start-card-body");
+      expect(body).toHaveClass("scroll-cue");
+      expect(body).not.toHaveAttribute("data-more-below");
+      expect(body).not.toHaveAttribute("data-more-above");
+    });
+
+    it("shows the more-below cue on a body that scrolls", () => {
+      bodyScrollHeight = 520;
+      render(<GameStartOverlay title="Oregon Trail" touchHints={["Tap to pick"]} onStart={() => {}} />);
+      const body = screen.getByTestId("start-card-body");
+      expect(body).toHaveAttribute("data-more-below");
+      expect(body).not.toHaveAttribute("data-more-above");
+    });
   });
 
   it("pins every choice in the action row when the picker starts the game", () => {
