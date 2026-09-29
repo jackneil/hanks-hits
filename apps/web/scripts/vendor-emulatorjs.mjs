@@ -27,14 +27,19 @@
  *      in src/games/retro-arcade/lib/constants.ts every core that EmulatorJS
  *      can pick for it (its getCores() table), in the WebGL 2 and the legacy
  *      (WebGL 1) builds, with the core report.
- *   4. Replaces public/emulator/ejs/<version>/ with these files and writes
- *      the manifest.
+ *   4. Replaces the release files in public/emulator/ejs/<version>/ with
+ *      these files and writes the manifest. It keeps NOTICE.txt, licenses/,
+ *      source/ and their manifest entries ("notice", "components", "sources",
+ *      "licenses", and "revision", "revisionEvidence", "licenseText" and
+ *      "sources" of each core). scripts/emulatorjs-sources.mjs owns them.
  *
- * After a run: change EJS_pathtodata and the loader URL in
+ * After a run: change EJS_pathtodata, the loader URL and the license link in
  * public/emulator/index.html and PINNED_EMULATORJS_VERSION in the tests, then
- * play a game on each console. The test
+ * play a game on each console. For a new version, also do the license and
+ * source steps in the header of scripts/emulatorjs-sources.mjs. The test
  * src/games/retro-arcade/__tests__/emulator-selfhost.test.ts re-hashes the
- * files against the manifest.
+ * files against the manifest and fails while a core has no license text or
+ * no source archive.
  */
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -78,6 +83,11 @@ const CORE_LICENSES = {
   snes9x: "Snes9x license (non-commercial use only)",
   stella2014: "GPL-2.0 (Stella; the core archive has no license file)",
 };
+
+// Manifest entries that scripts/emulatorjs-sources.mjs and NOTICE.txt own. A
+// run for the same version keeps them.
+const COMPLIANCE_KEYS = ["components", "sources", "licenses"];
+const CORE_COMPLIANCE_KEYS = ["revision", "revisionEvidence", "licenseText", "sources"];
 
 // The loader, the bundle and the helpers that EmulatorJS 4.x loads.
 const RUNTIME_FILES = [
@@ -204,7 +214,18 @@ async function main() {
     const sortedCores = Object.fromEntries(Object.keys(cores).sort().map((core) => [core, cores[core]]));
 
     const out = join(WEB_ROOT, "public", "emulator", "ejs", version);
-    rmSync(out, { recursive: true, force: true });
+    // Remove only the release files of an earlier run. NOTICE.txt, licenses/
+    // and source/ stay: they are the license texts and the Corresponding
+    // Source that the site must serve with these files.
+    const previousPath = join(out, "manifest.json");
+    const previous = existsSync(previousPath) ? JSON.parse(readFileSync(previousPath, "utf8")) : undefined;
+    for (const file of previous?.files ?? []) rmSync(join(out, file.path), { force: true });
+    for (const core of Object.keys(sortedCores)) {
+      for (const key of CORE_COMPLIANCE_KEYS) {
+        const value = previous?.cores?.[core]?.[key];
+        if (value !== undefined) sortedCores[core][key] = value;
+      }
+    }
     const entries = [];
     const assetUrl = asset.browser_download_url;
     const copy = (from, rel, member) => {
@@ -241,9 +262,15 @@ async function main() {
         "The -thread- core builds are not here. EmulatorJS uses them only when SharedArrayBuffer exists, and this site is not cross-origin isolated.",
         "localization/retroarch.json is not here. The loader does not request it.",
         "Each core file (.data) is a 7z archive. It holds the core, core.json and, for most cores, license.txt.",
-        "To change the version, run apps/web/scripts/vendor-emulatorjs.mjs with the new version. Then change the paths in public/emulator/index.html and the version in the tests.",
+        "To change the version, run apps/web/scripts/vendor-emulatorjs.mjs with the new version and do the license and source steps in apps/web/scripts/emulatorjs-sources.mjs. Then change the paths in public/emulator/index.html and the version in the tests.",
+        "NOTICE.txt lists each part of this folder, its license, and where its license text and its source code are.",
+        "source/ holds the Corresponding Source (GPL-3.0 section 6(d), GPL-2.0 section 3, MPL-2.0 section 3.2): the EmulatorJS tag, the RetroArch fork, each core and the picodrive submodules at the commit that the binaries name, the core build scripts and libunrar-js. licenses/ holds each license text. scripts/emulatorjs-sources.mjs gets and checks them.",
+        "Git does not hold source/. The Docker build (stage emulator-sources) downloads each entry in \"sources\", checks its size and SHA-256, and stops when one is not correct. For a local copy, run pnpm --filter web emulator:sources. See public/emulator/ejs/README.md.",
+        "Genesis Plus GX, PicoDrive and Snes9x allow only non-commercial use. The site is free, with no ads and no payments. If that changes, remove these three cores first.",
       ],
+      ...(previous?.notice ? { notice: previous.notice } : {}),
       cores: sortedCores,
+      ...Object.fromEntries(COMPLIANCE_KEYS.filter((key) => previous?.[key] !== undefined).map((key) => [key, previous[key]])),
       files: entries,
     };
     writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -253,6 +280,13 @@ async function main() {
     console.log(`Wrote ${entries.length} files (${total} bytes) and manifest.json to ${out}`);
     console.log(`Largest file: ${largest.path} (${largest.bytes} bytes)`);
     console.log(`Cores: ${Object.keys(sortedCores).join(", ")}`);
+    const noCompliance = Object.keys(sortedCores).filter((core) => !sortedCores[core].licenseText || !sortedCores[core].revision);
+    if (noCompliance.length > 0) {
+      console.log(
+        `No license text or source commit yet for: ${noCompliance.join(", ")}. ` +
+          "Do the steps in scripts/emulatorjs-sources.mjs before you ship this version."
+      );
+    }
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

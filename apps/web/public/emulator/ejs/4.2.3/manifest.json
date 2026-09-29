@@ -18,80 +18,780 @@
     "The -thread- core builds are not here. EmulatorJS uses them only when SharedArrayBuffer exists, and this site is not cross-origin isolated.",
     "localization/retroarch.json is not here. The loader does not request it.",
     "Each core file (.data) is a 7z archive. It holds the core, core.json and, for most cores, license.txt.",
-    "To change the version, run apps/web/scripts/vendor-emulatorjs.mjs with the new version. Then change the paths in public/emulator/index.html and the version in the tests."
+    "To change the version, run apps/web/scripts/vendor-emulatorjs.mjs with the new version and do the license and source steps in apps/web/scripts/emulatorjs-sources.mjs. Then change the paths in public/emulator/index.html and the version in the tests.",
+    "NOTICE.txt lists each part of this folder, its license, and where its license text and its source code are.",
+    "source/ holds the Corresponding Source (GPL-3.0 section 6(d), GPL-2.0 section 3, MPL-2.0 section 3.2): the EmulatorJS tag, the RetroArch fork, each core and the picodrive submodules at the commit that the binaries name, the core build scripts and libunrar-js. licenses/ holds each license text. scripts/emulatorjs-sources.mjs gets and checks them.",
+    "Git does not hold source/. The Docker build (stage emulator-sources) downloads each entry in \"sources\", checks its size and SHA-256, and stops when one is not correct. For a local copy, run pnpm --filter web emulator:sources. See public/emulator/ejs/README.md.",
+    "Genesis Plus GX, PicoDrive and Snes9x allow only non-commercial use. The site is free, with no ads and no payments. If that changes, remove these three cores first."
   ],
+  "notice": {
+    "path": "NOTICE.txt",
+    "bytes": 16527,
+    "sha256": "22581b2c1e8afd560f96625c965c9c4733b7d6dc808aa2d03155408c346dc1f1"
+  },
   "cores": {
     "fceumm": {
       "systems": [
         "nes"
       ],
       "license": "GPL-2.0",
-      "source": "https://github.com/EmulatorJS/libretro-fceumm"
+      "source": "https://github.com/EmulatorJS/libretro-fceumm",
+      "revision": "d9d7e141274d07186b6a871ca2919b6f13cfb2f9",
+      "revisionEvidence": "Both core builds contain the string \"(SVN) d9d7e14\". Makefile.libretro puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves d9d7e14 to this commit.",
+      "licenseText": "licenses/cores/fceumm.txt",
+      "sources": [
+        "fceumm",
+        "retroarch",
+        "build"
+      ]
     },
     "gambatte": {
       "systems": [
         "gb"
       ],
       "license": "GPL-2.0",
-      "source": "https://github.com/EmulatorJS/gambatte-libretro"
+      "source": "https://github.com/EmulatorJS/gambatte-libretro",
+      "revision": "4ac2b30d196a842061d6b333ea5e523a7c1a7cce",
+      "revisionEvidence": "Both core builds contain the string \"v0.5.0 4ac2b30\". Makefile.libretro puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 4ac2b30 to this commit.",
+      "licenseText": "licenses/cores/gambatte.txt",
+      "sources": [
+        "gambatte",
+        "retroarch",
+        "build"
+      ]
     },
     "genesis_plus_gx": {
       "systems": [
         "segaMD"
       ],
       "license": "Genesis Plus GX license (non-commercial use only)",
-      "source": "https://github.com/EmulatorJS/Genesis-Plus-GX"
+      "source": "https://github.com/EmulatorJS/Genesis-Plus-GX",
+      "revision": "594cdf3a666546f65f46391c3615ac5e9550bfc1",
+      "revisionEvidence": "Both core builds contain the string \"v1.7.4 594cdf3\". Makefile.libretro puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 594cdf3 to this commit.",
+      "licenseText": "licenses/cores/genesis_plus_gx.txt",
+      "sources": [
+        "genesis_plus_gx",
+        "retroarch",
+        "build"
+      ]
     },
     "mgba": {
       "systems": [
         "gba"
       ],
       "license": "MPL-2.0",
-      "source": "https://github.com/EmulatorJS/mgba"
+      "source": "https://github.com/EmulatorJS/mgba",
+      "revision": "1d9dbb1dc8d51ed744fe6be82183f7f5076e549d",
+      "revisionEvidence": "Both core builds contain the string \"0.11-dev 1d9dbb1\". Makefile.libretro puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 1d9dbb1 to this commit.",
+      "licenseText": "licenses/cores/mgba.txt",
+      "sources": [
+        "mgba",
+        "retroarch",
+        "build"
+      ]
     },
     "mupen64plus_next": {
       "systems": [
         "n64"
       ],
       "license": "GPL-2.0",
-      "source": "https://github.com/EmulatorJS/mupen64plus-libretro-nx"
+      "source": "https://github.com/EmulatorJS/mupen64plus-libretro-nx",
+      "revision": "c35e55e87cbaa4cfc8355d8f91ceaa2beb212e9d",
+      "revisionEvidence": "Both core builds contain the string \"2.8-GLES3 c35e55e\". Makefile puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves c35e55e to this commit.",
+      "licenseText": "licenses/cores/mupen64plus_next.txt",
+      "sources": [
+        "mupen64plus_next",
+        "retroarch",
+        "build"
+      ]
     },
     "nestopia": {
       "systems": [
         "nes"
       ],
       "license": "GPL-2.0",
-      "source": "https://github.com/EmulatorJS/nestopia"
+      "source": "https://github.com/EmulatorJS/nestopia",
+      "revision": "6b08ec9148bd4cedc893ed0c97bc64061d044399",
+      "revisionEvidence": "Both core builds contain the string \"1.53.1 6b08ec9\". libretro/Makefile puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 6b08ec9 to this commit.",
+      "licenseText": "licenses/cores/nestopia.txt",
+      "sources": [
+        "nestopia",
+        "retroarch",
+        "build"
+      ]
     },
     "parallel_n64": {
       "systems": [
         "n64"
       ],
       "license": "GPL-2.0 (Mupen64Plus-Core; the core archive has no license file)",
-      "source": "https://github.com/EmulatorJS/parallel-n64"
+      "source": "https://github.com/EmulatorJS/parallel-n64",
+      "revision": "56f4daf8ec9b00d51d7db88e3c34c381294dbde0",
+      "revisionEvidence": "Both core builds contain the string \"2.0-rc2 56f4daf\". Makefile puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 56f4daf to this commit.",
+      "licenseText": "licenses/cores/parallel_n64.txt",
+      "sources": [
+        "parallel_n64",
+        "retroarch",
+        "build"
+      ]
     },
     "picodrive": {
       "systems": [
         "segaMD"
       ],
       "license": "PicoDrive license (non-commercial use only)",
-      "source": "https://github.com/EmulatorJS/picodrive"
+      "source": "https://github.com/EmulatorJS/picodrive",
+      "revision": "3cf1e26179584fc06b4794b0b2bf5d41c01b19dd",
+      "revisionEvidence": "Both core builds contain the string \"2.01-3cf1e26\". Makefile.libretro puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 3cf1e26 to this commit.",
+      "licenseText": "licenses/cores/picodrive.txt",
+      "sources": [
+        "picodrive",
+        "picodrive-libpicofe",
+        "picodrive-cyclone68000",
+        "picodrive-emu2413",
+        "picodrive-libchdr",
+        "picodrive-dr_libs",
+        "retroarch",
+        "build"
+      ]
     },
     "snes9x": {
       "systems": [
         "snes"
       ],
       "license": "Snes9x license (non-commercial use only)",
-      "source": "https://github.com/EmulatorJS/snes9x"
+      "source": "https://github.com/EmulatorJS/snes9x",
+      "revision": "6ca2343e5f3b0acbea49ca958251e3a0af58a81d",
+      "revisionEvidence": "Both core builds contain the string \"1.63 6ca2343\". libretro/Makefile puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 6ca2343 to this commit.",
+      "licenseText": "licenses/cores/snes9x.txt",
+      "sources": [
+        "snes9x",
+        "retroarch",
+        "build"
+      ]
     },
     "stella2014": {
       "systems": [
         "atari2600"
       ],
       "license": "GPL-2.0 (Stella; the core archive has no license file)",
-      "source": "https://github.com/EmulatorJS/stella2014-libretro"
+      "source": "https://github.com/EmulatorJS/stella2014-libretro",
+      "revision": "1f578c36382bb5a86a0fe245973fa557f369738b",
+      "revisionEvidence": "Both core builds contain the string \"3.9.3 1f578c3\". Makefile puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 1f578c3 to this commit.",
+      "licenseText": "licenses/cores/stella2014.txt",
+      "sources": [
+        "stella2014",
+        "retroarch",
+        "build"
+      ]
     }
   },
+  "components": [
+    {
+      "id": "emulatorjs",
+      "name": "EmulatorJS",
+      "version": "4.2.3",
+      "license": "GPL-3.0",
+      "files": [
+        "loader.js",
+        "emulator.min.js",
+        "emulator.min.css",
+        "localization/*.json",
+        "LICENSE"
+      ],
+      "licenseTexts": [
+        "licenses/GPL-3.0.txt",
+        "LICENSE"
+      ],
+      "sources": [
+        "emulatorjs",
+        "emulatorjs-package-lock"
+      ]
+    },
+    {
+      "id": "retroarch",
+      "name": "RetroArch (EmulatorJS fork)",
+      "version": "commit 6dd4353937ef48b6ec0bfbdbb15d1c5992d86927",
+      "license": "GPL-3.0-or-later",
+      "files": [
+        "cores/*.data"
+      ],
+      "licenseTexts": [
+        "licenses/GPL-3.0.txt"
+      ],
+      "sources": [
+        "retroarch",
+        "build"
+      ]
+    },
+    {
+      "id": "build",
+      "name": "EmulatorJS core build scripts",
+      "version": "commit b24e5b535034dc7c3428d76f236d4793881969b6",
+      "license": "GPL-3.0",
+      "files": [
+        "cores/*.data",
+        "cores/reports/*.json"
+      ],
+      "licenseTexts": [
+        "licenses/GPL-3.0.txt"
+      ],
+      "sources": [
+        "build"
+      ]
+    },
+    {
+      "id": "emscripten",
+      "name": "Emscripten runtime and C library (musl)",
+      "version": "4.0.8",
+      "license": "MIT OR NCSA (Emscripten); MIT (musl)",
+      "files": [
+        "cores/*.data"
+      ],
+      "licenseTexts": [
+        "licenses/Emscripten-4.0.8-LICENSE.txt",
+        "licenses/musl-COPYRIGHT.txt"
+      ],
+      "sources": [],
+      "sourceUrl": "https://github.com/emscripten-core/emscripten/tree/4.0.8",
+      "evidence": "Each core binary names clang 21.0.0git from llvm-project 23e3cbb2e82b62586266116c8ab77ce68e412cf8. emcc 4.0.8 reports this LLVM revision (emscripten-core/emscripten issues 24307 and 24579); emcc 4.0.9 reports 2f05451198e2."
+    },
+    {
+      "id": "nipplejs",
+      "name": "nipplejs",
+      "version": "0.10.2",
+      "license": "MIT",
+      "files": [
+        "emulator.min.js"
+      ],
+      "licenseTexts": [
+        "licenses/nipplejs-0.10.2-LICENSE.txt"
+      ],
+      "sources": [
+        "emulatorjs"
+      ],
+      "sourceUrl": "https://github.com/yoannmoinet/nipplejs/tree/v0.10.2",
+      "evidence": "data/src/nipplejs.js in EmulatorJS 4.2.3 is dist/nipplejs.js of the npm package nipplejs@0.10.2 plus one newline."
+    },
+    {
+      "id": "socket.io-client",
+      "name": "Socket.IO client",
+      "version": "4.8.1",
+      "license": "MIT",
+      "files": [
+        "emulator.min.js"
+      ],
+      "licenseTexts": [
+        "licenses/socket.io-client-4.8.1-LICENSE.txt"
+      ],
+      "sources": [
+        "emulatorjs"
+      ],
+      "sourceUrl": "https://github.com/socketio/socket.io/tree/socket.io-client%404.8.1/packages/socket.io-client",
+      "evidence": "data/src/socket.io.min.js in EmulatorJS 4.2.3 is dist/socket.io.min.js of the npm package socket.io-client@4.8.1, byte for byte."
+    },
+    {
+      "id": "font-awesome",
+      "name": "Font Awesome Free icons",
+      "version": "6.5.1",
+      "license": "CC-BY-4.0",
+      "files": [
+        "emulator.min.js"
+      ],
+      "licenseTexts": [
+        "licenses/CC-BY-4.0.txt",
+        "licenses/FontAwesome-Free-6.5.1-LICENSE.txt"
+      ],
+      "sources": [
+        "emulatorjs"
+      ],
+      "sourceUrl": "https://github.com/FortAwesome/Font-Awesome/tree/6.5.1",
+      "evidence": "emulator.min.js contains the comment \"Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2023 Fonticons, Inc.\" on one menu icon. Other menu icons have the same SVG form without the comment."
+    },
+    {
+      "id": "libunrar",
+      "name": "libunrar-js (UnRAR 5.9.2)",
+      "version": "UnRAR 5.9.2, libunrar-js commit 294e362691041b70bef818628e7dfb012b2474aa",
+      "license": "UnRAR freeware license",
+      "files": [
+        "compression/libunrar.js",
+        "compression/libunrar.wasm"
+      ],
+      "licenseTexts": [
+        "licenses/UnRAR-5.9.2-license.txt"
+      ],
+      "sources": [
+        "libunrar-js",
+        "emulatorjs"
+      ]
+    },
+    {
+      "id": "extract-helpers",
+      "name": "extract7z.js and extractzip.js",
+      "version": "the copy in EmulatorJS 4.2.3",
+      "license": "unknown",
+      "files": [
+        "compression/extract7z.js",
+        "compression/extractzip.js"
+      ],
+      "licenseTexts": [],
+      "sources": [
+        "emulatorjs"
+      ],
+      "evidence": "EmulatorJS has had these asm.js files since its first commit (9413e24e2a, 2021-05-12) and publishes no source for them. Their strings show a 7z decoder, a ZIP reader (\"File CRC differs from ZIP CRC\") and the Emscripten runtime with musl. We could not find their source code."
+    }
+  ],
+  "sources": [
+    {
+      "id": "emulatorjs",
+      "path": "source/EmulatorJS-4.2.3-e150dc0491ae.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/EmulatorJS/tar.gz/e150dc0491ae747028919fb82d6598954976ede6"
+      },
+      "repository": "https://github.com/EmulatorJS/EmulatorJS",
+      "commit": "e150dc0491ae747028919fb82d6598954976ede6",
+      "for": "EmulatorJS 4.2.3 (git tag v4.2.3): loader.js, emulator.min.js, emulator.min.css, localization/, compression/. data/src/ is the source of emulator.min.js and data/emulator.css is the source of emulator.min.css.",
+      "bytes": 561815,
+      "sha256": "d0b2c4dc4c6e624846287601e1d23ff310a32146794ade6b57a832ba20ee9d6f"
+    },
+    {
+      "id": "emulatorjs-package-lock",
+      "path": "source/EmulatorJS-4.2.3-package-lock.json",
+      "from": {
+        "url": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z",
+        "member": "package-lock.json"
+      },
+      "mirrors": [
+        {
+          "url": "https://cdn.emulatorjs.org/4.2.3/package-lock.json"
+        }
+      ],
+      "repository": "https://github.com/EmulatorJS/EmulatorJS",
+      "for": "package-lock.json from the release asset. It pins the minify tools (terser 5.36.0, clean-css 5.3.3). npm ci --omit=optional and node minify/minify.js in the v4.2.3 source make emulator.min.js and emulator.min.css byte for byte. The EmulatorJS CDN gives the same file as a small download (mirrors); the build checks its SHA-256 and never runs it.",
+      "bytes": 98027,
+      "sha256": "ed01c118655e9ce6cd6bed2b478a7a6d85cc114cb5809e9bfac1f41fe463b838"
+    },
+    {
+      "id": "build",
+      "path": "source/EmulatorJS-build-b24e5b535034.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/build/tar.gz/b24e5b535034dc7c3428d76f236d4793881969b6"
+      },
+      "repository": "https://github.com/EmulatorJS/build",
+      "commit": "b24e5b535034dc7c3428d76f236d4793881969b6",
+      "for": "The scripts that built the cores (build.sh, cores.json, .github/workflows/compile.yml). The cores were built on 2025-06-14 (cores/reports/*.json). The repository has no commit between 2025-06-02 (b24e5b5) and 2025-10-19, and b24e5b5 has build.json version 2.0.2, the same as build.json in each core file.",
+      "bytes": 21217,
+      "sha256": "8b918f49db722fd9982436716a42367e80334ff85d81077fa8e8fc00b7ad4493"
+    },
+    {
+      "id": "retroarch",
+      "path": "source/RetroArch-EmulatorJS-6dd4353937ef.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/RetroArch/tar.gz/6dd4353937ef48b6ec0bfbdbb15d1c5992d86927"
+      },
+      "repository": "https://github.com/EmulatorJS/RetroArch",
+      "commit": "6dd4353937ef48b6ec0bfbdbb15d1c5992d86927",
+      "for": "The RetroArch frontend (EmulatorJS fork, branch next). Each core file holds RetroArch and one core, compiled together. Every core binary contains the RetroArch git version \"6dd4353\".",
+      "bytes": 71016269,
+      "sha256": "352f7ea4e50a13463623ef815a0449467d25fc991089ac7f8f548cfc05f1019b"
+    },
+    {
+      "id": "fceumm",
+      "path": "source/libretro-fceumm-d9d7e141274d.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/libretro-fceumm/tar.gz/d9d7e141274d07186b6a871ca2919b6f13cfb2f9"
+      },
+      "repository": "https://github.com/EmulatorJS/libretro-fceumm",
+      "commit": "d9d7e141274d07186b6a871ca2919b6f13cfb2f9",
+      "for": "The fceumm core.",
+      "bytes": 763445,
+      "sha256": "d6a15be9978144a16698a5194d2df0b715f2d3c874bbe144b7a33fc6a9f9c652"
+    },
+    {
+      "id": "gambatte",
+      "path": "source/gambatte-libretro-4ac2b30d196a.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/gambatte-libretro/tar.gz/4ac2b30d196a842061d6b333ea5e523a7c1a7cce"
+      },
+      "repository": "https://github.com/EmulatorJS/gambatte-libretro",
+      "commit": "4ac2b30d196a842061d6b333ea5e523a7c1a7cce",
+      "for": "The gambatte core.",
+      "bytes": 984540,
+      "sha256": "b1ef4e67ea3427e896b279d251f602c5dbf66e0abe2dc5e2c5bd4dcc5364e978"
+    },
+    {
+      "id": "genesis_plus_gx",
+      "path": "source/Genesis-Plus-GX-594cdf3a6665.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/Genesis-Plus-GX/tar.gz/594cdf3a666546f65f46391c3615ac5e9550bfc1"
+      },
+      "repository": "https://github.com/EmulatorJS/Genesis-Plus-GX",
+      "commit": "594cdf3a666546f65f46391c3615ac5e9550bfc1",
+      "for": "The genesis_plus_gx core.",
+      "bytes": 14364564,
+      "sha256": "d7c4e7384469f215723021902efc8d2369e5833095789da93974ca2a48ace0b1"
+    },
+    {
+      "id": "mgba",
+      "path": "source/mgba-1d9dbb1dc8d5.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/mgba/tar.gz/1d9dbb1dc8d51ed744fe6be82183f7f5076e549d"
+      },
+      "repository": "https://github.com/EmulatorJS/mgba",
+      "commit": "1d9dbb1dc8d51ed744fe6be82183f7f5076e549d",
+      "for": "The mgba core.",
+      "bytes": 15062561,
+      "sha256": "b441753aecb7a5be48917164e5ca7cd97cb5bc98f8f5a685934aff78d23f34e2"
+    },
+    {
+      "id": "mupen64plus_next",
+      "path": "source/mupen64plus-libretro-nx-c35e55e87cba.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/mupen64plus-libretro-nx/tar.gz/c35e55e87cbaa4cfc8355d8f91ceaa2beb212e9d"
+      },
+      "repository": "https://github.com/EmulatorJS/mupen64plus-libretro-nx",
+      "commit": "c35e55e87cbaa4cfc8355d8f91ceaa2beb212e9d",
+      "for": "The mupen64plus_next core.",
+      "bytes": 14963923,
+      "sha256": "9aec098ddbc0b886e26c1d582da8624aa6784df77adefcecaa7d26bfca754f13"
+    },
+    {
+      "id": "nestopia",
+      "path": "source/nestopia-6b08ec9148bd.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/nestopia/tar.gz/6b08ec9148bd4cedc893ed0c97bc64061d044399"
+      },
+      "repository": "https://github.com/EmulatorJS/nestopia",
+      "commit": "6b08ec9148bd4cedc893ed0c97bc64061d044399",
+      "for": "The nestopia core.",
+      "bytes": 1152382,
+      "sha256": "8bf5009ae3df50e3471fabfd03ea45d97b8798d2912abe95281c65ccf6ffc905"
+    },
+    {
+      "id": "parallel_n64",
+      "path": "source/parallel-n64-56f4daf8ec9b.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/parallel-n64/tar.gz/56f4daf8ec9b00d51d7db88e3c34c381294dbde0"
+      },
+      "repository": "https://github.com/EmulatorJS/parallel-n64",
+      "commit": "56f4daf8ec9b00d51d7db88e3c34c381294dbde0",
+      "for": "The parallel_n64 core.",
+      "bytes": 5057653,
+      "sha256": "819e208aa25cae25c271b143d2ca650c097fdf1b2556e04bf3ea3d6873fbea85"
+    },
+    {
+      "id": "picodrive",
+      "path": "source/picodrive-3cf1e2617958.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/picodrive/tar.gz/3cf1e26179584fc06b4794b0b2bf5d41c01b19dd"
+      },
+      "repository": "https://github.com/EmulatorJS/picodrive",
+      "commit": "3cf1e26179584fc06b4794b0b2bf5d41c01b19dd",
+      "for": "The picodrive core.",
+      "bytes": 1998133,
+      "sha256": "71b5e4510ef7d29f8289d9e78f9d0f30c79d1643cb0bc948b41f493a004fbd71"
+    },
+    {
+      "id": "snes9x",
+      "path": "source/snes9x-6ca2343e5f3b.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/snes9x/tar.gz/6ca2343e5f3b0acbea49ca958251e3a0af58a81d"
+      },
+      "repository": "https://github.com/EmulatorJS/snes9x",
+      "commit": "6ca2343e5f3b0acbea49ca958251e3a0af58a81d",
+      "for": "The snes9x core.",
+      "bytes": 5159872,
+      "sha256": "fae5c3d1c851afca2e90d1b243571492e3acf17733de0923adc4bb6ab1a5c968"
+    },
+    {
+      "id": "stella2014",
+      "path": "source/stella2014-libretro-1f578c36382b.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/EmulatorJS/stella2014-libretro/tar.gz/1f578c36382bb5a86a0fe245973fa557f369738b"
+      },
+      "repository": "https://github.com/EmulatorJS/stella2014-libretro",
+      "commit": "1f578c36382bb5a86a0fe245973fa557f369738b",
+      "for": "The stella2014 core.",
+      "bytes": 740055,
+      "sha256": "e42d957d19eef96106a656fa8346e23be6aed9be31a90ef6d239cec1b61357cb"
+    },
+    {
+      "id": "picodrive-libpicofe",
+      "path": "source/picodrive-libpicofe-86a086ed64aa.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/irixxxx/libpicofe/tar.gz/86a086ed64aadc1e87fc58a90703a07d91c9cdbe"
+      },
+      "repository": "https://github.com/irixxxx/libpicofe",
+      "commit": "86a086ed64aadc1e87fc58a90703a07d91c9cdbe",
+      "for": "The git submodule platform/libpicofe of picodrive at commit 3cf1e26. build.sh runs git submodule update --init --recursive, so the build used this commit.",
+      "bytes": 88264,
+      "sha256": "45e3a2eca5f0c2a746b06d23d97008ad16ce9453cba4e1c50fb078a51b203d61"
+    },
+    {
+      "id": "picodrive-cyclone68000",
+      "path": "source/picodrive-cyclone68000-3ac7cf1bdeec.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/irixxxx/cyclone68000/tar.gz/3ac7cf1bdeecb60e2414980e8dc72ff092f69769"
+      },
+      "repository": "https://github.com/irixxxx/cyclone68000",
+      "commit": "3ac7cf1bdeecb60e2414980e8dc72ff092f69769",
+      "for": "The git submodule cpu/cyclone of picodrive at commit 3cf1e26. build.sh runs git submodule update --init --recursive, so the build used this commit.",
+      "bytes": 64766,
+      "sha256": "e570e121721441c1bf8015a8bce8614b73954e2344b983b3650e591952f74a6c"
+    },
+    {
+      "id": "picodrive-emu2413",
+      "path": "source/picodrive-emu2413-a2dfc20ff507.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/digital-sound-antiques/emu2413/tar.gz/a2dfc20ff507e4fd075cd325620bcea655e2c1f7"
+      },
+      "repository": "https://github.com/digital-sound-antiques/emu2413",
+      "commit": "a2dfc20ff507e4fd075cd325620bcea655e2c1f7",
+      "for": "The git submodule pico/sound/emu2413 of picodrive at commit 3cf1e26. build.sh runs git submodule update --init --recursive, so the build used this commit.",
+      "bytes": 17892,
+      "sha256": "bd816079cfbf13c56a260c095d6b8e260c2f877e5b13f50d4e570b96e8b92830"
+    },
+    {
+      "id": "picodrive-libchdr",
+      "path": "source/picodrive-libchdr-e62ac5995b1c.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/irixxxx/libchdr/tar.gz/e62ac5995b1c7ef65ece35293914843b8ee57d49"
+      },
+      "repository": "https://github.com/irixxxx/libchdr",
+      "commit": "e62ac5995b1c7ef65ece35293914843b8ee57d49",
+      "for": "The git submodule pico/cd/libchdr of picodrive at commit 3cf1e26. build.sh runs git submodule update --init --recursive, so the build used this commit.",
+      "bytes": 4221062,
+      "sha256": "59b99005d3d6317a0d1e45e1c4abf0e551070dbf32c8fdc66ed5b4ae6d8ea702"
+    },
+    {
+      "id": "picodrive-dr_libs",
+      "path": "source/picodrive-dr_libs-dd762b861eca.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/mackron/dr_libs/tar.gz/dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb"
+      },
+      "repository": "https://github.com/mackron/dr_libs",
+      "commit": "dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb",
+      "for": "The git submodule platform/common/dr_libs of picodrive at commit 3cf1e26. build.sh runs git submodule update --init --recursive, so the build used this commit.",
+      "bytes": 514046,
+      "sha256": "8f0be8a4aa27cd4ddaba41acbb845b1641964f2cc2f5a5f7b4b72f73368c1c12"
+    },
+    {
+      "id": "libunrar-js",
+      "path": "source/libunrar-js-294e36269104.tar.gz",
+      "from": {
+        "url": "https://codeload.github.com/tnikolai2/libunrar-js/tar.gz/294e362691041b70bef818628e7dfb012b2474aa"
+      },
+      "repository": "https://github.com/tnikolai2/libunrar-js",
+      "commit": "294e362691041b70bef818628e7dfb012b2474aa",
+      "for": "libunrar-js (Emscripten port of UnRAR 5.9.2). compression/libunrar.wasm is the same file as libunrar.wasm at this commit. EmulatorJS removed a logging stub from libunrar.js. The archive holds src/unrarsrc-5.9.2.tar.gz, the glue code and build.sh.",
+      "bytes": 368028,
+      "sha256": "ca1efba4499403829160b2648ebb5eaabfaaff0ac32ce54a1cebf3500d017a30"
+    }
+  ],
+  "licenses": [
+    {
+      "path": "licenses/GPL-3.0.txt",
+      "from": {
+        "url": "https://www.gnu.org/licenses/gpl-3.0.txt"
+      },
+      "for": "EmulatorJS, RetroArch and the build scripts (GPL-3.0)",
+      "bytes": 35149,
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "path": "licenses/GPL-2.0.txt",
+      "from": {
+        "url": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt"
+      },
+      "for": "fceumm, gambatte, mupen64plus_next, nestopia, parallel_n64 and stella2014 (GPL-2.0)",
+      "bytes": 17984,
+      "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
+    },
+    {
+      "path": "licenses/LGPL-2.1.txt",
+      "from": {
+        "url": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt"
+      },
+      "for": "Parts of Genesis Plus GX, Snes9x and Mupen64Plus (LGPL-2.1)",
+      "bytes": 26419,
+      "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95"
+    },
+    {
+      "path": "licenses/MPL-2.0.txt",
+      "from": {
+        "url": "https://www.mozilla.org/media/MPL/2.0/index.txt"
+      },
+      "for": "mGBA (MPL-2.0)",
+      "bytes": 16726,
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "path": "licenses/CC-BY-4.0.txt",
+      "from": {
+        "url": "https://creativecommons.org/licenses/by/4.0/legalcode.txt"
+      },
+      "for": "The Font Awesome Free icons in emulator.min.js (CC BY 4.0)",
+      "bytes": 18657,
+      "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411"
+    },
+    {
+      "path": "licenses/FontAwesome-Free-6.5.1-LICENSE.txt",
+      "from": {
+        "url": "https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.5.1/LICENSE.txt"
+      },
+      "for": "Font Awesome Free 6.5.1",
+      "bytes": 7427,
+      "sha256": "0aa8f86525273b2efa4f40f4272a188e187704252170e979dc06879adf68d43c"
+    },
+    {
+      "path": "licenses/socket.io-client-4.8.1-LICENSE.txt",
+      "from": {
+        "url": "https://registry.npmjs.org/socket.io-client/-/socket.io-client-4.8.1.tgz",
+        "member": "package/LICENSE"
+      },
+      "for": "The Socket.IO client 4.8.1 in emulator.min.js (MIT)",
+      "bytes": 1116,
+      "sha256": "73cb68c437d59e066f9386ef97be57298df4db119fdbd7d7150817c6dbd9f189"
+    },
+    {
+      "path": "licenses/nipplejs-0.10.2-LICENSE.txt",
+      "from": {
+        "url": "https://registry.npmjs.org/nipplejs/-/nipplejs-0.10.2.tgz",
+        "member": "package/LICENSE"
+      },
+      "for": "nipplejs 0.10.2 in emulator.min.js (MIT)",
+      "bytes": 1105,
+      "sha256": "c2b08e655eae157edbeced89a20f684ff83b588f05813332440f7ccde09a3e33"
+    },
+    {
+      "path": "licenses/UnRAR-5.9.2-license.txt",
+      "from": {
+        "archive": "source/libunrar-js-294e36269104.tar.gz",
+        "member": "libunrar-js-294e362691041b70bef818628e7dfb012b2474aa/license.txt"
+      },
+      "for": "UnRAR 5.9.2 in compression/libunrar.js and libunrar.wasm (UnRAR freeware license)",
+      "bytes": 1976,
+      "sha256": "6ecc1687808b7d66b24f874755abfed7464d9751ed0001cd4e8e5d9bf397ff8a"
+    },
+    {
+      "path": "licenses/Emscripten-4.0.8-LICENSE.txt",
+      "from": {
+        "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/4.0.8/LICENSE"
+      },
+      "for": "The Emscripten 4.0.8 runtime in each core (MIT or University of Illinois/NCSA)",
+      "bytes": 5093,
+      "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86"
+    },
+    {
+      "path": "licenses/musl-COPYRIGHT.txt",
+      "from": {
+        "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/4.0.8/system/lib/libc/musl/COPYRIGHT"
+      },
+      "for": "The musl C library in each core (MIT), the copy in Emscripten 4.0.8",
+      "bytes": 6204,
+      "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
+    },
+    {
+      "path": "licenses/cores/fceumm.txt",
+      "from": {
+        "archive": "cores/fceumm-wasm.data",
+        "member": "license.txt"
+      },
+      "for": "fceumm: license.txt from the core file, unchanged",
+      "bytes": 18010,
+      "sha256": "a6996dcf0c334281f734560926e079b2dbbd5b78e81c0ca00a413ec01e1cd2fb"
+    },
+    {
+      "path": "licenses/cores/gambatte.txt",
+      "from": {
+        "archive": "cores/gambatte-wasm.data",
+        "member": "license.txt"
+      },
+      "for": "gambatte: license.txt from the core file, unchanged",
+      "bytes": 17987,
+      "sha256": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6"
+    },
+    {
+      "path": "licenses/cores/genesis_plus_gx.txt",
+      "from": {
+        "archive": "cores/genesis_plus_gx-wasm.data",
+        "member": "license.txt"
+      },
+      "for": "genesis_plus_gx: license.txt from the core file, unchanged",
+      "bytes": 44729,
+      "sha256": "c38ff8ea57f501f63a8e4a9e22a67be12eb006345ce2059f0419b69d8f7734cd"
+    },
+    {
+      "path": "licenses/cores/mgba.txt",
+      "from": {
+        "archive": "cores/mgba-wasm.data",
+        "member": "license.txt"
+      },
+      "for": "mgba: license.txt from the core file, unchanged",
+      "bytes": 16726,
+      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+    },
+    {
+      "path": "licenses/cores/mupen64plus_next.txt",
+      "from": {
+        "archive": "cores/mupen64plus_next-wasm.data",
+        "member": "license.txt"
+      },
+      "for": "mupen64plus_next: license.txt from the core file, unchanged",
+      "bytes": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "licenses/cores/nestopia.txt",
+      "from": {
+        "archive": "cores/nestopia-wasm.data",
+        "member": "license.txt"
+      },
+      "for": "nestopia: license.txt from the core file, unchanged",
+      "bytes": 15122,
+      "sha256": "df84246204e3c54cd24aebbc23714235f5fc41d754d53b65444a2afbf070130f"
+    },
+    {
+      "path": "licenses/cores/parallel_n64.txt",
+      "from": {
+        "archive": "source/parallel-n64-56f4daf8ec9b.tar.gz",
+        "member": "parallel-n64-56f4daf8ec9b00d51d7db88e3c34c381294dbde0/mupen64plus-core/LICENSES"
+      },
+      "for": "parallel_n64: the core file has no license.txt, so this is mupen64plus-core/LICENSES from the core source (GPL-2.0, text in licenses/GPL-2.0.txt)",
+      "bytes": 1959,
+      "sha256": "0a64350252a0b3e844449a8b9347707976add51726fa951b6035b1bf3f8c45a6"
+    },
+    {
+      "path": "licenses/cores/picodrive.txt",
+      "from": {
+        "archive": "cores/picodrive-wasm.data",
+        "member": "license.txt"
+      },
+      "for": "picodrive: license.txt from the core file, unchanged",
+      "bytes": 1702,
+      "sha256": "a36c54a119673c1b40233f55ff23c39042f35c3e798ce78aafba5d6bd9c19de4"
+    },
+    {
+      "path": "licenses/cores/snes9x.txt",
+      "from": {
+        "archive": "cores/snes9x-wasm.data",
+        "member": "license.txt"
+      },
+      "for": "snes9x: license.txt from the core file, unchanged",
+      "bytes": 7047,
+      "sha256": "70efeee282d82a6e9d26aeed5466d08c632369858371dc6a4644c8dcedc2be78"
+    },
+    {
+      "path": "licenses/cores/stella2014.txt",
+      "from": {
+        "archive": "source/stella2014-libretro-1f578c36382b.tar.gz",
+        "member": "stella2014-libretro-1f578c36382bb5a86a0fe245973fa557f369738b/stella/license.txt"
+      },
+      "for": "stella2014: the core file has no license.txt, so this is stella/license.txt from the core source",
+      "bytes": 15174,
+      "sha256": "310782e1abd43c4de6217c513e328bddf999d39302d67c6e05b10a59959827af"
+    }
+  ],
   "files": [
     {
       "path": "loader.js",

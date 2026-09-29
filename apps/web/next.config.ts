@@ -75,6 +75,13 @@ const nextConfig: NextConfig = {
         source: "/emulator/ejs/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
+      // NOTICE.txt tells where the licenses and the source code of these files
+      // are. We write it, and a fix to it keeps its path, so it gets a short
+      // cache. This rule is after the rule above, so its Cache-Control wins.
+      {
+        source: "/emulator/ejs/:version/NOTICE.txt",
+        headers: [{ key: "Cache-Control", value: "public, max-age=3600" }],
+      },
     ];
   },
 };
