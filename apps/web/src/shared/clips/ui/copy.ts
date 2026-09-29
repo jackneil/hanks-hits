@@ -197,7 +197,10 @@ export const MENU_COPY = {
   myClips: "My clips from this game",
   settings: "Clip settings",
   wake: "Turn the clip button back on",
+  /** The close control when closing gives play back (the menu paused the game). */
   close: "Back to the game",
+  /** The close control when the menu opened at a break (the pause menu, a start or result card): it goes back there. */
+  back: "Back",
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -138,6 +138,33 @@ describe("CaptureMenu (plan 11.4)", () => {
     expect(fake.records.map((record) => record.kind)).toEqual(["picture"]);
   });
 
+  it('says "Back to the game" on its close control only when closing gives play back', () => {
+    const speech = installSpeechMock();
+    const { resumeGame } = renderWithClips(<OpenMenu />);
+    // Opened by a hold during play: the menu paused the game, and closing resumes it.
+    fireEvent.click(screen.getByTestId("open-menu"));
+    const close = within(menu()).getByRole("button", { name: MENU_COPY.close });
+    fireEvent.click(within(menu()).getByTestId("read-aloud-button"));
+    expect(speech.lastUtterance().text.endsWith(`. ${MENU_COPY.close}`)).toBe(true);
+    fireEvent.click(close);
+    expect(resumeGame).toHaveBeenCalledTimes(1);
+  });
+
+  it('says "Back" on its close control when it opened at a break (the pause menu), and closing keeps the pause', () => {
+    const speech = installSpeechMock();
+    const { resumeGame } = renderWithClips(<OpenMenu source="pause-menu" />, { snapshot: { atBreak: true } });
+    fireEvent.click(screen.getByTestId("open-menu"));
+    expect(within(menu()).queryByRole("button", { name: MENU_COPY.close })).toBeNull();
+    const back = within(menu()).getByRole("button", { name: MENU_COPY.back });
+    fireEvent.click(within(menu()).getByTestId("read-aloud-button"));
+    const spoken = speech.lastUtterance().text;
+    expect(spoken.endsWith(`. ${MENU_COPY.back}`)).toBe(true);
+    expect(spoken).not.toContain(MENU_COPY.close);
+    fireEvent.click(back);
+    expect(screen.queryByTestId("capture-menu")).toBeNull();
+    expect(resumeGame).not.toHaveBeenCalled();
+  });
+
   it("pauses the game when it opens during play, and resumes after a quick action", async () => {
     const { fake, pauseGame, resumeGame } = renderWithClips(<OpenMenu />);
     fireEvent.click(screen.getByTestId("open-menu"));
@@ -151,7 +178,8 @@ describe("CaptureMenu (plan 11.4)", () => {
   it("does not pause or resume when it opens at a break (the pause menu)", () => {
     const { pauseGame, resumeGame } = renderWithClips(<OpenMenu source="pause-menu" />, { snapshot: { atBreak: true } });
     fireEvent.click(screen.getByTestId("open-menu"));
-    fireEvent.click(within(menu()).getByRole("button", { name: MENU_COPY.close }));
+    // At a break the close control goes back to the break: "Back".
+    fireEvent.click(within(menu()).getByRole("button", { name: MENU_COPY.back }));
     expect(pauseGame).not.toHaveBeenCalled();
     expect(resumeGame).not.toHaveBeenCalled();
   });

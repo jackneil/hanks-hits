@@ -388,6 +388,15 @@ export interface ClipUiController {
   recoveredSeen(): void;
 }
 
+/**
+ * True when closing this sheet (with no option) gives play back: a Capture
+ * menu that paused the game itself. Every other sheet, and a menu opened at
+ * a break (the pause menu, a start or result card), goes back to that break.
+ */
+export function closeResumesPlay(sheet: SheetState | null): boolean {
+  return sheet !== null && sheet.kind === "menu" && sheet.pausedByUs;
+}
+
 /** Button states where a hold in a run that cannot pause clips its frozen moment. */
 const HOLD_CLIPS_IN: ReadonlySet<ClipButtonState> = new Set(["ready", "made", "suspended", "resting"]);
 
@@ -564,9 +573,9 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       store.setSheet(null);
       // Only a Capture menu hands play straight back: the kid picked a quick
       // action. After the viewer or settings the pause menu stays, so the kid
-      // resumes when ready.
-      const resume = options.resume ?? sheet.kind === "menu";
-      if (resume && sheet.pausedByUs) deps.host().resumeGame?.();
+      // resumes when ready. (closeResumesPlay names the close control.)
+      const resume = options.resume === undefined ? closeResumesPlay(sheet) : options.resume && sheet.pausedByUs;
+      if (resume) deps.host().resumeGame?.();
     },
 
     replaceSheet(next) {

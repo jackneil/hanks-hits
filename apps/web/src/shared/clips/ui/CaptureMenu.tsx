@@ -15,6 +15,10 @@
  *   one records), Take a picture, My clips from this game, Clip settings.
  *
  * ClipUiRuntime renders it; open it with controller.openMenu().
+ *
+ * The close control says where it goes: "Back to the game" when the menu
+ * paused the game (closing gives play back), and "Back" when it opened at a
+ * break (the pause menu, a start or result card). The voice says the same.
  */
 
 import type React from "react";
@@ -23,7 +27,8 @@ import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { PressToken } from "../service/contract";
-import { useClipUi } from "./uiContext";
+import { useClipUi, useClipUiState } from "./uiContext";
+import { closeResumesPlay } from "./uiStore";
 import { MENU_COPY, REASON_COPY } from "./copy";
 import {
   ClipGlyph,
@@ -57,7 +62,9 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
   const ui = useClipUi();
   const service = useClipService();
   const snapshot = useClipSnapshot();
+  const sheet = useClipUiState().sheet;
   if (!ui || !service) return null;
+  const closeLabel = closeResumesPlay(sheet) ? MENU_COPY.close : MENU_COPY.back;
 
   const state = snapshot.button;
   const recording = state === "recording" || snapshot.recording !== null;
@@ -110,7 +117,7 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
   }
 
   const readAloudText = () =>
-    [MENU_COPY.title, note ? `${note.say} ${note.next}` : null, ...rows.map((row) => row.label), MENU_COPY.close]
+    [MENU_COPY.title, note ? `${note.say} ${note.next}` : null, ...rows.map((row) => row.label), closeLabel]
       .filter(Boolean)
       .join(". ");
 
@@ -120,7 +127,7 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
       variant="menu"
       testId="capture-menu"
       onClose={() => ui.closeSheet()}
-      closeLabel={MENU_COPY.close}
+      closeLabel={closeLabel}
       readAloudText={readAloudText}
     >
       {note && (
