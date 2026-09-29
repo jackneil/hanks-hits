@@ -31,6 +31,7 @@ export const SERVER_UI_STATE: ClipUiState = Object.freeze({
   resultMark: null,
   holdTip: "none",
   pulse: 0,
+  recoveredClipId: null,
 }) as ClipUiState;
 
 const noStore = () => () => {};

@@ -643,8 +643,9 @@ export type IoEvent = (
   /**
    * Record crash recovery (plan 8.4), at startup, after "reconciled": the
    * io worker stored the journaled parts of recordings that a tab left open
-   * (it closed or crashed while it recorded). No rid. The UI says "We saved
-   * your recording from last time!" to each record's owner.
+   * (it closed or crashed while it recorded). No rid. The UI tells each
+   * record's owner "Your video from last time is safe!" (plan 8.4; plan 11.6
+   * keeps "save" for the "Save to ..." buttons).
    */
   | { t: "recovered"; records: ClipRecord[] }
   | {

@@ -29,6 +29,10 @@
  * - A clip whose file cannot be read says so, and keeps Delete, so a broken
  *   clip never stays in the list for good.
  * - Opening a clip marks it watched, so the new-clip chip goes away.
+ * - A Record video saved from last time (plan 8.4 crash recovery): when My
+ *   clips opens, the viewer asks for it, and while one waits it shows a note
+ *   with a "Watch it" button at the top. (The toast slot under the header
+ *   is covered by the sheet.)
  * - Failures log a values-free reason (plan 12).
  *
  * The game pauses before the viewer opens, where it can: the controller does
@@ -40,9 +44,10 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import type { ClipRecord } from "../protocol";
 import { useClipService } from "../service/context";
 import type { ShareOutcome } from "../service/contract";
-import { useClipUi } from "./uiContext";
+import { useClipUi, useClipUiState } from "./uiContext";
 import {
   DELETE_QUESTIONS,
+  RECOVERED_COPY,
   SAVE_BUTTON_LABELS,
   VIEWER_COPY,
   VIEWER_TITLES,
@@ -54,7 +59,7 @@ import {
 } from "./copy";
 import { ClipTile } from "./ClipTile";
 import { clipGameInfo, formatDuration } from "./format";
-import { KeepGlyph, SaveGlyph, ShareGlyph, TrashGlyph } from "./glyphs";
+import { KeepGlyph, PlayGlyph, SaveGlyph, ShareGlyph, TrashGlyph } from "./glyphs";
 import { logClipUiFailure } from "./log";
 import { canShareHere, subscribeToNothing } from "./platform";
 import { Sheet } from "./Sheet";
@@ -112,6 +117,7 @@ function troubleFor(outcome: ShareOutcome["kind"], id: string, before: ShareTrou
 
 export function ClipViewer({ target, onClose }: ClipViewerProps) {
   const ui = useClipUi();
+  const uiState = useClipUiState();
   const service = useClipService();
   const browserCanShare = useSyncExternalStore(subscribeToNothing, () => canShareHere(), () => false);
   const [view, setView] = useState<ViewState>(() => initialView(target));
@@ -123,6 +129,11 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
   const [shareTrouble, setShareTrouble] = useState<ShareTrouble | null>(null);
   const [keptOverride, setKeptOverride] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // When My clips opens, ask for Record videos saved from last time (plan 8.4).
+  useEffect(() => {
+    if (ui) void ui.checkRecovered();
+  }, [ui]);
 
   // Load the library, and follow changes from any tab.
   useEffect(() => {
@@ -190,8 +201,11 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
   }, [service, recordId]);
 
   // Opening a clip marks it watched: the new-clip chip goes away.
+  const recoveredClipId = uiState.recoveredClipId;
   useEffect(() => {
     if (!service || !recordId) return;
+    // The video from last time is on screen: nothing more to tell.
+    if (recordId === recoveredClipId) ui?.recoveredSeen();
     service.markWatched(recordId);
     if (recordWatched === false) {
       service.library.markWatched(recordId).catch((error: unknown) => {
@@ -199,9 +213,30 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
         logClipUiFailure("mark watched", error);
       });
     }
-  }, [service, recordId, recordWatched]);
+  }, [service, recordId, recordWatched, recoveredClipId, ui]);
 
   if (!ui || !service) return null;
+
+  // The note for a video from last time, unless that video is on screen now.
+  const recoveredId = recoveredClipId !== null && !(view.kind === "clip" && view.id === recoveredClipId) ? recoveredClipId : null;
+  const recoveredNote = recoveredId ? (
+    <div
+      data-testid="clip-viewer-recovered"
+      className="mb-3 flex flex-col gap-2 rounded-xl bg-base-200 p-3 sm:flex-row sm:items-center"
+    >
+      <p className="min-w-0 flex-1 text-lg font-semibold">{RECOVERED_COPY.say}</p>
+      <button
+        type="button"
+        data-action="watch-recovered"
+        onClick={() => setView({ kind: "clip", id: recoveredId, fromGame: view.kind === "game" ? view.gameId : view.fromGame })}
+        className={`${ACTION} btn-primary sm:w-auto`}
+      >
+        <PlayGlyph />
+        {RECOVERED_COPY.watch}
+      </button>
+    </div>
+  ) : null;
+  const recoveredWords = recoveredId ? [RECOVERED_COPY.say, RECOVERED_COPY.watch] : [];
 
   const platform = ui.platform();
   const readyMedia = media && recordId && media.id === recordId ? media : null;
@@ -307,6 +342,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
       [
         VIEWER_COPY.gameListTitle,
         clipGameInfo(view.gameId).name,
+        ...recoveredWords,
         empty ? `${VIEWER_COPY.gameListEmptySay} ${VIEWER_COPY.gameListEmptyNext}` : null,
       ]
         .filter(Boolean)
@@ -314,6 +350,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
     return (
       <Sheet title={VIEWER_COPY.gameListTitle} variant="full" testId="clip-viewer" onClose={onClose} readAloudText={readAloud}>
         <p className="mb-3 text-base font-semibold text-base-content/80">{clipGameInfo(view.gameId).name}</p>
+        {recoveredNote}
         {list === null && <p className="py-8 text-center text-lg">{VIEWER_COPY.loading}</p>}
         {empty && (
           <div data-testid="clip-viewer-empty" className="flex flex-col items-center gap-2 py-10 text-center">
@@ -350,10 +387,10 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
   const fromGame = view.fromGame;
 
   const readAloud = () => {
-    if (missing) return [title, VIEWER_COPY.missingSay, VIEWER_COPY.missingNext].join(". ");
+    if (missing) return [title, ...recoveredWords, VIEWER_COPY.missingSay, VIEWER_COPY.missingNext].join(". ");
     const confirmWords = confirming && record ? [DELETE_QUESTIONS[record.kind], VIEWER_COPY.deleteYes, VIEWER_COPY.deleteNo] : null;
     if (broken) {
-      return [title, game.name, VIEWER_COPY.brokenSay, VIEWER_COPY.brokenNext, statusText, ...(confirmWords ?? [VIEWER_COPY.delete])]
+      return [title, game.name, ...recoveredWords, VIEWER_COPY.brokenSay, VIEWER_COPY.brokenNext, statusText, ...(confirmWords ?? [VIEWER_COPY.delete])]
         .filter(Boolean)
         .join(". ");
     }
@@ -361,6 +398,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
     return [
       title,
       game.name,
+      ...recoveredWords,
       note,
       statusText,
       ...(confirmWords ?? [...buttons, isKept ? VIEWER_COPY.kept : VIEWER_COPY.keep, VIEWER_COPY.delete]),
@@ -444,6 +482,8 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
           {note}
         </p>
       )}
+
+      {recoveredNote}
 
       {fromGame && (
         <button

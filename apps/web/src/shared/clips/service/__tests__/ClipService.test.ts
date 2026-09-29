@@ -1285,3 +1285,86 @@ describe("replay granularity (plan 5, tiers M and V)", () => {
     expect(snapshot).not.toHaveProperty("replayGranularitySec");
   });
 });
+
+describe("Record videos saved from last time (plan 8.4 crash recovery)", () => {
+  function savedVideo(id: string, ownerKey: string, createdAt: number): ClipRecord {
+    return {
+      id,
+      ownerKey,
+      gameId: "breakout",
+      kind: "record",
+      createdAt,
+      durationMs: 42_000,
+      width: 1280,
+      height: 720,
+      fps: 30,
+      hasAudio: true,
+      mime: "video/mp4",
+      bytes: 5000,
+      kept: false,
+      watched: false,
+      storage: "opfs",
+      posterDataUrl: "data:,",
+      moments: [],
+    };
+  }
+
+  /** The library hands out each saved video once, like ioClient.takeRecovered. */
+  function withSaved(w: World, rows: ClipRecord[]): void {
+    let waiting = [...rows];
+    w.library.takeRecovered = async () => {
+      const taken = waiting;
+      waiting = [];
+      return taken;
+    };
+  }
+
+  it("points the new-clip chip at this player's newest video, and gives each video once", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    const kid = await keyOf("kid-1");
+    withSaved(w, [savedVideo("rec-old", kid, 10), savedVideo("rec-new", kid, 20)]);
+    const taken = await w.service.takeRecovered();
+    expect(taken.map((row) => row.id)).toEqual(["rec-old", "rec-new"]);
+    expect(w.service.getSnapshot().unwatchedClipId).toBe("rec-new");
+    expect(await w.service.takeRecovered()).toEqual([]);
+    expect(w.service.getSnapshot().unwatchedClipId).toBe("rec-new");
+    // Watching it takes the chip away, as for any clip.
+    w.service.markWatched("rec-new");
+    expect(w.service.getSnapshot().unwatchedClipId).toBeNull();
+  });
+
+  it("gives no chip and no words for another player's video", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    withSaved(w, [savedVideo("rec-other", await keyOf("kid-2"), 10)]);
+    expect(await w.service.takeRecovered()).toEqual([]);
+    expect(w.service.getSnapshot().unwatchedClipId).toBeNull();
+  });
+
+  it("a player change while the list is read gives nothing to the new player", async () => {
+    const w = makeWorld();
+    await w.service.setSessionUser("kid-1");
+    const kid = await keyOf("kid-1");
+    let release: (rows: ClipRecord[]) => void = () => undefined;
+    w.library.takeRecovered = () =>
+      new Promise<ClipRecord[]>((resolve) => {
+        release = resolve;
+      });
+    const pending = w.service.takeRecovered();
+    await w.service.setSessionUser("kid-2");
+    release([savedVideo("rec-1", kid, 10)]);
+    expect(await pending).toEqual([]);
+    expect(w.service.getSnapshot().unwatchedClipId).toBeNull();
+  });
+
+  it("a library with no recovery, or one that fails, gives an empty list and never throws", async () => {
+    const w = makeWorld();
+    expect(await w.service.takeRecovered()).toEqual([]);
+    w.library.takeRecovered = async () => {
+      throw new DOMException("gone", "NotFoundError");
+    };
+    expect(await w.service.takeRecovered()).toEqual([]);
+    expect(w.service.getSnapshot().unwatchedClipId).toBeNull();
+  });
+});

@@ -16,8 +16,8 @@
  *   free belongs to a tab that is gone. The recovering worker takes that lock
  *   (ifAvailable) and holds it while it reads the file again, stores its
  *   chunks as the record part and removes the file. The stored rows go to
- *   the main thread in one "recovered" event ("We saved your recording from
- *   last time!"). A journal whose lock is held is left alone: a live tab
+ *   the main thread in one "recovered" event (the UI tells the kid "Your
+ *   video from last time is safe!"). A journal whose lock is held is left alone: a live tab
  *   records into it, or another tab recovers it now (two tabs that start at
  *   once after a crash store each part once). Without Web Locks a live tab
  *   cannot be told from a dead one, so no journal is recovered (it is never

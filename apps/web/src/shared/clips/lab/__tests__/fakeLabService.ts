@@ -119,6 +119,7 @@ export class FakeLabService implements ClipServiceApi {
   addStar = vi.fn();
   takePicture = vi.fn(async () => this.clipResult);
   markWatched = vi.fn();
+  takeRecovered = vi.fn(async () => []);
   wake = vi.fn();
   share = vi.fn(async () => ({ kind: "shared" as const }));
   saveToDevice = vi.fn(async () => ({ kind: "saved" as const }));

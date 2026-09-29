@@ -98,6 +98,21 @@ function useClipUiRuntime({ pauseGame, resumeGame }: ClipUiHost): { controller: 
     return () => clearInterval(timer);
   }, [controller, markCounting]);
 
+  // Crash recovery (plan 8.4): a Record video saved from last time reaches
+  // the kid when the clip UI starts, and whenever the library says a new one
+  // came back (the io worker finds them at its start).
+  useEffect(() => {
+    if (!service) return;
+    void controller.checkRecovered();
+    return service.library.subscribe(() => void controller.checkRecovered());
+  }, [controller, service]);
+  // Its reply waits for a break with no sheet open.
+  const recoveredClipId = state.recoveredClipId;
+  const sheetOpen = state.sheet !== null;
+  useEffect(() => {
+    if (recoveredClipId) controller.flushRecovered();
+  }, [controller, recoveredClipId, sheetOpen, atBreak]);
+
   // The service went away (the page left clips on): close any sheet.
   const hasService = service !== null;
   useEffect(() => {

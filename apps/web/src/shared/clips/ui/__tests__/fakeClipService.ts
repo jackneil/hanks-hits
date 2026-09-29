@@ -98,6 +98,8 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
   /** The capture-timeline end now, in microseconds. */
   let captureUs = Math.round(snapshot.bufferedSec * 1e6);
   const clipRequests: Array<{ seconds: number; endAtUs: number; frozen: boolean }> = [];
+  /** Record videos saved from a tab that closed while it recorded (plan 8.4), waiting to be taken. */
+  let recovered: ClipRecord[] = [];
 
   const now = () => performance.now();
 
@@ -215,6 +217,15 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
     markWatched: vi.fn((id: string) => {
       if (snapshot.unwatchedClipId === id) set({ unwatchedClipId: null });
     }),
+    // The real rule (ClipService.takeRecovered): each video once, and the chip points at the newest.
+    takeRecovered: vi.fn(async () => {
+      const taken = recovered;
+      recovered = [];
+      if (taken.length === 0) return [];
+      const newest = taken.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+      set({ unwatchedClipId: newest.id });
+      return taken;
+    }),
     wake: vi.fn(() => set({ button: "ready", engine: "buffering", reason: null })),
 
     share: vi.fn(() => Promise.resolve(shareOutcome)),
@@ -277,6 +288,16 @@ export function createFakeClipService(options: FakeClipServiceOptions = {}) {
     /** Change the snapshot and tell subscribers (wrap in act() in React tests). */
     set,
     snapshot: () => snapshot,
+    /**
+     * A Record video comes back from a tab that closed while it recorded
+     * (plan 8.4): it is in the library, and the service holds it for the UI.
+     * The library tells its listeners, like the real "recovered" event.
+     */
+    recover(record: ClipRecord, options: { notify?: boolean } = {}) {
+      records.push(record);
+      recovered.push(record);
+      if (options.notify !== false) notifyLibrary();
+    },
     /** The next clip action fails with this reason. */
     failNext(reason: ClipReasonCode) {
       failNext = reason;

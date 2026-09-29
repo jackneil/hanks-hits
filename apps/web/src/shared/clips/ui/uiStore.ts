@@ -30,7 +30,8 @@ import {
   type EngineState,
   type PressToken,
 } from "../service/contract";
-import { deferredMenuText, reasonText, TOAST_COPY, type SavePlatform } from "./copy";
+import type { ClipRecord } from "../protocol";
+import { deferredMenuText, reasonText, recoveredReplyText, TOAST_COPY, type SavePlatform } from "./copy";
 import { logClipUiFailure } from "./log";
 import { nowMs } from "./platform";
 import type { TapOutcome, TapSource } from "./pressGesture";
@@ -97,6 +98,12 @@ export interface ClipUiState {
   holdTip: "none" | "due" | "showing";
   /** Bumps on a warming tap, so the button pulses once. */
   pulse: number;
+  /**
+   * The newest Record video saved from last time (plan 8.4) that the kid has
+   * not been told about yet. The reply waits for a break; an open viewer
+   * (My clips) tells the kid itself.
+   */
+  recoveredClipId: string | null;
 }
 
 /** How long a reply stays, and how long after the kid taps its read-aloud button. */
@@ -183,6 +190,7 @@ export interface ClipUiStore {
   /** Hide the hold tip. */
   dismissHoldTip(): void;
   bumpPulse(): void;
+  setRecovered(id: string | null): void;
   /** How many times the iPhone share coaching showed. */
   sharesCoached(): number;
   noteShareCoached(): void;
@@ -201,6 +209,7 @@ export function createClipUiStore(): ClipUiStore {
     resultMark: null,
     holdTip: "none",
     pulse: 0,
+    recoveredClipId: null,
   };
   const listeners = new Set<() => void>();
   let replySeq = 0;
@@ -272,6 +281,9 @@ export function createClipUiStore(): ClipUiStore {
     },
     bumpPulse() {
       set({ pulse: state.pulse + 1 });
+    },
+    setRecovered(id) {
+      if (state.recoveredClipId !== id) set({ recoveredClipId: id });
     },
     sharesCoached: () => loadPrefs().sharesCoached,
     noteShareCoached() {
@@ -361,6 +373,19 @@ export interface ClipUiController {
 
   /** Show a reply for a failed or thrown action. */
   replyForResult(result: ClipActionResult | null): void;
+
+  // Crash recovery (plan 8.4)
+  /**
+   * Take the Record videos saved from last time from the service (it points
+   * the new-clip chip at the newest), and tell the kid: a reply at the next
+   * break, or the open viewer. Call it when the clip UI starts, when the
+   * library changes, and when My clips opens.
+   */
+  checkRecovered(): Promise<void>;
+  /** Show a waiting "from last time" reply now, if no sheet is open and play is at a break. */
+  flushRecovered(): void;
+  /** The kid saw the video from last time, or the viewer told them about it: no reply. */
+  recoveredSeen(): void;
 }
 
 /** Button states where a hold in a run that cannot pause clips its frozen moment. */
@@ -534,6 +559,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     closeSheet(options = {}) {
       const sheet = store.getState().sheet;
       if (!sheet) return;
+      // An open viewer (My clips) showed the "from last time" note itself.
+      if (sheet.kind === "viewer") store.setRecovered(null);
       store.setSheet(null);
       // Only a Capture menu hands play straight back: the kid picked a quick
       // action. After the viewer or settings the pause menu stays, so the kid
@@ -701,6 +728,33 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     },
 
     replyForResult,
+
+    async checkRecovered() {
+      const service = deps.service();
+      if (!service) return;
+      let rows: ClipRecord[];
+      try {
+        rows = await service.takeRecovered();
+      } catch (error) {
+        logClipUiFailure("recovered", error);
+        return;
+      }
+      if (rows.length === 0 || deps.service() !== service) return;
+      const newest = rows.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+      store.setRecovered(newest.id);
+      controller.flushRecovered();
+    },
+
+    flushRecovered() {
+      const state = store.getState();
+      if (!state.recoveredClipId || state.sheet || !deps.snapshot().atBreak) return;
+      store.setRecovered(null);
+      store.showReply(recoveredReplyText(), true);
+    },
+
+    recoveredSeen() {
+      store.setRecovered(null);
+    },
   };
 
   return controller;

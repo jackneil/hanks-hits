@@ -257,8 +257,9 @@ export interface ClipLibraryApi {
   /**
    * Record videos that were saved from a tab that closed or crashed while it
    * recorded (plan 8.4 crash recovery), for the current player. Each one is
-   * returned once, so the UI says "We saved your recording from last time!"
-   * one time. subscribe() listeners hear when new ones arrive.
+   * returned once, so the UI tells the kid one time (ClipServiceApi
+   * takeRecovered, ui/copy.ts RECOVERED_COPY). subscribe() listeners hear
+   * when new ones arrive.
    */
   takeRecovered?(): Promise<ClipRecord[]>;
 }
@@ -295,6 +296,16 @@ export interface ClipServiceApi {
 
   /** Clears unwatchedClipId when it matches. */
   markWatched(id: string): void;
+  /**
+   * Take the Record videos that the library saved from a tab that closed or
+   * crashed while it recorded (plan 8.4 crash recovery), for the current
+   * player. Each one comes back once. When the list is not empty, the
+   * new-clip chip points at the newest one (unwatchedClipId), and the UI
+   * tells the kid. A player change while the list is read gives an empty
+   * list: the videos stay in that player's library, with no chip for the
+   * new player. It never rejects.
+   */
+  takeRecovered(): Promise<ClipRecord[]>;
   /** Turn capture back on after resting (Capture menu first row, plan 11.3). */
   wake(): void;
 

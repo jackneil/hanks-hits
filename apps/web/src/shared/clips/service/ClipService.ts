@@ -937,6 +937,30 @@ export class ClipService implements ClipServiceApi {
     }
   }
 
+  async takeRecovered(): Promise<ClipRecord[]> {
+    const library = this.library;
+    if (!library.takeRecovered || this.disposed) return [];
+    const epoch = this.ownerEpoch;
+    let rows: ClipRecord[];
+    try {
+      rows = await library.takeRecovered();
+    } catch (error) {
+      // Values-free (plan 12): the error name only. The videos stay in the library.
+      this.log(`[clips] the saved videos from last time could not be read (${(error as { name?: string } | null)?.name ?? "Error"})`);
+      return [];
+    }
+    // The player changed while the list was read: no chip and no words for the new player.
+    if (this.disposed || epoch !== this.ownerEpoch) return [];
+    const mine = rows.filter((row) => this.ownerKey === null || row.ownerKey === this.ownerKey);
+    if (mine.length === 0) return [];
+    const newest = mine.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+    if (this.unwatchedClipId !== newest.id) {
+      this.unwatchedClipId = newest.id;
+      this.publish();
+    }
+    return mine;
+  }
+
   markWatched(id: string): void {
     if (this.unwatchedClipId === id) {
       this.unwatchedClipId = null;

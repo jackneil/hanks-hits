@@ -220,6 +220,24 @@ export const TOAST_COPY = {
 } as const;
 
 /**
+ * A Record video that a tab saved when it closed or crashed while it
+ * recorded (plan 8.4 crash recovery). Plan 11.6 keeps "save" for the
+ * "Save to ..." buttons, so the words say "safe".
+ */
+export const RECOVERED_COPY = {
+  say: "Your video from last time is safe!",
+  /** The reply under the header: the new-clip chip opens the video. */
+  chipNext: "Tap New clip to watch it.",
+  /** The button in My clips that opens the video. */
+  watch: "Watch it",
+} as const;
+
+/** The reply when a video from last time comes back (the chip opens it). */
+export function recoveredReplyText(): string {
+  return `${RECOVERED_COPY.say} ${RECOVERED_COPY.chipNext}`;
+}
+
+/**
  * The reply when the Capture menu must wait for the end of a run that
  * cannot pause. A resting or record-only button first says why.
  */
@@ -447,6 +465,7 @@ export function allCopyStrings(): string[] {
   out.push(...Object.values(MENU_COPY));
   out.push(...Object.values(TOAST_COPY), recordTimerName("1:05", 0), recordTimerName("1:05", 1), recordTimerName("1:05", 3));
   out.push(deferredMenuText(null), deferredMenuText("resting"), deferredMenuText("record-only"));
+  out.push(...Object.values(RECOVERED_COPY), recoveredReplyText());
   out.push(...Object.values(VIEWER_TITLES), ...Object.values(SAVE_BUTTON_LABELS));
   out.push(...Object.values(VIEWER_COPY), ...Object.values(DELETE_QUESTIONS));
   out.push(tileName("Snake", "clip", "0:30"), tileName("Snake", "picture", null), tileName("Snake", "record", "2:10"));
