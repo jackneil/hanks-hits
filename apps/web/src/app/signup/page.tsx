@@ -100,7 +100,7 @@ export default function SignUpPage() {
           </p>
         </div>
 
-        <div className="mb-6 border-l-4 border-green-500 pl-4 text-sm leading-relaxed text-gray-700">
+        <div className="mb-6 rounded-2xl bg-slate-100 px-4 py-3 text-sm leading-relaxed text-gray-700">
           <p className="font-bold text-gray-800">For grown-ups</p>
           <p>
             Accounts save game progress for this player. Leaderboard scores may

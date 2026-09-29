@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { GameDisplayInfo } from "@/shared/lib/gameStatExtractor";
 import { GameDetailView } from "./game-details";
-import { getGameGradient } from "@/shared/lib/gameMetadata.generated";
+import { getGameSurface } from "@/shared/lib/gameMetadata.generated";
 import { getPlayableHref } from "@/shared/lib/app-routing";
 
 interface GameProgressCardProps {
@@ -45,14 +45,14 @@ export function GameProgressCard({ game }: GameProgressCardProps) {
     setIsExpanded((prev) => !prev);
   };
 
-  // Get static gradient classes (Tailwind can't analyze dynamic classes)
-  const gradientClasses = getGameGradient(game.appId);
+  // The game's solid card color (a static class: Tailwind can't analyze dynamic ones)
+  const surfaceClass = getGameSurface(game.appId);
 
   return (
     <div
       className={`
         block p-4 rounded-2xl shadow-lg
-        bg-gradient-to-br ${gradientClasses}
+        ${surfaceClass}
         border-2 border-white/20
         transition-all duration-200
       `}

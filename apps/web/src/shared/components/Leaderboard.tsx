@@ -283,11 +283,19 @@ export function Leaderboard({
                     <div
                       key={`${entry.handle}-${entry.rank}`}
                       role="row"
+                      data-current-player={isCurrentUser || undefined}
                       className={`
                         flex items-center gap-3 p-3 border-b border-slate-700/50
-                        transition-colors hover:bg-slate-700/30
-                        ${isCurrentUser ? "bg-primary/20 border-l-4 border-l-primary" : ""}
-                        ${index % 2 === 0 ? "bg-slate-800/30" : ""}
+                        transition-colors
+                        ${
+                          // One background per row. The player's own row
+                          // gets the selected-row color (no zebra, no
+                          // hover change); zebra and hover set it on the
+                          // other rows only.
+                          isCurrentUser
+                            ? "bg-primary/25"
+                            : `hover:bg-slate-700/30 ${index % 2 === 0 ? "bg-slate-800/30" : ""}`
+                        }
                       `}
                     >
                       {/* Rank */}
@@ -308,11 +316,11 @@ export function Leaderboard({
 
                       {/* Handle */}
                       <div role="cell" className="flex-1 flex items-center gap-2 min-w-0">
-                        <span className="font-medium truncate">
+                        <span className={`truncate ${isCurrentUser ? "font-bold text-white" : "font-medium"}`}>
                           {entry.handle}
                         </span>
                         {isCurrentUser && (
-                          <span className="text-xs bg-primary/30 text-primary px-2 py-0.5 rounded shrink-0">
+                          <span className="text-xs font-bold bg-primary text-primary-content px-2 py-0.5 rounded shrink-0">
                             YOU
                           </span>
                         )}

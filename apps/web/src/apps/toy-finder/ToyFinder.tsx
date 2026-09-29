@@ -116,8 +116,12 @@ export function ToyFinder() {
         </button>
       </div>
 
-      <div className="mb-4 border-l-4 border-white/80 bg-white/15 px-4 py-3 text-sm leading-relaxed text-white shadow-sm">
-        <p className="font-bold">Idea list, not a store</p>
+      {/* A plain light panel with dark words: easy to read on the blue page. */}
+      <div
+        data-testid="toy-finder-note"
+        className="mb-4 rounded-2xl bg-white/90 px-4 py-3 text-sm leading-relaxed text-slate-800"
+      >
+        <p className="font-bold text-slate-900">Idea list, not a store</p>
         <p>
           Prices are only a rough guide. Nothing can be bought here, and a
           grown-up should check before any purchase.

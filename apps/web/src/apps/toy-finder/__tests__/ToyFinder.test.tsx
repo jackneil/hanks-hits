@@ -83,6 +83,19 @@ describe("ToyFinder", () => {
     expect(screen.queryByText(/NEED IT/i)).not.toBeInTheDocument();
   });
 
+  it("shows the idea-list note as a plain light panel, not a colored left stripe", () => {
+    render(<ToyFinder />);
+
+    const note = screen.getByTestId("toy-finder-note");
+    expect(note).toContainElement(screen.getByText("Idea list, not a store"));
+    // The colored left border is the most reliable tell of AI-built UI.
+    expect(note.className).not.toMatch(/border-(?:l|t|s)-/);
+    expect(note.className).not.toMatch(/shadow/);
+    // Dark words on a light fill: white words on the light blue page were
+    // hard to read.
+    expect(note).toHaveClass("rounded-2xl", "bg-white/90", "text-slate-800");
+  });
+
   it("defers home + title to the app shell (no in-app title or home link)", () => {
     render(<ToyFinder />);
 

@@ -186,7 +186,7 @@ export function ProfilePage() {
   // Loading state
   if (loading || status === "loading") {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-600 to-purple-700 flex items-center justify-center">
+      <div className="min-h-screen bg-blue-800 flex items-center justify-center">
         <div className="text-center">
           <div className="text-6xl mb-4 animate-bounce">👤</div>
           <p className="text-white text-xl">Loading your profile...</p>
@@ -198,7 +198,7 @@ export function ProfilePage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-red-600 to-orange-700 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-red-700 flex items-center justify-center p-4">
         <div className="text-center">
           <div className="text-6xl mb-4">😕</div>
           <p className="text-white text-xl mb-4">{error}</p>
@@ -216,12 +216,12 @@ export function ProfilePage() {
   const displayName = profile?.name || profile?.email || "Player";
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-600 to-purple-700 pb-8">
+    <div className="min-h-screen bg-blue-800 pb-8">
       <Header title="My Profile" titleIcon="👤" />
 
       {/* Profile Card */}
       <section className="mx-4 mb-6">
-        <div className="bg-white/10 backdrop-blur-sm rounded-3xl p-6 border-2 border-white/20">
+        <div className="bg-white/10 rounded-3xl p-6 border-2 border-white/20">
           {/* Avatar and Name */}
           <div className="flex flex-col items-center mb-6">
             {/* Large Avatar */}
@@ -338,7 +338,7 @@ export function ProfilePage() {
               <Link
                 key={rank.appId}
                 href={getPlayableHref(rank.appId)}
-                className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20 hover:bg-white/20 transition-colors"
+                className="bg-white/10 rounded-xl p-4 border border-white/20 hover:bg-white/20 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-3xl">{rank.icon}</span>

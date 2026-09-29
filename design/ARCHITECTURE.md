@@ -293,6 +293,13 @@ first commit and decides in the render after its layout pass, before
 paint. If it decided in its first render, the sheet showed over the Trivia
 start card for one frame.
 
+**No decoration tells:** do not put a colored stripe on one edge of a
+card, a note or a row (`border-l-4` and a color). Give a note a plain
+fill. Mark a selected row with a row background and bold words. The
+shared components and the profile pages use solid colors, not
+decorative gradients. `src/__tests__/no-design-tells.test.ts` enforces
+both rules.
+
 **Layout under the shell:** content is offset by the header
 (`pt-12 md:pt-14`); full-height modules size against
 `calc(100vh - 3rem)` / `md:calc(100vh - 3.5rem)`, never `100vh`.

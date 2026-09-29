@@ -148,34 +148,37 @@ export function getGameMetadata(appId: string): GameMetadata {
 }
 
 /**
- * Static gradient class map - Tailwind can't analyze dynamic classes.
+ * Static card color map - Tailwind can't analyze dynamic classes.
+ * One solid 700 shade per color: white text on every one of them measures
+ * at least 4.5:1. (A gradient from 500 to 700 failed at the light end, and
+ * a gradient on every card is decoration nobody chose.)
  */
-const GRADIENT_MAP: Record<string, string> = {
-  green: "from-green-500 to-green-700",
-  red: "from-red-500 to-red-700",
-  amber: "from-amber-500 to-amber-700",
-  slate: "from-slate-500 to-slate-700",
-  emerald: "from-emerald-500 to-emerald-700",
-  sky: "from-sky-500 to-sky-700",
-  orange: "from-orange-500 to-orange-700",
-  lime: "from-lime-500 to-lime-700",
-  purple: "from-purple-500 to-purple-700",
-  yellow: "from-yellow-500 to-yellow-700",
-  cyan: "from-cyan-500 to-cyan-700",
-  blue: "from-blue-500 to-blue-700",
-  pink: "from-pink-500 to-pink-700",
-  stone: "from-stone-500 to-stone-700",
-  indigo: "from-indigo-500 to-indigo-700",
-  violet: "from-violet-500 to-violet-700",
-  gray: "from-gray-500 to-gray-700",
+const SURFACE_MAP: Record<string, string> = {
+  green: "bg-green-700",
+  red: "bg-red-700",
+  amber: "bg-amber-700",
+  slate: "bg-slate-700",
+  emerald: "bg-emerald-700",
+  sky: "bg-sky-700",
+  orange: "bg-orange-700",
+  lime: "bg-lime-700",
+  purple: "bg-purple-700",
+  yellow: "bg-yellow-700",
+  cyan: "bg-cyan-700",
+  blue: "bg-blue-700",
+  pink: "bg-pink-700",
+  stone: "bg-stone-700",
+  indigo: "bg-indigo-700",
+  violet: "bg-violet-700",
+  gray: "bg-gray-700",
 };
 
 /**
- * Get Tailwind background gradient classes for a game.
+ * Get the Tailwind background class of a game's card (one solid color).
  */
-export function getGameGradient(appId: string): string {
+export function getGameSurface(appId: string): string {
   const { color } = getGameMetadata(appId);
-  return GRADIENT_MAP[color] || GRADIENT_MAP.gray;
+  return SURFACE_MAP[color] || SURFACE_MAP.gray;
 }
 `;
 }
