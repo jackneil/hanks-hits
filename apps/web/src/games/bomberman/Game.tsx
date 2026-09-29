@@ -441,12 +441,11 @@ export function BombermanGame() {
         )}
       </div>
 
-      {/* Menu overlay: shared DOM start screen. Rendered as a direct child of
-          the full-height container (not the canvas-sized wrapper above) so the
-          absolute inset-0 overlay spans the whole viewport. On a small phone
-          the canvas shrinks to ~300px tall, and an overlay pinned to that box
-          clipped the Play button below the fold. Full-height means the whole
-          start card, Play button included, is visible without inner scrolling. */}
+      {/* Menu overlay: shared DOM start screen. On a small phone the canvas
+          shrinks to ~300px tall, and an overlay pinned to that box clipped
+          the Play button below the fold. The shared overlay now portals to
+          document.body and covers the viewport, with Play pinned in the
+          card, so the start card is not tied to the canvas box. */}
       {store.gameState === "menu" && (
         <GameStartOverlay
           title="Bomberman"

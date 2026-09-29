@@ -592,9 +592,9 @@ export function EndlessRunnerGame() {
         />
       </div>
 
-      {/* Shared DOM start screen (renders the title once). It mounts on the
-          full-height page container, not the canvas box: the canvas is wide
-          and short, so the start card would clip on a phone. */}
+      {/* Shared DOM start screen (renders the title once). It covers the
+          page (it portals to document.body), so the wide, short canvas box
+          cannot clip the start card on a phone. */}
       {gameState === "ready" && (
         <GameStartOverlay
           title="Endless Runner"

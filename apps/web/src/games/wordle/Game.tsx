@@ -136,10 +136,11 @@ export function WordleGame() {
       <IOSInstallPrompt />
       <TutorialModal />
 
-      {/* Shared start screen — mounted on the full-height page container so the
-          card, the age picker and the Play button never clip on a phone. The
-          "How to play" button lives in the picker slot: the old ❓ button sat
-          under the overlay and could not be reached before the first Play. */}
+      {/* Shared start screen. It covers the page (it portals to
+          document.body), so the card, the age picker and the Play button
+          never clip on a phone. The "How to play" button lives in the picker
+          slot: the old ❓ button sat under the overlay and could not be
+          reached before the first Play. */}
       {gameState === "ready" && (
         <GameStartOverlay
           title="Wordle"

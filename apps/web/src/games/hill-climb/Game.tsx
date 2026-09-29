@@ -1178,17 +1178,15 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     return <Garage onStartGame={handleStartFromGarage} />;
   }
 
-  // No overflow-hidden on the root below: it makes that div the start card's
-  // scroll container, which pushes the card's sticky box down by the header
-  // offset and clips Play off the bottom on a phone held sideways (844x390).
-  // The canvas is absolute inset-0, so there is nothing to clip.
+  // The canvas is absolute inset-0 in this root. The start card portals to
+  // document.body (GameStartOverlay), so this root cannot clip it.
   return (
     <div className="relative w-full h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)]">
       <canvas ref={canvasRef} className="absolute inset-0" style={{ touchAction: 'none' }} />
 
-      {/* Shared start screen: a real DOM overlay inside the positioned root.
-          It renders the title exactly once, so the game paints no title of
-          its own. The Garage opens from here without starting the run. */}
+      {/* Shared start screen: a real DOM overlay over the page. It renders
+          the title exactly once, so the game paints no title of its own.
+          The Garage opens from here without starting the run. */}
       {showStartScreen && (
         <GameStartOverlay
           title="Hill Climb Racing"

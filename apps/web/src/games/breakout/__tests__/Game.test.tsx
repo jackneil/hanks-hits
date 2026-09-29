@@ -47,11 +47,14 @@ describe("BreakoutGame start overlay", () => {
     expect(screen.getAllByText("Breakout")).toHaveLength(1);
   });
 
-  it("mounts the overlay inside a positioned canvas box", () => {
+  it("puts the overlay over the page, so the small canvas box cannot clip it", () => {
     const { container } = render(<BreakoutGame />);
 
+    // The shared overlay portals to document.body (GameStartOverlay's
+    // position contract), outside the game's own canvas box.
     const overlay = screen.getByTestId("game-start-overlay");
-    expect(overlay.parentElement?.className).toContain("relative");
+    expect(overlay.parentElement).toBe(document.body);
+    expect(container).not.toContainElement(overlay);
     expect(container.querySelector("canvas")).toBeInTheDocument();
   });
 

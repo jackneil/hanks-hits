@@ -224,6 +224,103 @@ describe("GameStartOverlay game sound", () => {
 });
 
 
+describe("GameStartOverlay layout: the start action is always on screen", () => {
+  // Regression (verify finding swe19): the card's scroll box was capped at
+  // the game's own box, so on a phone Play (or every choice) sat below the
+  // visible part of the card with no hint. jsdom has no layout, so these
+  // tests pin the structure that makes it work; the Playwright geometry
+  // check proves it on real screens.
+  afterEach(() => {
+    removeSpeechMock();
+  });
+
+  it("covers the page from document.body, so a small game box cannot clip it", () => {
+    render(
+      <div data-testid="game-box" className="relative overflow-hidden" style={{ height: 200 }}>
+        <GameStartOverlay title="Platformer" onStart={() => {}} />
+      </div>
+    );
+
+    const overlay = screen.getByTestId("game-start-overlay");
+    expect(overlay.parentElement).toBe(document.body);
+    expect(screen.getByTestId("game-box")).not.toContainElement(overlay);
+    expect(overlay.className).toMatch(/\bfixed\b/);
+    expect(overlay.className).toMatch(/\binset-0\b/);
+  });
+
+  it("pins Play and Read it to me in an action row under the scrolling body", async () => {
+    installSpeechMock();
+    render(
+      <GameStartOverlay
+        title="Trivia"
+        touchHints={["Tap the right answer"]}
+        keyboardHints={["Click the right answer"]}
+        onStart={() => {}}
+      >
+        <GameStartOverlayButton onClick={() => {}}>Easy</GameStartOverlayButton>
+      </GameStartOverlay>
+    );
+
+    const card = screen.getByTestId("start-card");
+    const body = screen.getByTestId("start-card-body");
+    const actions = screen.getByTestId("start-card-actions");
+    const play = screen.getByRole("button", { name: /play/i });
+
+    // Play and the read-aloud button never scroll out of view.
+    expect(actions).toContainElement(play);
+    expect(actions).toContainElement(await screen.findByTestId("read-aloud-button"));
+    expect(body).not.toContainElement(play);
+    expect(actions.className).toMatch(/\bshrink-0\b/);
+
+    // The words and the optional picker scroll in the body, above the row.
+    expect(body).toContainElement(screen.getByText("Click the right answer"));
+    expect(body).toContainElement(screen.getByRole("button", { name: "Easy" }));
+    expect(body.className).toMatch(/\boverflow-y-auto\b/);
+    expect(body.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card).toContainElement(body);
+    expect(card).toContainElement(actions);
+  });
+
+  it("puts the action row beside the body on a short screen (a phone held sideways)", () => {
+    // On a 390 px tall screen, a stacked card left the body about 70 px:
+    // Platformer's title was cut in half above its level buttons. Side by
+    // side, the words and the choices each get the card's full height.
+    render(
+      <GameStartOverlay title="Platformer" onStart={() => {}} showStartButton={false}>
+        <GameStartOverlayButton onClick={() => {}}>Level 1</GameStartOverlayButton>
+      </GameStartOverlay>
+    );
+
+    const card = screen.getByTestId("start-card");
+    const body = screen.getByTestId("start-card-body");
+    const actions = screen.getByTestId("start-card-actions");
+    expect(card.className).toMatch(/(^|\s)short:flex-row(\s|$)/);
+    expect(body.className).toMatch(/(^|\s)short:flex-1(\s|$)/);
+    expect(actions.className).toMatch(/(^|\s)short:w-\[45%\](\s|$)/);
+    // "safe" centering: a row taller than the card starts at the top, where
+    // the card's own scroll can reach it.
+    expect(actions.className).toMatch(/(^|\s)short:\[align-self:safe_center\](\s|$)/);
+  });
+
+  it("pins every choice in the action row when the picker starts the game", () => {
+    render(
+      <GameStartOverlay title="Space Invaders" onStart={() => {}} showStartButton={false}>
+        <GameStartOverlayButton onClick={() => {}}>4yo</GameStartOverlayButton>
+        <GameStartOverlayButton onClick={() => {}}>8yo</GameStartOverlayButton>
+        <GameStartOverlayButton onClick={() => {}}>12yo</GameStartOverlayButton>
+      </GameStartOverlay>
+    );
+
+    const actions = screen.getByTestId("start-card-actions");
+    const body = screen.getByTestId("start-card-body");
+    for (const name of ["4yo", "8yo", "12yo"]) {
+      const choice = screen.getByRole("button", { name });
+      expect(actions).toContainElement(choice);
+      expect(body).not.toContainElement(choice);
+    }
+  });
+});
+
 describe("GameStartOverlay read aloud", () => {
   afterEach(() => {
     removeSpeechMock();

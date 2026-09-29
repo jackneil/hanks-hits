@@ -221,18 +221,28 @@ floating fullscreen buttons — that chrome comes from the shell or not at all.
 
 **Games own the play area and overlay content.** Start screens are DOM, not
 canvas. Every game and every playable app uses **GameStartOverlay**
-(`src/shared/components/GameStartOverlay.tsx`). Mount it inside the game's
-`relative` canvas container, or as a direct child of the full-height page
-container. It renders the title once (the only in-content heading, visible
-only before start), pointer-aware controls copy (`useCoarsePointer` /
+(`src/shared/components/GameStartOverlay.tsx`). Render it conditionally on
+the start state, at any place in the game. It portals to `document.body` and
+covers the viewport under the header, so the size of the game box does not
+change the card. The card has a body and an action row. The body (the title,
+the hints, and the picker when Play shows) scrolls on a short screen. The
+action row (the read-aloud button, then Play or the picker choices) stays at
+the bottom of the card, so the start action is always on screen with no
+scroll. On a short screen (a phone held sideways) the action row sits to the
+right of the body. A nudge such as the iOS install tip shows in a break slot
+outside the card (below it, or beside it on a short screen), never in the
+card. The slot shows only while the whole card still fits next to it. If it
+does not fit, the tip waits for the pause menu. The overlay renders the
+title once (the only in-content heading, visible only before start),
+pointer-aware controls copy (`useCoarsePointer` /
 `matchMedia("(pointer: coarse)")`: touch viewports never see keyboard-only
 instructions), a 🔊 "Read it to me" button (`ReadAloudButton`, see below),
-an optional difficulty/level picker slot (`GameStartOverlayButton`, the one
-approved start-button style), and a start button guarded to fire once. All
-targets are >= 44x44px. Never draw menu text or hit-boxes into the canvas.
-Write the hint lines for a reader in grade 1 to 3: one action per line, an
-emoji first, short words. Two kinds of module do not use the overlay: a toy
-with no start moment (drawing-app, drum-machine) and a module with its own
+an optional difficulty/level picker slot (`GameStartOverlayButton`, the one approved
+start-button style), and a start button guarded to fire once. All targets
+are >= 44x44px. Never draw menu text or hit-boxes into the canvas. Write the
+hint lines for a reader in grade 1 to 3: one action per line, an emoji
+first, short words. Two kinds of module do not use the overlay: a toy with
+no start moment (drawing-app, drum-machine) and a module with its own
 launcher (retro-arcade). Those modules put the same `ReadAloudButton` on
 their first screen instead.
 
@@ -246,13 +256,14 @@ The kid must tap it. When the browser has no speech support, the button
 does not render. Any new text surface a kid meets mid-game must use the
 same button, in the same place: under the words, above the action buttons.
 
-**Stacking order (z-index, low to high):** GameStartOverlay 40, game
-HUDs/touch controls <= 50 (never visible at the same time as the overlay —
-HUDs render while playing, the overlay pre-start), OrientationWarning 100
-(phone-width portrait only), GameShell header 1000 (the clip confirmation
-lies in its title region at the same level), clip toast slot 1050, toast
-lane 1100, ResultChip 1200, LeaderboardModal 1500, PauseMenu 2000, clip
-sheets (Capture menu, viewer, settings) 2500, RestartConfirmationDialog
+**Stacking order (z-index, low to high):** game HUDs, touch controls and
+game modals <= 60, GameStartOverlay 90 (it covers the viewport, so it must
+be above every game layer), OrientationWarning 100 (phone-width portrait
+only), the iOS install banner on a page 200, GameShell header 1000 (the
+clip confirmation lies in its title region at the same level), clip toast
+slot 1050, toast lane 1100, ResultChip 1200, LeaderboardModal 1500,
+PauseMenu 2000, clip sheets (Capture menu, viewer, settings) and the iOS
+install tip that the pause menu opens 2500, RestartConfirmationDialog
 3000. Every layer above 1000 portals to `document.body`, so no game
 container can trap it (gameplay clips plan, section 11.4).
 

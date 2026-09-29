@@ -553,8 +553,9 @@ export function SnakeGame() {
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-green-800 to-green-950 p-4 flex flex-col items-center justify-center gap-6">
-      {/* Shared start screen — mounted on the full-height page container so the
-          card and its speed picker never clip against the small board box. */}
+      {/* Shared start screen. It covers the page (it portals to
+          document.body), so the card and its speed picker never clip against
+          the small board box. */}
       {status === "idle" && (
         <GameStartOverlay
           title="Snake"

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Orientation warning overlay
@@ -11,8 +12,10 @@ import { useState, useEffect } from 'react';
  * "Continue anyway" button for users who can't or don't want to rotate.
  *
  * Stacking contract: z-[100] — above every game HUD/touch-control layer
- * (games top out at z-50), below the GameShell header (z-[1000]) and
- * PauseMenu (z-[2000]).
+ * (games top out at z-60) and the start card (z-[90]), below the GameShell
+ * header (z-[1000]) and PauseMenu (z-[2000]). It portals to document.body,
+ * like the start card, so a game root that makes its own stacking context
+ * (monster-truck's `fixed inset-0` root) cannot put it under the start card.
  */
 
 /** Tailwind md breakpoint: at/above this width we treat the device as a tablet */
@@ -61,8 +64,12 @@ export function OrientationWarning({ disabled = false }: OrientationWarningProps
   // Don't show if disabled, dismissed, or in landscape
   if (disabled || dismissed || !isPortrait) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-8">
+  // isPortrait is set in an effect, so document exists here.
+  return createPortal(
+    <div
+      data-testid="orientation-warning"
+      className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-8"
+    >
       {/* Animated rotating phone */}
       <div className="text-8xl mb-6 animate-tilt">
         📱
@@ -105,6 +112,7 @@ export function OrientationWarning({ disabled = false }: OrientationWarningProps
           animation: tilt 2s ease-in-out infinite;
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -378,8 +378,9 @@ export function HextrisGame() {
       ref={containerRef}
       className="relative flex flex-col items-center justify-center min-h-screen bg-slate-900 p-4 select-none"
     >
-      {/* Shared start screen — mounted on the full-height page container so the
-          card never clips against the short scaled canvas box on a phone. */}
+      {/* Shared start screen. It covers the page (it portals to
+          document.body), so the short scaled canvas box on a phone cannot
+          clip the card. */}
       {store.status === "idle" && (
         <GameStartOverlay
           title="Hextris"

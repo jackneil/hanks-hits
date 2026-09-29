@@ -60,8 +60,24 @@ describe("OrientationWarning", () => {
 
   it("stacks above game HUDs (z-100 layer)", () => {
     mockDevice({ portrait: true, width: 375 });
-    const { container } = render(<OrientationWarning />);
-    const overlay = container.firstElementChild as HTMLElement;
+    render(<OrientationWarning />);
+    const overlay = screen.getByTestId("orientation-warning");
     expect(overlay.className).toMatch(/z-\[100\]/);
+  });
+
+  it("portals to document.body, so a game root with its own stacking context cannot put it under the start card", () => {
+    // Regression: monster-truck's root is `fixed inset-0`, a stacking
+    // context. Inside it, z-100 painted under the start card (z-90), which
+    // portals to document.body, and "Continue in portrait anyway" could not
+    // be tapped.
+    mockDevice({ portrait: true, width: 375 });
+    render(
+      <div data-testid="game-root" className="fixed inset-0 bg-black">
+        <OrientationWarning />
+      </div>
+    );
+    const overlay = screen.getByTestId("orientation-warning");
+    expect(overlay.parentElement).toBe(document.body);
+    expect(screen.getByTestId("game-root")).not.toContainElement(overlay);
   });
 });

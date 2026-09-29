@@ -46,6 +46,13 @@
   --radius-box: 1rem;
   --radius-btn: 0.75rem;
   --radius-badge: 0.5rem;
+
+  /* Flat: no daisyUI depth or noise. A custom theme inherits --depth: 1
+     from daisyUI's default light theme, and depth gives every .btn a drop
+     shadow in its own color (a blue shadow under each blue button, an
+     AI-design tell). Add a neutral shadow-* utility where lift is wanted. */
+  --depth: 0;
+  --noise: 0;
 }
 
 /* Dark theme for nighttime gaming */
@@ -77,6 +84,10 @@
   --radius-box: 1rem;
   --radius-btn: 0.75rem;
   --radius-badge: 0.5rem;
+
+  /* Flat, as in the light theme above */
+  --depth: 0;
+  --noise: 0;
 }
 
 /* Kid-friendly base styles */
@@ -97,6 +108,21 @@ html, body {
   .btn {
     min-height: 44px;
     min-width: 44px;
+  }
+}
+
+/* Scroll cue: a soft shadow at the top or bottom edge of a scroll box
+   shows that there is more to see past that edge. Two covers in the box
+   color scroll with the content (local), so each shadow hides when the
+   box is at that end. Used by the start card body (GameStartOverlay). */
+@layer components {
+  .scroll-cue {
+    background:
+      linear-gradient(var(--color-base-100) 30%, transparent) top / 100% 2.5rem no-repeat local,
+      linear-gradient(transparent, var(--color-base-100) 70%) bottom / 100% 2.5rem no-repeat local,
+      radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 0.22), transparent) top / 100% 0.75rem no-repeat scroll,
+      radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 0.22), transparent) bottom / 100% 0.75rem no-repeat scroll;
+    background-color: var(--color-base-100);
   }
 }
 

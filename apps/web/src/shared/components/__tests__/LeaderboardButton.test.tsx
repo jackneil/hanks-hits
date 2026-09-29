@@ -54,6 +54,21 @@ describe("LeaderboardButton", () => {
     expect(button).toHaveTextContent("Leaderboard");
   });
 
+  it("full variant: dark text on the yellow fill, never white", () => {
+    // Regression: the pause menu's Leaderboard button drew white text on
+    // yellow-500, measured at 1.91:1 in Chromium.
+    render(<LeaderboardButton appId="snake" variant="full" />);
+    const classes = screen.getByRole("button", { name: /leaderboard/i }).className;
+    expect(classes).toMatch(/(^|\s)text-slate-900(\s|$)/);
+    expect(classes).not.toMatch(/(^|\s)text-white(\s|$)/);
+  });
+
+  it("icon variant (the header) has no yellow fill", () => {
+    render(<LeaderboardButton appId="snake" variant="icon" />);
+    const classes = screen.getByRole("button", { name: /leaderboard/i }).className;
+    expect(classes).not.toMatch(/(^|\s)bg-yellow-/);
+  });
+
   it("keeps a 44 px target in both variants", () => {
     const { unmount } = render(<LeaderboardButton appId="snake" variant="full" />);
     expect(screen.getByRole("button").className).toContain("min-h-[44px]");
