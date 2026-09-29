@@ -25,8 +25,8 @@
  *   3. Selects the files: the loader, the bundle and its CSS, the
  *      decompression helpers, the localization files, and for each console
  *      in src/games/retro-arcade/lib/constants.ts every core that EmulatorJS
- *      can pick for it (its getCores() table), in the WebGL 2 and the legacy
- *      (WebGL 1) builds, with the core report.
+ *      can load for its ejsCore (coresFor() with the getCores() table), in
+ *      the WebGL 2 and the legacy (WebGL 1) builds, with the core report.
  *   4. Replaces the release files in public/emulator/ejs/<version>/ with
  *      these files and writes the manifest. It keeps NOTICE.txt, licenses/,
  *      source/ and their manifest entries ("notice", "components", "sources",
@@ -74,7 +74,6 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const CORE_LICENSES = {
   fceumm: "GPL-2.0",
   nestopia: "GPL-2.0",
-  gambatte: "GPL-2.0",
   genesis_plus_gx: "Genesis Plus GX license (non-commercial use only)",
   picodrive: "PicoDrive license (non-commercial use only)",
   mgba: "MPL-2.0",
@@ -130,11 +129,32 @@ export function parseCoreTable(bundleText) {
   return JSON.parse(json);
 }
 
-/** Reads the EmulatorJS system name of each Retro Arcade console. */
+/**
+ * Reads each Retro Arcade console and its EJS_core value from the SYSTEMS
+ * object in constants.ts: [{ system: "gb", ejsCore: "mgba" }, ...].
+ */
 export function parseArcadeSystems(constantsText) {
-  const systems = [...constantsText.matchAll(/ejsCore:\s*"([^"]+)"/g)].map((m) => m[1]);
+  const block = /export const SYSTEMS\b[^=]*=\s*\{([\s\S]*?)\n\};/.exec(constantsText)?.[1];
+  if (!block) throw new Error("no SYSTEMS object found in constants.ts");
+  const systems = [...block.matchAll(/\bid:\s*"([^"]+)"[\s\S]*?\bejsCore:\s*"([^"]+)"/g)].map((m) => ({
+    system: m[1],
+    ejsCore: m[2],
+  }));
   if (systems.length === 0) throw new Error("no ejsCore values found in constants.ts");
-  return [...new Set(systems)];
+  return systems;
+}
+
+/**
+ * Returns every core that EmulatorJS can load for an EJS_core value, or null.
+ * A system name gives all cores of the system (the first is the default, and
+ * the kid can pick another in the settings). A core name gives the core and
+ * the cores of its system, because the settings menu offers those (EmulatorJS
+ * getCore(true) takes the first system that lists the core).
+ */
+export function coresFor(ejsCore, table) {
+  if (table[ejsCore]) return [...table[ejsCore]];
+  const system = Object.keys(table).find((key) => table[key].includes(ejsCore));
+  return system ? [...new Set([ejsCore, ...table[system]])] : null;
 }
 
 async function main() {
@@ -184,9 +204,9 @@ async function main() {
     const table = parseCoreTable(bundle);
     const systems = parseArcadeSystems(readFileSync(CONSTANTS, "utf8"));
     const cores = {};
-    for (const system of systems) {
-      const list = table[system];
-      if (!list) fail(`EmulatorJS ${version} has no cores for the arcade system "${system}"`);
+    for (const { system, ejsCore } of systems) {
+      const list = coresFor(ejsCore, table);
+      if (!list) fail(`EmulatorJS ${version} has no core for "${ejsCore}" (the arcade system "${system}")`);
       for (const core of list) {
         cores[core] ??= { systems: [] };
         cores[core].systems.push(system);

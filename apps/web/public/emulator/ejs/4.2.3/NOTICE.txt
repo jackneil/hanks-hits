@@ -149,15 +149,7 @@ C. The parts
          https://github.com/EmulatorJS/libretro-fceumm,
          commit d9d7e141274d07186b6a871ca2919b6f13cfb2f9 ("(SVN) d9d7e14").
 
-   4.2 Gambatte (gambatte), for the Game Boy and the Game Boy Color
-       License: GNU General Public License, version 2.
-       License text: licenses/cores/gambatte.txt (GPL-2.0)
-       Copyright (C) 2007 Sindre Aamås and the other Gambatte authors.
-       Source code: source/gambatte-libretro-4ac2b30d196a.tar.gz (1.0 MB)
-         https://github.com/EmulatorJS/gambatte-libretro,
-         commit 4ac2b30d196a842061d6b333ea5e523a7c1a7cce ("v0.5.0 4ac2b30").
-
-   4.3 Genesis Plus GX (genesis_plus_gx), for the Sega Genesis
+   4.2 Genesis Plus GX (genesis_plus_gx), for the Sega Genesis
        License: the Genesis Plus GX license. It allows non-commercial use
        only. Redistributions must not be sold or used in a commercial
        product or activity. Some parts have the LGPL-2.1 and BSD licenses.
@@ -169,7 +161,8 @@ C. The parts
          https://github.com/EmulatorJS/Genesis-Plus-GX,
          commit 594cdf3a666546f65f46391c3615ac5e9550bfc1 ("v1.7.4 594cdf3").
 
-   4.4 mGBA (mgba), for the Game Boy Advance
+   4.3 mGBA (mgba), for the Game Boy, the Game Boy Color and the
+       Game Boy Advance
        License: Mozilla Public License, version 2.0 (MPL-2.0).
        License text: licenses/cores/mgba.txt (also licenses/MPL-2.0.txt)
        Copyright (c) 2013-2023 Jeffrey Pfau.
@@ -178,7 +171,7 @@ C. The parts
          commit 1d9dbb1dc8d51ed744fe6be82183f7f5076e549d
          ("0.11-dev 1d9dbb1").
 
-   4.5 Mupen64Plus-Next (mupen64plus_next), for the Nintendo 64
+   4.4 Mupen64Plus-Next (mupen64plus_next), for the Nintendo 64
        License: GNU General Public License, version 2 (GPL-2.0). Most files
        also allow a later version. Some parts have other licenses. Their
        notices are in the source archive.
@@ -191,7 +184,7 @@ C. The parts
          commit c35e55e87cbaa4cfc8355d8f91ceaa2beb212e9d
          ("2.8-GLES3 c35e55e").
 
-   4.6 Nestopia UE (nestopia), for the NES
+   4.5 Nestopia UE (nestopia), for the NES
        License: GNU General Public License, version 2 or later.
        License text: licenses/cores/nestopia.txt (GPL-2.0)
        Copyright (c) 2003-2008 Martin Freij. Copyright (c) 2008-2018
@@ -201,7 +194,7 @@ C. The parts
          commit 6b08ec9148bd4cedc893ed0c97bc64061d044399
          ("1.53.1 6b08ec9").
 
-   4.7 ParaLLEl N64 (parallel_n64), for the Nintendo 64
+   4.6 ParaLLEl N64 (parallel_n64), for the Nintendo 64
        License: GNU General Public License, version 2 (GPL-2.0), the license
        of Mupen64Plus-Core. Most files also allow a later version. Some parts
        have other licenses. Their notices are in the source archive.
@@ -215,7 +208,7 @@ C. The parts
          commit 56f4daf8ec9b00d51d7db88e3c34c381294dbde0
          ("2.0-rc2 56f4daf").
 
-   4.8 PicoDrive (picodrive), for the Sega Genesis
+   4.7 PicoDrive (picodrive), for the Sega Genesis
        License: the PicoDrive license (the MAME license). It allows
        non-commercial use only. Redistributions must not be sold or used in
        a commercial product or activity.
@@ -246,7 +239,7 @@ C. The parts
            platform/common/dr_libs, https://github.com/mackron/dr_libs,
            commit dd762b861ecadf5ddd5fb03e9ca1db6707b54fbb.
 
-   4.9 Snes9x (snes9x), for the Super NES
+   4.8 Snes9x (snes9x), for the Super NES
        License: the Snes9x license. It allows use, copy, change and
        distribution for non-commercial purposes only. The license
        information and the copyright notice must appear with all copies.
@@ -263,7 +256,7 @@ C. The parts
        The libretro build of Snes9x does not use the git submodules of
        this repository.
 
-   4.10 Stella 2014 (stella2014), for the Atari 2600
+   4.9 Stella 2014 (stella2014), for the Atari 2600
        License: GNU General Public License, version 2.
        License text: licenses/cores/stella2014.txt (stella/license.txt from
        the source). The core file has no license.txt.

@@ -28,7 +28,7 @@ import { SYSTEMS } from "../lib/constants";
  * binary names. scripts/emulatorjs-sources.mjs gets and checks these files.
  *
  * Git holds the license texts and NOTICE.txt, so the tests always check them.
- * Git does not hold source/ (about 137 MB). The Docker build downloads each
+ * Git does not hold source/ (about 136 MB). The Docker build downloads each
  * archive and checks its SHA-256 (stage emulator-sources), and the tests
  * check that it does. The tests check a source archive only when it is on
  * disk (after pnpm --filter web emulator:sources).
@@ -205,6 +205,18 @@ function coreTable(bundle: string): Record<string, string[]> {
   return JSON.parse(match[1].replace(/([{,])([A-Za-z_$][\w$]*):/g, '$1"$2":'));
 }
 
+/**
+ * Every core that EmulatorJS can load for an EJS_core value (the same rule
+ * as coresFor() in scripts/vendor-emulatorjs.mjs). A system name gives all
+ * cores of the system. A core name gives the core and the cores of the first
+ * system that lists it: the settings menu offers those (getCore(true)).
+ */
+function coresFor(ejsCore: string, table: Record<string, string[]>): string[] | null {
+  if (table[ejsCore]) return [...table[ejsCore]];
+  const system = Object.keys(table).find((key) => table[key].includes(ejsCore));
+  return system ? [...new Set([ejsCore, ...table[system]])] : null;
+}
+
 describe("self-hosted EmulatorJS files", () => {
   it("come from the official release of the pinned version", () => {
     expect(manifest.name).toBe("EmulatorJS");
@@ -290,10 +302,10 @@ describe("self-hosted EmulatorJS files", () => {
   it("hold every core that EmulatorJS can pick for a Retro Arcade console", () => {
     const table = coreTable(readFileSync(join(EJS_DIR, "emulator.min.js"), "utf8"));
     const missing: string[] = [];
-    for (const system of new Set(Object.values(SYSTEMS).map((s) => s.ejsCore))) {
-      const cores = table[system];
+    for (const [system, info] of Object.entries(SYSTEMS)) {
+      const cores = coresFor(info.ejsCore, table);
       if (!cores) {
-        missing.push(`EmulatorJS has no cores for ${system}`);
+        missing.push(`EmulatorJS has no core for ${info.ejsCore} (${system})`);
         continue;
       }
       // Every core in the list: the kid can pick another core in the
@@ -314,6 +326,28 @@ describe("self-hosted EmulatorJS files", () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it("hold no core that no console uses", () => {
+    // A core that no console can load is dead weight, and its license and
+    // source entries would be wrong (Game Boy moved from gambatte to mgba).
+    const table = coreTable(readFileSync(join(EJS_DIR, "emulator.min.js"), "utf8"));
+    const used = new Set(Object.values(SYSTEMS).flatMap((s) => coresFor(s.ejsCore, table) ?? []));
+    expect(Object.keys(manifest.cores).sort()).toEqual([...used].sort());
+    const coreFiles = [...manifestPaths].filter((p) => p.startsWith("cores/"));
+    const unused = coreFiles.filter((p) => {
+      const core = /^cores\/(?:reports\/)?(.+?)(?:-legacy)?(?:-wasm\.data|\.json)$/.exec(p)?.[1];
+      return !core || !used.has(core);
+    });
+    expect(unused).toEqual([]);
+  });
+
+  it("find the cores of a system name and of a core name (guards coresFor)", () => {
+    const table = { gb: ["gambatte"], segaMS: ["smsplus", "picodrive"], gba: ["mgba"] };
+    expect(coresFor("gb", table)).toEqual(["gambatte"]);
+    expect(coresFor("mgba", table)).toEqual(["mgba"]);
+    expect(coresFor("picodrive", table)).toEqual(["picodrive", "smsplus"]);
+    expect(coresFor("psx", table)).toBeNull();
   });
 
   it("are enough because the page never asks for the thread cores", () => {

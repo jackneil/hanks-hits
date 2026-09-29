@@ -144,11 +144,12 @@ describe("EmulatorJS is self-hosted at the pinned version", () => {
   });
 
   it("accepts only the systems that Retro Arcade offers", () => {
-    const match = /const ALLOWED_CORES = \[([^\]]*)\];/.exec(page);
-    expect(match, "the emulator page has no ALLOWED_CORES list").not.toBeNull();
-    const pageCores = [...match![1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
-    const arcadeCores = [...new Set(Object.values(SYSTEMS).map((s) => s.ejsCore))].sort();
-    expect(pageCores).toEqual(arcadeCores);
+    // The top-level keys of SYSTEM_CONFIG are the consoles that the page
+    // accepts. emulator-page.test.ts checks the core of each one.
+    const match = /const SYSTEM_CONFIG = \{\n([\s\S]*?)\n {4}\};/.exec(page);
+    expect(match, "the emulator page has no SYSTEM_CONFIG table").not.toBeNull();
+    const pageSystems = [...match![1].matchAll(/^ {6}(\w+): \{/gm)].map((m) => m[1]).sort();
+    expect(pageSystems).toEqual(Object.keys(SYSTEMS).sort());
   });
 
   it("flags a CDN URL and an https: connect-src (guards the checks above)", () => {

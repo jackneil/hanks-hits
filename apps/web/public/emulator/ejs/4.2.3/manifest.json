@@ -26,8 +26,8 @@
   ],
   "notice": {
     "path": "NOTICE.txt",
-    "bytes": 16527,
-    "sha256": "22581b2c1e8afd560f96625c965c9c4733b7d6dc808aa2d03155408c346dc1f1"
+    "bytes": 16106,
+    "sha256": "52f267d3976def2412e3b44027921567a30ef9288652b487fe09a7804e06e274"
   },
   "cores": {
     "fceumm": {
@@ -41,21 +41,6 @@
       "licenseText": "licenses/cores/fceumm.txt",
       "sources": [
         "fceumm",
-        "retroarch",
-        "build"
-      ]
-    },
-    "gambatte": {
-      "systems": [
-        "gb"
-      ],
-      "license": "GPL-2.0",
-      "source": "https://github.com/EmulatorJS/gambatte-libretro",
-      "revision": "4ac2b30d196a842061d6b333ea5e523a7c1a7cce",
-      "revisionEvidence": "Both core builds contain the string \"v0.5.0 4ac2b30\". Makefile.libretro puts git rev-parse --short HEAD into the binary at build time, and GitHub resolves 4ac2b30 to this commit.",
-      "licenseText": "licenses/cores/gambatte.txt",
-      "sources": [
-        "gambatte",
         "retroarch",
         "build"
       ]
@@ -77,6 +62,7 @@
     },
     "mgba": {
       "systems": [
+        "gb",
         "gba"
       ],
       "license": "MPL-2.0",
@@ -408,18 +394,6 @@
       "sha256": "d6a15be9978144a16698a5194d2df0b715f2d3c874bbe144b7a33fc6a9f9c652"
     },
     {
-      "id": "gambatte",
-      "path": "source/gambatte-libretro-4ac2b30d196a.tar.gz",
-      "from": {
-        "url": "https://codeload.github.com/EmulatorJS/gambatte-libretro/tar.gz/4ac2b30d196a842061d6b333ea5e523a7c1a7cce"
-      },
-      "repository": "https://github.com/EmulatorJS/gambatte-libretro",
-      "commit": "4ac2b30d196a842061d6b333ea5e523a7c1a7cce",
-      "for": "The gambatte core.",
-      "bytes": 984540,
-      "sha256": "b1ef4e67ea3427e896b279d251f602c5dbf66e0abe2dc5e2c5bd4dcc5364e978"
-    },
-    {
       "id": "genesis_plus_gx",
       "path": "source/Genesis-Plus-GX-594cdf3a6665.tar.gz",
       "from": {
@@ -603,7 +577,7 @@
       "from": {
         "url": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt"
       },
-      "for": "fceumm, gambatte, mupen64plus_next, nestopia, parallel_n64 and stella2014 (GPL-2.0)",
+      "for": "fceumm, mupen64plus_next, nestopia, parallel_n64 and stella2014 (GPL-2.0)",
       "bytes": 17984,
       "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
     },
@@ -700,16 +674,6 @@
       "for": "fceumm: license.txt from the core file, unchanged",
       "bytes": 18010,
       "sha256": "a6996dcf0c334281f734560926e079b2dbbd5b78e81c0ca00a413ec01e1cd2fb"
-    },
-    {
-      "path": "licenses/cores/gambatte.txt",
-      "from": {
-        "archive": "cores/gambatte-wasm.data",
-        "member": "license.txt"
-      },
-      "for": "gambatte: license.txt from the core file, unchanged",
-      "bytes": 17987,
-      "sha256": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6"
     },
     {
       "path": "licenses/cores/genesis_plus_gx.txt",
@@ -966,24 +930,6 @@
       "bytes": 1053006,
       "sha256": "f1054b094e7149fd6278485bc1b2e51ff75c5259048ddb1134171e53d651f239",
       "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/fceumm-legacy-wasm.data"
-    },
-    {
-      "path": "cores/reports/gambatte.json",
-      "bytes": 122,
-      "sha256": "a240a47bd6b2a38a6c46ee63c80bdcd24befbd50474453df4898d49282bd5f57",
-      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/reports/gambatte.json"
-    },
-    {
-      "path": "cores/gambatte-wasm.data",
-      "bytes": 967156,
-      "sha256": "ad67c7bf57f8f8b62606048e6ea498afac5b5abc76ad8de5f9dfc2a6719374bb",
-      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/gambatte-wasm.data"
-    },
-    {
-      "path": "cores/gambatte-legacy-wasm.data",
-      "bytes": 967022,
-      "sha256": "940a7381d51223c0be0c0f98d1a988d42cc98d03c27b392cbd29cb9f357b5f62",
-      "source": "https://github.com/EmulatorJS/EmulatorJS/releases/download/v4.2.3/4.2.3.7z#data/cores/gambatte-legacy-wasm.data"
     },
     {
       "path": "cores/reports/genesis_plus_gx.json",

@@ -96,10 +96,48 @@
       /^\/[^/]/,  // Relative paths (starting with /)
     ];
 
-    // SECURITY: The EmulatorJS systems that Retro Arcade offers (the ejsCore
-    // values in src/games/retro-arcade/lib/constants.ts). The site hosts the
-    // cores for these systems only. A test keeps the two lists the same.
-    const ALLOWED_CORES = ['nes', 'snes', 'gb', 'gba', 'segaMD', 'n64', 'atari2600'];
+    // SECURITY: The consoles that Retro Arcade offers, with the EmulatorJS
+    // core (EJS_core) and control layout (EJS_controlScheme) of each. The
+    // site hosts the cores for these consoles only. The values are the same
+    // as ejsCore and ejsControlScheme in
+    // src/games/retro-arcade/lib/constants.ts (emulator-page.test.ts checks).
+    const SYSTEM_CONFIG = {
+      nes: { core: 'nes' },
+      snes: { core: 'snes' },
+      // Game Boy and Game Boy Color games run on mGBA. Before, they ran on
+      // Gambatte. RetroArch keeps battery saves in one folder per core, so
+      // the page copies old Gambatte saves to the mGBA folder (see below).
+      gb: {
+        core: 'mgba',
+        controlScheme: 'gb',
+        oldSaveFolder: '/data/saves/Gambatte',
+        saveFolder: '/data/saves/mGBA',
+      },
+      gba: { core: 'gba' },
+      segaMD: { core: 'segaMD' },
+      n64: { core: 'n64' },
+      atari2600: { core: 'atari2600' },
+    };
+
+    /**
+     * Copies each battery save (.srm) from oldFolder to newFolder, when
+     * newFolder does not have a save with that name. The old file stays.
+     * A .srm file is the cartridge RAM as it is, so the new core reads it.
+     * Returns the names of the copied files.
+     */
+    function copyOldSaves(FS, oldFolder, newFolder) {
+      if (!FS.analyzePath(oldFolder).exists) return [];
+      const copied = [];
+      for (const name of FS.readdir(oldFolder)) {
+        if (!/\.srm$/i.test(name)) continue;
+        const target = newFolder + '/' + name;
+        if (FS.analyzePath(target).exists) continue;
+        if (!FS.analyzePath(newFolder).exists) FS.mkdir(newFolder);
+        FS.writeFile(target, FS.readFile(oldFolder + '/' + name));
+        copied.push(name);
+      }
+      return copied;
+    }
 
     function isValidRomUrl(url) {
       if (!url) return false;
@@ -154,8 +192,10 @@
     // SECURITY: Sanitize game name to prevent XSS
     const gameName = (params.get('name') || 'Game').replace(/[<>"'&]/g, '');
 
-    // Validate required parameters
-    if (!ALLOWED_CORES.includes(core)) {
+    // Validate required parameters. hasOwnProperty: a name such as
+    // "constructor" must not match a property of Object.prototype.
+    const system = Object.prototype.hasOwnProperty.call(SYSTEM_CONFIG, core) ? SYSTEM_CONFIG[core] : null;
+    if (!system) {
       document.getElementById('loading').innerHTML = `
         <div class="icon">🚫</div>
         <div class="text">We cannot play this game here</div>
@@ -185,7 +225,32 @@
 
     // EmulatorJS configuration
     window.EJS_player = '#game';
-    window.EJS_core = core;
+    window.EJS_core = system.core;
+    if (system.controlScheme) window.EJS_controlScheme = system.controlScheme;
+
+    // Keep a kid's Game Boy progress after the change of core. EmulatorJS
+    // mounts the saves folder, sends "saveDatabaseLoaded", and only then
+    // loads the game. loader.js sets window.EJS_emulator immediately after it
+    // makes the emulator, so this setter adds the handler in time.
+    if (system.oldSaveFolder) {
+      let emulator;
+      Object.defineProperty(window, 'EJS_emulator', {
+        configurable: true,
+        get: function() { return emulator; },
+        set: function(value) {
+          emulator = value;
+          value.on('saveDatabaseLoaded', function(FS) {
+            try {
+              const copied = copyOldSaves(FS, system.oldSaveFolder, system.saveFolder);
+              if (copied.length > 0) console.log('Copied old saves to ' + system.saveFolder + ': ' + copied.join(', '));
+            } catch (e) {
+              // The game still starts. It does not see the old save.
+              console.warn('Could not copy the old saves', e);
+            }
+          });
+        },
+      });
+    }
     window.EJS_gameUrl = romUrl;
     window.EJS_gameName = gameName;
     // EmulatorJS 4.2.3 is served from this site (issue #22). The files come

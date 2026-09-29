@@ -13,7 +13,7 @@
  * part is and where its license and its source are.
  *
  * Git holds the license texts and NOTICE.txt. Git does not hold the source
- * archives (about 137 MB): each clone would keep them for ever. The Docker
+ * archives (about 136 MB): each clone would keep them for ever. The Docker
  * build gets them with this script (--fetch --sources) and stops when one
  * archive is not correct. Thus the site never sends the emulator files
  * without their source code.

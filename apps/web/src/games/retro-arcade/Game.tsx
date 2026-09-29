@@ -274,8 +274,11 @@ function EmulatorView({
     return () => window.removeEventListener("message", handleMessage);
   }, [gameId, saveSaveState, loadSaveState, onExit, skipAutoLoad]);
 
-  // Build the emulator URL with params
-  const emulatorUrl = `/emulator/index.html?core=${encodeURIComponent(SYSTEMS[system].ejsCore)}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(romName)}`;
+  // Build the emulator URL with params. "core" is the Retro Arcade console
+  // (the name of the parameter is historical). The emulator page sets the
+  // EmulatorJS core and control layout of the console (SYSTEMS[system].ejsCore
+  // and ejsControlScheme; emulator-page.test.ts keeps the two the same).
+  const emulatorUrl = `/emulator/index.html?core=${encodeURIComponent(system)}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(romName)}`;
 
   return (
     <div className="fixed inset-0 bg-black flex flex-col z-50">
