@@ -30,6 +30,25 @@ const CONFETTI = [
  * The layer and the toast are pointer-events-none so a celebration can never
  * eat a mid-game tap (the cookie-clicker toast lesson); the single
  * interactive element is the >=44px "Yay!" dismiss button.
+ *
+ * Stacking contract of the site (z-index, low to high):
+ * - 100 and below: game layers (60 at most), the start card (90) and the
+ *   rotate-your-phone card (100).
+ * - 200: the install sheet that shows by itself on a page with no play.
+ * - 1000: the GameShell header.
+ * - 1050: toasts (a game's own short notes, for example "Saved!").
+ * - 1100: the Retro Arcade's full-screen emulator view. It covers the
+ *   header and the toasts.
+ * - 1150: celebrations (this layer). A trophy earned while a retro game
+ *   runs shows over the emulator view. Before this, the layer shared 1100
+ *   with the emulator view, so page order decided which one was on top.
+ * - 1500: modals (leaderboards, tutorials).
+ * - 2000: the pause menu.
+ * - 2500: sheets the kid opens (the install steps from the 📲 button).
+ * - 3000: dialogs (the restart question).
+ * The celebration stays under modals, sheets and dialogs, so it never
+ * covers a question the kid must answer, and pointer-events-none keeps it
+ * from taking a tap on anything under it.
  */
 // More queued unlocks than this collapses into one summary toast — a
 // retroactive burst (existing progress evaluated for the first time) would
@@ -70,7 +89,7 @@ export function AchievementCelebrations() {
 
   return (
     <div
-      className="fixed inset-x-0 top-14 z-[1100] flex justify-center pointer-events-none"
+      className="fixed inset-x-0 top-14 z-[1150] flex justify-center pointer-events-none"
       role="status"
       aria-live="polite"
       data-testid="achievement-celebration"

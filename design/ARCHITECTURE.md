@@ -264,7 +264,13 @@ same button, in the same place: under the words, above the action buttons.
 **Stacking order (z-index, low to high):** game HUDs, touch controls and
 game modals <= 60, GameStartOverlay 90 (it covers the viewport, so it must
 be above every game layer), OrientationWarning 100 (phone-width portrait
-only), GameShell header 1000, PauseMenu 2000.
+only), the install sheet that shows by itself on a page with no play 200,
+GameShell header 1000, toasts 1050, the Retro Arcade emulator view 1100,
+AchievementCelebrations 1150, modals (leaderboards, tutorials) 1500,
+PauseMenu 2000, sheets that the kid opens (the install steps from the 📲
+button) 2500, dialogs (the restart question) 3000. The celebration layer
+is `pointer-events-none`, so it takes no tap except on its own dismiss
+button. The comment in `AchievementCelebrations.tsx` holds the same list.
 
 **Bottom sheets:** a sheet fixed to the bottom of the screen covers the
 end of the page. While a sheet shows, it calls `useBottomSheetSpace`

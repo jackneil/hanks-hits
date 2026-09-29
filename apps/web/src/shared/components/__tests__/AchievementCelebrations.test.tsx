@@ -48,6 +48,17 @@ describe("AchievementCelebrations", () => {
     expect(dismiss.className).toContain("min-h-[44px]");
   });
 
+  it("has its own layer: above the emulator view (1100), below modals, sheets and dialogs", () => {
+    resetAchievements(["first-play:snake"]);
+    render(<AchievementCelebrations />);
+
+    const layer = screen.getByTestId("achievement-celebration");
+    // It used to share z-[1100] with the Retro Arcade's full-screen
+    // emulator view, so which one drew on top depended on page order.
+    expect(layer).toHaveClass("fixed", "z-[1150]", "pointer-events-none");
+    expect(layer.className.match(/\bz-\[\d+\]/g)).toEqual(["z-[1150]"]);
+  });
+
   it("draws the toast on one solid surface, with no gradient or colored glow", () => {
     resetAchievements(["first-play:snake"]);
     render(<AchievementCelebrations />);
