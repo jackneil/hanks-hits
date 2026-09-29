@@ -151,7 +151,7 @@ describe("ClipsLab", () => {
     expect(attached?.setAtBreak).toHaveBeenLastCalledWith(false);
     expect(screen.getByTestId("lab-start").textContent).toBe(LAB_COPY.stop);
 
-    // 3.2 s of 60 Hz frames: beats at context time 1, 2 and 3.
+    // 3.2 s of 60 Hz frames: beats at context time 1, 2.017 and 3.033 (1 s and one frame apart, labSchedule.ts).
     const beatFrames: number[] = [];
     let t = 1000;
     for (frameNo = 0; frameNo < 192; frameNo++) {
@@ -169,10 +169,11 @@ describe("ClipsLab", () => {
     expect(whiteFrames).toEqual(beatFrames.flatMap((f) => [f, f + 1, f + 2, f + 3]));
     expect(screen.getByText("4 frames")).toBeTruthy();
     for (const f of fills.filter((x) => x.style === "rgb(255, 255, 255)")) expect(f.rect).toEqual([0, 0, 640, 360]);
-    // Each beep starts at the context time of its frame.
+    // Each beep starts at the context time of its frame: the first frame at or after its beat time.
     oscillators().forEach((osc, i) => {
-      expect(osc.startTime).toBeGreaterThanOrEqual(i + 1);
-      expect(osc.startTime! - (i + 1)).toBeLessThan(1 / 60 + 1e-9);
+      const due = 1 + i * (61 / 60);
+      expect(osc.startTime).toBeGreaterThanOrEqual(due - 1e-9);
+      expect(osc.startTime! - due).toBeLessThan(1 / 60 + 1e-9);
     });
     expect(screen.getByTestId("lab-status").getAttribute("data-beats")).toBe("3");
     expect(labWindow().__clipsLab?.truth().map((b) => b.index)).toEqual([0, 1, 2]);

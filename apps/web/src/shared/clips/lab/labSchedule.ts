@@ -1,9 +1,12 @@
 /**
- * The lab metronome: one flash and one beep each second (plan 15.1 lab pattern).
+ * The lab metronome: one flash and one beep about each second (plan 15.1 lab
+ * pattern).
  *
  * The lab calls tick() once in each requestAnimationFrame callback. The beat
- * follows the AudioContext clock: a beat is due when currentTime reaches the
- * next whole second of context time. In the frame where a beat is due, the
+ * follows the AudioContext clock: the first beat is due when currentTime
+ * reaches the next whole second of context time, and each next beat is
+ * BEAT_INTERVAL_SEC plus PHASE_STEP_FRAMES display frames later (see "Phase
+ * sweep" below). In the frame where a beat is due, the
  * lab draws the flash AND starts the beep at currentTime, in the same task.
  * That is how a game makes a sound for a picture, and it is the pipeline's
  * definition of "the same instant" (encode/audio/clock.ts: a sound started at
@@ -22,13 +25,25 @@
  * is at most k - 1 display frames after the real onset: that is the time
  * resolution of a video at that rung, the same for any flash length.
  *
+ * Phase sweep: the capture takes the first frame of each slot of k display
+ * frames. Beats that are exactly 1 s apart are 60 display frames apart at
+ * 60 Hz, so each beat meets its slot at the same place, and a clip shows one
+ * point of the rung's time resolution only (the best case or the worst case,
+ * by luck). One more display frame per beat moves the place by one frame, so
+ * k beats in a row meet the slot at every place, and the A/V rows see the
+ * worst case of each rung. Measured 2026-09-29: a beat at the 15 fps rung
+ * read -50 ms (the picture 3 frames after the sound), while every beat at
+ * 30 fps read about 0 ms from the locked place.
+ *
  * Ground truth: every beat is logged with its context time, the rAF time of
  * its flash frame and performance.now() in that task.
  */
 import { estimateDisplayHz, rungTable } from "../runtime/rungs";
 
-/** Context seconds between two beats. */
+/** Context seconds between two beats, before the phase step. The first beat is on a whole second. */
 export const BEAT_INTERVAL_SEC = 1;
+/** Display frames added to each beat interval, so the beats sweep every place in a capture slot (see "Phase sweep"). */
+export const PHASE_STEP_FRAMES = 1;
 /** A beat that is due by more than this (a hidden or stalled tab) is skipped, not played late. */
 export const LATE_BEAT_LIMIT_SEC = 0.5;
 /** rAF intervals kept for the display-rate estimate. */
@@ -125,6 +140,11 @@ export class LabMetronome {
     return rungs[rungs.length - 1].k;
   }
 
+  /** Context seconds from one beat to the next: BEAT_INTERVAL_SEC plus PHASE_STEP_FRAMES display frames. */
+  get beatIntervalSec(): number {
+    return BEAT_INTERVAL_SEC + PHASE_STEP_FRAMES / this.displayHz;
+  }
+
   /** Start the beats. The first beat is at the next whole second of context time. */
   start(): void {
     this.isRunning = true;
@@ -173,8 +193,9 @@ export class LabMetronome {
     const beat: LabBeat = { index: this.beats, ctxTime: audio.time };
     this.beats++;
     this.flashLeft = holdFrames - 1;
-    this.nextBeatAt += BEAT_INTERVAL_SEC;
-    while (this.nextBeatAt <= audio.time) this.nextBeatAt += BEAT_INTERVAL_SEC;
+    const interval = this.beatIntervalSec;
+    this.nextBeatAt += interval;
+    while (this.nextBeatAt <= audio.time) this.nextBeatAt += interval;
     this.truth.push({ index: beat.index, ctxTime: audio.time, rafTs: input.rafTs, perfNow: input.perfNow, holdFrames });
     if (this.truth.length > TRUTH_LIMIT) this.truth.shift();
     return { flash: true, beat };

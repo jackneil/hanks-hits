@@ -6,6 +6,7 @@ import {
   LATE_BEAT_LIMIT_SEC,
   LabMetronome,
   MAX_VSYNC_INTERVAL_MS,
+  PHASE_STEP_FRAMES,
   TRUTH_LIMIT,
   type LabTickResult,
 } from "../labSchedule";
@@ -66,20 +67,22 @@ describe("LabMetronome", () => {
     expect(metronome.truth).toEqual([{ index: 0, ctxTime: 1.004, rafTs: 33.3, perfNow: 34, holdFrames: 4 }]);
   });
 
-  it("flashes in the same tick that starts the beep, once per second, at 60 Hz", () => {
+  it("flashes in the same tick that starts the beep, about once per second, at 60 Hz", () => {
     const metronome = new LabMetronome({ targetFps: 60 });
     metronome.start();
     const frames = simulate(metronome, { hz: 60, seconds: 10.2, audioAt0: 0.25 });
     const beats = frames.filter((f) => f.result.beat);
-    // Context time runs 0.25 .. 10.43: beats at 1 .. 10.
+    // Context time runs 0.25 .. 10.43: beats at 1, then each 1 s + 1 frame later (the last at 1 + 9 * 61 / 60 = 10.15).
     expect(beats).toHaveLength(10);
+    expect(metronome.beatIntervalSec).toBeCloseTo(BEAT_INTERVAL_SEC + PHASE_STEP_FRAMES / 60, 12);
     beats.forEach((f, i) => {
       expect(f.result.flash).toBe(true);
       expect(f.result.beat?.index).toBe(i);
       expect(f.result.beat?.ctxTime).toBe(f.time);
-      // The frame that reaches the whole second, never later.
-      expect(f.time).toBeGreaterThanOrEqual(i + 1);
-      expect(f.time - (i + 1)).toBeLessThan(1 / 60 + 1e-9);
+      // The frame that reaches the beat time, never later.
+      const due = 1 + i * (61 / 60);
+      expect(f.time).toBeGreaterThanOrEqual(due - 1e-9);
+      expect(f.time - due).toBeLessThan(1 / 60 + 1e-9);
     });
     // At 60 Hz the rungs are 60, 30, 20 and 15 fps: the flash lasts 4 frames, one run per beat.
     const beatAt = frames.map((f, i) => (f.result.beat ? i : -1)).filter((i) => i >= 0);
@@ -108,6 +111,30 @@ describe("LabMetronome", () => {
       expect(first).toBeGreaterThan(0);
       const flashRun = frames.slice(first, first + hold + 1).map((f) => f.result.flash);
       expect(flashRun).toEqual([...Array(hold).fill(true), false]);
+    }
+  });
+
+  it("moves each beat one display frame against the capture slots, so k beats meet every place in a slot", () => {
+    // The phase sweep: beats locked to whole seconds meet a slot of k frames at one place only.
+    for (const [hz, target, k] of [
+      [60, 60, 4], // the 15 fps rung
+      [120, 60, 8],
+      [144, 60, 9],
+      [90, 30, 6],
+    ] as const) {
+      const metronome = new LabMetronome({ targetFps: target });
+      simulate(metronome, { hz, seconds: 0.5 }); // warm up the rate estimate
+      metronome.start();
+      // Half a frame of audio offset: no beat time falls on a frame time, so the frame of each beat is exact.
+      const frames = simulate(metronome, { hz, seconds: 12, audioAt0: 0.5 / hz, t0: 5000 });
+      const beatAt = frames.map((f, i) => (f.result.beat ? i : -1)).filter((i) => i >= 0);
+      expect(beatAt.length).toBeGreaterThanOrEqual(k);
+      // One display frame more than a second between beats.
+      for (let i = 1; i < beatAt.length; i++) expect(beatAt[i] - beatAt[i - 1]).toBe(hz + PHASE_STEP_FRAMES);
+      // Any k beats in a row meet every place of a k-frame slot.
+      const places = new Set(beatAt.slice(0, k).map((i) => i % k));
+      expect(places.size).toBe(k);
+      expect(metronome.holdFrames).toBe(k);
     }
   });
 
@@ -140,9 +167,9 @@ describe("LabMetronome", () => {
     const late = metronome.tick({ rafTs: 400, perfNow: 400, audio: running(1 + LATE_BEAT_LIMIT_SEC - 0.1) });
     expect(late.beat).toEqual({ index: 0, ctxTime: 1 + LATE_BEAT_LIMIT_SEC - 0.1 });
     expect(metronome.skipped).toBe(0);
-    // The next beat stays on the whole-second grid.
-    expect(metronome.tick({ rafTs: 416, perfNow: 416, audio: running(1.99) }).beat).toBeNull();
-    expect(metronome.tick({ rafTs: 433, perfNow: 433, audio: running(2.0) }).beat?.index).toBe(1);
+    // The next beat stays on the beat grid: 1 s and one frame (60 Hz) after the planned beat, not after the late one.
+    expect(metronome.tick({ rafTs: 416, perfNow: 416, audio: running(2.0) }).beat).toBeNull();
+    expect(metronome.tick({ rafTs: 433, perfNow: 433, audio: running(2.017) }).beat?.index).toBe(1);
   });
 
   it("stops the beats at stop(), but lets a flash on screen end at its planned frame", () => {
@@ -178,9 +205,13 @@ describe("LabMetronome", () => {
   it("keeps at most TRUTH_LIMIT beats of ground truth, oldest first out", () => {
     const metronome = new LabMetronome({ targetFps: 60 });
     metronome.start();
+    // The first tick puts the first beat at 1 s; each next tick is on the next beat.
+    metronome.tick({ rafTs: 0, perfNow: 0, audio: running(0.5) });
+    const interval = metronome.beatIntervalSec;
     for (let i = 0; i <= TRUTH_LIMIT + 5; i++) {
-      metronome.tick({ rafTs: i * 1000, perfNow: i * 1000, audio: running(i * BEAT_INTERVAL_SEC + 0.001) });
+      metronome.tick({ rafTs: (i + 1) * 1000, perfNow: (i + 1) * 1000, audio: running(1 + i * interval + 0.001) });
     }
+    expect(metronome.beatCount).toBe(TRUTH_LIMIT + 6);
     expect(metronome.truth).toHaveLength(TRUTH_LIMIT);
     expect(metronome.truth[0].index).toBe(metronome.beatCount - TRUTH_LIMIT);
     expect(metronome.truth[TRUTH_LIMIT - 1].index).toBe(metronome.beatCount - 1);

@@ -6,10 +6,10 @@
  * - A canvas draws every animation frame, as a game does: a dark picture
  *   with a moving bar. It is a 2D canvas (capture path P), or WebGL2 with
  *   ?gl=2 (capture path E).
- * - After Start, once each second of AudioContext time, the whole frame is
- *   white for one captured frame and a 1 kHz beep starts on the shared
- *   game-audio bus, in the same task (labSchedule.ts). The intended offset
- *   of the sound from the picture is 0 ms.
+ * - After Start, about once each second of AudioContext time, the whole
+ *   frame is white for one captured frame and a 1 kHz beep starts on the
+ *   shared game-audio bus, in the same task (labSchedule.ts). The intended
+ *   offset of the sound from the picture is 0 ms.
  * - The lab uses the public clip service API only: the service and the
  *   attached game come from LabClipScope through the clip contexts, the
  *   canvas goes to AttachedGame.registerCanvas, and the buttons call

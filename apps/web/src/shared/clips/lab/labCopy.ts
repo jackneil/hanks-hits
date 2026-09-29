@@ -17,7 +17,7 @@ import type { ClipReasonCode } from "../service/contract";
 export const LAB_COPY = Object.freeze({
   title: "Clips lab",
   intro:
-    "This page checks that clips keep the picture and the sound together. Tap Start. Once each second, the picture flashes white and a beep plays.",
+    "This page checks that clips keep the picture and the sound together. Tap Start. About once each second, the picture flashes white and a beep plays.",
   start: "Start",
   stop: "Stop",
   clip: "Clip it! (10 s)",
