@@ -342,3 +342,78 @@ describe("emulator page: save states", () => {
   });
 });
 
+/** The style rules of the emulator page, parsed by jsdom (media rules flattened). */
+function pageStyleRules(): { media: string; selector: string; style: CSSStyleDeclaration }[] {
+  const match = /<style>([\s\S]*?)<\/style>/.exec(PAGE);
+  if (!match) throw new Error("the emulator page has no style block");
+  const style = document.createElement("style");
+  style.textContent = match[1];
+  document.head.appendChild(style);
+  const out: { media: string; selector: string; style: CSSStyleDeclaration }[] = [];
+  const walk = (rules: CSSRuleList, media: string) => {
+    for (const rule of Array.from(rules)) {
+      if ("media" in rule && "cssRules" in rule) {
+        walk((rule as CSSMediaRule).cssRules, (rule as CSSMediaRule).media.mediaText);
+      } else if ("selectorText" in rule) {
+        const styleRule = rule as CSSStyleRule;
+        for (const selector of styleRule.selectorText.split(",")) {
+          out.push({ media, selector: selector.trim(), style: styleRule.style });
+        }
+      }
+    }
+  };
+  walk((style.sheet as CSSStyleSheet).cssRules, "");
+  style.remove();
+  return out;
+}
+
+describe("emulator page: on-screen gamepad touch targets", () => {
+  const rules = pageStyleRules();
+  const find = (selector: string, media = "") =>
+    rules.filter((rule) => rule.selector === selector && rule.media === media).map((rule) => rule.style);
+  const px = (value: string) => Number.parseFloat(value);
+
+  it("makes every gamepad button at least 44 px wide and tall, over the inline 31 px height", () => {
+    const [button] = find("#game .ejs_virtualGamepad_button");
+    expect(button, "a rule for the gamepad buttons").toBeDefined();
+    // EmulatorJS writes height:31px inline on Start, Select, L, R, Fast and
+    // Slow. min-height is not inline, so it wins over that height.
+    expect(px(button.getPropertyValue("min-height"))).toBeGreaterThanOrEqual(44);
+    expect(px(button.getPropertyValue("min-width"))).toBeGreaterThanOrEqual(44);
+    expect(button.getPropertyValue("height")).toBe("");
+  });
+
+  it("makes the menu button (24x24 px in EmulatorJS) at least 44 px", () => {
+    const [open] = find("#game .ejs_virtualGamepad_open");
+    expect(open, "a rule for the menu button").toBeDefined();
+    expect(px(open.getPropertyValue("width"))).toBeGreaterThanOrEqual(44);
+    expect(px(open.getPropertyValue("height"))).toBeGreaterThanOrEqual(44);
+  });
+
+  it("makes the menu bar buttons (Save State, Load State) at least 44 px and lets the phone menu scroll", () => {
+    const [menuButton] = find("#game .ejs_menu_bar .ejs_menu_button");
+    expect(menuButton, "a rule for the menu bar buttons").toBeDefined();
+    expect(px(menuButton.getPropertyValue("min-height"))).toBeGreaterThanOrEqual(44);
+    expect(px(menuButton.getPropertyValue("min-width"))).toBeGreaterThanOrEqual(44);
+    const [phoneMenu] = find("#game .ejs_small_screen .ejs_menu_bar");
+    expect(phoneMenu.getPropertyValue("overflow-y")).toBe("auto");
+  });
+
+  it("gives each button of the bottom row its own slot in portrait", () => {
+    const media = "(orientation: portrait)";
+    const lefts = [
+      "#game .ejs_virtualGamepad_bottom .b_speed_fast",
+      "#game .ejs_virtualGamepad_bottom .b_select",
+      "#game .ejs_virtualGamepad_bottom .b_start",
+      "#game .ejs_virtualGamepad_bottom .b_speed_slow",
+    ].map((selector) => find(selector, media)[0]?.getPropertyValue("left"));
+    expect(lefts.every(Boolean)).toBe(true);
+    expect(new Set(lefts).size).toBe(4);
+  });
+
+  it("moves the bottom row to the corners in landscape, off the picture in the middle", () => {
+    const media = "(orientation: landscape)";
+    expect(find("#game .ejs_virtualGamepad_bottom .b_speed_fast", media)[0]?.getPropertyValue("left")).toBe("8px");
+    expect(find("#game .ejs_virtualGamepad_bottom .b_speed_slow", media)[0]?.getPropertyValue("right")).toBe("8px");
+  });
+});
