@@ -433,9 +433,9 @@ export function QuoridorGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Shared start screen. Mounted on the relative page container (not the
-          board box) so the card never clips on a phone, and so it also covers
-          the mode/difficulty panel underneath. */}
+      {/* Shared start screen. It covers the page (it portals to
+          document.body), so the card never clips on a phone, and it also
+          covers the mode/difficulty panel underneath. */}
       {!hasStarted && (
         <GameStartOverlay
           title="Quoridor"

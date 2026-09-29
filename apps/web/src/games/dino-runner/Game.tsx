@@ -559,12 +559,14 @@ export function DinoRunnerGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Game container. min-h keeps the DOM start overlay's card fully visible
-          even though the canvas is only 300px tall (and scales far smaller on
-          phones) — the card is centered here rather than shrunk. */}
+      {/* Game container: as tall as the scaled canvas. The start card
+          portals to document.body and covers the viewport, so it needs no
+          room here (this box used to carry min-h-[360px] only to fit the
+          card, which left about 113px of empty space above and below the
+          canvas on a 390px phone during play). */}
       <div
         ref={containerRef}
-        className="relative w-full max-w-4xl min-h-[360px] flex items-center justify-center"
+        className="relative w-full max-w-4xl flex items-center justify-center"
       >
         <canvas
           ref={canvasRef}
