@@ -162,8 +162,9 @@ describe("GameStartOverlay layout: the start action is always on screen", () => 
   // Regression (verify finding swe19): the card's scroll box was capped at
   // the game's own box, so on a phone Play (or every choice) sat below the
   // visible part of the card with no hint. jsdom has no layout, so these
-  // tests pin the structure that makes it work; the Playwright geometry
-  // check proves it on real screens.
+  // tests pin the structure that makes it work. The Playwright check in
+  // e2e/start-cards (pnpm e2e:start-cards <base-url>) tests it on real
+  // screens, for every route on the home page.
   afterEach(() => {
     removeSpeechMock();
   });

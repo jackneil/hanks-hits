@@ -75,6 +75,7 @@ For each game: load it, then actually play — not just look:
 
 ## Step 3 — The checklist (all must hold to PASS)
 
+- [ ] The start card passes the committed check: run `pnpm e2e:start-cards <base-url>` from the repo root against a running build (see `e2e/start-cards/`). It tests every route on the home page at 320x568, 375x667, 390x844, 844x390 and 1280x800. Play (or every choice) and "Read it to me" must be in the card and on screen with no scroll, and the iOS install tip must never be in the card
 - [ ] Every core action is doable by tap / drag / on-screen controls — zero keyboard-only actions
 - [ ] Nothing is hover-gated (menus, buttons, tooltips that only appear on hover)
 - [ ] Touch targets are ≥ 44px (kid fingers; CLAUDE.md rule)

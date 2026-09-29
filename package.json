@@ -6,7 +6,8 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "clean": "turbo clean",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "e2e:start-cards": "node scripts/e2e/run-playwright.mjs e2e/start-cards/playwright.config.ts"
   },
   "devDependencies": {
     "prettier": "^3.9.5",
