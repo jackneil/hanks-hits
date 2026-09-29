@@ -58,6 +58,7 @@ import {
 } from "mediabunny";
 import type { RecorderSegmentRef, SegmentContainer, SegmentIndex, SegmentJob } from "../../protocol";
 import { sanitizeAacDescription } from "./aacConfig";
+import type { TimedKey } from "./posterKey";
 import type { GameSound, SoundPacket } from "./soundStore";
 
 export type ConcatErrorCode =
@@ -348,8 +349,10 @@ export interface ConcatResult {
   audioPackets: number;
   /** Frames that the splice rule took out. */
   spliceDrops: number;
-  /** The first keyframe and its decoder config, for the poster. */
+  /** The first keyframe and the decoder config of the whole file. */
   firstKey: { data: Uint8Array; config: { codec: string; codedWidth: number; codedHeight: number; description?: Uint8Array } };
+  /** Every keyframe of the file (seconds from its first frame), for the poster step's choice (posterKey.ts). One config: firstKey.config. */
+  keyframes: TimedKey<Uint8Array>[];
 }
 
 function supports<T extends string>(list: readonly T[], codec: T): boolean {
@@ -510,6 +513,7 @@ export async function concatSegments(job: SegmentJob, sound: SoundSource | null 
         ...(videoConfig.description ? { description: videoConfig.description as Uint8Array } : {}),
       },
     },
+    keyframes: video.filter((p) => p.packet.type === "key").map((p) => ({ atSec: sec(p.capUs), key: p.packet.data })),
   };
 }
 

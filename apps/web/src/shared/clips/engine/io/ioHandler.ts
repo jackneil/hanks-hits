@@ -38,6 +38,7 @@ import { ConcatError, concatSegments, indexSegment, type SoundSource } from "./c
 import { MoovPatchError, addAacRollGroups } from "./moovPatch";
 import { MuxError, muxClip } from "./mux";
 import { PLACEHOLDER_POSTER, makePoster, makePosterFromImage } from "./poster";
+import { featuredMomentSec, pickPosterKey } from "./posterKey";
 import { PartJournal, holdRecordingLock, recoverJournals, type JournalEnv, type JournalLocks } from "./recordJournal";
 import { RECORD_ID_MAX_LENGTH, RECORD_PART_MAX_BYTES, Recording } from "./recorder";
 import {
@@ -140,7 +141,8 @@ export function describedVideoSec(packets: Pick<ClipPackets, "startUs" | "endUs"
 interface Muxed {
   bytes: Uint8Array;
   hasAudio: boolean;
-  firstKey: PacketDTO;
+  /** The keyframe the poster is made from (posterKey.ts): near the end, or at the featured moment. */
+  posterKey: PacketDTO;
   epoch: EpochInfo;
 }
 
@@ -220,14 +222,16 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
   };
 
   /**
-   * Muxes and patches the clip. Only the finished bytes, the first keyframe and its
+   * Muxes and patches the clip. Only the finished bytes, the poster keyframe and its
    * config leave this function: the mux output copy and every other packet buffer
    * can be freed before the save (plan 6.5 memory budgets).
    */
-  const muxAndPatch = async (packets: ClipPackets): Promise<Muxed> => {
+  const muxAndPatch = async (packets: ClipPackets, moments: ClipMeta["moments"]): Promise<Muxed> => {
     const muxed = await mux(packets);
     const bytes = muxed.hasAudio ? patch(muxed.bytes).bytes : muxed.bytes;
-    return { bytes, hasAudio: muxed.hasAudio, firstKey: muxed.firstKey, epoch: muxed.epoch };
+    const durationSec = muxed.videoDurationSec;
+    const posterKey = pickPosterKey(muxed.keyframes ?? [], durationSec, featuredMomentSec(moments, durationSec)) ?? muxed.firstKey;
+    return { bytes, hasAudio: muxed.hasAudio, posterKey, epoch: muxed.epoch };
   };
 
   /** Stores finished bytes. Posts "evicted" (when the save removed clips), then "saved" or "error". */
@@ -259,19 +263,19 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
     const started = now();
     let muxed: Muxed;
     try {
-      muxed = await muxAndPatch(packets);
+      muxed = await muxAndPatch(packets, meta.moments);
     } catch (error) {
       const code = error instanceof MuxError || error instanceof MoovPatchError ? error.code : "error";
       post(errorEvent("mux-failed", `${code}: ${errorText(error)}`, meta.id));
       return null;
     } finally {
       // The packet lists live until the command is done. Drop them so their
-      // buffers can be freed now (the first keyframe stays for the poster).
+      // buffers can be freed now (the poster keyframe stays for the poster).
       packets.video = [];
       packets.audio = [];
     }
     const muxMs = now() - started;
-    const posterDataUrl = await poster(muxed.firstKey.data, muxed.epoch);
+    const posterDataUrl = await poster(muxed.posterKey.data, muxed.epoch);
     // The library sets durationMs and hasAudio again from the stored file.
     return store(muxed.bytes, { ...meta, mime: "video/mp4", hasAudio: muxed.hasAudio, posterDataUrl }, expectedSec, muxMs, post);
   };
@@ -295,7 +299,10 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
       return null;
     }
     const muxMs = now() - started;
-    let posterDataUrl = await poster(joined.firstKey.data, joined.firstKey.config);
+    // Near the end, or at the featured moment (posterKey.ts); one config for the whole file.
+    const posterData =
+      pickPosterKey(joined.keyframes ?? [], joined.videoSec, featuredMomentSec(meta.moments, joined.videoSec)) ?? joined.firstKey.data;
+    let posterDataUrl = await poster(posterData, joined.firstKey.config);
     // No video decoder here (common on tier V): use the game picture from the main thread.
     if (posterDataUrl === PLACEHOLDER_POSTER && job.poster instanceof Blob) posterDataUrl = await picturePoster(job.poster);
     const record = await store(bytes, { ...meta, mime: joined.mime, hasAudio: joined.hasAudio, posterDataUrl }, joined.videoSec, muxMs, post);

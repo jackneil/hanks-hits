@@ -1,7 +1,8 @@
 /**
  * Clip posters: a small JPEG data URL for library tiles and toasts (plan 8.1).
  *
- * The first keyframe is decoded with VideoDecoder (a picture is decoded with
+ * One keyframe (posterKey.ts picks it: near the end, or at the featured
+ * moment) is decoded with VideoDecoder (a picture is decoded with
  * createImageBitmap), drawn into an OffscreenCanvas at 320 px wide or less, and
  * encoded as JPEG. All APP1 to APP15 and COM segments are removed, so no EXIF or
  * other metadata can reach a poster (plan 10).
@@ -10,7 +11,9 @@
  * they return PLACEHOLDER_POSTER, a neutral gray JPEG.
  */
 
-import { BlobSource, EncodedPacketSink, Input, type InputFormat, MP4, WEBM } from "mediabunny";
+import { BlobSource, type EncodedPacket, EncodedPacketSink, Input, type InputFormat, type InputVideoTrack, MP4, WEBM } from "mediabunny";
+
+import { POSTER_END_GAP_SEC } from "./posterKey";
 
 /** Widest poster, in pixels. */
 export const POSTER_MAX_WIDTH = 320;
@@ -159,7 +162,7 @@ function decodeKeyframe(
 }
 
 /**
- * Makes a poster from the clip's first keyframe. Never throws.
+ * Makes a poster from one keyframe of the clip (posterKey.ts). Never throws.
  * Without VideoDecoder, EncodedVideoChunk or OffscreenCanvas it returns the placeholder.
  */
 export async function makePoster(
@@ -250,6 +253,20 @@ function videoFormats(mime: PosterMime): InputFormat[] {
 }
 
 /**
+ * The poster keyframe of a stored video file: the posterKey.ts rule with no
+ * moments (a file found without a row has none). The last keyframe at least
+ * POSTER_END_GAP_SEC before the end, else the last keyframe. Null when the
+ * track has no keyframe.
+ */
+export async function posterPacketOf(track: InputVideoTrack): Promise<EncodedPacket | null> {
+  const sink = new EncodedPacketSink(track);
+  const endSec = await track.computeDuration();
+  const nearEnd = Number.isFinite(endSec) ? await sink.getKeyPacket(endSec - POSTER_END_GAP_SEC) : null;
+  const packet = nearEnd ?? (await sink.getKeyPacket(Number.POSITIVE_INFINITY)) ?? (await sink.getFirstPacket());
+  return packet && packet.type === "key" ? packet : null;
+}
+
+/**
  * Makes a poster from a stored file (MP4, WebM or PNG), for clips that the library
  * finds without a row. Never throws.
  */
@@ -261,8 +278,8 @@ export async function makePosterFromFile(file: Blob, mime: PosterMime, options: 
     const track = await input.getPrimaryVideoTrack();
     if (!track) return PLACEHOLDER_POSTER;
     const config = await track.getDecoderConfig();
-    const packet = await new EncodedPacketSink(track).getFirstPacket();
-    if (!config || !packet || packet.type !== "key") return PLACEHOLDER_POSTER;
+    const packet = await posterPacketOf(track);
+    if (!config || !packet) return PLACEHOLDER_POSTER;
     const raw = config.description;
     const description = !raw
       ? undefined

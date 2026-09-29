@@ -27,6 +27,7 @@ import {
 } from "mediabunny";
 import type { ClipPackets, EpochInfo, PacketDTO } from "../../protocol";
 import { sanitizeAacDescription } from "./aacConfig";
+import type { TimedKey } from "./posterKey";
 
 export type MuxErrorCode =
   | "no-video"
@@ -62,6 +63,8 @@ export interface MuxResult {
   epoch: EpochInfo;
   /** The first video packet. It is a keyframe, so the poster step can decode it. */
   firstKey: PacketDTO;
+  /** Every keyframe on the output timeline, for the poster step's choice (posterKey.ts). */
+  keyframes: TimedKey<PacketDTO>[];
 }
 
 /** One packet on the output timeline, in seconds. */
@@ -260,5 +263,6 @@ export async function muxClip(clip: ClipPackets): Promise<MuxResult> {
     audioConfigRebuilt,
     epoch,
     firstKey: clip.video[0],
+    keyframes: video.packets.filter((p) => p.packet.type === "key").map((p) => ({ atSec: p.timestamp, key: p.packet })),
   };
 }

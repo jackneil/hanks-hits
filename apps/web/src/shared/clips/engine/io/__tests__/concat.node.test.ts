@@ -184,6 +184,11 @@ describe.skipIf(SKIP)("concatSegments across hand-offs", () => {
     const lastFrame = 11 * SOURCE_FPS - 1;
     expect(decodeCodes(result.bytes, container)).toEqual(codesFor(firstFrame, lastFrame));
     expect(result.videoPackets).toBe(lastFrame - firstFrame + 1);
+    // The poster step gets every keyframe on the file's timeline, in order, from 0 to the end (posterKey.ts).
+    expect(result.keyframes[0]).toMatchObject({ atSec: 0 });
+    expect(result.keyframes.every((k, i) => i === 0 || k.atSec > result.keyframes[i - 1].atSec)).toBe(true);
+    expect(result.keyframes.at(-1)!.atSec).toBeGreaterThan(result.videoSec - 1.5);
+    expect(result.keyframes.at(-1)!.atSec).toBeLessThanOrEqual(result.videoSec);
     // The write protocol check: it parses, a keyframe first, and the planned length within 0.2 s.
     const bytes = result.aacInMp4 ? addAacRollGroups(result.bytes).bytes : result.bytes;
     const facts = await verifyClip(bytes, { mime: result.mime, videoSec: result.videoSec });
