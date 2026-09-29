@@ -35,7 +35,7 @@ import type { ClipsLabOptions } from "./labParams";
 import { declaredFailedParts, declaredParts, recordParts } from "./labParts";
 import { LAB_CANVAS_HEIGHT, LAB_CANVAS_WIDTH, createLabRenderer } from "./labRenderer";
 import { LabMetronome } from "./labSchedule";
-import { loadLabService, type LabServiceLoader } from "./labService";
+import { labServiceLoader, type LabServiceLoader } from "./labService";
 
 /** Seconds that Clip it! asks for (plan 15.3: play 15 s, clip 10 s). */
 export const LAB_CLIP_SECONDS = 10;
@@ -50,14 +50,14 @@ export const LAB_GAME: GameAttachment = Object.freeze({
 
 export interface ClipsLabPageProps {
   options: ClipsLabOptions;
-  /** Tests give a fake service here. The page uses loadLabService. */
+  /** Tests give a fake service here. The page uses labServiceLoader(options) (?aac=wasm forces the WASM AAC encoder). */
   loadService?: LabServiceLoader;
 }
 
 /** The whole lab: the clip scope and the lab game in it. */
-export function ClipsLabPage({ options, loadService = loadLabService }: ClipsLabPageProps) {
+export function ClipsLabPage({ options, loadService }: ClipsLabPageProps) {
   return (
-    <LabClipScope game={LAB_GAME} loadService={loadService}>
+    <LabClipScope game={LAB_GAME} loadService={loadService ?? labServiceLoader(options)}>
       <ClipsLab options={options} />
     </LabClipScope>
   );

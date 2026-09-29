@@ -11,6 +11,12 @@
  *   hold=N      display frames that each flash stays white, 1-12 (default:
  *               the stride of the lowest capture rung, so that every rung
  *               captures the flash; see labSchedule.ts)
+ *   aac=wasm    encode the game sound with the WASM AAC encoder (tier W+),
+ *               also where the browser has a native AAC AudioEncoder. The
+ *               lab's service masks native AAC in its capability report, so
+ *               the encode worker loads /clips/aac/ffmpeg-aac-enc.mjs the way
+ *               Firefox, Linux Chrome and older Safari do. Only this route
+ *               reads it: no other page can turn native AAC off.
  */
 
 export interface ClipsLabOptions {
@@ -19,9 +25,11 @@ export interface ClipsLabOptions {
   targetFps: 30 | 60;
   /** A fixed flash length in display frames, or null for the stride of the lowest capture rung. */
   hold: number | null;
+  /** "wasm": force the WASM AAC encoder (tier W+). "auto": the device's own choice. */
+  aac: "auto" | "wasm";
 }
 
-export const DEFAULT_LAB_OPTIONS: ClipsLabOptions = Object.freeze({ gl: false, targetFps: 60, hold: null }) as ClipsLabOptions;
+export const DEFAULT_LAB_OPTIONS: ClipsLabOptions = Object.freeze({ gl: false, targetFps: 60, hold: null, aac: "auto" }) as ClipsLabOptions;
 
 /** The largest ?hold value. Longer flashes stop being one event per beep. */
 export const MAX_HOLD_FRAMES = 12;
@@ -44,5 +52,6 @@ export function parseLabParams(params: SearchParams): ClipsLabOptions {
   const rawHold = first(params.hold);
   const holdNumber = rawHold !== undefined && /^\d+$/.test(rawHold) ? Number(rawHold) : NaN;
   const hold = holdNumber >= 1 && holdNumber <= MAX_HOLD_FRAMES ? holdNumber : null;
-  return { gl, targetFps, hold };
+  const aac = first(params.aac) === "wasm" ? "wasm" : "auto";
+  return { gl, targetFps, hold, aac };
 }

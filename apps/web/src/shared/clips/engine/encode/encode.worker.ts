@@ -99,7 +99,8 @@ const DEFAULT_RING_SECONDS = 60;
 /** Record Stop with no frame after it (a pause): the tee stops waiting for the encoder's newest frame after this. */
 export const TEE_VIDEO_IDLE_MS = 200;
 
-async function defaultAacKinds(arm: ArmCmd): Promise<AacKind[]> {
+/** The AAC kinds to try: native only where arm.caps allows it (the lab's ?aac=wasm masks it) and the browser has it, then WASM. */
+export async function defaultAacKinds(arm: ArmCmd): Promise<AacKind[]> {
   const kinds: AacKind[] = [];
   if (arm.caps.audioEncoderAac !== false && (await nativeAacSupported())) kinds.push("native");
   // The WASM encoder is always the fallback. If it cannot load, the session reports audio-encoder-missing.

@@ -25,7 +25,7 @@ describe("isClipsLabEnabled", () => {
 
 describe("parseLabParams", () => {
   it("gives the defaults for no parameters", () => {
-    expect(parseLabParams({})).toEqual({ gl: false, targetFps: 60, hold: null });
+    expect(parseLabParams({})).toEqual({ gl: false, targetFps: 60, hold: null, aac: "auto" });
     expect(parseLabParams({})).toEqual(DEFAULT_LAB_OPTIONS);
   });
 
@@ -55,5 +55,11 @@ describe("parseLabParams", () => {
 
   it.each(["0", String(MAX_HOLD_FRAMES + 1), "-1", "1.5", "2e0", " 2", "two", ""])("ignores hold=%s", (value) => {
     expect(parseLabParams({ hold: value }).hold).toBeNull();
+  });
+
+  it("forces the WASM AAC encoder only for aac=wasm", () => {
+    expect(parseLabParams({ aac: "wasm" }).aac).toBe("wasm");
+    expect(parseLabParams({ aac: ["wasm", "native"] }).aac).toBe("wasm");
+    for (const value of ["native", "WASM", "1", "", " wasm"]) expect(parseLabParams({ aac: value }).aac).toBe("auto");
   });
 });

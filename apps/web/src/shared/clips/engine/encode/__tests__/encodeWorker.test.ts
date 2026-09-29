@@ -12,7 +12,7 @@ import {
 } from "../../../protocol";
 import { AAC_FRAME, PRE_PAD_FRAMES, PRIMING_CONSTANTS, type AacBackend, type AacKind } from "../audio/aac";
 import { createAacBackend } from "../audio/aacBackends";
-import { TEE_VIDEO_IDLE_MS, createEncodeWorker, type EncodeWorker, type EncodeWorkerDeps } from "../encode.worker";
+import { TEE_VIDEO_IDLE_MS, createEncodeWorker, defaultAacKinds, type EncodeWorker, type EncodeWorkerDeps } from "../encode.worker";
 
 const CAPS: Capabilities = {
   tier: "W",
@@ -648,5 +648,13 @@ describe("encode worker", () => {
     expect(ofType(h, "armed")).toHaveLength(2);
     expect(h.timers.size).toBe(2);
     await h.worker.handle({ t: "disarm" });
+  });
+});
+
+describe("AAC kinds (defaultAacKinds)", () => {
+  it("tries native AAC first where the browser has it, and WASM only when arm.caps masks it (the lab's ?aac=wasm)", async () => {
+    const arm = armCmd(harness()) as Extract<EncodeCmd, { t: "arm" }>;
+    expect(await defaultAacKinds({ ...arm, caps: { ...CAPS, audioEncoderAac: true } })).toEqual(["native", "wasm"]);
+    expect(await defaultAacKinds({ ...arm, caps: { ...CAPS, audioEncoderAac: false } })).toEqual(["wasm"]);
   });
 });

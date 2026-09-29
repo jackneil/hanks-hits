@@ -8,6 +8,10 @@
  *   1. 2D canvas (capture path P): play 15 s, then Clip it! for 10 s.
  *   2. WebGL2 canvas (?gl=2, capture path E): the same.
  *   3. 2D canvas: Record a video for 20 s.
+ *   4. 2D canvas with the WASM AAC encoder forced (?aac=wasm, tier W+): the
+ *      path of Firefox, Linux Chrome and older Safari. It also checks that
+ *      the encode worker got /clips/aac/ffmpeg-aac-enc.mjs (200, JavaScript
+ *      under nosniff) and compiled it (CSP), and that the file has sound.
  * The analyzer also gets the lab's beat log (the ground truth), so it knows
  * WHICH beats the file holds: a lost or repeated beat, or a file that ends
  * a beat or more away from the press, fails (scripts/clips/lib/truth.mjs).
@@ -52,7 +56,12 @@ interface Flow {
   query: string;
   picture: "2d" | "webgl2";
   action: "clip" | "record";
+  /** "wasm": the flow forces the WASM AAC encoder (?aac=wasm) and checks its delivery path. */
+  aac?: "wasm";
 }
+
+/** Where the encode worker imports the WASM AAC encoder from (aacBackends.ts AAC_WASM_MODULE_PATH). */
+const AAC_MODULE_PATH = "/clips/aac/ffmpeg-aac-enc.mjs";
 
 /** The machine load: the governor rests capture when the game loses frames, so a busy machine can fail the timing rows. */
 function noteLoad(report: RowReport, when: string): void {
@@ -69,6 +78,11 @@ async function runLab(flow: Flow, baseURL: string): Promise<{ report: RowReport;
   if (!browser) return { report, beeps };
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    // The WASM AAC module is imported by the encode worker: watch the whole context.
+    const aacModule: Array<{ status: number; type: string }> = [];
+    context.on("response", (response) => {
+      if (new URL(response.url()).pathname === AAC_MODULE_PATH) aacModule.push({ status: response.status(), type: response.headers()["content-type"] ?? "" });
+    });
     const page = await context.newPage();
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -145,6 +159,19 @@ async function runLab(flow: Flow, baseURL: string): Promise<{ report: RowReport;
     report.check("library row kind", record.kind === (flow.action === "clip" ? "clip" : "record"), record.kind);
     report.check("library row type", record.mime === "video/mp4", record.mime, "video/mp4");
     report.check("library row has game sound", record.hasAudio, String(record.hasAudio), "true");
+    const served = aacModule.map((r) => `${r.status} ${r.type || "no type"}`).join(", ") || "not requested";
+    if (flow.aac === "wasm") {
+      const tier = made.status?.tier ?? "?";
+      report.check("capture tier", tier === "W+", tier, "W+ (?aac=wasm: VideoEncoder and the WASM AAC encoder)");
+      report.check(
+        "WASM AAC module served",
+        aacModule.some((r) => r.status === 200 && /javascript/i.test(r.type)),
+        served,
+        `200 with a JavaScript type (${AAC_MODULE_PATH}, nosniff)`,
+      );
+    } else {
+      report.info("WASM AAC module", served, "the native AAC encoder needs no module");
+    }
     report.info("library row", `${record.width}x${record.height}, ${record.fps} fps, ${(record.durationMs / 1000).toFixed(2)} s, ${record.bytes} bytes`);
     // Plan 15.2: time to first encoded frame at most 1000 ms (p95, a normally launched browser).
     const ttfc = made.status?.ttfcMs ?? null;
@@ -235,6 +262,14 @@ test("2D canvas (path P): play 15 s, Clip it! 10 s, A/V in sync", async ({ baseU
 
 test("WebGL2 canvas (path E, ?gl=2): play 15 s, Clip it! 10 s, A/V in sync", async ({ baseURL }) => {
   const { report, beeps } = await runLab({ name: "clips lab, WebGL2 canvas, Clip it!", slug: "lab-gl2-clip", query: "?gl=2", picture: "webgl2", action: "clip" }, baseURL!);
+  publish(report, beeps);
+});
+
+test("2D canvas, WASM AAC (?aac=wasm): play 15 s, Clip it! 10 s, A/V in sync", async ({ baseURL }) => {
+  const { report, beeps } = await runLab(
+    { name: "clips lab, 2D canvas, WASM AAC, Clip it!", slug: "lab-2d-wasm-clip", query: "?aac=wasm", picture: "2d", action: "clip", aac: "wasm" },
+    baseURL!,
+  );
   publish(report, beeps);
 });
 

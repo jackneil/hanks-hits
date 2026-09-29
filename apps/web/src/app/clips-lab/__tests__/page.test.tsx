@@ -46,11 +46,11 @@ describe("/clips-lab", () => {
 
   it("renders the lab with the options from the query when CLIPS_LAB is 1", async () => {
     vi.stubEnv("CLIPS_LAB", "1");
-    const page = (await request({ gl: "2", fps: "30", hold: "3" })) as ReactElement<{ options: unknown }>;
+    const page = (await request({ gl: "2", fps: "30", hold: "3", aac: "wasm" })) as ReactElement<{ options: unknown }>;
     expect(page.type).toBe(ClipsLabPage);
-    expect(page.props.options).toEqual({ gl: true, targetFps: 30, hold: 3 });
+    expect(page.props.options).toEqual({ gl: true, targetFps: 30, hold: 3, aac: "wasm" });
     const plain = (await request()) as ReactElement<{ options: unknown }>;
-    expect(plain.props.options).toEqual({ gl: false, targetFps: 60, hold: null });
+    expect(plain.props.options).toEqual({ gl: false, targetFps: 60, hold: null, aac: "auto" });
   });
 
   it("reads CLIPS_LAB at request time, after connection(), so no build can bake the page", async () => {
