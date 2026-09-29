@@ -1,7 +1,7 @@
 import { act, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
 import { HIDDEN_SNAPSHOT, type ClipSnapshot } from "../../service/contract";
 import { MENU_COPY, RESULT_ACTION_COPY, VIEWER_TITLES, wholeRunLabel } from "../copy";
@@ -37,7 +37,17 @@ describe("result chip clip actions (plan 11.4)", () => {
       expect(button.className).toMatch(/(^|\s)short:min-h-11(\s|$)/);
       // White buttons on the white chip: each needs a visible edge.
       expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(SECONDARY_ACTION.split(" ")));
+      // The chip's own size rule, with the two-column narrow grid.
+      expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(RESULT_CHIP_BUTTON.split(" ")));
     }
+  });
+
+  it('gives the long "Make the whole run a video" button both columns of the narrow grid', () => {
+    renderWithClips(<ResultChipClipActions runSeconds={30} />, { snapshot: AT_GAME_OVER });
+    const wholeRun = screen.getByRole("button", { name: wholeRunLabel("0:30") });
+    expect(wholeRun.className.split(/\s+/)).toContain("max-[480px]:col-span-2");
+    const watch = screen.getByRole("button", { name: RESULT_ACTION_COPY.watch });
+    expect(watch.className).not.toContain("col-span-2");
   });
 
   it('offers "Make the whole run a video (m:ss)" only when the ring holds the whole run', () => {

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
-import { SECONDARY_ACTION } from "../buttonStyles";
+import { RESULT_CHIP_BUTTON, RESULT_CHIP_GROUP, SECONDARY_ACTION } from "../buttonStyles";
 import { RESULT_CHIP_LABELS, RESULT_CHIP_Z_INDEX, ResultChip } from "../ResultChip";
 
 vi.mock("../Leaderboard", () => ({
@@ -287,6 +287,27 @@ describe("ResultChip restart grace", () => {
   });
 });
 
+describe("ResultChip on a narrow phone", () => {
+  it("puts its buttons in two columns below 480 px, each 44 px or more, so the result card stays in view", () => {
+    installSpeechMock();
+    render(<ResultChip resultText="Game over!" appId="snake" onRestart={vi.fn()} />);
+    const group = within(chip()).getByRole("group");
+    expect(group.className.split(/\s+/)).toEqual(expect.arrayContaining(RESULT_CHIP_GROUP.split(" ")));
+    for (const token of ["grid", "grid-cols-2", "min-[480px]:flex", "min-[480px]:flex-wrap"]) {
+      expect(group.className.split(/\s+/)).toContain(token);
+    }
+    const buttons = within(group).getAllByRole("button");
+    expect(buttons.length).toBeGreaterThanOrEqual(3);
+    for (const button of buttons) {
+      const tokens = button.className.split(/\s+/);
+      // 44 px or more in the narrow grid, and it fills its cell.
+      expect(tokens.some((t) => /^max-\[480px\]:min-h-(11|\[5[0-9]px\]|14)$/.test(t)) || tokens.includes("min-h-[56px]")).toBe(true);
+      expect(tokens.some((t) => /^max-\[480px\]:w-full!?$/.test(t))).toBe(true);
+    }
+    expect(RESULT_CHIP_BUTTON).toContain("max-[480px]:min-h-11");
+  });
+});
+
 describe("ResultChip keeps taps away from the game", () => {
   it("a tap on the chip never reaches the game's own handlers", () => {
     const gameTap = vi.fn();
@@ -341,6 +362,38 @@ describe("ResultChip keeps taps away from the game", () => {
     } finally {
       for (const type of ["pointerdown", "pointerup", "mousedown", "mouseup"]) window.removeEventListener(type, listener);
     }
+  });
+
+  it("ignores the click of a press that started on the game, however late the finger lifts", () => {
+    const onRestart = vi.fn();
+    render(
+      <>
+        <div data-testid="game" />
+        <ResultChip resultText="Game over!" appId="snake" onRestart={onRestart} />
+      </>
+    );
+    // The kid held thrust at the last death; the bar appeared under the finger.
+    fireEvent.pointerDown(screen.getByTestId("game"), { pointerId: 3, pointerType: "touch", button: 0 });
+    clock += 2000; // long after the grace
+    const again = screen.getByRole("button", { name: /play again/i });
+    fireEvent.pointerUp(again, { pointerId: 3, pointerType: "touch", button: 0 });
+    fireEvent.click(again, { detail: 1 });
+    expect(onRestart).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /leaderboard/i }), { detail: 1 });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // A real tap on the bar still works, and so does a keyboard click (detail 0).
+    fireEvent.pointerDown(again, { pointerId: 4, pointerType: "touch", button: 0 });
+    fireEvent.pointerUp(again, { pointerId: 4, pointerType: "touch", button: 0 });
+    fireEvent.click(again, { detail: 1 });
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it("acts on a keyboard or screen-reader click with no pointer press", () => {
+    const onRestart = vi.fn();
+    render(<ResultChip resultText="Game over!" onRestart={onRestart} />);
+    passGrace();
+    fireEvent.click(screen.getByRole("button", { name: /play again/i }), { detail: 0 });
+    expect(onRestart).toHaveBeenCalledTimes(1);
   });
 
   it("taps blocked by the grace do not fall through to the game either", () => {

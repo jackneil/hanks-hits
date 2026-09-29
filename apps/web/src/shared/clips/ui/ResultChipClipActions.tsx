@@ -31,7 +31,7 @@
 import { useEffect } from "react";
 import type React from "react";
 
-import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { ClipSnapshot } from "../service/contract";
@@ -90,7 +90,7 @@ export function resultChipClipActions(
   return actions;
 }
 
-const ACTION_BUTTON = `btn ${SECONDARY_ACTION} h-14 min-h-14 short:h-11 short:min-h-11 gap-2 px-4 text-lg normal-case active:scale-[0.97] touch-manipulation`;
+const ACTION_BUTTON = `btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`;
 
 const ICONS: Record<ResultChipClipActionId, React.ReactNode> = {
   watch: <PlayGlyph />,
@@ -148,7 +148,8 @@ export function ResultChipClipActions({ runSeconds }: ResultChipClipActionsProps
           data-action={action.id}
           onMouseDown={keepFocusOff}
           onClick={() => run(action.id)}
-          className={ACTION_BUTTON}
+          // The long "Make the whole run a video (m:ss)" takes the full width of the narrow grid.
+          className={`${ACTION_BUTTON} ${action.id === "wholeRun" ? "max-[480px]:col-span-2" : ""}`}
         >
           {action.id === "record" && snapshot.recording ? <StopGlyph /> : ICONS[action.id]}
           {action.label}

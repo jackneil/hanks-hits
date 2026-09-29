@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { useClipShellUi } from "@/shared/clips";
 import { getGameMetadata } from "../lib/gameMetadata.generated";
-import { SECONDARY_ACTION } from "./buttonStyles";
+import { RESULT_CHIP_BUTTON, RESULT_CHIP_GROUP, SECONDARY_ACTION } from "./buttonStyles";
 import { createPressOwnership } from "../lib/input/pressOwnership";
 import {
   DEFAULT_RESTART_GRACE_MS,
@@ -44,6 +44,11 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *   press that starts inside the grace stays ignored until the finger
  *   lifts, however long it is held. A kid who is still tapping when the
  *   run ends sees the result first.
+ * - A pointer click acts only when its press started on the bar. A finger
+ *   that went down on the game before the bar appeared (holding thrust at
+ *   the last death) and lifts over a button sends a click there; it is not
+ *   a tap on the bar, so it does nothing, however late it lifts. Keyboard
+ *   and screen-reader clicks (no pointer press, detail 0) act as usual.
  * - Mount it CONDITIONALLY on the result state
  *   (`{state === "gameOver" && <ResultChip ... />}`). The grace starts at
  *   mount, and Play again fires only once for each mount.
@@ -52,7 +57,9 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *   the name of every button in screen order. Name the buttons in the
  *   children slot with `spokenExtras`, in screen order.
  * - Size: every button is 56 px high, and 44 px on a short screen (a phone
- *   held sideways), like the read-aloud button on the start card.
+ *   held sideways), like the read-aloud button on the start card. Below
+ *   480 px wide the buttons sit in two columns, 44 px or more, so the chip
+ *   leaves the game's result card in view (buttonStyles.ts).
  * - Clips (plan 11.4): in a clip-enabled game with clips on, the bar also
  *   shows the clip buttons (Watch, "Make the whole run a video", Record a
  *   video, Take a picture) after the children. The game adds no code for
@@ -123,9 +130,9 @@ function spokenLabelsIn(container: HTMLElement | null): string[] {
 }
 
 /** 56 px buttons, 44 px on a short screen, like the start card's read-aloud button. */
-const BUTTON_SIZE = "h-14 min-h-14 short:h-11 short:min-h-11";
+const BUTTON_SIZE = RESULT_CHIP_BUTTON;
 
-const ACTION_BUTTON = `btn ${BUTTON_SIZE} gap-2 px-4 text-lg active:scale-[0.97] touch-manipulation`;
+const ACTION_BUTTON = `btn gap-2 px-4 text-lg ${BUTTON_SIZE} active:scale-[0.97] touch-manipulation`;
 
 export function ResultChip({
   resultText,
@@ -192,18 +199,30 @@ export function ResultChip({
     event.preventDefault();
     event.stopPropagation();
   };
+  // True from a pointer press on the bar until its click: a pointer click
+  // with no press here came from a press that started on the game.
+  const pressStartedHereRef = useRef(false);
   const holdPressDuringGrace = (event: React.PointerEvent) => {
+    pressStartedHereRef.current = true;
     pressBlockedRef.current = !grace.accept();
     if (pressBlockedRef.current) block(event);
   };
   const endCancelledPress = () => {
     // A cancelled press sends no click, so its gesture ends here.
     pressBlockedRef.current = false;
+    pressStartedHereRef.current = false;
   };
   const holdClickDuringGrace = (event: React.MouseEvent) => {
+    const startedHere = pressStartedHereRef.current;
+    pressStartedHereRef.current = false;
     if (pressBlockedRef.current) {
       // The click that ends a press that started inside the grace.
       pressBlockedRef.current = false;
+      block(event);
+      return;
+    }
+    // A pointer click (detail > 0) whose press began outside the bar.
+    if (event.detail > 0 && !startedHere) {
       block(event);
       return;
     }
@@ -255,7 +274,7 @@ export function ResultChip({
         onClick={stopAtChip}
         onDoubleClick={stopAtChip}
         onContextMenu={stopAtChip}
-        className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-2xl border border-base-300 bg-base-100 p-2 text-base-content shadow-lg transition-[opacity,translate] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] starting:opacity-0 motion-safe:starting:translate-y-2"
+        className={`pointer-events-auto ${RESULT_CHIP_GROUP} rounded-2xl border border-base-300 bg-base-100 p-2 text-base-content shadow-lg transition-[opacity,translate] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] starting:opacity-0 motion-safe:starting:translate-y-2`}
       >
         <p id={resultId} className="sr-only">
           {resultText}
@@ -265,7 +284,7 @@ export function ResultChip({
             only the width of its label. */}
         <ReadAloudButton
           text={spokenText}
-          className={`w-auto! shrink-0 px-4 ${BUTTON_SIZE}`}
+          className={`w-auto! shrink-0 px-4 max-[480px]:w-full! max-[480px]:px-1.5! ${BUTTON_SIZE}`}
         />
 
         {onRestart && (
