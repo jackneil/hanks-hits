@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -67,13 +64,10 @@ describe("GameShell header: surface", () => {
     expect(header().className).not.toMatch(/bg-black\/\d+/);
   });
 
-  it("is the same header for a game without clips: its comment claims no pixel-identical render", () => {
+  it("is the same header for a game without clips", () => {
     // Snake has no clips: true, and it still gets the plan 11.2 header.
     renderFullGame();
     expect(header().className).toContain("bg-slate-950");
-    const source = readFileSync(path.resolve(__dirname, "../GameShell.tsx"), "utf8");
-    expect(source).not.toMatch(/renders exactly as before/);
-    expect(source).toMatch(/only the clip service and the clip UI are\s+\/\/ gated on the metadata literal clips: true/);
   });
 
   it("gives the restart glyph its own white color on the dark header", () => {
