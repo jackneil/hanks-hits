@@ -8,10 +8,11 @@ import { BufferSource, Input, MP4 } from "mediabunny";
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type OpfsMock, createOpfsMock } from "../../../../../__tests__/opfs-mock";
-import type { IoCmd, IoEvent } from "../../../protocol";
+import type { ClipRecord, IoCmd, IoEvent } from "../../../protocol";
 import { LibraryError } from "../../../library/errors";
 import type { StorageLike } from "../../../library/fsTypes";
 import { ClipLibrary } from "../../../library/opfsStore";
+import type { ConcatResult } from "../concat";
 import { describeBoxes } from "../moovPatch";
 import { type IoHandler, type IoLibrary, createIoHandler, describedVideoSec } from "../ioHandler";
 import { type IoWorkerScope, installIoWorker, isWorkerScope } from "../io.worker";
@@ -365,6 +366,69 @@ describe("io command loop: review fixes", () => {
     bad.packets.video.shift();
     await h.send(bad);
     expect(bad.packets.video).toEqual([]);
+  });
+
+  it("concat (tiers M and V): keeps only the poster keyframe, copied out of the reader's buffer, through the poster and the save", async () => {
+    // Each keyframe of a joined file is a view into one big read buffer, like mediabunny's reader cache.
+    const readBuffer = new ArrayBuffer(4 * 65_536);
+    const keyAt = (i: number) => new Uint8Array(readBuffer, i * 65_536, 1000).fill(i + 1);
+    const description = new Uint8Array(readBuffer, 3 * 65_536 + 2000, 40);
+    const joined: ConcatResult = {
+      container: "webm",
+      mime: "video/webm",
+      bytes: new Uint8Array(500),
+      startUs: 1_000_000,
+      endUs: 9_000_000,
+      videoSec: 8,
+      hasAudio: false,
+      aacInMp4: false,
+      videoPackets: 240,
+      audioPackets: 0,
+      spliceDrops: 0,
+      firstKey: { data: keyAt(0), config: { codec: "vp8", codedWidth: 64, codedHeight: 64, description } },
+      keyframes: [0, 1, 2].map((i) => ({ atSec: i * 3, key: keyAt(i) })),
+    };
+    const seen: Array<{ keyBuffer: ArrayBufferLike; keyBytes: number; firstByte: number; descriptionBuffer?: ArrayBufferLike; keyframesLeft: number }> = [];
+    const saved: unknown[] = [];
+    const library = {
+      reconcile: async () => ({ reindexed: 0, missing: 0, unreadable: 0, relocated: 0, orphanChunks: 0, staleTemp: 0, errors: 0 }),
+      save: vi.fn(async (bytes: Uint8Array, meta: Omit<ClipRecord, "storage" | "bytes">) => {
+        saved.push(meta);
+        return { record: { ...meta, bytes: bytes.length, storage: "opfs" }, eviction: null };
+      }),
+      setMemoryClass: vi.fn(),
+    } as unknown as IoLibrary;
+    const events: IoEvent[] = [];
+    const handler = createIoHandler({
+      post: (event) => events.push(event),
+      openLibrary: async () => library,
+      journal: null,
+      concat: async () => joined,
+      poster: async (data, config) => {
+        const cfg = config as { description?: Uint8Array };
+        seen.push({
+          keyBuffer: (data as Uint8Array).buffer,
+          keyBytes: (data as Uint8Array).byteLength,
+          firstByte: (data as Uint8Array)[0],
+          descriptionBuffer: cfg.description?.buffer,
+          keyframesLeft: joined.keyframes.length,
+        });
+        return "data:image/jpeg;base64,poster";
+      },
+    });
+    const segment = { blob: new Blob([new Uint8Array(10)]), startUs: 1_000_000, fromUs: 1_000_000, toUs: 9_000_000 };
+    await handler.handle({ t: "concat", job: { container: "webm", segments: [segment] }, meta: { ...muxCmd("m1").meta, mime: "video/webm" } });
+    expect(events.at(-1)).toMatchObject({ t: "saved", record: { id: "m1", posterDataUrl: "data:image/jpeg;base64,poster" } });
+    // The poster is the keyframe near the end (the third one), in a buffer of its own.
+    expect(seen).toHaveLength(1);
+    expect(seen[0].firstByte).toBe(3);
+    expect(seen[0].keyBytes).toBe(1000);
+    expect(seen[0].keyBuffer).not.toBe(readBuffer);
+    expect(seen[0].keyBuffer.byteLength).toBe(1000);
+    expect(seen[0].descriptionBuffer).not.toBe(readBuffer);
+    // No keyframe list is kept alive through the poster decode and the save.
+    expect(seen[0].keyframesLeft).toBe(0);
+    expect(saved).toHaveLength(1);
   });
 
   it("update: Keep and watched, with the new row in the answer", async () => {

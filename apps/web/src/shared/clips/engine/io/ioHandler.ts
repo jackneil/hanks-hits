@@ -34,7 +34,7 @@ import { InvalidInputError, LibraryError, errorText } from "../../library/errors
 import type { StorageLike } from "../../library/fsTypes";
 import { ClipLibrary, type LibraryEnv } from "../../library/opfsStore";
 import { isClipId, isOwnerKey } from "../../library/ownerKey";
-import { ConcatError, concatSegments, indexSegment, type SoundSource } from "./concat";
+import { ConcatError, concatSegments, indexSegment, type ConcatResult, type SoundSource } from "./concat";
 import { MoovPatchError, addAacRollGroups } from "./moovPatch";
 import { MuxError, muxClip } from "./mux";
 import { PLACEHOLDER_POSTER, makePoster, makePosterFromImage } from "./poster";
@@ -116,6 +116,46 @@ export interface IoHandler {
 }
 
 const MEMORY_CLASSES: ReadonlySet<MemoryClass> = new Set(["low", "mid", "high"]);
+
+/** What concatAndStore keeps of a joined file through the poster decode and the save. */
+interface JoinedForStore {
+  bytes: Uint8Array;
+  mime: ConcatResult["mime"];
+  hasAudio: boolean;
+  videoSec: number;
+  startUs: number;
+  endUs: number;
+  /** The one poster keyframe, in its own buffer. */
+  posterKey: Uint8Array;
+  posterConfig: ConcatResult["firstKey"]["config"];
+}
+
+/**
+ * Tiers M and V: keep only what the poster and the save need (plan 6.5
+ * memory budgets, like muxAndPatch on tier W). Each keyframe of a joined
+ * file is a view into the segment reader's read buffers, so a kept list
+ * would keep a large part of the input segments alive through the poster
+ * decode and the OPFS write. The poster keyframe and its config are copied
+ * out, and the joined file's keyframe list is emptied.
+ */
+function keepForStore(joined: ConcatResult, moments: ClipMeta["moments"], patchFile: typeof addAacRollGroups): JoinedForStore {
+  // Near the end, or at the featured moment (posterKey.ts); one config for the whole file.
+  const key =
+    pickPosterKey(joined.keyframes ?? [], joined.videoSec, featuredMomentSec(moments, joined.videoSec)) ?? joined.firstKey.data;
+  const config = joined.firstKey.config;
+  const kept: JoinedForStore = {
+    bytes: joined.aacInMp4 ? patchFile(joined.bytes).bytes : joined.bytes,
+    mime: joined.mime,
+    hasAudio: joined.hasAudio,
+    videoSec: joined.videoSec,
+    startUs: joined.startUs,
+    endUs: joined.endUs,
+    posterKey: key.slice(),
+    posterConfig: { ...config, ...(config.description ? { description: config.description.slice() } : {}) },
+  };
+  joined.keyframes = [];
+  return kept;
+}
 
 function errorEvent(code: IoErrorEvent["code"], detail: string, id?: string): IoErrorEvent {
   return id === undefined ? { t: "error", code, detail } : { t: "error", code, detail, id };
@@ -288,25 +328,20 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
    */
   const concatAndStore = async (job: SegmentJob, meta: ClipMeta, post: Post, withSound: SoundSource | null): Promise<StoredPart | null> => {
     const started = now();
-    let joined: Awaited<ReturnType<typeof concatSegments>>;
-    let bytes: Uint8Array;
+    let part: JoinedForStore;
     try {
-      joined = await concat(job, withSound);
-      bytes = joined.aacInMp4 ? patch(joined.bytes).bytes : joined.bytes;
+      part = keepForStore(await concat(job, withSound), meta.moments, patch);
     } catch (error) {
       const code = error instanceof ConcatError || error instanceof MoovPatchError ? error.code : "error";
       post(errorEvent("mux-failed", `${code}: ${errorText(error)}`, meta.id));
       return null;
     }
     const muxMs = now() - started;
-    // Near the end, or at the featured moment (posterKey.ts); one config for the whole file.
-    const posterData =
-      pickPosterKey(joined.keyframes ?? [], joined.videoSec, featuredMomentSec(meta.moments, joined.videoSec)) ?? joined.firstKey.data;
-    let posterDataUrl = await poster(posterData, joined.firstKey.config);
+    let posterDataUrl = await poster(part.posterKey, part.posterConfig);
     // No video decoder here (common on tier V): use the game picture from the main thread.
     if (posterDataUrl === PLACEHOLDER_POSTER && job.poster instanceof Blob) posterDataUrl = await picturePoster(job.poster);
-    const record = await store(bytes, { ...meta, mime: joined.mime, hasAudio: joined.hasAudio, posterDataUrl }, joined.videoSec, muxMs, post);
-    return record ? { record, startUs: joined.startUs, endUs: joined.endUs } : null;
+    const record = await store(part.bytes, { ...meta, mime: part.mime, hasAudio: part.hasAudio, posterDataUrl }, part.videoSec, muxMs, post);
+    return record ? { record, startUs: part.startUs, endUs: part.endUs } : null;
   };
 
   const validJob = (job: SegmentJob | undefined, id: string, post: Post): job is SegmentJob => {
