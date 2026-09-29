@@ -187,6 +187,7 @@ function sameSnapshot(a: ClipSnapshot, b: Omit<ClipSnapshot, "version">): boolea
     a.warmProgress === b.warmProgress &&
     a.savingProgress === b.savingProgress &&
     a.bufferedSec === b.bufferedSec &&
+    a.replayGranularitySec === b.replayGranularitySec &&
     a.preRest === b.preRest &&
     sameRecording(a.recording, b.recording) &&
     a.unwatchedClipId === b.unwatchedClipId &&
@@ -200,8 +201,9 @@ function reasonOf(error: unknown): ClipReasonCode {
   return error instanceof EngineFailure ? error.reason : "mux-failed";
 }
 
+/** The engine for this device's tier (loadEngine.ts: WebCodecs for W and W+, MediaRecorder for M and V). */
 function defaultLoadEngine(): Promise<CaptureEngine> {
-  return import("./engineHost").then(({ EngineHost }) => new EngineHost());
+  return import("./loadEngine").then(({ loadCaptureEngine }) => loadCaptureEngine());
 }
 
 function safeLocalStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> | null {
@@ -294,6 +296,8 @@ export class ClipService implements ClipServiceApi {
   private governorResting = false;
   private recovering = false;
   private bufferedSec = 0;
+  /** Replay granularity from the engine (tiers M and V), or null (1 s on tiers W and W+). */
+  private granularitySec: number | null = null;
   private warmStartUs = 0;
   private lostSource = false;
   private disabledReason: "breaker" | "encoder-error" | null = null;
@@ -1225,6 +1229,9 @@ export class ClipService implements ClipServiceApi {
       case "buffered":
         this.bufferedSec = event.seconds;
         break;
+      case "granularity":
+        this.granularitySec = event.seconds;
+        break;
       case "governor":
         this.governorResting = event.resting;
         this.preRest = event.resting;
@@ -1408,6 +1415,7 @@ export class ClipService implements ClipServiceApi {
       warmProgress: derived.warmProgress,
       savingProgress: this.saving > 0 ? this.savingProgress : null,
       bufferedSec: holdsFootage ? this.bufferedSec : 0,
+      ...(this.granularitySec === null ? {} : { replayGranularitySec: this.granularitySec }),
       preRest: this.preRest,
       recording: rec ? { recordingId: rec.recordingId, startedAtMs: rec.startedAtMs, elapsedSec: this.elapsedSec, stars: rec.stars.length } : null,
       unwatchedClipId: this.unwatchedClipId,

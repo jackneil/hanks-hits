@@ -35,7 +35,19 @@
  *   opens the partition of the player who signed out.
  */
 
-import type { ClipKind, ClipMeta, ClipPackets, ClipRecord, IoCmd, IoEvent, MemoryClass } from "../protocol";
+import type {
+  ClipKind,
+  ClipMeta,
+  ClipPackets,
+  ClipRecord,
+  IoCmd,
+  IoEvent,
+  MemoryClass,
+  RecorderSegmentRef,
+  SegmentContainer,
+  SegmentIndex,
+  SegmentJob,
+} from "../protocol";
 import { GUEST_OWNER_KEY, isOwnerKey, ownerKeyFor } from "../library/ownerKey";
 import { LIBRARY_CHANNEL } from "../library/shared";
 import type { ClipLibraryApi } from "./contract";
@@ -118,6 +130,14 @@ export interface RecordSession {
   started: Promise<void>;
   /** Settles after the tee's "end", with every stored part. */
   finished: Promise<{ parts: Array<{ record: ClipRecord; startUs: number; endUs: number }>; failed: number }>;
+}
+
+/** A tier M or V recording in the io worker (plan 5, 8.4): segments go in one at a time. */
+export interface SegmentRecordSession extends RecordSession {
+  /** Sends the next finished segment. The io worker journals it at once. */
+  add(segment: RecorderSegmentRef): void;
+  /** No more segments: the io worker stores the parts. `finished` settles after that. */
+  end(): void;
 }
 
 function defaultCreateWorker(): Promise<IoWorkerLike> {
@@ -292,8 +312,39 @@ export class IoClient {
     );
   }
 
+  /** Tiers M and V: the keyframes and decoder configs of one MediaRecorder segment. */
+  index(blob: Blob, container: SegmentContainer): Promise<SegmentIndex> {
+    return this.oneAnswer({ t: "index", blob, container }, [], (event) => (event.t === "indexed" ? event.index : undefined));
+  }
+
+  /** Tiers M and V: joins segments into one clip and stores it (plan 5, 8.1). */
+  concat(job: SegmentJob, meta: ClipMeta): Promise<ClipRecord> {
+    return this.oneAnswer({ t: "concat", job, meta }, [], (event) => (event.t === "saved" ? event.record : undefined));
+  }
+
+  /**
+   * Tiers M and V Record (plan 8.4): opens a recording in the io worker. Send
+   * each finished segment with add(), then end().
+   */
+  segmentRecord(recordingId: string, container: SegmentContainer, meta: ClipMeta): SegmentRecordSession {
+    const session = this.recordSession({ t: "segmentRecord", recordingId, container, meta }, []);
+    return {
+      ...session,
+      add: (segment) => void this.post({ t: "segmentRecordAdd", recordingId, segment }, [], null),
+      end: () => void this.post({ t: "segmentRecordEnd", recordingId }, [], null),
+    };
+  }
+
   /** Hands the Record tee port to the io worker (plan 8.4). */
   record(recordingId: string, port: MessagePort, meta: ClipMeta): RecordSession {
+    return this.recordSession({ t: "record", recordingId, port, meta }, [port]);
+  }
+
+  /**
+   * One recording command: "recording" starts it, "saved" and "error" come
+   * for each part, and "recorded" ends it.
+   */
+  private recordSession(cmd: IoCmd, transfer: Transferable[]): RecordSession {
     let startOk: () => void = () => undefined;
     let startFail: (error: IoError) => void = () => undefined;
     let doneOk: (value: Awaited<RecordSession["finished"]>) => void = () => undefined;
@@ -310,7 +361,7 @@ export class IoClient {
     started.catch(() => undefined);
     finished.catch(() => undefined);
     let listening = false;
-    void this.post({ t: "record", recordingId, port, meta }, [port], {
+    void this.post(cmd, transfer, {
       onEvent: (event) => {
         if (event.t === "recording") {
           listening = true;

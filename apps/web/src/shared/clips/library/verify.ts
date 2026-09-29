@@ -13,7 +13,7 @@
  * The checks read only headers, box sizes and packet tables, never pixels.
  */
 
-import { BlobSource, BufferSource, EncodedPacketSink, Input, type InputFormat, MP4, WEBM } from "mediabunny";
+import { BlobSource, BufferSource, EncodedPacketSink, Input, type InputFormat, MATROSKA, MP4, WEBM } from "mediabunny";
 import { readFourCC, readU32, readU64 } from "../engine/io/boxes";
 import { LibraryError } from "./errors";
 import type { StoredMime } from "./shared";
@@ -160,8 +160,12 @@ export async function inspectPng(source: Source): Promise<{ width: number; heigh
   throw new Error("the PNG has no IEND chunk (the file is cut)");
 }
 
+/**
+ * The readers for a stored type. A tier V file (plan 5) is WebM; the Matroska
+ * reader also takes it, for a WebM whose DocType says "matroska".
+ */
 function formatsFor(mime: StoredMime): InputFormat[] {
-  return mime === "video/webm" ? [WEBM] : [MP4];
+  return mime === "video/webm" ? [WEBM, MATROSKA] : [MP4];
 }
 
 /**

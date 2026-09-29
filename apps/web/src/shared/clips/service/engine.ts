@@ -3,10 +3,12 @@
  *
  * ClipService (the state machine, the tap rules, the button) talks to a
  * CaptureEngine only. engineHost.ts implements it for tiers W and W+
- * (WebCodecs in the encode worker, the io worker for files). A later PR adds
- * a MediaRecorder engine for tiers M and V behind this same interface. Until
- * then, tiers M and V get no engine, and the clip button is hidden with the
- * reason "no-tier".
+ * (WebCodecs in the encode worker, the io worker for files), and
+ * engine/recorder/recorderEngine.ts for tiers M and V (rotating
+ * MediaRecorders on the main thread, the io worker for files).
+ * loadEngine.ts picks the engine from the capability probe. A device with
+ * no tier gets no engine, and the clip button is hidden with the reason
+ * "no-tier".
  *
  * Types only, plus the failure class. Nothing here touches the browser.
  */
@@ -41,6 +43,13 @@ export type EngineEvent =
   | { t: "recovered" }
   /** Seconds of footage in the ring (from the encoder stats). */
   | { t: "buffered"; seconds: number }
+  /**
+   * Replay granularity (plan 5): a clip starts at most this many seconds
+   * before the moment the kid asked for (at the keyframe before it). Tiers M
+   * and V measure it from the keyframes of their segments; tiers W and W+
+   * keep a keyframe every second and do not send this event.
+   */
+  | { t: "granularity"; seconds: number }
   /** The governor moved. resting: capture stopped to protect the game. */
   | { t: "governor"; level: GovernorLevelLike; resting: boolean }
   /** A source was registered (present) or the last one went away. */

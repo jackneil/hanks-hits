@@ -15,21 +15,28 @@
  *   queue as the commands (recorder.ts). While the recording is open, the
  *   handler holds its Web Lock, and each part is journaled in OPFS
  *   (recordJournal.ts).
+ * - Tiers M and V (plan 5): "index" reads a MediaRecorder segment, "concat"
+ *   joins segments into one clip (concat.ts), and "segmentRecord",
+ *   "segmentRecordAdd" and "segmentRecordEnd" make Record parts from
+ *   segments, with a segment journal in OPFS (segmentRecording.ts). The
+ *   joined file goes through the same write protocol as a muxed clip.
  * - After the first library open, the journals that dead tabs left are stored
  *   as record clips (plan 8.4 crash recovery), in their own queue task, and
  *   one "recovered" event lists the stored rows.
  */
 
-import type { ClipMeta, ClipPackets, ClipRecord, EpochInfo, IoCmd, IoEvent, MemoryClass, PacketDTO } from "../../protocol";
+import type { ClipMeta, ClipPackets, ClipRecord, EpochInfo, IoCmd, IoEvent, MemoryClass, PacketDTO, SegmentJob } from "../../protocol";
 import { InvalidInputError, LibraryError, errorText } from "../../library/errors";
 import type { StorageLike } from "../../library/fsTypes";
 import { ClipLibrary, type LibraryEnv } from "../../library/opfsStore";
 import { isClipId, isOwnerKey } from "../../library/ownerKey";
+import { ConcatError, concatSegments, indexSegment } from "./concat";
 import { MoovPatchError, addAacRollGroups } from "./moovPatch";
 import { MuxError, muxClip } from "./mux";
-import { makePoster, makePosterFromImage } from "./poster";
+import { PLACEHOLDER_POSTER, makePoster, makePosterFromImage } from "./poster";
 import { PartJournal, holdRecordingLock, recoverJournals, type JournalEnv, type JournalLocks } from "./recordJournal";
 import { RECORD_ID_MAX_LENGTH, RECORD_PART_MAX_BYTES, Recording } from "./recorder";
+import { SegmentJournal, SegmentRecording, isSegmentRef, recoverSegmentJournals, type StoredPart } from "./segmentRecording";
 
 type IoErrorEvent = Extract<IoEvent, { t: "error" }>;
 type Post = (event: IoEvent) => void;
@@ -45,6 +52,10 @@ export interface IoHandlerEnv {
   openLibrary?: () => Promise<IoLibrary>;
   libraryEnv?: LibraryEnv;
   mux?: typeof muxClip;
+  /** Tiers M and V: joins MediaRecorder segments. Default: concatSegments. */
+  concat?: typeof concatSegments;
+  /** Tiers M and V: reads a segment's keyframes and configs. Default: indexSegment. */
+  index?: typeof indexSegment;
   patch?: typeof addAacRollGroups;
   poster?: typeof makePoster;
   /** Poster of a picture. Default: makePosterFromImage. */
@@ -125,9 +136,19 @@ interface OpenRecording {
   lock: Promise<{ release(): void }> | null;
 }
 
+/** A tier M or V recording (segmentRecording.ts), fed by commands instead of a port. */
+interface OpenSegmentRecording {
+  recording: SegmentRecording;
+  /** The recording's events go with the rid of its "segmentRecord" command. */
+  post: Post;
+  lock: Promise<{ release(): void }> | null;
+}
+
 export function createIoHandler(env: IoHandlerEnv): IoHandler {
   const now = env.now ?? (() => (typeof performance !== "undefined" ? performance.now() : Date.now()));
   const mux = env.mux ?? muxClip;
+  const concat = env.concat ?? concatSegments;
+  const index = env.index ?? indexSegment;
   const patch = env.patch ?? addAacRollGroups;
   const poster = env.poster ?? makePoster;
   const picturePoster = env.picturePoster ?? ((png: Blob) => makePosterFromImage(png));
@@ -135,6 +156,7 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
   let memoryClass: MemoryClass | null = null;
   let queue: Promise<void> = Promise.resolve();
   const recordings = new Map<string, OpenRecording>();
+  const segmentRecordings = new Map<string, OpenSegmentRecording>();
   const journalEnv = env.journal === undefined ? defaultJournalEnv() : env.journal;
   let recoveryQueued = false;
 
@@ -220,6 +242,127 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
     const posterDataUrl = await poster(muxed.firstKey.data, muxed.epoch);
     // The library sets durationMs and hasAudio again from the stored file.
     return store(muxed.bytes, { ...meta, mime: "video/mp4", hasAudio: muxed.hasAudio, posterDataUrl }, expectedSec, muxMs, post);
+  };
+
+  /**
+   * Tiers M and V: joins the segments, patches AAC in MP4, makes the poster
+   * and stores the file (plan 8.1 write protocol). The expected length for
+   * the save check comes from the packet plan, not from the written file, so
+   * a short write shows as a difference.
+   */
+  const concatAndStore = async (job: SegmentJob, meta: ClipMeta, post: Post): Promise<StoredPart | null> => {
+    const started = now();
+    let joined: Awaited<ReturnType<typeof concatSegments>>;
+    let bytes: Uint8Array;
+    try {
+      joined = await concat(job);
+      bytes = joined.aacInMp4 ? patch(joined.bytes).bytes : joined.bytes;
+    } catch (error) {
+      const code = error instanceof ConcatError || error instanceof MoovPatchError ? error.code : "error";
+      post(errorEvent("mux-failed", `${code}: ${errorText(error)}`, meta.id));
+      return null;
+    }
+    const muxMs = now() - started;
+    let posterDataUrl = await poster(joined.firstKey.data, joined.firstKey.config);
+    // No video decoder here (common on tier V): use the game picture from the main thread.
+    if (posterDataUrl === PLACEHOLDER_POSTER && job.poster instanceof Blob) posterDataUrl = await picturePoster(job.poster);
+    const record = await store(bytes, { ...meta, mime: joined.mime, hasAudio: joined.hasAudio, posterDataUrl }, joined.videoSec, muxMs, post);
+    return record ? { record, startUs: joined.startUs, endUs: joined.endUs } : null;
+  };
+
+  const validJob = (job: SegmentJob | undefined, id: string, post: Post): job is SegmentJob => {
+    if (!job || (job.container !== "mp4" && job.container !== "webm") || !Array.isArray(job.segments) || !job.segments.every(isSegmentRef)) {
+      post(errorEvent("bad-command", "the segment job is not valid", id));
+      return false;
+    }
+    return true;
+  };
+
+  const runIndex = async (cmd: Extract<IoCmd, { t: "index" }>, post: Post): Promise<void> => {
+    if (!(cmd.blob instanceof Blob) || (cmd.container !== "mp4" && cmd.container !== "webm")) {
+      post(errorEvent("bad-command", "the index command has no segment"));
+      return;
+    }
+    try {
+      post({ t: "indexed", index: await index(cmd.blob, cmd.container) });
+    } catch (error) {
+      const code = error instanceof ConcatError ? error.code : "error";
+      post(errorEvent("mux-failed", `${code}: ${errorText(error)}`));
+    }
+  };
+
+  const runConcat = async (cmd: Extract<IoCmd, { t: "concat" }>, post: Post): Promise<void> => {
+    if (!validMeta(cmd.meta, "mux-failed", post)) return;
+    if (!validJob(cmd.job, cmd.meta.id, post)) return;
+    await concatAndStore(cmd.job, cmd.meta, post);
+  };
+
+  const runSegmentRecord = async (cmd: Extract<IoCmd, { t: "segmentRecord" }>, post: Post): Promise<void> => {
+    if (!isClipId(cmd.recordingId)) {
+      post(errorEvent("bad-command", `"${String(cmd.recordingId)}" is not a valid recording id`));
+      return;
+    }
+    if (!validMeta(cmd.meta, "bad-command", post)) return;
+    if (cmd.meta.id.length > RECORD_ID_MAX_LENGTH) {
+      post(errorEvent("bad-command", `a recording id has at most ${RECORD_ID_MAX_LENGTH} characters`, cmd.meta.id));
+      return;
+    }
+    if (cmd.container !== "mp4" && cmd.container !== "webm") {
+      post(errorEvent("bad-command", "the recording has no segment container", cmd.meta.id));
+      return;
+    }
+    if (recordings.has(cmd.recordingId) || segmentRecordings.has(cmd.recordingId)) {
+      post(errorEvent("bad-command", `recording "${cmd.recordingId}" is already open`, cmd.meta.id));
+      return;
+    }
+    // The recording's lock marks its journal as live (never recovered by another tab).
+    const lock = journalEnv ? holdRecordingLock(journalEnv.locks, cmd.recordingId) : null;
+    const recording = new SegmentRecording(
+      {
+        storePart: (job, meta, partPost) => concatAndStore(job, meta, partPost),
+        index: (blob, container) => index(blob, container),
+        maxPartBytes: () => RECORD_PART_MAX_BYTES[memoryClass ?? "low"],
+        openJournal: async (journalMeta) => {
+          if (!journalEnv || !lock) return null;
+          // The lock is held before the journal file exists.
+          await lock;
+          return SegmentJournal.open(journalEnv, journalMeta);
+        },
+      },
+      cmd.recordingId,
+      cmd.container,
+      { ...cmd.meta, kind: "record" },
+      post,
+    );
+    segmentRecordings.set(cmd.recordingId, { recording, post, lock });
+    await recording.start();
+    post({ t: "recording", recordingId: cmd.recordingId });
+  };
+
+  const runSegmentRecordAdd = async (cmd: Extract<IoCmd, { t: "segmentRecordAdd" }>, post: Post): Promise<void> => {
+    const open = segmentRecordings.get(cmd.recordingId);
+    if (!open) {
+      post(errorEvent("bad-command", `recording "${String(cmd.recordingId)}" is not open`));
+      return;
+    }
+    // A segment that fails is reported with the recording's own rid.
+    await open.recording.add(cmd.segment);
+  };
+
+  const runSegmentRecordEnd = async (cmd: Extract<IoCmd, { t: "segmentRecordEnd" }>, post: Post): Promise<void> => {
+    const open = segmentRecordings.get(cmd.recordingId);
+    if (!open) {
+      post(errorEvent("bad-command", `recording "${String(cmd.recordingId)}" is not open`));
+      return;
+    }
+    segmentRecordings.delete(cmd.recordingId);
+    try {
+      // The parts and "recorded" answer the recording's "segmentRecord" command.
+      await open.recording.end();
+    } finally {
+      // Every part is stored (or reported) and the journal is removed: the lock can go.
+      void open.lock?.then((held) => held.release());
+    }
   };
 
   /** Checks the id and owner of a producer's row. Posts the error and returns false when one is bad. */
@@ -323,6 +466,17 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
   const recoverRecordings = async (): Promise<void> => {
     if (!journalEnv) return;
     const records = await recoverJournals(journalEnv, ({ packets, meta }) => muxAndStore(packets, meta, env.post));
+    // Tiers M and V: the segment journals of recordings that a tab left open.
+    const fromSegments = await recoverSegmentJournals(
+      journalEnv,
+      {
+        storePart: (job, meta, partPost) => concatAndStore(job, meta, partPost),
+        index: (blob, container) => index(blob, container),
+        maxPartBytes: () => RECORD_PART_MAX_BYTES[memoryClass ?? "low"],
+      },
+      env.post,
+    );
+    records.push(...fromSegments);
     if (records.length > 0) env.post({ t: "recovered", records });
   };
 
@@ -336,6 +490,19 @@ export function createIoHandler(env: IoHandlerEnv): IoHandler {
         return runPicture(cmd, post);
       case "record":
         return runRecord(cmd, post);
+      case "index":
+        return runIndex(cmd, post);
+      case "concat":
+        return runConcat(cmd, post);
+      case "segmentRecord":
+        return runSegmentRecord(cmd, post);
+      case "segmentRecordAdd": {
+        // A segment's failure goes with the recording's own rid.
+        const open = segmentRecordings.get(cmd.recordingId);
+        return runSegmentRecordAdd(cmd, open ? open.post : post);
+      }
+      case "segmentRecordEnd":
+        return runSegmentRecordEnd(cmd, post);
       case "recordEnd": {
         const open = recordings.get(cmd.recordingId);
         // The recording's own events (with the record command's rid) follow.
