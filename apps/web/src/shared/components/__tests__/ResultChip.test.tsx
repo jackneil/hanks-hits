@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { useGameBreaks } from "../../lib/gameBreaks";
 import { RESULT_CHIP_BUTTON, RESULT_CHIP_GROUP, SECONDARY_ACTION } from "../buttonStyles";
 import { RESULT_CHIP_LABELS, RESULT_CHIP_Z_INDEX, ResultChip } from "../ResultChip";
 
@@ -540,5 +541,39 @@ describe("ResultChip copy for a finger", () => {
     fireEvent.click(screen.getByRole("button", { name: /play again/i }));
     expect(onRestart).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog", { name: /restart game/i })).toBeNull();
+  });
+});
+
+describe("ResultChip break slot", () => {
+  beforeEach(() => {
+    useGameBreaks.setState({ shells: 0, slots: [] });
+  });
+
+  it("registers a slot above the buttons that holds celebrations only, and reads its notes", async () => {
+    // The result is a break: a trophy earned in the run shows here, as
+    // part of the chip. The install tip does not: with the buttons it
+    // would cover most of a phone held sideways (gameBreaks.ts).
+    const synth = installSpeechMock();
+    const { unmount } = render(<ResultChip resultText="Game over!" onRestart={vi.fn()} />);
+    const slot = screen.getByTestId("result-chip-break-slot");
+    expect(chip()).toContainElement(slot);
+    expect(
+      slot.compareDocumentPosition(within(chip()).getByRole("group")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // A note in the slot takes taps; the chip's layer around it does not.
+    expect(slot).toHaveClass("pointer-events-auto", "empty:hidden");
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"] }]);
+
+    // A note rendered into the slot is read after the buttons.
+    const note = document.createElement("div");
+    note.setAttribute("data-read-aloud", "New trophy! First Play!");
+    slot.appendChild(note);
+    passGrace();
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+    expect(synth.lastUtterance().text).toBe("Game over! Play again. New trophy! First Play!");
+
+    unmount();
+    expect(useGameBreaks.getState().slots).toEqual([]);
   });
 });

@@ -236,10 +236,18 @@ the hints, and the picker when Play shows) scrolls on a short screen. The
 action row (the read-aloud button, then Play or the picker choices) stays at
 the bottom of the card, so the start action is always on screen with no
 scroll. On a short screen (a phone held sideways) the action row sits to the
-right of the body. A nudge such as the iOS install tip shows in a break slot
-outside the card (below it, or beside it on a short screen), never in the
-card. The slot shows only while the whole card still fits next to it. If it
-does not fit, the tip waits for the pause menu. The body shows a soft shadow
+right of the body. A nudge such as the iOS install tip or a trophy
+celebration shows in a break slot outside the card (below it, or beside it
+on a short screen), never in the card. The slot shows only while the whole
+card still fits next to it. If it does not fit, the nudge waits for the
+next break (the pause menu, or the result chip for a celebration). The
+break surfaces and the rule that places a nudge live in
+`src/shared/lib/gameBreaks.ts` (`useNudgePlacement`): a nudge renders into
+the newest slot that holds its kind; it waits while a game shell is on
+screen with no break, while a start card has no room, and on an app page
+whose start card has left (a Trivia quiz with a timer); and it shows its
+page form (a thin strip for a celebration, a 44 px pill for the install
+tip) only on a page with no play. The body shows a soft shadow
 at an edge only while there is more content past that edge (`useScrollCue`).
 The check in `e2e/start-cards` tests this contract on real screens for each
 route that the home page lists. Run it with `pnpm e2e:start-cards
@@ -360,15 +368,22 @@ same button, in the same place: under the words, above the action buttons.
   every game layer.
 - 100: OrientationWarning, the orientation tip (a phone held the other way
   than the game's preferredOrientation). It starts under the header.
-- 200: the install sheet that shows by itself on a page with no play.
 - 1000: the GameShell header. The clip confirmation (`InPlayConfirm`) lies
   in the title region of the header, at the same level.
 - 1050: toasts. The clip toast slot (`ToastSlot`) and the short notes of a
   game (for example "Saved!") use this level.
 - 1100: the full-screen Retro Arcade emulator view. It covers the header
   and the toasts. Its own top bar has the Back button.
-- 1150: AchievementCelebrations. A trophy that the kid earns while a retro
-  game runs shows over the emulator view.
+- 1150: AchievementCelebrations, as the thin strip at the bottom of a page
+  with no play. At a break the celebration is a card inside the break
+  surface (the start card, the pause menu, the result chip) and has no
+  level of its own. During play it waits for the next break. The card
+  leaves the queue when the kid taps Yay!, or when the break ends after
+  the card was in view (an IntersectionObserver, half of the card) for
+  1.5 s in total. A card the kid never scrolled to comes back at the next
+  break. The queue is persisted, so a trophy that waits survives a
+  reload. On a short screen (the `short:` variant) the card is one row,
+  so the start card's slot can hold it under the install tip.
 - 1200: ResultChip.
 - 1500: modals (LeaderboardModal, tutorials).
 - 2000: PauseMenu.
@@ -380,11 +395,13 @@ same button, in the same place: under the words, above the action buttons.
 Every layer above 1000 portals to `document.body` or mounts in the root
 layout, so no game container can trap it (gameplay clips plan, section
 11.4). The emulator view is `fixed` in the game content, which makes no
-stacking context, so it does not need a portal. The celebration layer is
+stacking context, so it does not need a portal. The celebration strip is
 `pointer-events-none`, so it takes no tap except on its own dismiss
 button. It stays below the result chip, the modals, the sheets and the
 dialogs, so it never covers a question that the kid must answer. The
-comment in `AchievementCelebrations.tsx` holds the same list.
+comment in `AchievementCelebrations.tsx` holds the same list. The install
+pill has no level: it renders in the flow of the app page where the app
+mounts it, so it covers nothing.
 `src/__tests__/stacking-contract.test.ts` reads this list and the code. It
 fails when a named layer is not at its level, or when the code uses a z
 level above 60 that the list does not name. A new layer takes a level of
@@ -396,13 +413,20 @@ end of the page. While a sheet shows, it calls `useBottomSheetSpace`
 sheet on `<html>` as `--bottom-sheet-space`. `globals.css` adds that much
 padding at the end of the body, so the kid can scroll every element up
 clear of the sheet. When the sheet closes, the space goes away. A new
-bottom sheet must use the same hook. On a short screen (the `short:`
-variant, a phone held sideways) the install sheet is one row: the icon,
-the steps, Read it to me, Don't show this again, and Close. The row is
-at most a quarter of the screen height and keeps the 44 px targets. The
-sheet also keeps clear of the side safe areas (the notch). The check in
-`e2e/install-sheet` tests the sheet on each app page that shows it, at
-844x390, 667x375, 568x320, 932x430 and 390x844. Run it with
+bottom sheet must use the same hook. The install sheet opens only when
+the kid asks for the steps: from the 📲 button, or from the install pill.
+The pill is the automatic form on an app page with no play: one 44 px row
+in the flow of the page, with the words and a Close. It shows once per
+session (`sessionStorage`); Close, or Close on its steps, ends it for the
+session, and Don't show this again ends it for good (`localStorage`). On
+a short screen (the `short:` variant, a phone held sideways) the install
+sheet is one row: the icon, the steps, Read it to me, Don't show this
+again, and Close. The row is at most a quarter of the screen height and
+keeps the 44 px targets. The sheet also keeps clear of the side safe
+areas (the notch). The check in `e2e/install-sheet` tests the pill and
+the sheet on each app page that mounts the prompt, at 844x390, 667x375,
+568x320, 932x430 and 390x844, and that an app whose start card has left
+(Trivia) shows no prompt at all. Run it with
 `pnpm e2e:install-sheet <base-url>` from the repo root, against a server
 that runs. A start card and a game shell count themselves in a layout
 effect. The store hooks subscribe only after paint, so a nudge must not

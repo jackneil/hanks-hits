@@ -6,7 +6,7 @@ import {
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
-import { useGameBreaks } from "../../lib/gameBreaks";
+import { ALL_NOTES, useGameBreaks } from "../../lib/gameBreaks";
 import { PauseMenu } from "../PauseMenu";
 
 describe("PauseMenu restart", () => {
@@ -274,7 +274,8 @@ describe("PauseMenu break slot", () => {
       <PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />
     );
     const slot = screen.getByTestId("pause-menu-break-slot");
-    expect(useGameBreaks.getState().slots).toEqual([slot]);
+    // The menu holds every note: the install tip and a trophy celebration.
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ALL_NOTES }]);
 
     rerender(<PauseMenu isOpen={false} onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
     expect(useGameBreaks.getState().slots).toEqual([]);

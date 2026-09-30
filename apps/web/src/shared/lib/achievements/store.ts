@@ -17,8 +17,14 @@ type AchievementsState = {
   /** Local-only observation state (persisted, never synced): seeds and
    * per-app last-seen stats so records only "break" when watched. */
   watermarks: Watermarks;
-  /** Session-only unlock queue for the celebration toast — deliberately not
-   * persisted, so a reload never re-celebrates. */
+  /** Unlocks that wait for their celebration (AchievementCelebrations).
+   * Persisted (local-only, never synced): a celebration waits for the next
+   * break surface (the start card, the pause menu, the result chip), and a
+   * kid who closes the tab mid-run would otherwise lose it. A card leaves
+   * the queue only once the kid could see it (Yay!, or a break that lasted
+   * SEEN_MS), so a reload shows a trophy again only when it was never
+   * seen. Before the break surfaces, the toast showed at once and the
+   * queue was session-only so a reload never re-celebrated. */
   celebrationQueue: string[];
 
   getProgress: () => AchievementsProgress;
@@ -100,6 +106,7 @@ export const useAchievementsStore = create<AchievementsState>()(
       partialize: (state) => ({
         progress: state.progress,
         watermarks: state.watermarks,
+        celebrationQueue: state.celebrationQueue,
       }),
     }
   )

@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { useClipShellUi } from "@/shared/clips";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { useRegisterBreakSlot } from "../lib/gameBreaks";
 import { getGameMetadata } from "../lib/gameMetadata.generated";
 import { spokenLabelsIn } from "../lib/spokenLabels";
 import { RESULT_CHIP_BUTTON, RESULT_CHIP_GROUP, SECONDARY_ACTION } from "./buttonStyles";
@@ -93,6 +94,12 @@ import { ReadAloudButton } from "./ReadAloudButton";
  *   and runPhase("end") on the clip timeline. The game adds no other code
  *   for them. The voice reads them too, in screen order, with each length
  *   in words.
+ * - Break slot (gameBreaks.ts): the result is a break. A trophy earned in
+ *   the run renders into the slot above the buttons, as part of the chip,
+ *   and the voice reads its words after the buttons. The slot holds
+ *   celebrations only: the install tip waits for the start card or the
+ *   pause menu, because with the buttons it would cover most of a phone
+ *   held sideways.
  */
 
 /** The stacking level of the result chip (plan 11.4). */
@@ -186,9 +193,13 @@ export function ResultChip({
 
   const leaderboardAppId = appId && hasLeaderboardSupport(appId) ? appId : null;
 
+  // The break slot above the buttons: a trophy celebration renders into it
+  // while the result shows.
+  const { slotRef: breakSlotRef, readNotes: readBreakNotes } = useRegisterBreakSlot(["celebration"]);
+
   // Same order as the buttons on screen: Play again, Leaderboard, extras,
-  // then the clip buttons. Built at tap time, so the clip buttons that show
-  // right now are the ones the voice says.
+  // the clip buttons, then the notes in the break slot. Built at tap time,
+  // so the clip buttons that show right now are the ones the voice says.
   const spokenText = () =>
     [
       resultText,
@@ -196,6 +207,7 @@ export function ResultChip({
       leaderboardAppId ? RESULT_CHIP_LABELS.leaderboard : null,
       ...spokenExtras,
       ...spokenLabelsIn(clipActionsRef.current),
+      ...readBreakNotes(),
     ]
       .filter(Boolean)
       .join(". ");
@@ -275,8 +287,16 @@ export function ResultChip({
   return createPortal(
     <div
       data-testid="result-chip"
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[1200] flex justify-center px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[1200] flex flex-col items-center gap-2 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
+      {/* Break slot (empty unless a celebration renders into it). A tap
+          on a note here bubbles through the note's own React tree (the
+          root layout), not through the game. */}
+      <div
+        ref={breakSlotRef}
+        data-testid="result-chip-break-slot"
+        className="pointer-events-auto w-full max-w-sm empty:hidden"
+      />
       <div
         role="group"
         aria-labelledby={resultId}

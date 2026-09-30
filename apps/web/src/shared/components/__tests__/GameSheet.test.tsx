@@ -162,7 +162,9 @@ describe("GameSheet", () => {
   it("is a break: it registers a slot for the install tip, but not on a short screen", () => {
     const { unmount } = render(<GameSheet title="Settings" actions={<button type="button">Back</button>} />);
     const slot = screen.getByTestId("game-sheet-break-slot");
-    expect(useGameBreaks.getState().slots).toEqual([slot]);
+    // A game's own card is a full break: it holds the install tip and a
+    // trophy celebration (gameBreaks.ts, ALL_NOTES).
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["tip", "celebration"] }]);
     unmount();
     expect(useGameBreaks.getState().slots).toEqual([]);
 

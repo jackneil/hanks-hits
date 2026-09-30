@@ -5,9 +5,11 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IOSInstallPrompt,
+  IOS_INSTALL_PILL_LABEL,
   IOS_INSTALL_SHEET_SPOKEN,
   IOS_INSTALL_SPOKEN,
   IOS_INSTALL_TIP_SPOKEN,
+  SESSION_KEY,
 } from "../IOSInstallPrompt";
 import { GameShell } from "../GameShell";
 import { GameStartOverlay } from "../GameStartOverlay";
@@ -17,6 +19,8 @@ import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
+  // No router in a test: the placement reads window.location instead.
+  usePathname: () => null,
 }));
 
 const IPHONE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)";
@@ -40,10 +44,15 @@ function renderGameWithPrompt() {
   );
 }
 
+const pill = () => screen.getByTestId("ios-install-pill");
+const queryPill = () => screen.queryByTestId("ios-install-pill");
+const querySheet = () => screen.queryByTestId("ios-install-sheet");
+
 describe("IOSInstallPrompt", () => {
   beforeEach(() => {
     localStorage.clear();
-    useStartOverlayPresence.setState({ count: 0 });
+    sessionStorage.clear();
+    useStartOverlayPresence.setState({ count: 0, enteredOn: null, leftOn: null });
     useGameBreaks.setState({ shells: 0, slots: [] });
     setUserAgent(IPHONE_UA);
   });
@@ -51,9 +60,10 @@ describe("IOSInstallPrompt", () => {
   afterEach(() => {
     window.matchMedia = DEFAULT_MATCH_MEDIA;
     removeSpeechMock();
+    window.history.pushState({}, "", "/");
   });
 
-  it("sits on the start screen OUTSIDE the card, then becomes a sheet after Play on a page with no game", () => {
+  it("sits on the start screen OUTSIDE the card, then becomes a pill after Play on a page with no game", () => {
     const { rerender } = render(
       <>
         <GameStartOverlay title="Snake" onStart={() => {}} />
@@ -71,24 +81,27 @@ describe("IOSInstallPrompt", () => {
     const tip = within(slot).getByTestId("ios-install-tip");
     expect(card).not.toContainElement(tip);
     expect(card).not.toContainElement(slot);
-    expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+    expect(querySheet()).not.toBeInTheDocument();
+    expect(queryPill()).not.toBeInTheDocument();
     const play = within(card).getByRole("button", { name: "▶ Play!" });
     expect(play.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    // The card unmounts. No game shell is on screen, so the sheet may show.
+    // The card unmounts on a page that is not an app and has no game
+    // shell (a page with no play): the pill shows, never the sheet.
     rerender(<IOSInstallPrompt />);
 
-    expect(screen.getByTestId("ios-install-sheet")).toBeInTheDocument();
+    expect(pill()).toBeInTheDocument();
+    expect(querySheet()).not.toBeInTheDocument();
     expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
   });
 
-  it("a start card counts before paint, so the sheet never paints over it for one frame", () => {
+  it("a start card counts before paint, so the pill never paints beside it for one frame", () => {
     // Live, on /apps/trivia: the sheet and the start card mounted in the
     // same commit, and the card counted itself in a passive effect, after
     // paint. For about 4 ms one frame showed the sheet over the card. A
     // layout effect of a later sibling runs after the card's layout
     // effects and before paint: by then the card must be counted, so the
-    // sheet leaves in the sync render before paint (as the GameShell
+    // page form leaves in the sync render before paint (as the GameShell
     // count does).
     const countsBeforePaint: number[] = [];
     function PaintProbe() {
@@ -107,7 +120,8 @@ describe("IOSInstallPrompt", () => {
     );
 
     expect(countsBeforePaint).toEqual([1]);
-    expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+    expect(querySheet()).not.toBeInTheDocument();
+    expect(queryPill()).not.toBeInTheDocument();
   });
 
   it("is not in the page in the commit where a start card mounts beside it", () => {
@@ -115,10 +129,12 @@ describe("IOSInstallPrompt", () => {
     // count that the card set in its layout effect: the first commit held
     // the sheet, and it left only after paint. The prompt now decides in a
     // second render before paint, when the counts are set.
-    const sheetInFirstCommit: boolean[] = [];
+    const formInFirstCommit: boolean[] = [];
     function FirstCommitProbe() {
       useLayoutEffect(() => {
-        sheetInFirstCommit.push(!!document.querySelector('[data-testid="ios-install-sheet"]'));
+        formInFirstCommit.push(
+          !!document.querySelector('[data-testid="ios-install-sheet"], [data-testid="ios-install-pill"]')
+        );
       }, []);
       return null;
     }
@@ -131,19 +147,20 @@ describe("IOSInstallPrompt", () => {
       </>
     );
 
-    expect(sheetInFirstCommit).toEqual([false]);
-    expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+    expect(formInFirstCommit).toEqual([false]);
+    expect(querySheet()).not.toBeInTheDocument();
+    expect(queryPill()).not.toBeInTheDocument();
   });
 
-  it("still shows the sheet before paint on a page with no start card", () => {
+  it("still shows the pill before paint on a page with no start card", () => {
     render(<IOSInstallPrompt />);
-    expect(screen.getByTestId("ios-install-sheet")).toBeInTheDocument();
+    expect(pill()).toBeInTheDocument();
   });
 
   it("shows on iPhone browsers when not dismissed", () => {
     render(<IOSInstallPrompt />);
 
-    expect(screen.getByText("Play Fullscreen!")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: IOS_INSTALL_PILL_LABEL })).toBeInTheDocument();
   });
 
   it("does not show on non-iPhone browsers", () => {
@@ -151,7 +168,8 @@ describe("IOSInstallPrompt", () => {
 
     render(<IOSInstallPrompt />);
 
-    expect(screen.queryByText("Play Fullscreen!")).not.toBeInTheDocument();
+    expect(queryPill()).not.toBeInTheDocument();
+    expect(querySheet()).not.toBeInTheDocument();
   });
 
   it("does not show in the installed Home Screen app", () => {
@@ -162,24 +180,121 @@ describe("IOSInstallPrompt", () => {
 
     render(<IOSInstallPrompt />);
 
-    expect(screen.queryByText("Play Fullscreen!")).not.toBeInTheDocument();
+    expect(queryPill()).not.toBeInTheDocument();
+    expect(querySheet()).not.toBeInTheDocument();
   });
 
-  it("persists the don't-show-again dismissal", () => {
+  it("persists the don't-show-again dismissal from the steps", () => {
     render(<IOSInstallPrompt />);
+    fireEvent.click(screen.getByRole("button", { name: IOS_INSTALL_PILL_LABEL }));
     fireEvent.click(screen.getByText("Don't show this again"));
 
     expect(localStorage.getItem("ios-install-prompt-dismissed")).toBe("true");
-    expect(screen.queryByText("Play Fullscreen!")).not.toBeInTheDocument();
+    expect(querySheet()).not.toBeInTheDocument();
+    expect(queryPill()).not.toBeInTheDocument();
   });
 
-  it("uses a solid surface with 44 px controls (no gradient)", () => {
+  it("uses a solid surface with 44 px controls (no gradient) for the sheet", () => {
     render(<IOSInstallPrompt />);
+    fireEvent.click(screen.getByRole("button", { name: IOS_INSTALL_PILL_LABEL }));
 
     const sheet = screen.getByTestId("ios-install-sheet");
     expect(sheet.innerHTML).not.toMatch(/bg-gradient|backdrop-blur|shadow-2xl/);
     expect(within(sheet).getByRole("button", { name: "Close" })).toHaveClass("w-11", "h-11");
     expect(within(sheet).getByText("Don't show this again")).toHaveClass("min-h-[44px]");
+  });
+
+  describe("the pill on a page with no play", () => {
+    it("is in the flow of the page, 44 px, with the words and a Close, and no fixed sheet", () => {
+      // On an iPhone SE the sheet was 232 px tall, 42% of the screen, over
+      // every tool of the drawing app on open (phone UX audit, S10). The
+      // pill is one 44 px row where the app mounts it, so it covers
+      // nothing.
+      const { container } = render(<IOSInstallPrompt />);
+      const row = pill();
+      expect(container).toContainElement(row);
+      expect(row.className).not.toMatch(/\bfixed\b|\babsolute\b|\bz-\[/);
+      // m-2: its own inset, so a root with no padding (the drawing app)
+      // never shows it flush against the corner of the screen.
+      expect(row).toHaveClass("min-h-11", "w-fit", "max-w-full", "m-2");
+      expect(row.className).not.toMatch(/bg-gradient|backdrop-blur/);
+      const show = within(row).getByRole("button", { name: IOS_INSTALL_PILL_LABEL });
+      expect(show).toHaveClass("min-h-11");
+      const close = within(row).getByRole("button", { name: "Close" });
+      expect(close).toHaveClass("h-11", "w-11");
+      expect(querySheet()).not.toBeInTheDocument();
+    });
+
+    it("opens the steps as the requested sheet; closing the steps ends the pill for the session", () => {
+      render(<IOSInstallPrompt />);
+      fireEvent.click(within(pill()).getByRole("button", { name: IOS_INSTALL_PILL_LABEL }));
+
+      const sheet = screen.getByTestId("ios-install-sheet");
+      expect(sheet.parentElement).toBe(document.body);
+      expect(sheet).toHaveAttribute("data-layer", "requested");
+      expect(sheet).toHaveClass("z-[2500]");
+      expect(queryPill()).not.toBeInTheDocument();
+
+      fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+      expect(querySheet()).not.toBeInTheDocument();
+      expect(queryPill()).not.toBeInTheDocument();
+      expect(sessionStorage.getItem(SESSION_KEY)).toBe("true");
+    });
+
+    it("Close hides the pill and remembers it for the session: it does not return on the next page", () => {
+      const first = render(<IOSInstallPrompt />);
+      fireEvent.click(within(pill()).getByRole("button", { name: "Close" }));
+      expect(queryPill()).not.toBeInTheDocument();
+      expect(sessionStorage.getItem(SESSION_KEY)).toBe("true");
+      first.unmount();
+
+      // Before this, `closed` was per-mount state: the next app page
+      // showed the sheet again.
+      render(<IOSInstallPrompt />);
+      expect(queryPill()).not.toBeInTheDocument();
+      expect(querySheet()).not.toBeInTheDocument();
+    });
+
+    it("shows once per session: a pill the kid did not close still counts as shown", () => {
+      const first = render(<IOSInstallPrompt />);
+      expect(pill()).toBeInTheDocument();
+      expect(sessionStorage.getItem(SESSION_KEY)).toBe("true");
+      // This page keeps its pill.
+      first.rerender(<IOSInstallPrompt />);
+      expect(pill()).toBeInTheDocument();
+      first.unmount();
+
+      render(<IOSInstallPrompt />);
+      expect(queryPill()).not.toBeInTheDocument();
+    });
+
+    it("a new session shows the pill again, unless the kid chose Don't show this again", () => {
+      sessionStorage.setItem(SESSION_KEY, "true");
+      const first = render(<IOSInstallPrompt />);
+      expect(queryPill()).not.toBeInTheDocument();
+      first.unmount();
+
+      sessionStorage.clear();
+      const second = render(<IOSInstallPrompt />);
+      expect(pill()).toBeInTheDocument();
+      second.unmount();
+
+      localStorage.setItem("ios-install-prompt-dismissed", "true");
+      sessionStorage.clear();
+      render(<IOSInstallPrompt />);
+      expect(queryPill()).not.toBeInTheDocument();
+    });
+
+    it("does not mark the session while the tip shows in a break surface", () => {
+      render(
+        <>
+          <GameStartOverlay title="Snake" onStart={() => {}} />
+          <IOSInstallPrompt />
+        </>
+      );
+      expect(screen.getByTestId("ios-install-tip")).toBeInTheDocument();
+      expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+    });
   });
 
   describe("during a game (issue #32)", () => {
@@ -188,7 +303,8 @@ describe("IOSInstallPrompt", () => {
 
       expect(screen.getByText("game")).toBeInTheDocument();
       expect(screen.queryByText("Play Fullscreen!")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+      expect(querySheet()).not.toBeInTheDocument();
+      expect(queryPill()).not.toBeInTheDocument();
     });
 
     it("shows inside the pause menu while the game is paused, then leaves with it", () => {
@@ -200,7 +316,7 @@ describe("IOSInstallPrompt", () => {
       const tip = within(slot).getByTestId("ios-install-tip");
       expect(within(tip).getByText("Play Fullscreen!")).toBeInTheDocument();
       // It is part of the menu, not a sheet floating over it.
-      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+      expect(querySheet()).not.toBeInTheDocument();
       expect(tip.className).not.toMatch(/fixed|bg-gradient/);
 
       fireEvent.click(
@@ -242,7 +358,7 @@ describe("IOSInstallPrompt", () => {
       expect(
         within(within(overlay).getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
       ).toBeInTheDocument();
-      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+      expect(querySheet()).not.toBeInTheDocument();
 
       fireEvent.click(within(overlay).getByTestId("read-aloud-button"));
       // The voice skips the ▶ picture.
@@ -250,8 +366,8 @@ describe("IOSInstallPrompt", () => {
         `Flappy Bird. Then tap Play! to start. ${IOS_INSTALL_TIP_SPOKEN}`
       );
 
-      // Play starts: the card goes, and the tip goes with it. No sheet
-      // covers the game.
+      // Play starts: the card goes, and the tip goes with it. No sheet or
+      // pill covers the game.
       rerender(
         <GameShell gameName="Flappy Bird" appId="flappy-bird" canPause={false}>
           <div>game</div>
@@ -259,7 +375,8 @@ describe("IOSInstallPrompt", () => {
         </GameShell>
       );
       expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+      expect(querySheet()).not.toBeInTheDocument();
+      expect(queryPill()).not.toBeInTheDocument();
     });
 
     it("moves from the start screen into the pause menu, the newest break", () => {
@@ -287,6 +404,22 @@ describe("IOSInstallPrompt", () => {
       expect(
         within(screen.getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
       ).toBeInTheDocument();
+    });
+
+    it("stays out of the result chip: its slot holds celebrations only", () => {
+      // With the chip's buttons, the 150 px tip would cover most of a
+      // phone held sideways at the moment the kid wants Play again.
+      const slot = document.createElement("div");
+      document.body.appendChild(slot);
+      try {
+        useGameBreaks.setState({ shells: 1, slots: [{ el: slot, holds: ["celebration"] }] });
+        render(<IOSInstallPrompt />);
+        expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
+        expect(querySheet()).not.toBeInTheDocument();
+        expect(queryPill()).not.toBeInTheDocument();
+      } finally {
+        slot.remove();
+      }
     });
 
     describe("when the start card has no room for it", () => {
@@ -378,8 +511,9 @@ describe("IOSInstallPrompt", () => {
 
         expect(screen.queryByTestId("start-overlay-break-slot")).not.toBeInTheDocument();
         expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
-        // It is not a sheet over Play either.
-        expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+        // It is not a sheet or a pill over Play either.
+        expect(querySheet()).not.toBeInTheDocument();
+        expect(queryPill()).not.toBeInTheDocument();
 
         // The late size report changes nothing: the tip stays away.
         await reportSizes();
@@ -413,7 +547,8 @@ describe("IOSInstallPrompt", () => {
         await reportSizes();
         expect(screen.queryByTestId("start-overlay-break-slot")).not.toBeInTheDocument();
         expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
-        expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+        expect(querySheet()).not.toBeInTheDocument();
+        expect(queryPill()).not.toBeInTheDocument();
       });
 
       it("gives no slot when the card body must scroll even without the tip", async () => {
@@ -459,27 +594,71 @@ describe("IOSInstallPrompt", () => {
     });
   });
 
-  describe("on an app page (no play to cover)", () => {
-    it("is a bottom sheet under an app's GameShell, as on a page with no game", () => {
+  describe("on an app page", () => {
+    it("is a pill in the flow of an app under its GameShell, never a sheet over the app's controls", () => {
       window.history.pushState({}, "", "/apps/weather");
-      try {
-        render(
-          <GameShell gameName="Weather Buddy" canPause={false}>
-            <div>weather</div>
+      render(
+        <GameShell gameName="Weather Buddy" canPause={false}>
+          <div data-testid="app">
             <IOSInstallPrompt />
-          </GameShell>
-        );
+            <div>weather</div>
+          </div>
+        </GameShell>
+      );
 
-        expect(useGameBreaks.getState().shells).toBe(0);
-        expect(screen.getByTestId("ios-install-sheet")).toBeInTheDocument();
-      } finally {
-        window.history.pushState({}, "", "/");
-      }
+      expect(useGameBreaks.getState().shells).toBe(0);
+      expect(querySheet()).not.toBeInTheDocument();
+      expect(within(screen.getByTestId("app")).getByTestId("ios-install-pill")).toBeInTheDocument();
+    });
+
+    it("an app whose start card has left counts as play: no sheet and no pill mid-quiz", () => {
+      // Live on Trivia: the sheet showed the moment the start card left,
+      // over all four answers while the 20 s timer ran.
+      window.history.pushState({}, "", "/apps/trivia");
+      const { rerender } = render(
+        <GameShell gameName="Trivia Quiz" appId="trivia" canPause={false}>
+          <div>
+            <IOSInstallPrompt />
+            <GameStartOverlay title="Trivia Quiz" onStart={() => {}} />
+          </div>
+        </GameShell>
+      );
+      expect(
+        within(screen.getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
+      ).toBeInTheDocument();
+
+      // Start Quiz: the card leaves, the quiz runs.
+      rerender(
+        <GameShell gameName="Trivia Quiz" appId="trivia" canPause={false}>
+          <div>
+            <IOSInstallPrompt />
+            <div>Question 1/10</div>
+          </div>
+        </GameShell>
+      );
+      expect(useStartOverlayPresence.getState().leftOn).toBe("/apps/trivia");
+      expect(querySheet()).not.toBeInTheDocument();
+      expect(queryPill()).not.toBeInTheDocument();
+      expect(screen.queryByTestId("ios-install-tip")).not.toBeInTheDocument();
+
+      // Play again: the start card returns with the tip.
+      rerender(
+        <GameShell gameName="Trivia Quiz" appId="trivia" canPause={false}>
+          <div>
+            <IOSInstallPrompt />
+            <GameStartOverlay title="Trivia Quiz" onStart={() => {}} />
+          </div>
+        </GameShell>
+      );
+      expect(
+        within(screen.getByTestId("start-overlay-break-slot")).getByTestId("ios-install-tip")
+      ).toBeInTheDocument();
     });
 
     it("names both of the sheet's buttons when read out loud", async () => {
       const synth = installSpeechMock();
       render(<IOSInstallPrompt />);
+      fireEvent.click(within(pill()).getByRole("button", { name: IOS_INSTALL_PILL_LABEL }));
 
       fireEvent.click(
         await within(screen.getByTestId("ios-install-sheet")).findByTestId("read-aloud-button")
@@ -510,7 +689,7 @@ describe("IOSInstallPrompt", () => {
 
       fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
       expect(onClose).toHaveBeenCalledTimes(1);
-      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+      expect(querySheet()).not.toBeInTheDocument();
     });
 
     it("opens from the header's 📲 button on an iPhone", () => {
@@ -523,6 +702,16 @@ describe("IOSInstallPrompt", () => {
       fireEvent.click(screen.getByRole("button", { name: "Install app for fullscreen" }));
 
       expect(screen.getByTestId("ios-install-sheet").parentElement).toBe(document.body);
+    });
+
+    it("does not mark the session: the header button is not the pill", () => {
+      render(
+        <GameShell gameName="Snake" appId="snake">
+          <IOSInstallPrompt requested />
+        </GameShell>
+      );
+      expect(screen.getByTestId("ios-install-sheet")).toBeInTheDocument();
+      expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
     });
   });
 
@@ -537,7 +726,7 @@ describe("IOSInstallPrompt", () => {
 
     function renderSheet() {
       installSpeechMock();
-      render(<IOSInstallPrompt />);
+      render(<IOSInstallPrompt requested />);
       const sheet = screen.getByTestId("ios-install-sheet");
       const card = sheet.querySelector<HTMLElement>(":scope > div")!;
       return { sheet, card };
@@ -635,14 +824,15 @@ describe("IOSInstallPrompt", () => {
       targets: Element[];
       options: ResizeObserverOptions | undefined;
     }[];
-    /** The measured height of each sheet, by its layer. */
-    let heights: Record<string, number>;
+    /** The measured height of each sheet on screen, in DOM order. */
+    let heights: number[];
 
     const space = () => root.style.getPropertyValue(SPACE);
+    const sheets = () => Array.from(document.querySelectorAll('[data-testid="ios-install-sheet"]'));
 
     /** The browser reports a new sheet size: every observer of a sheet calls back. */
-    async function resizeSheets(next: Record<string, number>) {
-      heights = { ...heights, ...next };
+    async function resizeSheets(next: number[]) {
+      heights = next;
       await act(async () => {
         for (const observer of [...observers]) {
           if (observer.targets.length > 0) observer.callback([], {} as ResizeObserver);
@@ -651,7 +841,7 @@ describe("IOSInstallPrompt", () => {
     }
 
     beforeEach(() => {
-      heights = { page: 212.4, requested: 260 };
+      heights = [212.4, 260];
       observers = [];
       global.ResizeObserver = class {
         private entry: (typeof observers)[number];
@@ -671,11 +861,8 @@ describe("IOSInstallPrompt", () => {
       vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
         this: Element
       ) {
-        const layer = (this as HTMLElement).dataset?.layer;
-        const height =
-          (this as HTMLElement).dataset?.testid === "ios-install-sheet" && layer
-            ? heights[layer]
-            : 0;
+        const index = sheets().indexOf(this);
+        const height = index === -1 ? 0 : (heights[index] ?? 0);
         return {
           x: 0,
           y: 0,
@@ -699,9 +886,9 @@ describe("IOSInstallPrompt", () => {
     it("reserves the sheet's measured height (whole pixels, rounded up) while it shows", () => {
       expect(space()).toBe("");
 
-      render(<IOSInstallPrompt />);
+      render(<IOSInstallPrompt requested />);
 
-      expect(screen.getByTestId("ios-install-sheet")).toHaveAttribute("data-layer", "page");
+      expect(screen.getByTestId("ios-install-sheet")).toHaveAttribute("data-layer", "requested");
       expect(space()).toBe("213px");
       // The border box: the safe-area padding at the bottom of the sheet
       // counts too, and a change to it alone must report.
@@ -712,65 +899,71 @@ describe("IOSInstallPrompt", () => {
     });
 
     it("follows the sheet when its size changes (the phone turns, the words wrap)", async () => {
-      render(<IOSInstallPrompt />);
+      render(<IOSInstallPrompt requested />);
       expect(space()).toBe("213px");
 
-      await resizeSheets({ page: 150 });
+      await resizeSheets([150]);
 
       expect(space()).toBe("150px");
     });
 
     it("gives the space back when the kid closes the sheet", () => {
-      render(<IOSInstallPrompt />);
+      render(<IOSInstallPrompt requested />);
       expect(space()).toBe("213px");
 
       fireEvent.click(
         within(screen.getByTestId("ios-install-sheet")).getByRole("button", { name: "Close" })
       );
 
-      expect(screen.queryByTestId("ios-install-sheet")).not.toBeInTheDocument();
+      expect(querySheet()).not.toBeInTheDocument();
       expect(space()).toBe("");
     });
 
     it("gives the space back on Don't show this again, and when the page goes away", () => {
-      const first = render(<IOSInstallPrompt />);
+      const first = render(<IOSInstallPrompt requested />);
       fireEvent.click(screen.getByText("Don't show this again"));
       expect(space()).toBe("");
       first.unmount();
 
       localStorage.clear();
-      const second = render(<IOSInstallPrompt />);
+      const second = render(<IOSInstallPrompt requested />);
       expect(space()).toBe("213px");
       second.unmount();
       expect(space()).toBe("");
     });
 
     it("keeps the space for the sheet that is still up when two show at once", () => {
+      // The pill's steps and the 📲 button's steps, both up.
       render(
         <>
           <IOSInstallPrompt />
           <IOSInstallPrompt requested />
         </>
       );
-      const [pageSheet, requestedSheet] = screen.getAllByTestId("ios-install-sheet");
-      expect(pageSheet).toHaveAttribute("data-layer", "page");
-      expect(requestedSheet).toHaveAttribute("data-layer", "requested");
+      fireEvent.click(within(pill()).getByRole("button", { name: IOS_INSTALL_PILL_LABEL }));
+      const [pillSheet, requestedSheet] = screen.getAllByTestId("ios-install-sheet");
       // The taller sheet decides.
       expect(space()).toBe("260px");
 
       fireEvent.click(within(requestedSheet).getByRole("button", { name: "Close" }));
       expect(space()).toBe("213px");
 
-      fireEvent.click(within(pageSheet).getByRole("button", { name: "Close" }));
+      fireEvent.click(within(pillSheet).getByRole("button", { name: "Close" }));
       expect(space()).toBe("");
     });
 
-    it("reserves nothing for the tip inside a break surface, or during play", () => {
+    it("reserves nothing for the tip inside a break surface, during play, or for the pill", () => {
       renderGameWithPrompt();
       expect(space()).toBe("");
 
       fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
       expect(screen.getByTestId("ios-install-tip")).toBeInTheDocument();
+      expect(space()).toBe("");
+    });
+
+    it("the pill is in the flow, so it reserves no space", () => {
+      render(<IOSInstallPrompt />);
+      expect(pill()).toBeInTheDocument();
       expect(space()).toBe("");
     });
 
@@ -790,7 +983,7 @@ describe("IOSInstallPrompt", () => {
         /background-image: linear-gradient\(\s*to top,\s*var\(--color-blue-700\) var\(--bottom-sheet-space, 0px\),\s*transparent var\(--bottom-sheet-space, 0px\)\s*\);/
       );
       // The sheet the rule is painted for is that blue.
-      render(<IOSInstallPrompt />);
+      render(<IOSInstallPrompt requested />);
       expect(
         screen.getByTestId("ios-install-sheet").querySelector(":scope > div")
       ).toHaveClass("bg-blue-700");

@@ -59,6 +59,22 @@ describe("achievements store", () => {
     expect(s.celebrationQueue).toEqual([]);
   });
 
+  it("keeps the celebration queue across a reload: a trophy that waits for a break is not lost", () => {
+    // A celebration shows at the next break surface (AchievementCelebrations),
+    // which can be a whole run away. The queue is part of the persisted
+    // shape, so a kid who closes the tab mid-run gets the card on the next
+    // visit. Dequeuing writes the shorter queue too, so a seen card never
+    // comes back.
+    reportProgressToAchievements("snake", { gamesPlayed: 1 });
+    const q = [...useAchievementsStore.getState().celebrationQueue];
+    expect(q).toContain("first-play:snake");
+    const stored = () => JSON.parse(localStorage.getItem("achievements-progress") ?? "{}").state;
+    expect(stored().celebrationQueue).toEqual(q);
+
+    useAchievementsStore.getState().dequeueCelebration(q[0]);
+    expect(stored().celebrationQueue).toEqual(q.slice(1));
+  });
+
   it("dequeueCelebration pops ids in unlock order", () => {
     reportProgressToAchievements("snake", { gamesPlayed: 6 });
     const q = [...useAchievementsStore.getState().celebrationQueue];

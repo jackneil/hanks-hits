@@ -76,7 +76,7 @@ describe("useAuthSync achievements observer (guest mode)", () => {
     expect(useAchievementsStore.getState().celebrationQueue).toEqual(queueBefore);
   });
 
-  it("persists unlocks (survives reload) but never persists the celebration queue", async () => {
+  it("persists unlocks and the celebration queue (both survive a reload)", async () => {
     mountSnake();
     state = { gamesPlayed: 1, highScore: 12, lastModified: 200 };
     await act(async () => {
@@ -86,8 +86,11 @@ describe("useAuthSync achievements observer (guest mode)", () => {
     const stored = JSON.parse(localStorage.getItem("achievements-progress") ?? "{}");
     expect(stored.state.progress.unlocked["first-play:snake"]).toBeDefined();
     expect(stored.state.watermarks).toBeDefined();
-    // A reload must not re-celebrate: the queue is not part of the persisted shape.
-    expect(stored.state.celebrationQueue).toBeUndefined();
+    // The celebration waits for the next break surface (the start card, the
+    // pause menu, the result chip): a kid who closes the tab mid-run must
+    // still get it on the next visit. The queue was session-only while the
+    // toast showed at once, so a reload never re-celebrated.
+    expect(stored.state.celebrationQueue).toEqual(["first-play:snake"]);
   });
 
   it("never observes the achievements blob itself (no feedback loop)", async () => {

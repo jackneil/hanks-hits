@@ -9,6 +9,8 @@ import { ORIENTATION_TIP_COPY, ORIENTATION_TIP_KEEP_PLAYING, orientationTipKey }
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
+  // No router in a test: the install tip's placement reads window.location.
+  usePathname: () => null,
 }));
 
 vi.mock("../Leaderboard", () => ({
