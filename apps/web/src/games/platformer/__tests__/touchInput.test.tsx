@@ -55,7 +55,7 @@ describe("Platformer touch input", () => {
     const { container } = render(<PlatformerGame />);
     const canvas = container.querySelector("canvas") as HTMLCanvasElement;
     canvas.getBoundingClientRect = () => ({ ...RECT, toJSON: () => RECT }) as DOMRect;
-    const right = screen.getByRole("button", { name: "▶" });
+    const right = screen.getByRole("button", { name: "Move right" });
 
     // Right thumb holds ▶ (off to the right of the level, x 700).
     fingerDown(right, { id: 1, x: 700, y: 380 });
@@ -93,7 +93,7 @@ describe("Platformer touch input", () => {
 
   it("a cancelled touch on ◀ releases the direction", () => {
     render(<PlatformerGame />);
-    const left = screen.getByRole("button", { name: "◀" });
+    const left = screen.getByRole("button", { name: "Move left" });
     fingerDown(left, { id: 1 });
     expect(usePlatformerStore.getState().movingLeft).toBe(true);
     fingerCancel(left, { id: 1 });
