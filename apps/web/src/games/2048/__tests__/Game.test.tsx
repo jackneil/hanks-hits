@@ -27,25 +27,17 @@ function startPlaying() {
 }
 
 describe("Game2048", () => {
-  it("gives the board wrapper a stable responsive width", () => {
+  it("sizes the board as a square from the play box (it was w-full max-w-[400px], cut off sideways)", () => {
     render(<Game2048 />);
-
-    const boardWrapper = screen.getByTestId("game-2048-board-wrapper");
-    expect(boardWrapper).toHaveClass("w-full");
-    expect(boardWrapper).toHaveClass("max-w-[400px]");
+    const board = screen.getByTestId("game-2048-board");
+    expect(board.style.width).not.toBe("");
+    expect(board.style.width).toBe(board.style.height);
   });
 
-  it("confirms overlay restarts before resetting the board", () => {
+  it("has no New Game button of its own mid-game: the header's restart asks first, the result chip starts at once", () => {
     render(<Game2048 />);
     startPlaying();
-    const newGame = screen.getByRole("button", { name: "New Game" });
-
-    fireEvent.click(newGame);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("Start a new 2048 game? Your current board will be lost.")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Confirm restart" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New Game" })).toBeNull();
   });
 });
 
@@ -104,11 +96,9 @@ describe("Game2048 start overlay", () => {
     expect(screen.queryByRole("heading", { name: "2048" })).not.toBeInTheDocument();
   });
 
-  it("keeps Undo and New Game available", () => {
+  it("keeps Undo available in play", () => {
     render(<Game2048 />);
     startPlaying();
-
-    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New Game" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Undo/ })).toBeInTheDocument();
   });
 });
