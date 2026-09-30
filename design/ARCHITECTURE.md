@@ -251,7 +251,11 @@ the newest slot that holds its kind; it waits while a game shell is on
 screen with no break, while a start card has no room, and on an app page
 whose start card has left (a Trivia quiz with a timer); and it shows its
 page form (a thin strip for a celebration, a 44 px pill for the install
-tip) only on a page with no play. The body shows a soft shadow
+tip) only on a page with no play. An app with no start card puts an
+`AppNotesSlot` (`src/shared/components/AppNotesSlot.tsx`) in its own
+layout: an inline slot that holds a trophy for its 4 s show window as
+part of the page, so the fixed strip never covers the app's buttons. An
+inline slot is not a break, so the install pill still shows. The body shows a soft shadow
 at an edge only while there is more content past that edge (`useScrollCue`).
 The check in `e2e/start-cards` tests this contract on real screens for each
 route that the home page lists. Run it with `pnpm e2e:start-cards

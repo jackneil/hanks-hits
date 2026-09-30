@@ -28,3 +28,4 @@ export { ReadAloudButton } from "./ReadAloudButton";
 export { Leaderboard } from "./Leaderboard";
 export { LeaderboardModal } from "./LeaderboardModal";
 export { LeaderboardButton } from "./LeaderboardButton";
+export { AppNotesSlot } from "./AppNotesSlot";

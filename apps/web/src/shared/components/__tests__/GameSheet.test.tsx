@@ -163,7 +163,7 @@ describe("GameSheet", () => {
     const slot = screen.getByTestId("game-sheet-break-slot");
     // A game's own card is a full break: it holds the install tip and a
     // trophy celebration (gameBreaks.ts, ALL_NOTES).
-    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["tip", "celebration"] }]);
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["tip", "celebration"], inline: false }]);
     unmount();
     expect(useGameBreaks.getState().slots).toEqual([]);
 
