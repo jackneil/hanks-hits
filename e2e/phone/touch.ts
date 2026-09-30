@@ -54,6 +54,30 @@ export class Finger {
     await this.send("touchEnd", []);
   }
 
+  /** One finger holds (x, y) for `ms`, then lifts: a held pad button. */
+  async holdAt(x: number, y: number, ms: number) {
+    await this.send("touchStart", [{ x, y }]);
+    try {
+      await this.page.waitForTimeout(ms);
+    } finally {
+      await this.send("touchEnd", []);
+    }
+  }
+
+  /**
+   * One finger lands at (x, y), slides `dx` px sideways in `steps` moves
+   * (a frame apart, as a real thumb does), and lifts. This is how a kid
+   * drags a paddle.
+   */
+  async drag(x: number, y: number, dx: number, steps = 12) {
+    await this.send("touchStart", [{ x, y }]);
+    for (let i = 1; i <= steps; i++) {
+      await this.send("touchMove", [{ x: x + (dx * i) / steps, y }]);
+      await this.page.waitForTimeout(16);
+    }
+    await this.send("touchEnd", []);
+  }
+
   /**
    * One thumb holds `target` for `ms`; then `during` runs while it is still
    * down, and can tap another control with the other thumb. The first thumb

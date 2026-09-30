@@ -395,7 +395,9 @@ same button, in the same place: under the words, above the action buttons.
 
 **Stacking order (z-index, low to high):**
 
-- 60 or less: game HUDs, touch controls and game modals.
+- 60 or less: game HUDs, touch controls and game modals. The ResultCard
+  (the words of a result, across the screen under the header) is at 60,
+  and it is last in the page, so it draws over the game's own layers.
 - 90: GameStartOverlay, and the own start screen of a module with its own
   launcher (four-wheeler). It covers the viewport, so it must be above
   every game layer.

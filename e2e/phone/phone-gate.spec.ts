@@ -22,8 +22,10 @@
  *   fixed-over-play     during the first 5 s of play, no element with
  *                       position: fixed intersects the play box, other than
  *                       the GameShell header, the game's own controls (in
- *                       the play box) and the orientation tip (it holds the
- *                       game while it shows; main-loop decision 2).
+ *                       the play box), the orientation tip (it holds the
+ *                       game while it shows; main-loop decision 2) and the
+ *                       result chip (it mounts only when the run is over,
+ *                       so it covers no play: a runner can end inside 5 s).
  *   tip-holds-game      while the orientation tip is up, the game is held:
  *                       the picture in the play box (the first canvas,
  *                       sampled pixel by pixel, or the text of a DOM game)
@@ -406,10 +408,17 @@ function probeFixedOverPlay(page: Page): Promise<string[]> {
     const b = box.getBoundingClientRect();
     const header = document.querySelector('[data-testid="game-shell-header"]');
     const tip = document.querySelector('[data-testid="orientation-tip"]');
+    // The result chip is the break surface after a run: it and what waits
+    // in it (a celebration) cover no play. The result card (the run's words,
+    // over the top of the picture) comes with it.
+    const chip = document.querySelector('[data-testid="result-chip"]');
+    const cards = [...document.querySelectorAll("[data-result-card]")];
     const out: string[] = [];
     for (const el of document.querySelectorAll<HTMLElement>("body *")) {
       if (el === header || el === box) continue;
       if (header?.contains(el) || box.contains(el) || tip?.contains(el) || el === tip) continue;
+      if (chip?.contains(el) || el === chip) continue;
+      if (cards.some((card) => card.contains(el))) continue;
       const style = getComputedStyle(el);
       if (style.position !== "fixed") continue;
       if (style.visibility === "hidden" || Number(style.opacity) < 0.01) continue;
