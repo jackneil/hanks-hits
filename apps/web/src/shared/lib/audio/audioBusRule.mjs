@@ -121,9 +121,7 @@ export const AUDIO_BUS_RESTRICTED_SYNTAX = Object.freeze([
  */
 export const LEGACY_AUDIO_SITES = Object.freeze({
   // Canvas games: each makes its own AudioContext and plays to ctx.destination.
-  "src/games/bomberman/lib/store.ts": 4,
   "src/games/breakout/lib/store.ts": 4,
-  "src/games/hextris/lib/store.ts": 4,
   "src/games/space-invaders/Game.tsx": 5,
   // 3D games. Four-Wheeler 3D has four contexts and closes three of them.
   "src/games/monster-truck/lib/sounds.ts": 14,

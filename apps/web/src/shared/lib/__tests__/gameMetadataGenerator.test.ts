@@ -62,7 +62,7 @@ describe("game metadata generator", () => {
   it("turns clips on only for the modules that chose it, one at a time", () => {
     // Asteroids is the first live proof (Wave C integration). Game PRs (2.6 and
     // later) add modules one at a time: add each one here with its PR.
-    expect(Object.entries(GAME_METADATA).filter(([, m]) => m.clips).map(([id]) => id)).toEqual(["asteroids"]);
+    expect(Object.entries(GAME_METADATA).filter(([, m]) => m.clips).map(([id]) => id)).toEqual(["asteroids", "blitz-bomber", "bomberman", "hextris"]);
     expect(getGameMetadata("no-such-game").clips).toBe(false);
   });
 
