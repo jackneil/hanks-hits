@@ -167,6 +167,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     sessionCoins,
     sessionFlips,
     gameOverReason,
+    lastRunNewRecord,
     currentVehicleId,
     currentStageId,
     leanSensitivity,
@@ -215,12 +216,8 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     controlsRef.current = controls;
   }, [controls]);
 
-  // The best from before the run: the store raises bestDistance at the end
-  // of the run, so the result compares the distance with this snapshot.
-  const bestBeforeRunRef = useRef(bestDistance);
   useEffect(() => {
     isPlayingRef.current = isPlaying;
-    if (isPlaying) bestBeforeRunRef.current = useHillClimbStore.getState().bestDistance;
   }, [isPlaying]);
 
   // The shell holds the game under a shell overlay (the restart question,
@@ -1263,7 +1260,8 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     return <Garage onStartGame={handleStartFromGarage} onBack={handleBackFromGarage} />;
   }
 
-  const isNewRecord = isGameOver && distance > 0 && distance > bestBeforeRunRef.current;
+  // The store decides it in endRun, against the best from before the run.
+  const isNewRecord = isGameOver && lastRunNewRecord;
 
   // The canvas is absolute inset-0 in this root and exactly the play box.
   // The start card portals to document.body (GameStartOverlay), so this

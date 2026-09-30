@@ -12,6 +12,7 @@
  */
 
 import { useHillClimbStore } from '../lib/store';
+import { useSecondFingerClick } from '@/shared/lib/input';
 import { FUEL } from '../lib/constants';
 
 interface GameUIProps {
@@ -29,6 +30,9 @@ const BOX = 'rounded-xl bg-black/55 text-white';
 
 export function GameUI({ fuel, maxFuel, nitro, maxNitro, nitroActive, distance, speed }: GameUIProps) {
   const { coins, sessionCoins, sessionFlips, bestDistance, combo, pauseGame } = useHillClimbStore();
+  // Pause works for the other thumb while one holds the gas (a browser makes
+  // no click for a second finger).
+  const pauseTap = useSecondFingerClick<HTMLButtonElement>(pauseGame);
 
   const fuelPercent = (fuel / maxFuel) * 100;
   const isLowFuel = fuel < FUEL.LOW_FUEL_THRESHOLD;
@@ -66,7 +70,7 @@ export function GameUI({ fuel, maxFuel, nitro, maxNitro, nitroActive, distance, 
         {/* Middle: pause. A button, so the touch zones never read it as gas. */}
         <button
           type="button"
-          onClick={pauseGame}
+          {...pauseTap}
           aria-label="Pause game"
           className="pointer-events-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-black/55 text-2xl text-white touch-manipulation active:scale-95 short:h-11 short:w-11"
           title="Pause (Esc)"
@@ -113,7 +117,7 @@ export function GameUI({ fuel, maxFuel, nitro, maxNitro, nitroActive, distance, 
             </div>
           </div>
           <div className={`${BOX} px-3 py-1.5 text-right short:px-2 short:py-1`}>
-            <span className="text-xl font-bold leading-none short:text-base">{speed}</span>
+            <span className="text-xl font-bold leading-none short:text-base" data-testid="hill-climb-speed">{speed}</span>
             <span className="ml-1 text-sm text-gray-300 short:text-xs">km/h</span>
           </div>
         </div>

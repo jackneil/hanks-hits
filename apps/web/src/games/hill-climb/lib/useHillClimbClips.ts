@@ -21,7 +21,7 @@
  * With clips off, every call here does nothing: useAttachedGame gives null.
  */
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
 import { useAttachedGame, useClipSource } from "@/shared/clips";
 import { startRun, type RunBest } from "@/shared/lib/runBest";
@@ -48,7 +48,9 @@ export function useHillClimbClips(
   const run = useRef<{ best: RunBest; marked: boolean } | null>(null);
   const before = useRef<{ phase: HillClimbClipPhase; game: typeof game }>({ phase, game: null });
   const gameRef = useRef(game);
-  gameRef.current = game;
+  useLayoutEffect(() => {
+    gameRef.current = game;
+  });
 
   const bestRef = useRef(bestDistance);
   useEffect(() => {

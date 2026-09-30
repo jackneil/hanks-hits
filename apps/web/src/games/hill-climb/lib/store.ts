@@ -49,6 +49,8 @@ export interface GameState {
   isGameOver: boolean;
   isPaused: boolean;
   gameOverReason: 'head' | 'fuel' | null;
+  /** The run that just ended went past the best from before it. */
+  lastRunNewRecord: boolean;
   distance: number;
   fuel: number;
   nitro: number; // Runtime nitro level (0-100)
@@ -146,6 +148,7 @@ const initialState: GameState = {
   isGameOver: false,
   isPaused: false,
   gameOverReason: null,
+  lastRunNewRecord: false,
   distance: 0,
   fuel: FUEL.INITIAL_FUEL,
   nitro: NITRO.MAX,
@@ -215,6 +218,7 @@ export const useHillClimbStore = create<GameState & GameActions>()(
           isPaused: false,
           isGameOver: false,
           gameOverReason: null,
+          lastRunNewRecord: false,
           distance: 0,
           fuel: maxFuel,
           nitro: NITRO.MAX,
@@ -239,6 +243,7 @@ export const useHillClimbStore = create<GameState & GameActions>()(
           isPlaying: false,
           isGameOver: true,
           gameOverReason: reason,
+          lastRunNewRecord: state.distance > 0 && state.distance > state.bestDistance,
           bestDistance: newBestDistance,
           bestDistancePerStage: {
             ...state.bestDistancePerStage,
