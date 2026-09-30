@@ -219,6 +219,15 @@
   #slideBtn { top: 372px; background: linear-gradient(#5fc0ee, #2a7ad0); }
   #swingBtn { top: 424px; background: linear-gradient(#ffce5a, #e8a01a); color: #5a3a00; }
   #slideBtn:active, #swingBtn:active { transform: translateY(3px); }
+  /* Hunting on foot: the gun, feeders, corn and stands. A keyboard has G, P,
+     B and O; a phone has these buttons (phone UX audit 2026-09-30). */
+  #gunBtn, #feederBtn, #cornBtn, #standPlaceBtn { position: fixed; right: 14px; display: none; font: inherit; font-size: 15px; font-weight: bold; color: #fff;
+    border: none; padding: 10px 18px; border-radius: 40px; cursor: pointer; z-index: 6; box-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 8px 14px rgba(0,0,0,0.3); }
+  #gunBtn { top: 476px; background: linear-gradient(#8a9a6a, #56643a); }
+  #feederBtn { top: 528px; background: linear-gradient(#f0c050, #c08a10); color: #4a3000; }
+  #cornBtn { top: 580px; background: linear-gradient(#f0d070, #c8a020); color: #4a3000; }
+  #standPlaceBtn { top: 632px; background: linear-gradient(#b08a60, #7a5530); }
+  #gunBtn:active, #feederBtn:active, #cornBtn:active, #standPlaceBtn:active { transform: translateY(3px); }
   #putHorseBtn, #rideHorseBtn { position: fixed; right: 14px; display: none; font: inherit; font-size: 15px; font-weight: bold; color: #fff;
     border: none; padding: 10px 18px; border-radius: 40px; cursor: pointer; z-index: 6; box-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 8px 14px rgba(0,0,0,0.3); }
   #putHorseBtn { top: 164px; background: linear-gradient(#caa46a, #8a5a2a); }
@@ -524,6 +533,10 @@
   <button id="slideBtn">🛝 Slide</button>
   <button id="swingBtn">🪅 Swing</button>
   <button id="castBtn">🎣 Cast</button>
+  <button id="gunBtn">🔫 Aim gun</button>
+  <button id="feederBtn">🌽 Place feeder</button>
+  <button id="cornBtn">🌽 Carry corn</button>
+  <button id="standPlaceBtn">🪜 Place stand</button>
   <button id="deckBtn">🚶 Walk Deck</button>
   <button id="helmBtn">🛞 Back to Helm</button>
   <button id="sellFishBtn">🐟 Sell Fish</button>
@@ -671,17 +684,17 @@
   </div>
 
   <div id="dealerPanel">
-    <div class="dlTitle">🏪 Dealership &amp; Feeder Store — click to buy</div>
+    <div class="dlTitle">🏪 Dealership &amp; Feeder Store — choose one to buy</div>
     <div id="dlList"></div>
   </div>
 
   <div id="boatPanel">
-    <div class="dlTitle">🚤 Boat &amp; Trailer Sales — click to buy</div>
+    <div class="dlTitle">🚤 Boat &amp; Trailer Sales — choose one to buy</div>
     <div id="boatList"></div>
   </div>
 
   <div id="standPanel">
-    <div class="dlTitle">🪜 Stand Store — click to buy (place with O)</div>
+    <div class="dlTitle">🪜 Stand Store — choose one to buy</div>
     <div id="standList"></div>
   </div>
 
@@ -2095,7 +2108,7 @@ function update(dt) {
     for (const a of animals) {                            // parachute low onto an animal → RIDE it
       if (a.alive && a.type !== 'wolf' && dist(atv.x, atv.y, a.x, a.y) < 34) {
         riding = a; mode = 'mount'; chute = 0; atv.air = 0; atv.angle = a.angle; atv.speed = 0;
-        hint('🤠 Yeehaw! Riding a ' + a.type + ' — press E to hop off'); break;
+        hint('🤠 Yeehaw! Riding a ' + a.type + ' — ' + howTo('🚶 Get Out & Walk', 'E') + ' to hop off'); break;
       }
     }
   }
@@ -2296,6 +2309,19 @@ function update(dt) {
   document.getElementById('closetBtn').style.display = (inHouse && houseAct === 'closet') ? 'block' : 'none';
   document.getElementById('askBtn').style.display = (!inHouse && !onDeck) ? 'block' : 'none';
   document.getElementById('feedDogBtn').style.display = (!inHouse) ? 'block' : 'none';
+  // Hunting on foot (a stand counts for the gun: you hunt from it).
+  const onFootOut = mode === 'foot' && !inHouse && !onDeck, onGround = onFootOut && !inStand;
+  const setLabel = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+  const gunBtn = document.getElementById('gunBtn');
+  gunBtn.style.display = onFootOut ? 'block' : 'none';
+  setLabel(gunBtn, aiming ? '🔫 Lower gun' : (useBow ? '🏹 Aim bow' : '🔫 Aim gun'));
+  const feederNear = onGround && nearFeederIndex() >= 0, feederBtn = document.getElementById('feederBtn');
+  feederBtn.style.display = (onGround && (feederNear || feedersToPlace > 0)) ? 'block' : 'none';
+  setLabel(feederBtn, feederNear ? '🌽 Pick up feeder' : '🌽 Place feeder');
+  const cornBtn = document.getElementById('cornBtn');
+  cornBtn.style.display = (onGround && (carryingCorn || cornBags > 0)) ? 'block' : 'none';
+  setLabel(cornBtn, carryingCorn ? '🌽 Fill feeder' : '🌽 Carry corn');
+  document.getElementById('standPlaceBtn').style.display = (onGround && standsToPlace > 0) ? 'block' : 'none';
   document.getElementById('retrieveBtn').style.display = (!inHouse && carcasses.length > 0 && dog.state === 'follow') ? 'block' : 'none';
   document.getElementById('sellKillsBtn').style.display = (!inHouse && heldKills.length > 0) ? 'block' : 'none';
   document.getElementById('leaveHouseBtn').style.display = inHouse ? 'block' : 'none';
@@ -3910,7 +3936,7 @@ function drawPlanet() {
   ctx.restore();
   ctx.fillStyle = 'rgba(255,255,255,0.94)'; ctx.font = 'bold 20px Trebuchet MS'; ctx.textAlign = 'center'; ctx.fillText('🪐 ' + p.name, W/2, 34);
 }
-const WORLD_HUD = ['raceBtn','endRaceBtn','openGarageBtn','parkGarageBtn','switchBtn','bailBtn','camBtn','trailerBtn','sellBtn','mapBtn','garageBtn','towBtn','fleetBtn','lightBtn','phoneBtn','houseBtn','sleepBtn','eatBtn','closetBtn','askBtn','feedDogBtn','retrieveBtn','sellKillsBtn','invBtn','plowBtn','putHorseBtn','rideHorseBtn','fillBtn','sprayBtn','ladderBtn','nozzleBtn','sprayNozzleBtn','mowBtn','cabinEnterBtn','camperEnterBtn','insideCamperBtn','inAirBtn','slideBtn','swingBtn','castBtn','deckBtn','helmBtn','sellFishBtn','netsBtn','cabinBtn','yachtSkiBtn','tenderBtn','yachtUtvBtn','yachtHeliBtn','loadUtvBtn','landHeliBtn','loadSkiBtn','loadTenderBtn','leaveHouseBtn','trainBtn','rideTrainBtn','aircraftBtn','nosBtn','blastOffBtn','milkBtn','milkHud'];
+const WORLD_HUD = ['raceBtn','endRaceBtn','openGarageBtn','parkGarageBtn','switchBtn','bailBtn','camBtn','trailerBtn','sellBtn','mapBtn','garageBtn','towBtn','fleetBtn','lightBtn','phoneBtn','houseBtn','sleepBtn','eatBtn','closetBtn','askBtn','feedDogBtn','retrieveBtn','sellKillsBtn','invBtn','plowBtn','putHorseBtn','rideHorseBtn','fillBtn','sprayBtn','ladderBtn','nozzleBtn','sprayNozzleBtn','mowBtn','cabinEnterBtn','camperEnterBtn','insideCamperBtn','inAirBtn','slideBtn','swingBtn','castBtn','gunBtn','feederBtn','cornBtn','standPlaceBtn','deckBtn','helmBtn','sellFishBtn','netsBtn','cabinBtn','yachtSkiBtn','tenderBtn','yachtUtvBtn','yachtHeliBtn','loadUtvBtn','landHeliBtn','loadSkiBtn','loadTenderBtn','leaveHouseBtn','trainBtn','rideTrainBtn','aircraftBtn','nosBtn','blastOffBtn','milkBtn','milkHud'];
 function hideWorldHud() { for (const id of WORLD_HUD) { const e = document.getElementById(id); if (e) e.style.display = 'none'; } }
 function showWorldHud() {
   for (const id of WORLD_HUD) { const e = document.getElementById(id); if (e) e.style.display = ''; }
@@ -5464,35 +5490,47 @@ document.getElementById('raceBtn').addEventListener('click', startRace);
 document.getElementById('endRaceBtn').addEventListener('click', endRace);
 document.getElementById('switchBtn').addEventListener('click', () => { boardOrExit(); startAudio(); });
 document.getElementById('bailBtn').addEventListener('click', () => { bailOut(); startAudio(); });
+// ---- Hunting on foot: one function per action, for its key and its button ----
+// A hint names the button on a phone and the key on a keyboard.
+function howTo(button, key) { return (document.body.classList.contains('touch') ? 'tap ' + button : 'press ' + key); }
+function HowTo(button, key) { const s = howTo(button, key); return s.charAt(0).toUpperCase() + s.slice(1); }
+function toggleGun() {
+  if (mode === 'foot') { aiming = !aiming; canvas.style.cursor = aiming ? 'none' : 'pointer'; }
+  else hint('🔫 Get out on foot to use the gun!');
+  startAudio();
+}
+function placeStand() {
+  if (mode === 'foot' && standsToPlace > 0) { treestands.push({ x: atv.x, y: atv.y, ground: (standType === 'ground') }); standsToPlace--; hint('🪜 Stand placed!'); }
+  else if (standsToPlace <= 0) hint('🪜 Buy a stand at the stand store first');
+  else hint('🪜 Get on foot to place a stand');
+}
+function nearFeederIndex() {
+  for (let i = 0; i < feeders.length; i++) if (dist(atv.x, atv.y, feeders[i].x, feeders[i].y) < 55) return i;
+  return -1;
+}
+function feederAction() {
+  if (mode !== 'foot') { hint('🌽 Get on foot to move feeders'); return; }
+  const near = nearFeederIndex();
+  if (near >= 0) { feeders.splice(near, 1); feedersToPlace++; hint('🌽 Picked up the feeder — ' + howTo('🌽 Place feeder', 'P') + ' to set it down'); }
+  else if (feedersToPlace > 0) { feeders.push({ x: atv.x, y: atv.y, cornAmt: CORN_MAX, label: 'Feeder ' + (feeders.length + 1), corn: Array.from({length:16}, () => ({ dx: range(-24,24), dy: range(-13,13), r: range(1.5,3) })) }); feedersToPlace--; hint('🌽 Feeder placed!'); }
+  else hint('🌽 Stand on a feeder to pick it up, or buy one at the store');
+}
+document.getElementById('gunBtn').addEventListener('click', toggleGun);
+document.getElementById('feederBtn').addEventListener('click', () => { feederAction(); startAudio(); });
+document.getElementById('cornBtn').addEventListener('click', () => { carryCorn(); startAudio(); });
+document.getElementById('standPlaceBtn').addEventListener('click', () => { placeStand(); startAudio(); });
 addEventListener('keydown', e => {
   if (e.code === 'KeyE') { boardOrExit(); startAudio(); }
   if (e.code === 'KeyF') { bailOut(); startAudio(); }
   if (e.code === 'KeyR') { planeStunt(); startAudio(); }
   if (e.code === 'KeyB') { if (isAir(mode)) { dropBomb(); startAudio(); } else carryCorn(); }
-  if (e.code === 'KeyG') {                                  // raise/lower the gun scope (on foot only)
-    if (mode === 'foot') { aiming = !aiming; canvas.style.cursor = aiming ? 'none' : 'pointer'; }
-    else hint('🔫 Get out on foot to use the gun!');
-    startAudio();
-  }
-  if (e.code === 'KeyO') {                                  // place a bought tree/ground stand
-    if (mode === 'foot' && standsToPlace > 0) { treestands.push({ x: atv.x, y: atv.y, ground: (standType === 'ground') }); standsToPlace--; hint('🪜 Stand placed!'); }
-    else if (standsToPlace <= 0) hint('🪜 Buy a stand at the stand store first');
-    else hint('🪜 Get on foot to place a stand');
-  }
+  if (e.code === 'KeyG') toggleGun();                      // raise/lower the gun scope (on foot only)
+  if (e.code === 'KeyO') placeStand();                     // place a bought tree/ground stand
   if (e.code === 'KeyM') showMap = !showMap;               // open/close the overview map
   if (e.code === 'KeyT') { toggleHitch(); startAudio(); }  // hitch / drop a trailer
   if (e.code === 'KeyC') cycleCamera();                    // cycle the camera view
   if (e.code === 'KeyN') gruntCall();                      // N: make a buck grunt to call deer in
-  if (e.code === 'KeyP') {                                  // P: pick up a feeder you're on, OR put one down
-    if (mode !== 'foot') { hint('🌽 Get on foot to move feeders'); }
-    else {
-      let near = -1;
-      for (let i = 0; i < feeders.length; i++) if (dist(atv.x, atv.y, feeders[i].x, feeders[i].y) < 55) { near = i; break; }
-      if (near >= 0) { feeders.splice(near, 1); feedersToPlace++; hint('🌽 Picked up the feeder — press P to set it down'); }
-      else if (feedersToPlace > 0) { feeders.push({ x: atv.x, y: atv.y, cornAmt: CORN_MAX, label: 'Feeder ' + (feeders.length + 1), corn: Array.from({length:16}, () => ({ dx: range(-24,24), dy: range(-13,13), r: range(1.5,3) })) }); feedersToPlace--; hint('🌽 Feeder placed!'); }
-      else hint('🌽 Stand on a feeder to pick it up, or buy one at the store');
-    }
-  }
+  if (e.code === 'KeyP') feederAction();                   // P: pick up a feeder you're on, OR put one down
 });
 // ---- Dealership: buy cars + corn feeders ----
 const dlList = document.getElementById('dlList');
@@ -5538,7 +5576,7 @@ FOR_SALE.forEach((c, i) => {
 });
 const fbBtn = document.createElement('button'); fbBtn.className = 'dlCar'; fbBtn.style.background = 'linear-gradient(#cdeac0,#8fc97f)'; fbBtn.style.boxShadow = '0 3px 0 #5a8a4a';
 fbBtn.innerHTML = '🌽 Corn Feeder<br><span style="font-size:11px;opacity:.85">$500 · place with P</span>';
-fbBtn.addEventListener('click', () => { if (money < 500) { hint('💵 Feeders cost $500'); return; } addMoney(-500); feedersToPlace++; hint('🌽 Feeder bought for $500! Press P to place it.'); });
+fbBtn.addEventListener('click', () => { if (money < 500) { hint('💵 Feeders cost $500'); return; } addMoney(-500); feedersToPlace++; hint('🌽 Feeder bought for $500! ' + HowTo('🌽 Place feeder', 'P') + ' to place it.'); });
 dlList.appendChild(fbBtn);
 
 // ---- Boat & Trailer dealership: buy unlimited boats, jet skis, and long trailers ----
@@ -5583,7 +5621,7 @@ const standList = document.getElementById('standList');
   const b = document.createElement('button'); b.className = 'dlCar';
   b.style.background = 'linear-gradient(#cdeac0,#8fc97f)'; b.style.boxShadow = '0 3px 0 #5a8a4a';
   b.innerHTML = name + '<br><span style="font-size:11px;opacity:.85">$' + cost + ' · place with O</span>';
-  b.addEventListener('click', () => { if (money < cost) { hint('💵 ' + name + ' costs $' + cost); return; } addMoney(-cost); standsToPlace++; standType = k; hint('🪜 Bought a ' + name + ' for $' + cost + '! Press O to place it.'); });
+  b.addEventListener('click', () => { if (money < cost) { hint('💵 ' + name + ' costs $' + cost); return; } addMoney(-cost); standsToPlace++; standType = k; hint('🪜 Bought a ' + name + ' for $' + cost + '! ' + HowTo('🪜 Place stand', 'O') + ' to place it.'); });
   standList.appendChild(b);
 });
 
@@ -5971,7 +6009,7 @@ function openHuntSim() {
   feeders.forEach(f => { const d = document.createElement('div'); d.className = 'hsDot'; d.style.left = (f.x / WORLD * 100) + '%'; d.style.top = (f.y / WORLD * 100) + '%'; d.title = f.label; map.appendChild(d); });
   const me = document.createElement('div'); me.className = 'hsMe'; me.style.left = (atv.x / WORLD * 100) + '%'; me.style.top = (atv.y / WORLD * 100) + '%'; map.appendChild(me);
   const list = v.querySelector('#hsList');
-  if (!feeders.length) list.innerHTML = '<div style="opacity:.7;font-size:13px">No feeders yet — buy one and press P to set it out.</div>';
+  if (!feeders.length) list.innerHTML = '<div style="opacity:.7;font-size:13px">No feeders yet — buy one and ' + howTo('🌽 Place feeder', 'P') + ' to set it out.</div>';
   feeders.forEach((f, i) => {
     const pct = Math.round(f.cornAmt / CORN_MAX * 100), row = document.createElement('div'); row.className = 'hsRow';
     row.innerHTML = '<input class="hsLabel" data-i="' + i + '" value="' + f.label.replace(/"/g, '') + '" maxlength="14"/><span class="hsBar"><span style="width:' + pct + '%;background:' + (pct > 30 ? '#e6c24a' : '#e0241f') + '"></span></span><span class="hsPct">🌽' + pct + '%</span>';
@@ -6038,7 +6076,7 @@ FOR_SALE_HUNT.forEach(([name, key]) => {
     if (money < 100) { hint('💵 Hunting gear costs $100!'); return; }
     addMoney(-100);
     hunterInv[name] = (hunterInv[name] || 0) + 1;   // add it to your hunting inventory
-    if (key === 'decoy') { feedersToPlace++; hint('🦌 Bought a decoy! Press P to set it out — animals come to it.'); }
+    if (key === 'decoy') { feedersToPlace++; hint('🦌 Bought a decoy! ' + HowTo('🌽 Place feeder', 'P') + ' to set it out — animals come to it.'); }
     else if (key === 'rod') { hasRod = true; hint('🎣 Bought a fishing rod! Take a boat out and tap 🎣 Cast.'); }
     else if (key === 'call') { gruntCallUses += 10; hint('📢 Bought a Grunt Call — 10 grunts! Open 🎒 Inventory to use it.'); }
     else if (key === 'bow') hint('🏹 Bought a Bow & Arrow! Open 🎒 Inventory to pick bow or rifle.');
@@ -6127,7 +6165,7 @@ function carryCorn() {   // press B on foot: pick up a corn bag; press B again a
   if (mode !== 'foot') { hint('🌽 Hop out on foot to carry a corn bag!'); return; }
   if (!carryingCorn) {
     if (cornBags <= 0) { hint('🌽 Buy Bags of Corn at the Everything Store first!'); return; }
-    carryingCorn = true; hint('🌽 Picked up a corn bag — walk to a feeder and press B again to fill it!');
+    carryingCorn = true; hint('🌽 Picked up a corn bag — walk to a feeder and ' + howTo('🌽 Fill feeder', 'B again') + ' to fill it!');
   } else {
     let best = null, bd = 140;                                   // 1) next to a feeder? fill it
     for (const f of feeders) { const d = dist(atv.x, atv.y, f.x, f.y); if (d < bd) { bd = d; best = f; } }
@@ -6562,7 +6600,7 @@ function renderInv() {
     let action = '';
     let badge = '×' + hunterInv[k];
     if (k.indexOf('Deer Scent') >= 0) { action = 'tap to spray on corn'; row.style.cursor = 'pointer'; row.onclick = sprayScent; }
-    else if (k.indexOf('Grunt Call') >= 0) { action = 'tap, or press N'; badge = gruntCallUses + ' grunts left'; row.style.cursor = 'pointer'; row.onclick = gruntCall; }
+    else if (k.indexOf('Grunt Call') >= 0) { action = document.body.classList.contains('touch') ? 'tap' : 'tap, or press N'; badge = gruntCallUses + ' grunts left'; row.style.cursor = 'pointer'; row.onclick = gruntCall; }
     else if (k.indexOf('Fishing Rod') >= 0) { action = 'tap to cast 🎣'; row.style.cursor = 'pointer'; row.onclick = () => { document.getElementById('invPanel').style.display = 'none'; castFish(); }; }
     else if (k.indexOf('Camo Suit') >= 0) { action = 'tap to wear/remove'; badge = camoOn ? '🟢 ON' : 'off'; row.style.cursor = 'pointer'; row.onclick = toggleCamo; }
     else if (k.indexOf('Bow & Arrow') >= 0) { action = 'tap: bow or rifle'; badge = useBow ? '🏹 equipped' : 'rifle on'; row.style.cursor = 'pointer'; row.onclick = toggleBow; }
@@ -6791,6 +6829,44 @@ updateSwitchLabel();
   addEventListener('orientationchange', () => { signature = ''; schedule(); });
   schedule();
   window.hhRails = { layout, overflow };
+})();
+
+/* A tap by a second finger makes no click in a browser, so while one thumb
+   holds GAS every button here ignored the other thumb (phone check,
+   2026-09-30). The browser's click stays the main path. When a touch lifts
+   on the button it went down on and no click follows within 250 ms, the
+   button gets one click then; a late click after that is dropped, so one
+   tap is one action. The touch pad and the plane pad have their own
+   touch handlers and are left alone. */
+(function secondFingerClicks() {
+  const WAIT = 250, LATE = 1000;
+  const downOn = new Map();
+  let waiting = null, waitingFor = null, firedFor = null, firedAt = -Infinity, synthetic = false;
+  addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || !e.target.closest) return;
+    const b = e.target.closest('button');
+    if (b && !b.closest('#touch, #planeCtrls')) downOn.set(e.pointerId, b);
+  }, true);
+  addEventListener('pointercancel', (e) => downOn.delete(e.pointerId), true);
+  addEventListener('pointerup', (e) => {
+    const b = downOn.get(e.pointerId);
+    downOn.delete(e.pointerId);
+    if (!b) return;
+    const r = b.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+    clearTimeout(waiting);
+    waitingFor = b;
+    waiting = setTimeout(() => {
+      waiting = null; waitingFor = null; firedFor = b; firedAt = performance.now();
+      synthetic = true;
+      try { b.click(); } finally { synthetic = false; }
+    }, WAIT);
+  }, true);
+  addEventListener('click', (e) => {
+    if (synthetic) return;
+    if (waiting !== null && waitingFor && waitingFor.contains(e.target)) { clearTimeout(waiting); waiting = null; waitingFor = null; return; }
+    if (firedFor && firedFor.contains(e.target) && performance.now() - firedAt < LATE) { e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
 })();
 
 /* Pause (the site's pause menu and its hold call this through the page):
