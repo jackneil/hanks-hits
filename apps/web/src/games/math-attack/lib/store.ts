@@ -17,15 +17,24 @@ export interface MathAttackProgress {
 }
 
 interface MathAttackState extends MathAttackProgress {
-  // Session state
-  gameState: "ready" | "playing" | "gameOver";
+  // Session state. "paused" is the GameShell's pause (its menu, ESC, a
+  // phone that loses focus): the problems stop falling.
+  gameState: "ready" | "playing" | "paused" | "gameOver";
   score: number;
   lives: number;
   combo: number;
   wave: number;
+  /** Goes up by one at each start, so a restart is a new run (clips). */
+  runId: number;
+  /** The best score when this run started: the score to beat. */
+  runStartBest: number;
+  /** The run that just ended beat the best from before it. */
+  lastRunNewBest: boolean;
 
   // Actions
   startGame: (initialLives: number) => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
   addScore: (points: number, operation: Operation) => void;
   recordAnswerAttempt: () => void;
   incrementCombo: () => void;
@@ -66,15 +75,29 @@ export const useMathAttackStore = create<MathAttackState>()(
       lives: 3,
       combo: 0,
       wave: 1,
+      runId: 0,
+      runStartBest: 0,
+      lastRunNewBest: false,
 
       startGame: (initialLives) =>
-        set({
+        set((state) => ({
           gameState: "playing",
           score: 0,
           lives: initialLives,
           combo: 0,
           wave: 1,
-        }),
+          runId: state.runId + 1,
+          runStartBest: state.highScore,
+          lastRunNewBest: false,
+        })),
+
+      pauseGame: () => {
+        if (get().gameState === "playing") set({ gameState: "paused" });
+      },
+
+      resumeGame: () => {
+        if (get().gameState === "paused") set({ gameState: "playing" });
+      },
 
       addScore: (points, operation) =>
         set((state) => {
@@ -112,6 +135,7 @@ export const useMathAttackStore = create<MathAttackState>()(
             return {
               lives: 0,
               gameState: "gameOver",
+              lastRunNewBest: state.score > state.runStartBest,
               highScore: Math.max(state.highScore, state.score),
               gamesPlayed: state.gamesPlayed + 1,
               combo: 0,
@@ -124,6 +148,7 @@ export const useMathAttackStore = create<MathAttackState>()(
       endGame: () =>
         set((state) => ({
           gameState: "gameOver",
+          lastRunNewBest: state.score > state.runStartBest,
           highScore: Math.max(state.highScore, state.score),
           gamesPlayed: state.gamesPlayed + 1,
           lastModified: Date.now(),
@@ -168,7 +193,7 @@ export const useMathAttackStore = create<MathAttackState>()(
         const currentState = get();
         // Don't let cloud sync change difficulty while playing
         // This prevents a race condition where cloud sync overwrites user's selection
-        if (currentState.gameState === "playing" && data.settings?.difficulty) {
+        if ((currentState.gameState === "playing" || currentState.gameState === "paused") && data.settings?.difficulty) {
           set((state) => ({
             ...state,
             ...data,

@@ -53,7 +53,7 @@ describe("Math Attack start overlay", () => {
     render(<MathAttackGame />);
 
     expect(
-      screen.getByText("🔢 Tap the box and type the answer")
+      screen.getByText("🔢 Tap the numbers of the answer")
     ).toBeInTheDocument();
     expect(
       screen.queryByText("⌨️ Type the answer with the number keys")
@@ -68,7 +68,7 @@ describe("Math Attack start overlay", () => {
       screen.getByText("⌨️ Type the answer with the number keys")
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("🔢 Tap the box and type the answer")
+      screen.queryByText("🔢 Tap the numbers of the answer")
     ).not.toBeInTheDocument();
   });
 

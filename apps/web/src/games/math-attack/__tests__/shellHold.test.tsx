@@ -1,7 +1,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MAX_FRAME_STEP, MathAttackGame } from "../Game";
+import { MathAttackGame } from "../Game";
 import { useMathAttackStore } from "../lib/store";
 import { installNoop2dContext } from "@/__tests__/noop-2d-context";
 import { installRafMock, uninstallRafMock, type RafMock } from "@/__tests__/raf-mock";
@@ -62,9 +62,9 @@ describe("Math Attack under the shell's hold", () => {
     expect(lives()).toBe(3);
 
     rerender(<Game held />);
-    const requestsAtHold = raf.requestCount();
+    // The shared loop keeps drawing under the hold but runs no game time:
+    // a minute under it lands nothing.
     raf.runFor(60_000, 60, act);
-    expect(raf.requestCount(), "no frame is asked for under the hold").toBe(requestsAtHold);
     expect(lives(), "no problem lands under the hold").toBe(3);
     expect(useMathAttackStore.getState().gameState).toBe("playing");
 
@@ -74,7 +74,7 @@ describe("Math Attack under the shell's hold", () => {
     expect(lives()).toBeLessThan(3);
   });
 
-  it("takes a frame after a stall as MAX_FRAME_STEP frames at most, so nothing lands at once", () => {
+  it("takes a frame after a stall as 50 ms at most (the shared loop's clamp), so nothing lands at once", () => {
     render(<Game held={false} />);
     act(() => useMathAttackStore.getState().startGame(3));
     // The first problem is on screen.
@@ -86,7 +86,6 @@ describe("Math Attack under the shell's hold", () => {
     act(() => {
       raf.nextFrame(60);
     });
-    expect(lives(), `one frame moves a problem by ${MAX_FRAME_STEP} frames, never to the ground`).toBe(3);
-    expect(MAX_FRAME_STEP).toBeLessThanOrEqual(3);
+    expect(lives(), "one frame after a stall moves a problem by 50 ms of game time, never to the ground").toBe(3);
   });
 });
