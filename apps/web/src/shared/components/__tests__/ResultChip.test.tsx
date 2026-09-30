@@ -563,7 +563,7 @@ describe("ResultChip break slot", () => {
     ).toBeTruthy();
     // A note in the slot takes taps; the chip's layer around it does not.
     expect(slot).toHaveClass("pointer-events-auto", "empty:hidden");
-    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"] }]);
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"], inline: false }]);
 
     // A note rendered into the slot is read after the buttons.
     const note = document.createElement("div");
