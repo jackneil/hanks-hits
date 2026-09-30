@@ -334,7 +334,7 @@ export function Weather() {
       {/* Loading State */}
       {store.isLoading && (
         <div className="flex-1 flex flex-col items-center justify-center">
-          <div className="text-8xl animate-bounce mb-4">&#x2601;&#xFE0F;</div>
+          <div aria-hidden="true" className="pointer-events-none select-none text-8xl animate-bounce mb-4">&#x2601;&#xFE0F;</div>
           <p className="text-2xl text-white font-bold">
             Checking the weather...
           </p>
@@ -382,7 +382,9 @@ export function Weather() {
             {/* Big Weather Icon */}
             <div className="text-center mb-4">
               <div
-                className="text-9xl md:text-[10rem] animate-pulse"
+                role="img"
+                aria-label={WEATHER_ICONS[store.currentWeather.condition].label}
+                className="pointer-events-none select-none text-9xl md:text-[10rem] animate-pulse"
                 style={{ animationDuration: "3s" }}
               >
                 {WEATHER_ICONS[store.currentWeather.condition].emoji}
@@ -506,7 +508,9 @@ export function Weather() {
       {/* No Weather Yet - Welcome Message */}
       {!store.currentWeather && !store.isLoading && !store.error && (
         <div className="flex-1 flex flex-col items-center justify-center">
-          <div className="text-9xl mb-4 animate-bounce">&#x26C5;</div>
+          {/* Decorative: it bounces up over the city buttons on a short
+              screen, so it takes no taps (a tap on a city hit the cloud). */}
+          <div aria-hidden="true" className="pointer-events-none select-none text-9xl mb-4 animate-bounce">&#x26C5;</div>
           <h2 className="text-3xl font-bold text-white mb-2 text-center">
             Hey there, Sky Explorer!
           </h2>
