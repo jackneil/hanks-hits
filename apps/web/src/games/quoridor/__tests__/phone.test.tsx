@@ -263,7 +263,7 @@ describe("Quoridor on screen", () => {
     expect(s.walls).toEqual([wallAt({ i: 5, j: 3 }, "horizontal")]);
     expect(s.wallsRemaining[1]).toBe(9);
     expect(s.wallMode).toBe(false);
-    expect(screen.getByTestId("quoridor-walls-1")).toHaveTextContent("9 walls");
+    expect(screen.getByTestId("quoridor-walls-1")).toHaveAttribute("aria-label", "You: 9 walls left");
   });
 
   it("a finger on a square in wall mode never places a wall", () => {

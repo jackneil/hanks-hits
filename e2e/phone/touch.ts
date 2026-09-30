@@ -79,6 +79,19 @@ export class Finger {
   }
 
   /**
+   * One finger lands at (x, y), moves (dx, dy) in `steps` moves a frame
+   * apart, and lifts: a swipe that scrolls a list.
+   */
+  async swipe(x: number, y: number, dx: number, dy: number, steps = 10) {
+    await this.send("touchStart", [{ x, y }]);
+    for (let i = 1; i <= steps; i++) {
+      await this.send("touchMove", [{ x: x + (dx * i) / steps, y: y + (dy * i) / steps }]);
+      await this.page.waitForTimeout(16);
+    }
+    await this.send("touchEnd", []);
+  }
+
+  /**
    * One thumb holds `target` for `ms`; then `during` runs while it is still
    * down, and can tap another control with the other thumb. The first thumb
    * lifts at the end. This is how a kid pauses mid-drive.

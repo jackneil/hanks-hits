@@ -160,15 +160,20 @@ export function ChessGame() {
       styles[store.lastMove.to] = { backgroundColor: COLORS.LAST_MOVE };
     }
     if (store.selectedSquare) styles[store.selectedSquare] = { backgroundColor: COLORS.SELECTED };
+    // Where the picked piece can go: a dot on an empty square, a ring
+    // around a piece it can take (a dot hid under that piece).
     for (const square of store.legalMoves) {
+      const takes = !!store.game.get(square);
       styles[square] = {
         ...styles[square],
-        background: `radial-gradient(circle, ${COLORS.VALID_MOVE}cc 24%, transparent 26%)`,
+        background: takes
+          ? `radial-gradient(circle closest-side, transparent 80%, ${COLORS.VALID_MOVE} 82%, ${COLORS.VALID_MOVE} 96%, transparent 98%)`
+          : `radial-gradient(circle closest-side, ${COLORS.VALID_MOVE} 36%, transparent 38%)`,
       };
     }
     if (store.kingInCheck) styles[store.kingInCheck] = { ...styles[store.kingInCheck], backgroundColor: COLORS.CHECK };
     return styles;
-  }, [store.selectedSquare, store.legalMoves, store.lastMove, store.kingInCheck]);
+  }, [store.selectedSquare, store.legalMoves, store.lastMove, store.kingInCheck, store.game]);
 
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {

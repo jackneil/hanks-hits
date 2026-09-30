@@ -408,8 +408,12 @@ function WallCount({ player, column }: { player: Player; column: boolean }) {
         className="h-3.5 w-3.5 shrink-0 rounded-full"
         style={{ backgroundColor: player === 1 ? COLORS.PLAYER1 : COLORS.PLAYER2 }}
       />
-      {column && <span>{name} ·</span>}
-      <span aria-hidden="true">🧱 {words}</span>
+      {/* Beside the board the name comes first and the count is short, so
+          the chip stays one line in its 184 px column. */}
+      {column && <span className="min-w-0 flex-1 truncate">{name}</span>}
+      <span aria-hidden="true" className="whitespace-nowrap">
+        🧱 {column ? count : words}
+      </span>
     </div>
   );
 }

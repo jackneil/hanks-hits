@@ -12,7 +12,8 @@ export const COLORS = {
   LIGHT_SQUARE: "#EDEED1",
   DARK_SQUARE: "#779952",
   SELECTED: "#F6F669",
-  VALID_MOVE: "#829769",
+  // Where a piece can go: dark and half clear, so it shows on both square colours.
+  VALID_MOVE: "rgba(20, 40, 20, 0.45)",
   LAST_MOVE: "#CDD26A",
   CHECK: "#E84855",
 } as const;
