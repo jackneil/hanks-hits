@@ -337,6 +337,41 @@ describe("useTouchInput: handlers change without re-binding", () => {
     expect(starts).toHaveLength(1);
   });
 
+  it("follows the surface when it remounts under a new parent (the phone turns): the old one stops, the new one works", () => {
+    // Bomberman's d-pad sat in the left gutter sideways and in the control
+    // row upright: a new element after a turn, and the listeners stayed on
+    // the old one (a dead d-pad).
+    function Moving({ sideways, onStart }: { sideways: boolean; onStart: () => void }) {
+      const ref = useRef<HTMLDivElement>(null);
+      useTouchInput(ref, { onStart });
+      const pad = <div ref={ref} data-testid="pad" />;
+      return sideways ? <aside>{pad}</aside> : <footer>{pad}</footer>;
+    }
+    const onStart = vi.fn();
+    const { rerender } = render(<Moving sideways={false} onStart={onStart} />);
+    const before = screen.getByTestId("pad");
+    rerender(<Moving sideways onStart={onStart} />);
+    const after = screen.getByTestId("pad");
+    expect(after).not.toBe(before);
+    send(after, "touchstart", [{ id: 1 }]);
+    expect(onStart).toHaveBeenCalledTimes(1);
+    send(before, "touchstart", [{ id: 2 }]);
+    expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds a surface that mounts after the first render (after the play box is measured)", () => {
+    function Late({ show, onStart }: { show: boolean; onStart: () => void }) {
+      const ref = useRef<HTMLDivElement>(null);
+      useTouchInput(ref, { onStart });
+      return show ? <div ref={ref} data-testid="late" /> : null;
+    }
+    const onStart = vi.fn();
+    const { rerender } = render(<Late show={false} onStart={onStart} />);
+    rerender(<Late show onStart={onStart} />);
+    send(screen.getByTestId("late"), "touchstart", [{ id: 1 }]);
+    expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
   it("createTouchInput works on any EventTarget and detaches cleanly", () => {
     const target = new EventTarget();
     const onStart = vi.fn();
