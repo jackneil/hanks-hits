@@ -323,7 +323,7 @@ describe("PauseMenu on a short screen (a phone held sideways)", () => {
     render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
     expect(screen.queryByTestId("pause-menu-tip-slot")).toBeNull();
     const slot = screen.getByTestId("pause-menu-break-slot");
-    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"] }]);
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"], inline: false }]);
     // Under the grid, as wide as the grid.
     expect(slot.className).toMatch(/(^|\s)short:w-\[28rem\](\s|$)/);
     expect(slot.compareDocumentPosition(screen.getByTestId("pause-menu-buttons")) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
@@ -366,8 +366,8 @@ describe("PauseMenu break slot", () => {
     // The menu holds every note, each in its own slot: a trophy
     // celebration under the grid, the install tip below that.
     expect(useGameBreaks.getState().slots).toEqual([
-      { el: celebrationSlot, holds: ["celebration"] },
-      { el: tipSlot, holds: ["tip"] },
+      { el: celebrationSlot, holds: ["celebration"], inline: false },
+      { el: tipSlot, holds: ["tip"], inline: false },
     ]);
     expect(ALL_NOTES).toEqual(["tip", "celebration"]);
 

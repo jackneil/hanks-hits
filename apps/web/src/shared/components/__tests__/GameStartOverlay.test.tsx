@@ -643,7 +643,7 @@ describe("GameStartOverlay celebration slot on a short screen", () => {
     const slot = screen.getByTestId("start-overlay-short-slot");
     expect(screen.getByTestId("start-card-actions")).toContainElement(slot);
     expect(screen.getByTestId("start-card-actions").firstElementChild).toBe(slot);
-    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"] }]);
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"], inline: false }]);
   });
 
   it("reads a trophy in that slot with the card's own words", async () => {
@@ -662,6 +662,6 @@ describe("GameStartOverlay celebration slot on a short screen", () => {
     render(<GameStartOverlay title="Snake" onStart={() => {}} />);
     expect(screen.queryByTestId("start-overlay-short-slot")).toBeNull();
     const slot = screen.getByTestId("start-overlay-break-slot");
-    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["tip", "celebration"] }]);
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["tip", "celebration"], inline: false }]);
   });
 });
