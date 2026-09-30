@@ -16,11 +16,13 @@ import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { GAME_METADATA } from "../lib/gameMetadata.generated";
 import { shellHasPlay, useGameBreaks } from "../lib/gameBreaks";
 import {
+  isPhoneScreen,
   planHeader,
   resolveHeaderEmoji,
   routeIdFromPath,
   type HeaderLogin,
 } from "../lib/headerBudget";
+import { useCoarsePointer } from "../hooks/useCoarsePointer";
 
 export type RestartConfirmationPolicy = "always" | "never";
 
@@ -81,6 +83,15 @@ function useViewportWidth(): number | null {
   return useSyncExternalStore(
     subscribeToResize,
     () => window.innerWidth,
+    () => null
+  );
+}
+
+/** The viewport height in CSS pixels, or null on the server. */
+function useViewportHeight(): number | null {
+  return useSyncExternalStore(
+    subscribeToResize,
+    () => window.innerHeight,
     () => null
   );
 }
@@ -245,6 +256,8 @@ function GameShellFrame({
   const { data: session, status } = useSession();
   const fullscreen = useFullscreen();
   const viewportWidth = useViewportWidth();
+  const viewportHeight = useViewportHeight();
+  const isCoarse = useCoarsePointer();
   const routeId = useRouteId();
 
   // Tell sheets and nudges that a game is on screen (gameBreaks.ts). A
@@ -282,6 +295,18 @@ function GameShellFrame({
       ? "guest"
       : "signedIn";
 
+  // A phone with a touch screen, during play: the pause menu is one tap
+  // away, so it holds Leaderboard and Sign In (headerBudget.ts, step 0).
+  // "During play" is canPause: a run is live. Between runs (the start
+  // card, game over) both stay in the header.
+  const phonePlay =
+    isCoarse &&
+    viewportWidth !== null &&
+    viewportHeight !== null &&
+    isPhoneScreen(viewportWidth, viewportHeight) &&
+    hasPauseSlot &&
+    canPause;
+
   // The server has no viewport: it renders the wide layout, and the
   // client corrects it on the first render after hydration.
   const layout = planHeader(viewportWidth ?? Number.POSITIVE_INFINITY, {
@@ -295,6 +320,7 @@ function GameShellFrame({
     pausable: hasPauseSlot,
     resultChipReady,
     hasEmoji: !!titleEmoji,
+    phonePlay,
   });
 
   return (
@@ -433,8 +459,11 @@ function GameShellFrame({
             ))}
 
           {/* Login (rightmost, matches the page Header): Sign In for guests,
-              avatar dropdown for signed-in users. Same control everywhere. */}
-          {showLoginButton && <LoginButton showLabelOnMobile={layout.signInLabel} />}
+              avatar dropdown for signed-in users. Same control everywhere.
+              On a phone during play the guest Sign In is in the pause menu. */}
+          {showLoginButton && layout.signIn !== "moved" && (
+            <LoginButton showLabelOnMobile={layout.signInLabel} />
+          )}
         </div>
 
         {/* No trailing spacer: the flex-1 title fills the space between the
@@ -478,6 +507,7 @@ function GameShellFrame({
             />
           )}
           {layout.fullscreen === "moved" && <FullscreenButton variant="menu" />}
+          {layout.signIn === "moved" && <LoginButton variant="menu" />}
           {pauseMenuChildren}
         </PauseMenu>
       )}

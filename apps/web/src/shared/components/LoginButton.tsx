@@ -13,9 +13,18 @@ import { useState, useRef, useEffect } from "react";
  */
 interface LoginButtonProps {
   showLabelOnMobile?: boolean;
+  /**
+   * "header": the compact control for a header row. "menu": a wide
+   * labelled button for the pause menu. GameShell moves the guest Sign In
+   * there on a phone during play (headerBudget.ts, step 0). The visible
+   * label is what the pause menu reads out loud.
+   */
+  variant?: "header" | "menu";
 }
 
-export function LoginButton({ showLabelOnMobile = false }: LoginButtonProps) {
+const MENU_CLASSES = "btn btn-lg w-full text-xl gap-3 shadow-lg hover:scale-105 transition-transform";
+
+export function LoginButton({ showLabelOnMobile = false, variant = "header" }: LoginButtonProps) {
   const { data: session, status } = useSession();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -65,6 +74,16 @@ export function LoginButton({ showLabelOnMobile = false }: LoginButtonProps) {
   // Not logged in - optionally keep the text label visible on touch screens.
   // GameShell enables this; the wider page Header keeps its compact icon mode.
   if (!session?.user) {
+    if (variant === "menu") {
+      return (
+        <Link href="/login" className={MENU_CLASSES}>
+          <span className="text-2xl" aria-hidden="true">
+            🔑
+          </span>
+          Sign In
+        </Link>
+      );
+    }
     return (
       <Link
         href="/login"

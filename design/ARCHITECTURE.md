@@ -218,6 +218,13 @@ the game/app name (rendered exactly once as chrome), leaderboard button
 button (ESC + pause-on-blur via `useGameShell`). Modules must NOT render
 their own home/back buttons, title bars, page `<h1>`s naming themselves, or
 floating fullscreen buttons — that chrome comes from the shell or not at all.
+`src/shared/lib/headerBudget.ts` decides which controls the header shows at
+each width. On a phone with a touch screen (the short side of the screen
+is 480 px or less, in both orientations), during play (`canPause` is true,
+so the pause menu is one tap away), Sign In and Leaderboard leave the
+header: the pause menu holds both, and the result chip holds Leaderboard
+at game over. Between runs (the start card, game over) both stay in the
+header. The signed-in avatar stays in the header (it is 44 px).
 
 **Games own the play area and overlay content.** Start screens are DOM, not
 canvas. Every game and every playable app uses **GameStartOverlay**

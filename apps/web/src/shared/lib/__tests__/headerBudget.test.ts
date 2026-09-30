@@ -5,6 +5,7 @@ import {
   HEADER_COMPACT_BELOW_PX,
   HEADER_EMOJI_TIGHT_TITLE_PX,
   HEADER_TITLE_MIN_PX,
+  isPhoneScreen,
   planHeader,
   resolveHeaderEmoji,
   routeIdFromPath,
@@ -145,6 +146,53 @@ describe("planHeader: the header matrix", () => {
         expect(layout.title).toBe("emoji");
       }
     }
+  });
+});
+
+describe("planHeader: step 0, a phone during play", () => {
+  it("moves Leaderboard and Sign In into the pause menu on a phone during play", () => {
+    for (const width of [...WIDTHS, LANDSCAPE]) {
+      const layout = planHeader(width, fullControls({ phonePlay: true }));
+      expect(layout.leaderboard, `${width}`).toBe("moved");
+      expect(layout.signIn, `${width}`).toBe("moved");
+      expect(layout.signInLabel, `${width}`).toBe(false);
+      expect(layout.fits, `${width}`).toBe(true);
+    }
+  });
+
+  it("keeps both in the header between runs, on a mouse, and for a game with no pause menu", () => {
+    for (const controls of [
+      fullControls({}),
+      fullControls({ phonePlay: false }),
+      fullControls({ phonePlay: true, pausable: false, pause: false }),
+    ]) {
+      const layout = planHeader(375, controls);
+      expect(layout.leaderboard).toBe("header");
+      expect(layout.signIn).toBe("header");
+    }
+  });
+
+  it("leaves the signed-in avatar in the header: it is a 44 px control", () => {
+    const layout = planHeader(375, fullControls({ phonePlay: true, login: "signedIn" }));
+    expect(layout.signIn).toBe("none");
+    expect(layout.leaderboard).toBe("moved");
+  });
+
+  it("does not count a moved Sign In in the width, so the title keeps its room", () => {
+    const inHeader = planHeader(375, fullControls({ clipSlot: true }));
+    const moved = planHeader(375, fullControls({ clipSlot: true, phonePlay: true }));
+    expect(moved.requiredPx).toBeLessThan(inHeader.requiredPx);
+    expect(moved.titleRoomPx).toBeGreaterThan(inHeader.titleRoomPx);
+  });
+
+  it("isPhoneScreen: the short side decides, in both orientations", () => {
+    expect(isPhoneScreen(375, 549)).toBe(true);
+    expect(isPhoneScreen(667, 311)).toBe(true);
+    expect(isPhoneScreen(844, 340)).toBe(true);
+    expect(isPhoneScreen(430, 932)).toBe(true);
+    expect(isPhoneScreen(768, 1024)).toBe(false);
+    expect(isPhoneScreen(1024, 768)).toBe(false);
+    expect(isPhoneScreen(1280, 800)).toBe(false);
   });
 });
 
