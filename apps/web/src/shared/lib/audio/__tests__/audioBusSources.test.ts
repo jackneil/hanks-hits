@@ -241,9 +241,17 @@ describe("game audio goes through the shared bus", () => {
   it("scans the real tree (games, apps, and the HTML games)", () => {
     expect(scanned.length).toBeGreaterThan(100);
     expect(scanned.some((file) => file.path.startsWith("public/games/"))).toBe(true);
-    // The scanner still sees a known legacy site.
-    const breakout = scanned.find((file) => file.path === "src/games/breakout/lib/store.ts");
-    expect(breakout?.bypasses).toContain(".destination");
+    // The scanner still sees a real bypass in the code: the legacy games
+    // still on the list play to ctx.destination. (Read from the list, not
+    // one named game, so the PR that moves a game onto the bus does not
+    // break this check.)
+    const legacyGames = [...legacy].filter((path) => path.startsWith("src/"));
+    if (legacyGames.length > 0) {
+      const seen = legacyGames.filter((path) =>
+        scanned.find((file) => file.path === path)?.bypasses.includes(".destination")
+      );
+      expect(seen.length, "no legacy game file shows ctx.destination to the scanner").toBeGreaterThan(0);
+    }
   });
 
   it("finds no new file that makes its own sound", () => {

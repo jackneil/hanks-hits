@@ -130,7 +130,9 @@ describe("public barrel", () => {
     expect(clips.getClipService()).toBeNull();
     expect(clips.getClipLibrary()).toBeNull();
     expect(await clips.loadClipsVerdict()).toEqual({ mode: "off", capture: false });
-    expect(clips.clipsEnabledFor("breakout")).toBe(false);
+    // The per-game switch is a metadata lookup: it works with no window.
+    expect(clips.clipsEnabledFor("asteroids")).toBe(true);
+    expect(clips.clipsEnabledFor("no-such-game")).toBe(false);
     expect(clips.HIDDEN_SNAPSHOT.button).toBe("hidden");
   });
 });

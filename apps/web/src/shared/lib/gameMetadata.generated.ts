@@ -44,7 +44,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Watch balls multiply in this mesmerizing chain reaction game!",
     category: "arcade",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "asteroids": {
     name: "Asteroids",
@@ -80,7 +80,8 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Brick breaker with power-ups",
     category: "arcade",
     madeByKid: false,
-    clips: false,
+    clips: true,
+    preferredOrientation: "portrait",
   },
   "checkers": {
     name: "Checkers",
@@ -254,7 +255,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Classic alien shooter",
     category: "arcade",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "wordle": {
     name: "Wordle",
