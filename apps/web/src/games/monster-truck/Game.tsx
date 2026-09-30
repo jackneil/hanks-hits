@@ -86,6 +86,7 @@ function GameScene({
           position={spawnPosition}
           rotation={WORLD.SPAWN.ROTATION}
           getControls={getControls}
+          paused={paused}
         />
 
         <Collectibles />

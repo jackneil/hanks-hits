@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { GameSheet, GAME_SHEET_ACTION } from '@/shared/components';
+import { useSecondFingerClick } from '@/shared/lib/input';
 import {
   getChallengeProgress,
   useGameStore,
@@ -116,6 +117,10 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
   const starsCollected = useGameStore((s) => s.starsCollected);
   const showChallenges = useGameStore((s) => s.showChallenges);
   const setShowChallenges = useGameStore((s) => s.setShowChallenges);
+  // In-play buttons work for the other thumb while one holds Gas (a browser
+  // makes no click for a second finger).
+  const challengesTap = useSecondFingerClick<HTMLButtonElement>(() => setShowChallenges(true));
+  const pauseTap = useSecondFingerClick<HTMLButtonElement>(onPause);
 
   // Coin animation state
   const [animatedCoins, setAnimatedCoins] = useState(coins);
@@ -177,7 +182,7 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
 
         <button
           type="button"
-          onClick={() => setShowChallenges(true)}
+          {...challengesTap}
           className="pointer-events-auto min-h-[44px] rounded-lg bg-emerald-700 px-3 py-2 text-base font-bold text-white transition-colors hover:bg-emerald-600"
         >
           🏁 Challenges
@@ -204,7 +209,7 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
 
         {/* Speedometer */}
         <div className="bg-black/60 rounded-xl px-3 py-2 text-center short:py-1">
-          <div className="text-4xl font-bold text-white font-mono short:text-2xl">
+          <div className="text-4xl font-bold text-white font-mono short:text-2xl" data-testid="monster-truck-speed">
             {speedMph}
           </div>
           <div className="text-xs text-gray-400">MPH</div>
@@ -246,7 +251,7 @@ export function GameUI({ speed, isMobile, onPause, onOpenGarage }: GameUIProps) 
         <div className="absolute top-2 left-1/2 -translate-x-1/2 pointer-events-auto">
           <button
             type="button"
-            onClick={onPause}
+            {...pauseTap}
             aria-label="Pause game"
             className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-700/90 text-xl text-white"
           >

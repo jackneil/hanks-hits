@@ -1,6 +1,7 @@
 'use client';
 
 import { useTouchControls } from '../hooks/useControls';
+import { useSecondFingerClick } from '@/shared/lib/input';
 
 interface MobileControlsProps {
   touchControls: ReturnType<typeof useTouchControls>;
@@ -40,6 +41,9 @@ export function MobileControls({
 }: MobileControlsProps) {
   const { handlers, state } = touchControls;
   const nosPercent = (nosCharge / nosMaxCharge) * 100;
+  // TILT and CALIBRATE work for the other thumb while one holds Gas.
+  const tiltTap = useSecondFingerClick<HTMLButtonElement>(onToggleTilt);
+  const calibrateTap = useSecondFingerClick<HTMLButtonElement>(onCalibrate);
 
   return (
     // Anchored below the GameShell header, so no control sits inside the
@@ -60,7 +64,7 @@ export function MobileControls({
         )}
         <button
           type="button"
-          onClick={onToggleTilt}
+          {...tiltTap}
           aria-pressed={useTilt}
           data-testid="tilt-toggle"
           className={`pointer-events-auto min-h-[44px] min-w-[8rem] rounded-full px-4 py-2 text-base font-bold text-white active:scale-95 transition-transform ${
@@ -81,7 +85,7 @@ export function MobileControls({
             <div className="rounded-full bg-black/60 px-3 py-1 text-sm text-white">📱 Tilt your phone to steer</div>
             <button
               type="button"
-              onClick={onCalibrate}
+              {...calibrateTap}
               data-testid="calibrate-button"
               className="min-h-[44px] rounded-full bg-blue-700 px-4 py-2 text-base font-bold text-white active:scale-95"
             >
