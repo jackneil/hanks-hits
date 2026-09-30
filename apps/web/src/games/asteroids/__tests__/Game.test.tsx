@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AsteroidsGame } from "../Game";
 import { useAsteroidsStore } from "../lib/store";
+import { PAD_LABELS } from "../lib/overlayCopy";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 // useAuthSync pulls in next-auth's useSession, which needs a provider we don't
@@ -81,10 +82,10 @@ describe("AsteroidsGame touch controls", () => {
   it("press-and-hold sets the control active, release clears it", () => {
     render(<AsteroidsGame />);
 
-    const rotateLeft = screen.getByRole("button", { name: "↺" });
-    const thrust = screen.getByRole("button", { name: "🔥" });
-    const fire = screen.getByRole("button", { name: "●" });
-    const rotateRight = screen.getByRole("button", { name: "↻" });
+    const rotateLeft = screen.getByRole("button", { name: PAD_LABELS.turnLeft });
+    const thrust = screen.getByRole("button", { name: PAD_LABELS.thrust });
+    const fire = screen.getByRole("button", { name: PAD_LABELS.fire });
+    const rotateRight = screen.getByRole("button", { name: PAD_LABELS.turnRight });
 
     press(rotateLeft);
     expect(useAsteroidsStore.getState().rotatingLeft).toBe(true);
@@ -110,7 +111,7 @@ describe("AsteroidsGame touch controls", () => {
   it("marks every touch control touch-none so the browser never takes the press for a scroll", () => {
     render(<AsteroidsGame />);
 
-    for (const label of ["↺", "🔥", "●", "↻"]) {
+    for (const label of Object.values(PAD_LABELS)) {
       const button = screen.getByRole("button", { name: label });
       expect(button.className).toMatch(/\btouch-none\b/);
     }
