@@ -54,16 +54,12 @@ describe("Blitz Bomber touch input", () => {
     expect(dropBomb).toHaveBeenCalledTimes(1);
   });
 
-  it("keys the in-play hint on the pointer, not on a width breakpoint", () => {
+  it("shows no keyboard words in play on a phone (the hint line keyed on md: said SPACE)", () => {
     mockPointer(true);
-    const { unmount } = render(<BlitzBomberGame />);
-    expect(screen.getByText("Tap anywhere to drop bombs")).toBeInTheDocument();
-    expect(screen.queryByText(/Press SPACE/)).not.toBeInTheDocument();
-    unmount();
-
-    mockPointer(false);
     render(<BlitzBomberGame />);
-    expect(screen.getByText(/Press SPACE or any key/)).toBeInTheDocument();
-    expect(screen.queryByText("Tap anywhere to drop bombs")).not.toBeInTheDocument();
+    // The play screen carries no hint line at all now (the start card has
+    // the hints, keyed on the pointer): nothing can name a key on a phone.
+    expect(screen.queryByText(/SPACE|any key|R to restart/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("blitz-bomber-hud")).toHaveTextContent("Level 1");
   });
 });

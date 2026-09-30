@@ -17,6 +17,7 @@ import {
   generateBuildings,
   getDifficultySettings,
 } from "./constants";
+import { playSound } from "./sounds";
 
 // Progress data that gets synced to server
 export type BlitzBomberProgress = {
@@ -64,6 +65,8 @@ type BlitzBomberState = {
   bombIdCounter: number;
   explosionIdCounter: number;
   isNewHighScore: boolean;
+  /** Goes up by one at each start (not at the next level), so a restart is a new run. */
+  runId: number;
   passCount: number; // Track number of passes for difficulty scaling
 
   // Persisted progress
@@ -110,6 +113,7 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
       explosionIdCounter: 0,
       isNewHighScore: false,
       passCount: 0,
+      runId: 0,
       progress: defaultProgress,
 
       startGame: () => {
@@ -118,6 +122,7 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
 
         set({
           gameState: "playing",
+          runId: state.runId + 1,
           score: 0,
           level: 1,
           plane: createInitialPlane(),
@@ -153,6 +158,7 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
         const activeBombs = state.bombs.filter((b) => !b.destroyed);
         if (activeBombs.length >= settings.bombsAllowed) return;
 
+        playSound("drop");
         const newBomb: Bomb = {
           id: state.bombIdCounter + 1,
           x: state.plane.x + PLANE.WIDTH / 2,
@@ -248,6 +254,7 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
               }
 
               // Create explosion
+              playSound("hit");
               newExplosions.push({
                 id: ++explosionIdCounter,
                 x: bombCenterX,
@@ -333,6 +340,7 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
 
       crash: () => {
         const state = get();
+        playSound("crash");
         const isNewHighScore = state.score > state.progress.highScore;
 
         set({
@@ -350,6 +358,7 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
 
       land: () => {
         const state = get();
+        playSound("land");
         const finalScore = state.score + SCORING.LANDING_BONUS;
         const isNewHighScore = finalScore > state.progress.highScore;
 
