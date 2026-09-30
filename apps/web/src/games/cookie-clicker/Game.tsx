@@ -14,6 +14,8 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { COUNT_BAR, EDGE, GAP, bakeryLayout, touchWords } from "./lib/layout";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { usePointerTap, type TapEvent } from "@/shared/lib/input";
@@ -51,7 +53,8 @@ export function CookieClickerGame() {
     let popupTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Apply offline progress
-    const earned = store.applyOfflineProgress();
+    const game = useCookieClickerStore.getState();
+    const earned = game.applyOfflineProgress();
     if (earned > 100) {
       popupTimer = setTimeout(() => {
         setOfflineEarnings(earned);
@@ -60,8 +63,8 @@ export function CookieClickerGame() {
     }
 
     // Recalculate CPS
-    const cps = store.calculateCps();
-    const clickPower = store.calculateClickPower();
+    const cps = game.calculateCps();
+    const clickPower = game.calculateClickPower();
     useCookieClickerStore.setState({
       cookiesPerSecond: cps,
       cookiesPerClick: clickPower,
@@ -77,7 +80,7 @@ export function CookieClickerGame() {
     if (!hasStarted) return;
 
     tickRef.current = setInterval(() => {
-      store.tick();
+      useCookieClickerStore.getState().tick();
     }, GAME_CONFIG.TICK_RATE);
 
     return () => {
@@ -115,84 +118,100 @@ export function CookieClickerGame() {
     };
   }, [hasStarted]);
 
+  const box = usePlayBox();
+  const layout = bakeryLayout(box);
+
+  const cookieArea = (
+    <div
+      data-testid="cookie-area"
+      className="relative flex shrink-0 flex-col items-center justify-center"
+      style={layout.sideways ? { flex: 1, minWidth: 0 } : { height: layout.cookieArea }}
+    >
+      <CookieButton disabled={!hasStarted} size={layout.cookie} />
+      {/* A phone kid taps; the words say so (audit S5). */}
+      <div className="mt-1 text-center text-base leading-tight text-amber-900">
+        {isCoarse
+          ? `Tap power: ${formatNumber(store.cookiesPerClick)} per tap`
+          : `Click power: ${formatNumber(store.cookiesPerClick)} per click`}
+        <span className="text-amber-700">
+          {" "}· {isCoarse ? "Taps" : "Clicks"}: {store.totalClicks.toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="relative min-h-full lg:h-full lg:overflow-hidden bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col">
+    <div data-testid="cookie-root" className="relative flex h-full flex-col bg-amber-100">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Header with cookie count */}
-      <header className="bg-amber-600 text-white px-4 py-2 shadow-lg">
-        <div className="text-center">
-          <div className="flex items-baseline justify-center gap-2 flex-wrap">
-            <span className="text-3xl md:text-4xl font-bold text-yellow-200">
-              {formatNumber(store.cookies)} cookies
-            </span>
-            <span className="text-base md:text-lg text-amber-200">
-              {formatCps(store.cookiesPerSecond)}/sec
-            </span>
-          </div>
-          {store.frenzyMultiplier > 1 && (
-            <div className="text-base text-green-300 animate-pulse">
-              FRENZY! x{store.frenzyMultiplier} CPS!
-            </div>
-          )}
-          {store.clickFrenzyMultiplier > 1 && (
-            <div className="text-base text-pink-300 animate-pulse">
-              {isCoarse
-                ? `TAP FRENZY! x${store.clickFrenzyMultiplier} per tap!`
-                : `CLICK FRENZY! x${store.clickFrenzyMultiplier} per click!`}
-            </div>
-          )}
+      {/* The cookie count: always at the top, never scrolled away. */}
+      <header
+        data-testid="cookie-count"
+        className="flex shrink-0 flex-col items-center justify-center bg-amber-600 px-3 text-white shadow-md"
+        style={{ minHeight: COUNT_BAR }}
+      >
+        <div className="flex flex-wrap items-baseline justify-center gap-x-2">
+          <span className="text-2xl font-bold text-yellow-100">
+            {formatNumber(store.cookies)} {Math.floor(store.cookies) === 1 ? "cookie" : "cookies"}
+          </span>
+          <span className="text-base text-amber-100">{formatCps(store.cookiesPerSecond)}/sec</span>
         </div>
+        {store.frenzyMultiplier > 1 && (
+          <div className="text-base font-bold text-green-200">FRENZY! x{store.frenzyMultiplier} cookies a second!</div>
+        )}
+        {store.clickFrenzyMultiplier > 1 && (
+          <div className="text-base font-bold text-pink-200">
+            {isCoarse
+              ? `TAP FRENZY! x${store.clickFrenzyMultiplier} per tap!`
+              : `CLICK FRENZY! x${store.clickFrenzyMultiplier} per click!`}
+          </div>
+        )}
       </header>
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col lg:flex-row gap-4 p-4 overflow-hidden">
-        {/* Left side - Cookie clicker area */}
-        <div className="flex-1 flex flex-col items-center justify-center min-h-[300px] lg:min-h-0">
-          <CookieButton disabled={!hasStarted} />
-          {/* A phone kid taps; the words say so (audit S5). */}
-          <div className="mt-4 text-amber-800 text-lg">
-            {isCoarse
-              ? `Tap power: ${formatNumber(store.cookiesPerClick)} per tap`
-              : `Click power: ${formatNumber(store.cookiesPerClick)} per click`}
-          </div>
-          <div className="text-amber-600 text-sm">
-            {isCoarse ? "Total taps" : "Total clicks"}: {store.totalClicks.toLocaleString()}
-          </div>
-        </div>
-
-        {/* Right side - Shop */}
-        <div className="lg:w-96 flex flex-col gap-4 overflow-hidden">
-          {/* Upgrades */}
+      {/* The cookie and the shop: side by side sideways, stacked upright. */}
+      <main
+        className={`flex min-h-0 flex-1 ${layout.sideways ? "flex-row" : "flex-col"}`}
+        style={{ padding: EDGE, gap: GAP }}
+      >
+        {cookieArea}
+        <div
+          data-testid="cookie-shop"
+          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain rounded-xl"
+          style={layout.sideways ? { flex: "none", width: layout.shopWidth } : undefined}
+        >
           <UpgradePanel />
-
-          {/* Buildings */}
           <BuildingPanel />
+          <p className="px-1 pb-1 text-center text-sm text-amber-800">
+            All-time cookies baked: {formatNumber(store.totalCookiesBaked)} · Achievements:{" "}
+            {store.unlockedAchievements.length} · Upgrades: {store.purchasedUpgrades.length}
+          </p>
         </div>
       </main>
 
-      <GoldenCookie />
-
-      {/* Achievement notifications */}
+      {/* Achievement notices hang from the bottom edge of the count bar:
+          they never hide the count, the cookie or the shop, and go after 3
+          seconds. */}
       <AchievementPopups />
 
+      <GoldenCookie />
+
       {/* Offline earnings popup - held back until the player presses Play so
-          it never covers the start card */}
+          it never covers the start card. It fits a phone held sideways (its
+          title was cut under the header at 844x340). */}
       {hasStarted && showOfflinePopup && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-8 max-w-md text-center shadow-xl">
-            <div className="text-6xl mb-4">Welcome back!</div>
-            <p className="text-xl mb-4">
-              While you were away, your buildings baked
-            </p>
-            <div className="text-4xl font-bold text-amber-600 mb-4">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 p-3">
+          <div
+            role="dialog"
+            aria-label="Welcome back"
+            className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 text-center shadow-xl short:p-3"
+          >
+            <div className="mb-2 text-3xl font-bold short:mb-1 short:text-2xl">Welcome back!</div>
+            <p className="mb-2 text-lg short:mb-1">While you were away, your buildings baked</p>
+            <div className="mb-3 text-3xl font-bold text-amber-600 short:mb-2 short:text-2xl">
               {formatNumber(offlineEarnings)} cookies!
             </div>
-            <button
-              onClick={() => setShowOfflinePopup(false)}
-              className="btn btn-primary btn-lg"
-            >
+            <button onClick={() => setShowOfflinePopup(false)} className="btn btn-primary btn-lg short:btn-md">
               Sweet!
             </button>
           </div>
@@ -214,13 +233,6 @@ export function CookieClickerGame() {
           </div>
         </GameStartOverlay>
       )}
-
-      {/* Stats footer */}
-      <footer className="bg-amber-700 text-amber-100 p-2 text-center text-sm">
-        All-time cookies baked: {formatNumber(store.totalCookiesBaked)} |
-        Achievements: {store.unlockedAchievements.length} |
-        Upgrades: {store.purchasedUpgrades.length}
-      </footer>
     </div>
   );
 }
@@ -256,8 +268,9 @@ function GoldenCookie() {
 // COOKIE BUTTON COMPONENT
 // ============================================================================
 
-function CookieButton({ disabled = false }: { disabled?: boolean }) {
-  const store = useCookieClickerStore();
+function CookieButton({ disabled = false, size }: { disabled?: boolean; size: number }) {
+  const clickCookie = useCookieClickerStore((s) => s.clickCookie);
+  const floatingTexts = useCookieClickerStore((s) => s.floatingTexts);
   const [isPressed, setIsPressed] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -280,13 +293,13 @@ function CookieButton({ disabled = false }: { disabled?: boolean }) {
         y = ((e.clientY - rect.top) / rect.height) * 100;
       }
 
-      store.clickCookie(x, y);
+      clickCookie(x, y);
 
       // Squish animation
       setIsPressed(true);
       setTimeout(() => setIsPressed(false), 100);
     },
-    [disabled, store]
+    [disabled, clickCookie]
   );
   const cookieTap = usePointerTap<HTMLButtonElement>(handleTap);
 
@@ -299,7 +312,6 @@ function CookieButton({ disabled = false }: { disabled?: boolean }) {
         {...cookieTap}
         className={`
           touch-none select-none
-          w-64 h-64 lg:w-80 lg:h-80
           rounded-full
           bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600
           shadow-2xl
@@ -311,19 +323,21 @@ function CookieButton({ disabled = false }: { disabled?: boolean }) {
           ${isPressed ? "scale-95" : "scale-100"}
         `}
         style={{
+          width: size,
+          height: size,
           backgroundImage: `
             radial-gradient(circle at 30% 30%, rgba(255,255,255,0.3) 0%, transparent 50%),
             radial-gradient(circle at 70% 70%, rgba(0,0,0,0.2) 0%, transparent 50%)
           `,
         }}
       >
-        <span className="text-8xl lg:text-9xl select-none" role="img" aria-label="cookie">
+        <span className="select-none" style={{ fontSize: Math.round(size * 0.5) }} role="img" aria-label="cookie">
           🍪
         </span>
       </button>
 
       {/* Floating text */}
-      {store.floatingTexts.map((ft) => (
+      {floatingTexts.map((ft) => (
         <FloatingText
           key={ft.id}
           id={ft.id}
@@ -351,15 +365,15 @@ function FloatingText({
   y: number;
   text: string;
 }) {
-  const store = useCookieClickerStore();
+  // The action, not the whole store: the store changes every 50 ms tick,
+  // and an effect keyed on it restarted this 1 s timer forever, so no
+  // "+1" was ever removed (every tap left a div behind).
+  const clearFloatingText = useCookieClickerStore((s) => s.clearFloatingText);
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      store.clearFloatingText(id);
-    }, 1000);
-
+    const timeout = setTimeout(() => clearFloatingText(id), 1000);
     return () => clearTimeout(timeout);
-  }, [id, store]);
+  }, [id, clearFloatingText]);
 
   return (
     <div
@@ -380,60 +394,49 @@ function FloatingText({
 // ============================================================================
 
 function BuildingPanel() {
-  const store = useCookieClickerStore();
-
   return (
-    <div className="bg-white/80 rounded-xl shadow-lg p-4 flex-1 overflow-auto">
-      <h2 className="text-xl font-bold text-amber-800 mb-3">Buildings</h2>
-      <div className="space-y-2">
+    <section className="rounded-xl bg-white/85 p-3 shadow">
+      <h2 className="mb-2 text-lg font-bold text-amber-900">🏪 Buildings</h2>
+      <div className="grid gap-2">
         {BUILDINGS.map((building) => (
           <BuildingItem key={building.id} buildingId={building.id} />
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
 function BuildingItem({ buildingId }: { buildingId: BuildingId }) {
-  const store = useCookieClickerStore();
+  // Only what this row shows: the store changes every 50 ms tick.
+  const owned = useCookieClickerStore((s) => s.buildings[buildingId]);
+  const cost = useCookieClickerStore((s) => s.getBuildingCost(buildingId));
+  const canAfford = useCookieClickerStore((s) => s.cookies >= s.getBuildingCost(buildingId));
+  const buyBuilding = useCookieClickerStore((s) => s.buyBuilding);
+  const touch = useCoarsePointer();
   const building = getBuildingById(buildingId);
-  const owned = store.buildings[buildingId];
-  const cost = store.getBuildingCost(buildingId);
-  const canAfford = store.canAffordBuilding(buildingId);
-
-  const handleBuy = () => {
-    store.buyBuilding(buildingId);
-  };
 
   return (
     <button
-      onClick={handleBuy}
+      type="button"
+      onClick={() => buyBuilding(buildingId)}
       disabled={!canAfford}
-      className={`
-        w-full p-3 rounded-lg flex items-center gap-3
-        transition-all duration-150
-        ${
-          canAfford
-            ? "bg-amber-100 hover:bg-amber-200 active:bg-amber-300"
-            : "bg-gray-100 opacity-50 cursor-not-allowed"
-        }
-      `}
+      aria-label={`Buy ${building.name} for ${formatNumber(cost)} cookies. You have ${owned}.`}
+      className={`flex min-h-14 w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors duration-150 touch-manipulation ${
+        canAfford ? "bg-amber-100 active:bg-amber-300" : "cursor-not-allowed bg-gray-100 opacity-60"
+      }`}
     >
-      <span className="text-3xl">{building.emoji}</span>
-      <div className="flex-1 text-left">
-        <div className="font-bold text-amber-900">{building.name}</div>
-        <div className="text-sm text-amber-700">{building.description}</div>
-        <div className="text-xs text-amber-600">
-          +{formatCps(building.baseCps)}/s each
+      <span aria-hidden="true" className="text-3xl">
+        {building.emoji}
+      </span>
+      <div className="min-w-0 flex-1 leading-tight">
+        <div className="font-bold text-amber-950">{building.name}</div>
+        <div className="text-sm text-amber-800">
+          {touchWords(building.description, touch)} · +{formatCps(building.baseCps)}/s
         </div>
       </div>
-      <div className="text-right">
-        <div className="text-lg font-bold text-amber-800">{owned}</div>
-        <div
-          className={`text-sm ${canAfford ? "text-green-600" : "text-red-600"}`}
-        >
-          {formatNumber(cost)}
-        </div>
+      <div className="text-right leading-tight">
+        <div className="text-lg font-bold text-amber-900">{owned}</div>
+        <div className={`text-sm font-bold ${canAfford ? "text-green-700" : "text-red-700"}`}>🍪 {formatNumber(cost)}</div>
       </div>
     </button>
   );
@@ -443,78 +446,68 @@ function BuildingItem({ buildingId }: { buildingId: BuildingId }) {
 // UPGRADE PANEL
 // ============================================================================
 
+/** The upgrades a kid can buy next: one row that scrolls sideways. */
 function UpgradePanel() {
-  const store = useCookieClickerStore();
-  const availableUpgrades = store.getAvailableUpgrades();
+  const available = useCookieClickerStore((s) => s.getAvailableUpgrades().slice(0, 10).join(","));
+  const upgradeIds = available ? available.split(",") : [];
 
-  if (availableUpgrades.length === 0) {
+  if (upgradeIds.length === 0) {
     return (
-      <div className="bg-white/80 rounded-xl shadow-lg p-4">
-        <h2 className="text-xl font-bold text-amber-800 mb-2">Upgrades</h2>
-        <p className="text-amber-600 text-sm">
-          Buy buildings to unlock upgrades!
-        </p>
-      </div>
+      <section className="rounded-xl bg-white/85 p-3 shadow">
+        <h2 className="text-lg font-bold text-amber-900">⬆️ Upgrades</h2>
+        <p className="text-base text-amber-800">Buy buildings to unlock upgrades!</p>
+      </section>
     );
   }
 
   return (
-    <div className="bg-white/80 rounded-xl shadow-lg p-4 max-h-48 overflow-auto">
-      <h2 className="text-xl font-bold text-amber-800 mb-3">Upgrades</h2>
-      <div className="flex flex-wrap gap-2">
-        {availableUpgrades.slice(0, 10).map((upgradeId) => (
+    <section className="rounded-xl bg-white/85 py-3 shadow">
+      <h2 className="mb-2 px-3 text-lg font-bold text-amber-900">⬆️ Upgrades</h2>
+      <div data-testid="cookie-upgrades" className="flex gap-2 overflow-x-auto overscroll-x-contain px-3 pb-1">
+        {upgradeIds.map((upgradeId) => (
           <UpgradeItem key={upgradeId} upgradeId={upgradeId} />
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
 function UpgradeItem({ upgradeId }: { upgradeId: string }) {
-  const store = useCookieClickerStore();
+  const canAfford = useCookieClickerStore((s) => s.canAffordUpgrade(upgradeId));
+  const buyUpgrade = useCookieClickerStore((s) => s.buyUpgrade);
+  const touch = useCoarsePointer();
   const upgrade = getUpgradeById(upgradeId);
 
   if (!upgrade) return null;
 
-  const canAfford = store.canAffordUpgrade(upgradeId);
-
-  const handleBuy = () => {
-    store.buyUpgrade(upgradeId);
-  };
-
-  // Determine emoji based on upgrade type
+  // Determine emoji based on upgrade type (a finger, not a mouse, on a phone)
   let emoji = "⬆️";
-  if (upgrade.type === "click") emoji = "🖱️";
+  if (upgrade.type === "click") emoji = touch ? "👆" : "🖱️";
   if (upgrade.type === "global") emoji = "🌟";
   if (upgrade.targetBuilding) {
     const building = getBuildingById(upgrade.targetBuilding);
     emoji = building.emoji;
   }
+  const description = touchWords(upgrade.description, touch);
 
   return (
     <button
-      onClick={handleBuy}
+      type="button"
+      onClick={() => buyUpgrade(upgradeId)}
       disabled={!canAfford}
-      className={`
-        p-3 rounded-lg flex flex-col items-center min-w-[100px]
-        transition-all duration-150 touch-manipulation
-        ${
-          canAfford
-            ? "bg-purple-100 hover:bg-purple-200 active:bg-purple-300 border-2 border-purple-400"
-            : "bg-gray-100 opacity-50 cursor-not-allowed border-2 border-gray-300"
-        }
-      `}
-      title={`${upgrade.name}: ${upgrade.description}`}
+      aria-label={`${upgrade.name}: ${description}. ${formatNumber(upgrade.cost)} cookies.`}
+      className={`flex w-28 shrink-0 flex-col items-center rounded-lg border-2 px-2 py-2 transition-colors duration-150 touch-manipulation ${
+        canAfford
+          ? "border-purple-500 bg-purple-100 active:bg-purple-300"
+          : "cursor-not-allowed border-gray-300 bg-gray-100 opacity-60"
+      }`}
     >
-      <span className="text-2xl">{emoji}</span>
-      <div className="text-xs font-bold text-purple-900 truncate max-w-full">
-        {upgrade.name}
-      </div>
-      <div
-        className={`text-xs ${canAfford ? "text-green-600" : "text-red-600"}`}
-      >
-        {formatNumber(upgrade.cost)}
-      </div>
+      <span aria-hidden="true" className="text-2xl">
+        {emoji}
+      </span>
+      <span className="w-full truncate text-center text-sm font-bold text-purple-950">{upgrade.name}</span>
+      <span className="w-full truncate text-center text-sm text-purple-900">{description}</span>
+      <span className={`text-sm font-bold ${canAfford ? "text-green-700" : "text-red-700"}`}>🍪 {formatNumber(upgrade.cost)}</span>
     </button>
   );
 }
@@ -523,53 +516,69 @@ function UpgradeItem({ upgradeId }: { upgradeId: string }) {
 // ACHIEVEMENT POPUPS
 // ============================================================================
 
+/** How long an achievement notice stays. */
+export const ACHIEVEMENT_NOTICE_MS = 3000;
+
+/**
+ * A new achievement: a slim notice over the top of the cookie's area for
+ * three seconds. It takes no taps.
+ *
+ * Why: the first tap's "First Cookie" box never went away. The effect was
+ * keyed on the whole store object, which changes every 50 ms tick, so its
+ * cleanup cancelled the 3 s dismiss 50 ms later, and the re-run after the
+ * list was cleared scheduled none (phone UX audit 2026-09-29). Now the
+ * effect reads only the list, and the dismiss timer lives in a ref that
+ * only a newer notice or the unmount clears.
+ */
 function AchievementPopups() {
-  const store = useCookieClickerStore();
-  const [displayedAchievements, setDisplayedAchievements] = useState<string[]>(
+  const newAchievements = useCookieClickerStore((s) => s.newAchievements);
+  const clearNewAchievements = useCookieClickerStore((s) => s.clearNewAchievements);
+  const touch = useCoarsePointer();
+  const [displayed, setDisplayed] = useState<string[]>([]);
+  const dismiss = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (newAchievements.length === 0) return;
+    const next = newAchievements;
+    const show = setTimeout(() => {
+      setDisplayed(next);
+      clearNewAchievements();
+      if (dismiss.current) clearTimeout(dismiss.current);
+      dismiss.current = setTimeout(() => setDisplayed([]), ACHIEVEMENT_NOTICE_MS);
+    }, 0);
+    return () => clearTimeout(show);
+  }, [newAchievements, clearNewAchievements]);
+
+  useEffect(
+    () => () => {
+      if (dismiss.current) clearTimeout(dismiss.current);
+    },
     []
   );
 
-  useEffect(() => {
-    if (store.newAchievements.length > 0) {
-      const nextAchievements = store.newAchievements;
-      const setupTimer = setTimeout(() => {
-        setDisplayedAchievements(nextAchievements);
-        store.clearNewAchievements();
-      }, 0);
-
-      // Auto-dismiss after 3 seconds
-      const timeout = setTimeout(() => {
-        setDisplayedAchievements([]);
-      }, 3000);
-
-      return () => {
-        clearTimeout(setupTimer);
-        clearTimeout(timeout);
-      };
-    }
-  }, [store.newAchievements, store]);
-
-  if (displayedAchievements.length === 0) return null;
+  if (displayed.length === 0) return null;
 
   return (
-    <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 space-y-2 pointer-events-none">
-      {displayedAchievements.map((achievementId) => {
+    <div
+      data-testid="cookie-achievement"
+      role="status"
+      className="pointer-events-none absolute inset-x-2 z-30 flex flex-col items-center gap-1"
+      style={{ top: COUNT_BAR - 16 }}
+    >
+      {displayed.map((achievementId) => {
         const achievement = getAchievementById(achievementId);
         if (!achievement) return null;
-
         return (
           <div
             key={achievementId}
-            className="bg-yellow-400 text-yellow-900 px-6 py-4 rounded-xl shadow-xl animate-bounce-in text-center"
+            className="max-w-full truncate rounded-full bg-yellow-300 px-4 py-1 text-center text-base font-bold text-yellow-950 shadow-md animate-bounce-in"
           >
-            <div className="text-2xl mb-1">🏆 Achievement Unlocked!</div>
-            <div className="text-xl font-bold">{achievement.name}</div>
-            <div className="text-sm">{achievement.description}</div>
-            {achievement.cpsBonus && (
-              <div className="text-xs text-yellow-700 mt-1">
-                +{achievement.cpsBonus}% CPS bonus!
-              </div>
-            )}
+            🏆 {achievement.name}
+            <span className="font-normal">
+              {" "}
+              · {touchWords(achievement.description, touch)}
+              {achievement.cpsBonus ? ` · +${achievement.cpsBonus}%` : ""}
+            </span>
           </div>
         );
       })}
