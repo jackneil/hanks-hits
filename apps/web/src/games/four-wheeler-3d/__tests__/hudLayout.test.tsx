@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { MobileControls } from "../components/MobileControls";
+import { useFourWheeler3dStore } from "../lib/store";
 import {
   CONTEXT_SLOT,
   SHORT_MAX_HEIGHT,
@@ -292,6 +293,15 @@ describe("NOS sits with the pedals on a phone", () => {
     const nos = screen.getByRole("button", { name: "NOS boost" });
     expect(nos.style.bottom).toBe(boxStyle("nos").bottom);
     expect(nos.style.right).toBe(`${TOUCH_LAYOUT.nos.offset}px`);
+  });
+
+  it("boosts on the press of a second finger while the first holds GAS", () => {
+    useFourWheeler3dStore.setState({ nosUntil: 0 });
+    render(<MobileControls controls={controls()} nos />);
+    const nos = screen.getByRole("button", { name: "NOS boost" });
+    fireEvent.pointerDown(screen.getByLabelText("Gas"), { pointerId: 1, pointerType: "touch", button: 0 });
+    fireEvent.pointerDown(nos, { pointerId: 2, pointerType: "touch", button: 0 });
+    expect(useFourWheeler3dStore.getState().nosUntil).toBeGreaterThan(Date.now());
   });
 
   it("has no NOS on foot", () => {

@@ -15,6 +15,7 @@
 import type { GameControls } from "../hooks/useControls";
 import { boxStyle } from "../lib/hudLayout";
 import { useFourWheeler3dStore } from "../lib/store";
+import { usePointerTap, useSecondFingerClick } from "@/shared/lib/input";
 
 const BUTTON =
   "flex select-none items-center justify-center rounded-2xl font-black " +
@@ -47,13 +48,20 @@ export function MobileControls({
     tilt.calibrate();
     setUseTilt(true);
   };
+  // These work for the other thumb while one thumb holds a pedal: a browser
+  // makes no click for a second finger. NOS happens on the press.
+  const tiltTap = useSecondFingerClick<HTMLButtonElement>(() => void toggleTilt());
+  const calibrateTap = useSecondFingerClick<HTMLButtonElement>(() => tilt.calibrate());
+  const nosTap = usePointerTap<HTMLButtonElement>(() => {
+    useFourWheeler3dStore.getState().startNos();
+  });
 
   return (
     <div className="pointer-events-none fixed inset-0 z-40">
       {/* Tilt steering, above the arrows so the pedals never sit on it. */}
       <button
         type="button"
-        onClick={toggleTilt}
+        {...tiltTap}
         style={boxStyle("tilt")}
         className={`${BUTTON} pointer-events-auto rounded-full text-sm ${
           useTilt ? "bg-[#4d7155]" : "bg-[#24382fee]"
@@ -65,7 +73,7 @@ export function MobileControls({
       {useTilt && (
         <button
           type="button"
-          onClick={() => tilt.calibrate()}
+          {...calibrateTap}
           style={boxStyle("calibrate")}
           className={`${BUTTON} pointer-events-auto rounded-full bg-[#36575b] text-sm`}
         >
@@ -104,7 +112,7 @@ export function MobileControls({
           aria-label="NOS boost"
           style={boxStyle("nos")}
           className={`${BUTTON} pointer-events-auto bg-[#3b4f7a] text-base active:bg-[#566fa6]`}
-          onClick={() => useFourWheeler3dStore.getState().startNos()}
+          {...nosTap}
         >
           NOS
         </button>

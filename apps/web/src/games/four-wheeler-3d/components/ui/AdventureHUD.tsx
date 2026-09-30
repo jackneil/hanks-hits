@@ -21,6 +21,7 @@ import { CameraControls, CameraSettings } from "./CameraControls";
 import { RidePanel } from "./RidePanel";
 import { SellPanel } from "./SellPanel";
 import { ActivitiesControls } from "./ActivitiesPanel";
+import { ActionButton, HudButton } from "./HudButton";
 import { contextSlotVars } from "../../lib/hudLayout";
 import "./adventure.css";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
@@ -88,8 +89,8 @@ export function AdventureHUD({
   const foodButtons = (
     <>
       {hungry && (
-        <button
-          onClick={() =>
+        <HudButton
+          onPress={() =>
             session.setWaypoint({
               id: "house",
               label: "Home kitchen",
@@ -99,24 +100,24 @@ export function AdventureHUD({
           }
         >
           🍽 Find home
-        </button>
+        </HudButton>
       )}
       {dogHungry && (
-        <button onClick={() => action("dog:feed")}>🐕 Feed dog · $10</button>
+        <HudButton onPress={() => action("dog:feed")}>🐕 Feed dog · $10</HudButton>
       )}
     </>
   );
   const interiorButtons = mode === "interior" && (
     <>
-      <button onClick={() => action("home:exit")} className="fw-primary">
+      <HudButton onPress={() => action("home:exit")} className="fw-primary">
         Go outside
-      </button>
+      </HudButton>
       {session.interior?.kind === "garage" && (
-        <button
-          onClick={() => action("property:manage", session.interior!.id)}
+        <HudButton
+          onPress={() => action("property:manage", session.interior!.id)}
         >
           Manage parked rides
-        </button>
+        </HudButton>
       )}
     </>
   );
@@ -141,24 +142,24 @@ export function AdventureHUD({
         </div>
       </div>
       <nav className="fw-toolbelt" aria-label="Adventure tools">
-        <button onClick={() => open("phone")}>
+        <HudButton onPress={() => open("phone")}>
           <span aria-hidden="true">▯</span>Phone<kbd>P</kbd>
-        </button>
-        <button onClick={() => open("map")}>
+        </HudButton>
+        <HudButton onPress={() => open("map")}>
           <span aria-hidden="true">⌖</span>Map<kbd>M</kbd>
-        </button>
-        <button onClick={() => open("inventory")}>
+        </HudButton>
+        <HudButton onPress={() => open("inventory")}>
           <span aria-hidden="true">▣</span>Gear<kbd>I</kbd>
-        </button>
+        </HudButton>
         <CameraControls />
-        <button onClick={() => open("ride")}>Ride</button>
-        <button onClick={() => open("activities")}>Activities</button>
-        <button onClick={() => open("help")} aria-label="Adventure guide">
+        <HudButton onPress={() => open("ride")}>Ride</HudButton>
+        <HudButton onPress={() => open("activities")}>Activities</HudButton>
+        <HudButton onPress={() => open("help")} aria-label="Adventure guide">
           ?
-        </button>
-        <button onClick={() => open("settings")} aria-label="Game settings">
+        </HudButton>
+        <HudButton onPress={() => open("settings")} aria-label="Game settings">
           ⚙
-        </button>
+        </HudButton>
       </nav>
       <DeliveryStatus />
       {!mobile && (hungry || dogHungry) && (
@@ -250,33 +251,35 @@ export function AdventureHUD({
       </div>
       <div className="fw-context" hidden={mode === "train"}>
         {(!["vehicle", "boat"].includes(mode) || session.interaction) && (
-          <button onClick={() => action("world:interact")}>
+          <HudButton onPress={() => action("world:interact")}>
             {/* The key badge is for a keyboard; a finger taps the button. */}
             {!mobile && <kbd>E</kbd>}
             {session.interaction?.label ??
               (["vehicle", "boat"].includes(mode)
                 ? "Hop off"
                 : "Use nearby thing")}
-          </button>
+          </HudButton>
         )}
         {["vehicle", "boat"].includes(mode) && (
-          <button onClick={() => action("world:exit")}>Hop off</button>
+          <HudButton onPress={() => action("world:exit")}>Hop off</HudButton>
         )}
         {mobile && interiorButtons}
         {/* On a phone NOS sits with the pedals (MobileControls). */}
         {!mobile && ["vehicle", "boat", "aircraft"].includes(mode) && (
-          <button onClick={() => useFourWheeler3dStore.getState().startNos()}>
+          <ActionButton onPress={() => useFourWheeler3dStore.getState().startNos()}>
             NOS
-          </button>
+          </ActionButton>
         )}
         {["boat", "deck"].includes(mode) && (
-          <button onClick={() => open("fishing")}>Fishing</button>
+          <HudButton onPress={() => open("fishing")}>Fishing</HudButton>
         )}
         {mode === "aircraft" && (
           <>
-            <button onClick={() => action("air:climb")}>Climb</button>
-            <button onClick={() => action("air:descend")}>Descend</button>
-            <button onClick={() => action("air:parachute")}>Parachute</button>
+            <ActionButton onPress={() => action("air:climb")}>Climb</ActionButton>
+            <ActionButton onPress={() => action("air:descend")}>Descend</ActionButton>
+            <ActionButton onPress={() => action("air:parachute")}>
+              Parachute
+            </ActionButton>
           </>
         )}
         <ActivitiesControls />

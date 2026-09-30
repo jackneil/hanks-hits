@@ -3,8 +3,10 @@
  * the one context slot the shared layout keeps clear of the thumb controls
  * (phone UX audit 2026-09-30). On a mouse screen they stay where they were.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
+
+import { SECOND_FINGER_WAIT_MS } from "@/shared/lib/input";
 
 import { AdventureHUD } from "../components/ui/AdventureHUD";
 import { defaultProgress, useFourWheeler3dStore } from "../lib/store";
@@ -113,6 +115,21 @@ describe("the phone HUD context slot", () => {
     const row = within(contextRow(container));
     expect(row.getByRole("button", { name: "Hold to spray hose" })).toBeTruthy();
     expect(row.getByRole("button", { name: "Equipment" })).toBeTruthy();
+  });
+
+  it("hops off for a tap by the other thumb while one thumb holds a pedal", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(<AdventureHUD mobile />);
+      const hopOff = within(contextRow(container)).getByRole("button", { name: "Hop off" });
+      // A second finger: pointer events, and no click from the browser.
+      fireEvent.pointerDown(hopOff, { pointerId: 2, pointerType: "touch", button: 0, clientX: 0, clientY: 0 });
+      fireEvent.pointerUp(hopOff, { pointerId: 2, pointerType: "touch", button: 0, clientX: 0, clientY: 0 });
+      act(() => vi.advanceTimersByTime(SECOND_FINGER_WAIT_MS));
+      expect(useAdventureSession.getState().action?.name).toBe("world:exit");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hides the context row on the train", () => {

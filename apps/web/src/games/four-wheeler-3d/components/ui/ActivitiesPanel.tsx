@@ -5,6 +5,7 @@ import { useActivitiesSession } from "../../lib/activitiesSession";
 import { PLAY_LOCATIONS, NOZZLE, cutGrassCount } from "../../lib/activities";
 import { LANDMARKS } from "../../lib/landmarks";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { ActionButton, HudButton } from "./HudButton";
 const request = (name: string, payload?: string) =>
   useAdventureSession.getState().requestAction(`activity:${name}`, payload);
 export function ActivitiesPanel() {
@@ -161,15 +162,15 @@ export function ActivitiesControls() {
           Hold to spray
         </button>
       ) : (
-        <button className="fw-primary" onClick={() => request("fire-spray")}>
+        <ActionButton className="fw-primary" onPress={() => request("fire-spray")}>
           Spray water
-        </button>
+        </ActionButton>
       )}
-      <button
-        onClick={() => useAdventureSession.getState().openPanel("activities")}
+      <HudButton
+        onPress={() => useAdventureSession.getState().openPanel("activities")}
       >
         Equipment
-      </button>
+      </HudButton>
     </>
   );
 }
