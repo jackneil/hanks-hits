@@ -1,207 +1,149 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import { useHextrisStore, type HextrisProgress } from "./lib/store";
+import { useCallback, useEffect, useRef } from "react";
+
+import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { ThumbPadLayout } from "@/shared/components/ThumbPadLayout";
+import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { useGameLoop } from "@/shared/hooks/useGameLoop";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
+import { usePointerTap, useRestartGrace, type TapEvent } from "@/shared/lib/input";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+
 import {
-  CANVAS_WIDTH,
+  BLOCK_HEIGHT,
+  BLOCK_WIDTH,
   CANVAS_HEIGHT,
+  CANVAS_WIDTH,
+  COLORS,
   HEX_CENTER_X,
   HEX_CENTER_Y,
   HEX_RADIUS,
-  BLOCK_WIDTH,
-  BLOCK_HEIGHT,
-  COLORS,
+  getBlockPosition,
   getHexCorner,
   getSideAngle,
-  getBlockPosition,
 } from "./lib/constants";
-import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
-import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
-import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
-import { usePointerTap, type TapEvent } from "@/shared/lib/input";
+import { fitHextris } from "./lib/layout";
+import { HEXTRIS_AUDIO_ID, releaseSounds } from "./lib/sounds";
+import { useHextrisStore } from "./lib/store";
+import { useHextrisClips } from "./lib/useHextrisClips";
+
+/** The sound switch: the words say what the kid hears now. */
+export const SOUND_LABELS = { on: "Sound on", off: "Sound off" } as const;
+/** The spin buttons. */
+export const SPIN_LABELS = { left: "Spin left", right: "Spin right" } as const;
+
+/** The result chip's words at game over, read out loud first. */
+export function gameOverText({ score, best, newBest }: { score: number; best: number; newBest: boolean }): string {
+  const points = score === 1 ? "1 point" : `${score} points`;
+  return newBest ? `Game over! You got ${points}. That is a new best!` : `Game over! You got ${points}. Your best is ${best}.`;
+}
 
 // ============================================
 // CANVAS RENDERER
 // ============================================
-function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
-  const store = useHextrisStore();
 
-  const render = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+/**
+ * Draws the field from the store's newest state. The words (the score, the
+ * result) are DOM over the canvas: canvas text drawn for a 400 px field was
+ * 14 px or less on a phone, and the result sat under the result chip.
+ */
+function drawField(ctx: CanvasRenderingContext2D) {
+  const { stacks, fallingBlock, particles, rotation, status } = useHextrisStore.getState();
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  ctx.fillStyle = COLORS.BACKGROUND;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    const { stacks, fallingBlock, particles, rotation, score, status } = store;
-
-    // Clear canvas
-    ctx.fillStyle = COLORS.BACKGROUND;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // Draw central hexagon
-    ctx.save();
-    ctx.translate(HEX_CENTER_X, HEX_CENTER_Y);
-    ctx.rotate(rotation);
-
-    // Hexagon fill
-    ctx.fillStyle = COLORS.HEX_FILL;
+  // Central hexagon
+  ctx.save();
+  ctx.translate(HEX_CENTER_X, HEX_CENTER_Y);
+  ctx.rotate(rotation);
+  ctx.fillStyle = COLORS.HEX_FILL;
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const corner = getHexCorner(0, 0, HEX_RADIUS, i);
+    if (i === 0) ctx.moveTo(corner.x, corner.y);
+    else ctx.lineTo(corner.x, corner.y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = COLORS.HEX_STROKE;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  for (let i = 0; i < 6; i++) {
+    const sideAngle = getSideAngle(i);
+    const indicatorDist = HEX_RADIUS - 10;
+    ctx.fillStyle = "rgba(96, 165, 250, 0.3)";
     ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const corner = getHexCorner(0, 0, HEX_RADIUS, i);
-      if (i === 0) ctx.moveTo(corner.x, corner.y);
-      else ctx.lineTo(corner.x, corner.y);
-    }
-    ctx.closePath();
+    ctx.arc(Math.cos(sideAngle) * indicatorDist, Math.sin(sideAngle) * indicatorDist, 5, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.restore();
 
-    // Hexagon border
-    ctx.strokeStyle = COLORS.HEX_STROKE;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    // Draw side indicators
-    for (let i = 0; i < 6; i++) {
-      const sideAngle = getSideAngle(i);
-      const indicatorDist = HEX_RADIUS - 10;
-      ctx.fillStyle = "rgba(96, 165, 250, 0.3)";
-      ctx.beginPath();
-      ctx.arc(
-        Math.cos(sideAngle) * indicatorDist,
-        Math.sin(sideAngle) * indicatorDist,
-        5,
-        0,
-        Math.PI * 2
-      );
-      ctx.fill();
-    }
-
-    ctx.restore();
-
-    // Draw stacked blocks
-    for (let side = 0; side < 6; side++) {
-      const stack = stacks[side];
-      for (let i = 0; i < stack.length; i++) {
-        const block = stack[i];
-        const pos = getBlockPosition(HEX_CENTER_X, HEX_CENTER_Y, HEX_RADIUS, side, i, rotation);
-
-        ctx.save();
-        ctx.translate(pos.x, pos.y);
-        ctx.rotate(pos.angle + Math.PI / 2);
-
-        // Block body
-        ctx.fillStyle = block.color;
-        ctx.fillRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, BLOCK_HEIGHT);
-
-        // Highlight
-        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-        ctx.fillRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, 4);
-
-        // Shadow
-        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-        ctx.fillRect(-BLOCK_WIDTH / 2, BLOCK_HEIGHT / 2 - 4, BLOCK_WIDTH, 4);
-
-        // Border
-        ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, BLOCK_HEIGHT);
-
-        ctx.restore();
-      }
-    }
-
-    // Draw falling block
-    if (fallingBlock) {
+  // Stacked blocks
+  for (let side = 0; side < 6; side++) {
+    const stack = stacks[side];
+    for (let i = 0; i < stack.length; i++) {
+      const block = stack[i];
+      const pos = getBlockPosition(HEX_CENTER_X, HEX_CENTER_Y, HEX_RADIUS, side, i, rotation);
       ctx.save();
-      ctx.translate(fallingBlock.x, fallingBlock.y);
-
-      // Calculate angle toward center
-      const angleToCenter = Math.atan2(
-        HEX_CENTER_Y - fallingBlock.y,
-        HEX_CENTER_X - fallingBlock.x
-      );
-      ctx.rotate(angleToCenter + Math.PI / 2);
-
-      // Block body
-      ctx.fillStyle = fallingBlock.color;
+      ctx.translate(pos.x, pos.y);
+      ctx.rotate(pos.angle + Math.PI / 2);
+      ctx.fillStyle = block.color;
       ctx.fillRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, BLOCK_HEIGHT);
-
-      // Highlight
       ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
       ctx.fillRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, 4);
-
-      // Glow effect
-      ctx.shadowColor = fallingBlock.color;
-      ctx.shadowBlur = 10;
-      ctx.strokeStyle = fallingBlock.color;
-      ctx.lineWidth = 2;
+      ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+      ctx.fillRect(-BLOCK_WIDTH / 2, BLOCK_HEIGHT / 2 - 4, BLOCK_WIDTH, 4);
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.lineWidth = 1;
       ctx.strokeRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, BLOCK_HEIGHT);
-      ctx.shadowBlur = 0;
-
       ctx.restore();
     }
+  }
 
-    // Draw particles
-    for (const particle of particles) {
-      const alpha = particle.life / particle.maxLife;
-      ctx.fillStyle = particle.color;
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+  // The falling block
+  if (fallingBlock) {
+    ctx.save();
+    ctx.translate(fallingBlock.x, fallingBlock.y);
+    const angleToCenter = Math.atan2(HEX_CENTER_Y - fallingBlock.y, HEX_CENTER_X - fallingBlock.x);
+    ctx.rotate(angleToCenter + Math.PI / 2);
+    ctx.fillStyle = fallingBlock.color;
+    ctx.fillRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, BLOCK_HEIGHT);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.fillRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, 4);
+    ctx.shadowColor = fallingBlock.color;
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = fallingBlock.color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-BLOCK_WIDTH / 2, -BLOCK_HEIGHT / 2, BLOCK_WIDTH, BLOCK_HEIGHT);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
 
-    // Draw score
-    ctx.fillStyle = COLORS.SCORE_TEXT;
-    ctx.font = "bold 24px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(`Score: ${score}`, CANVAS_WIDTH / 2, 35);
+  // Particles
+  for (const particle of particles) {
+    ctx.fillStyle = particle.color;
+    ctx.globalAlpha = Math.max(0, particle.life / particle.maxLife);
+    ctx.beginPath();
+    ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 
-    // Draw game over overlay
-    if (status === "game-over") {
-      ctx.fillStyle = COLORS.GAME_OVER_BG;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#ef4444";
-      ctx.font = "bold 36px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("GAME OVER", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
-
-      ctx.fillStyle = "#f8fafc";
-      ctx.font = "24px Arial";
-      ctx.fillText(`Final Score: ${score}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
-
-      ctx.font = "18px Arial";
-      ctx.fillText("Tap to Play Again", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
-    }
-
-    // Idle start screen is the shared DOM <GameStartOverlay>, not painted
-    // here — the canvas must never draw a second title.
-    if (status === "idle") {
-      ctx.fillStyle = COLORS.GAME_OVER_BG;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    }
-
-    // Draw paused state
-    if (status === "paused") {
-      ctx.fillStyle = COLORS.GAME_OVER_BG;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#eab308";
-      ctx.font = "bold 36px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("PAUSED", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-
-      ctx.fillStyle = "#f8fafc";
-      ctx.font = "18px Arial";
-      ctx.fillText("Tap to Resume", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
-    }
-  }, [canvasRef, store]);
-
-  return render;
+  // Between rounds the field only dims (the start card, the shell's pause
+  // menu and the result card carry the words).
+  if (status !== "playing") {
+    ctx.fillStyle = COLORS.GAME_OVER_BG;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }
 }
 
 // ============================================
@@ -209,182 +151,210 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
 // ============================================
 export function HextrisGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-  // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
   const isCoarse = useCoarsePointer();
+  // The shell holds the game under an overlay (the restart question, the
+  // leaderboard, the install steps, a clip sheet, the orientation tip) and
+  // in a hidden tab: no game time passes while it is true.
+  const held = useShellHold();
+  // The play box, fitted: it does not scroll, and a touch on it is the game's.
+  const box = usePlayBox({ fit: true });
+  const fit = fitHextris(box, isCoarse);
 
-  const store = useHextrisStore();
-  const render = useCanvasRenderer(canvasRef);
+  const status = useHextrisStore((s) => s.status);
+  const score = useHextrisStore((s) => s.score);
+  const runId = useHextrisStore((s) => s.runId);
+  const lastRunNewBest = useHextrisStore((s) => s.lastRunNewBest);
+  const progress = useHextrisStore((s) => s.progress);
+  const startGame = useHextrisStore((s) => s.startGame);
+  const resumeGame = useHextrisStore((s) => s.resumeGame);
+  const rotateLeft = useHextrisStore((s) => s.rotateLeft);
+  const rotateRight = useHextrisStore((s) => s.rotateRight);
+  const getProgress = useHextrisStore((s) => s.getProgress);
+  const setProgress = useHextrisStore((s) => s.setProgress);
+
+  const playing = status === "playing";
+  const gameOver = status === "game-over";
 
   // Auth sync
   const { forceSync } = useAuthSync({
     appId: "hextris",
     localStorageKey: "hextris-game-state",
-    getState: store.getProgress,
-    setState: store.setProgress,
+    getState: getProgress,
+    setState: setProgress,
     debounceMs: 3000,
   });
 
   // Force save immediately on game over
   useEffect(() => {
-    if (store.status === "game-over") {
-      forceSync();
-    }
-  }, [store.status, forceSync]);
+    if (gameOver) forceSync();
+  }, [gameOver, forceSync]);
 
-  // Game loop
+  // Gameplay clips: the canvas, the run phases and the new-best moment.
+  useHextrisClips(canvasRef, { status, score, best: progress.highScore, runId });
+
+  // Sound: the first tap starts the shared game-audio bus, the sound switch
+  // is this game's speaker (also after the saved setting loads), and the
+  // game's channel leaves the bus when the game unmounts.
+  useEffect(() => wantGameAudio(), []);
+  const soundEnabled = progress.soundEnabled;
   useEffect(() => {
-    if (store.status !== "playing") return;
+    setGameSpeakerEnabled(HEXTRIS_AUDIO_ID, soundEnabled);
+  }, [soundEnabled]);
+  useEffect(() => () => releaseSounds(), []);
+  const toggleSound = () => setProgress({ ...progress, soundEnabled: !soundEnabled, lastModified: Date.now() });
 
-    let animationId: number;
-    let lastTime = performance.now();
-
-    const gameLoop = (currentTime: number) => {
-      const deltaTime = (currentTime - lastTime) / 16.67; // Normalize to ~60fps
-      lastTime = currentTime;
-
-      store.update(deltaTime);
-      render();
-
-      animationId = requestAnimationFrame(gameLoop);
-    };
-
-    animationId = requestAnimationFrame(gameLoop);
-
-    return () => {
-      cancelAnimationFrame(animationId);
-    };
-  }, [store.status, store.update, render]);
-
-  // Initial render and idle/paused states
-  useEffect(() => {
-    render();
-  }, [render, store.status]);
-
-  // Responsive scaling
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight - 120; // Account for buttons
-
-      const scaleX = containerWidth / CANVAS_WIDTH;
-      const scaleY = containerHeight / CANVAS_HEIGHT;
-      const newScale = Math.min(scaleX, scaleY, 1.5);
-
-      setScale(newScale);
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
+  const draw = useCallback(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (ctx) drawField(ctx);
   }, []);
+
+  // The shared loop: a fixed 60 Hz step of game time, the field drawn every
+  // frame, and no game time between rounds or under a hold. The old loop
+  // was an effect that restarted on every store change (its render callback
+  // depended on the whole store), and moved a block a whole step per
+  // screen frame.
+  useGameLoop(
+    { update: (stepMs) => useHextrisStore.getState().update(stepMs), render: draw },
+    { running: true, paused: !playing || held }
+  );
+
+  // Between rounds the picture changes only with the state: draw it in the
+  // same commit.
+  useEffect(() => {
+    if (!playing) draw();
+  }, [draw, playing, status]);
+
+  // Play again waits out a short grace after the result appears, and a held
+  // key's repeats never count.
+  const grace = useRestartGrace(undefined, status);
 
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // A focused button or link owns its own Space and Enter: never swallow them.
       if (keyBelongsToTarget(e)) return;
-      // Idle is owned by the start overlay: the only way to begin a game is
-      // its Play button. Space/Enter still restarts from the game-over screen.
-      if (store.status === "idle") return;
-
-      if (store.status === "game-over") {
+      // Idle is owned by the start overlay: its Play button begins a game.
+      if (status === "idle") return;
+      if (status === "game-over") {
         if (e.code === "Space" || e.code === "Enter") {
           e.preventDefault();
-          store.startGame();
+          if (grace.accept(e)) startGame();
         }
         return;
       }
-
-      if (store.status === "paused") {
-        // Pause/resume is owned by the GameShell now (ESC + pause button), so
-        // we ignore game keys while paused instead of double-handling ESC/P —
-        // that double-handling is exactly what desynced the shell's pause menu
-        // from the game's own paused state. (The on-canvas "II" pause button
-        // still resumes via a tap on the canvas — see handleCanvasClick.)
-        return;
-      }
-
+      // Pause and resume are the GameShell's (ESC and its pause button).
+      if (status === "paused") return;
       switch (e.code) {
         case "KeyA":
         case "ArrowLeft":
           e.preventDefault();
-          store.rotateLeft();
+          rotateLeft();
           break;
         case "KeyD":
         case "ArrowRight":
           e.preventDefault();
-          store.rotateRight();
+          rotateRight();
           break;
-        // Pause (ESC) is owned by the GameShell now — see the wrapper.
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [store.status, store.startGame, store.rotateLeft, store.rotateRight]);
+  }, [status, grace, startGame, rotateLeft, rotateRight]);
 
-  // One tap on the canvas = one action, for a finger or a mouse. The canvas
-  // used to carry onClick AND onTouchStart with the same handler, so a finger
-  // tap ran it twice (touchstart, then the compatibility click): the hexagon
-  // spun 120 degrees for one tap, and a tap to resume also spun it 60.
-  const handleCanvasTap = useCallback(
+  // One tap on the field = one step, on pointerdown (a second finger works).
+  // The field used to carry onClick AND onTouchStart, so a finger tap spun
+  // 120 degrees. A tap at game over does nothing: the result chip's Play
+  // again starts the next round, so a tap meant for the field at the moment
+  // the round ended cannot skip the result.
+  const handleFieldTap = useCallback(
     (e: TapEvent<HTMLCanvasElement>) => {
-      // The start overlay covers the canvas while idle, so a tap here can only
-      // mean "play again" from the game-over screen.
-      if (store.status === "idle") return;
-
-      if (store.status === "game-over") {
-        store.startGame();
+      const state = useHextrisStore.getState();
+      if (state.status === "paused") {
+        resumeGame();
         return;
       }
-
-      if (store.status === "paused") {
-        store.resumeGame();
-        return;
-      }
-
-      // Get tap position relative to canvas
+      if (state.status !== "playing") return;
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-
-      const relativeX = e.clientX - rect.left;
-      const halfWidth = rect.width / 2;
-
-      if (relativeX < halfWidth) {
-        store.rotateLeft();
-      } else {
-        store.rotateRight();
-      }
+      if (e.clientX - rect.left < rect.width / 2) rotateLeft();
+      else rotateRight();
     },
-    [store]
+    [resumeGame, rotateLeft, rotateRight]
   );
-  const canvasTap = usePointerTap<HTMLCanvasElement>(handleCanvasTap);
+  const fieldTap = usePointerTap<HTMLCanvasElement>(handleFieldTap);
+  const spinLeftTap = usePointerTap<HTMLButtonElement>(() => rotateLeft());
+  const spinRightTap = usePointerTap<HTMLButtonElement>(() => rotateRight());
 
-  const toggleSound = () => {
-    const current = store.progress.soundEnabled;
-    store.setProgress({ ...store.progress, soundEnabled: !current });
-  };
+  // The spin buttons keep their place on every screen (the field never
+  // jumps when a round ends); they show and take taps only in a round.
+  const sideways = fit.layout === "sideways";
+  const controlsProps = playing ? {} : ({ "aria-hidden": true, inert: true } as const);
+  const spinButton = (label: string, glyph: string, tap: ReturnType<typeof usePointerTap<HTMLButtonElement>>, testId: string) => (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-label={label}
+      {...tap}
+      {...controlsProps}
+      className={`flex items-center justify-center rounded-2xl bg-blue-600 text-4xl font-bold text-white shadow-lg active:bg-blue-800 touch-none select-none [-webkit-touch-callout:none] ${
+        sideways ? "h-24 w-[72px]" : "h-20 flex-1"
+      } ${playing ? "" : "invisible"}`}
+    >
+      <span aria-hidden="true">{glyph}</span>
+    </button>
+  );
+
+  const best = progress.highScore;
+  const resultCopy = gameOverText({ score, best, newBest: lastRunNewBest });
 
   return (
-    <div
-      ref={containerRef}
-      className="relative flex flex-col items-center justify-center min-h-full bg-slate-900 p-4 select-none"
-    >
-      {/* Shared start screen. It covers the page (it portals to
-          document.body), so the short scaled canvas box on a phone cannot
-          clip the card. */}
-      {store.status === "idle" && (
+    <div data-testid="hextris-root" data-layout={fit.layout} className="relative h-full w-full bg-slate-900 select-none [-webkit-touch-callout:none]">
+      <IOSInstallPrompt />
+
+      <ThumbPadLayout
+        fit={fit}
+        left={isCoarse ? spinButton(SPIN_LABELS.left, "↺", spinLeftTap, "hextris-spin-left") : undefined}
+        right={isCoarse ? spinButton(SPIN_LABELS.right, "↻", spinRightTap, "hextris-spin-right") : undefined}
+        rowTestId="hextris-control-row"
+      >
+        <div
+          data-testid="hextris-viewport"
+          className="relative shrink-0 overflow-hidden rounded-lg shadow-xl"
+          style={{ width: fit.viewWidth, height: fit.viewHeight }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            {...fieldTap}
+            className="block cursor-pointer"
+            style={{ width: fit.viewWidth, height: fit.viewHeight, touchAction: "none" }}
+          />
+
+          {/* The score, in the DOM, legible at every scale. */}
+          {!gameOver && status !== "idle" && (
+            <div data-testid="hextris-hud" className="pointer-events-none absolute inset-x-0 top-0 flex justify-between px-3 pt-1 text-lg font-bold text-white drop-shadow">
+              <span>Score {score}</span>
+              <span className="text-slate-300">Best {best}</span>
+            </div>
+          )}
+
+          {gameOver && (
+            <ResultCard testId="hextris-result-card" title="Game over!">
+              <ResultLine big>Score {score}</ResultLine>
+              <ResultLine>{lastRunNewBest ? "🏆 New best!" : `Best ${best}`}</ResultLine>
+            </ResultCard>
+          )}
+        </div>
+      </ThumbPadLayout>
+
+      {status === "idle" && (
         <GameStartOverlay
           title="Hextris"
           emoji="⬡"
           subtitle="Spin the hexagon and stack the colors!"
           touchHints={[
-            "👈 Tap the left side to spin left",
-            "👉 Tap the right side to spin right",
+            "↺ ↻ Tap a spin button, or a side of the hexagon",
             "🎨 Match 3 blocks of one color",
           ]}
           keyboardHints={[
@@ -392,89 +362,30 @@ export function HextrisGame() {
             "⌨️ Press D or the right arrow to spin right",
             "🎨 Match 3 blocks of one color",
           ]}
-          onStart={() => store.startGame()}
+          onStart={startGame}
         >
-          <div className="text-base font-medium opacity-90">
-            🏆 High Score: {store.progress.highScore.toLocaleString()}
-          </div>
+          <div className="text-base font-medium opacity-90">🏆 High Score: {best.toLocaleString()}</div>
         </GameStartOverlay>
       )}
 
-      {/* Stats Bar */}
-      <div className="flex items-center gap-4 mb-2 text-white text-sm">
-        <span>High Score: {store.progress.highScore}</span>
-        <span>|</span>
-        <span>Games: {store.progress.gamesPlayed}</span>
-        <span>|</span>
-        <span>Blocks: {store.progress.totalBlocksMatched}</span>
-      </div>
-
-      {/* Canvas */}
-      <div
-        className="relative"
-        style={{
-          width: CANVAS_WIDTH * scale,
-          height: CANVAS_HEIGHT * scale,
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          {...canvasTap}
-          className="rounded-lg shadow-xl cursor-pointer"
-          style={{
-            width: CANVAS_WIDTH * scale,
-            height: CANVAS_HEIGHT * scale,
-            touchAction: "none",
-          }}
-        />
-      </div>
-
-      {/* Control buttons for mobile */}
-      {store.status === "playing" && (
-        <div className="flex gap-4 mt-4">
+      {/* The result chip: read it to me, Play again, the leaderboard, the
+          sound switch, and with clips on the clip buttons. Mounted only at
+          game over, so its grace starts then. */}
+      {gameOver && (
+        <ResultChip resultText={resultCopy} appId="hextris" onRestart={startGame} keyboardHint="Space">
           <button
-            onClick={() => store.rotateLeft()}
-            className="w-20 h-16 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-2xl font-bold rounded-xl shadow-lg touch-manipulation select-none"
+            type="button"
+            data-testid="result-chip-sound"
+            onClick={toggleSound}
+            // A pointer press leaves no focus here, so Space still means "play again".
+            onMouseDown={(event) => event.preventDefault()}
+            className={`btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`}
           >
-            {"<"}
+            <span aria-hidden="true">{soundEnabled ? "🔊" : "🔇"}</span>
+            {soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off}
           </button>
-          <button
-            onClick={() => store.pauseGame()}
-            className="w-16 h-16 bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800 text-white text-lg font-bold rounded-xl shadow-lg touch-manipulation select-none"
-          >
-            II
-          </button>
-          <button
-            onClick={() => store.rotateRight()}
-            className="w-20 h-16 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-2xl font-bold rounded-xl shadow-lg touch-manipulation select-none"
-          >
-            {">"}
-          </button>
-        </div>
+        </ResultChip>
       )}
-
-      {/* Control row */}
-      <div className="flex items-center gap-4 mt-4">
-        <button
-          onClick={toggleSound}
-          className="w-12 h-12 bg-slate-700 hover:bg-slate-600 text-white rounded-full flex items-center justify-center"
-        >
-          {store.progress.soundEnabled ? "🔊" : "🔇"}
-        </button>
-        <IOSInstallPrompt />
-      </div>
-
-      {/* Instructions */}
-      <div className="mt-4 text-slate-400 text-center text-sm">
-        {isCoarse ? (
-          <p>Tap left/right side to rotate</p>
-        ) : (
-          <p>A/D or Arrow Keys to rotate | Tap left/right side</p>
-        )}
-        {!isCoarse && <p>Escape to pause</p>}
-      </div>
     </div>
   );
 }

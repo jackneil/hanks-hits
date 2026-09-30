@@ -6,7 +6,6 @@ import {
   type FallingBlock,
   type Particle,
   type BlockColor,
-  BLOCK_COLORS,
   HEX_CENTER_X,
   HEX_CENTER_Y,
   HEX_RADIUS,
@@ -25,6 +24,10 @@ import {
   getRandomColor,
   getRandomSide,
 } from "./constants";
+import { playSound } from "./sounds";
+
+/** One step of the shared fixed-step loop, in ms (60 steps a second). */
+const FRAME_MS = 1000 / 60;
 
 // Progress data (persisted)
 export type HextrisProgress = {
@@ -55,7 +58,20 @@ export type HextrisGameState = {
   // Speed
   currentSpeed: number;
   spawnInterval: number;
-  lastSpawnTime: number;
+  /**
+   * Game time since the last block, in ms. It counts only while the loop
+   * steps, so a pause, the shell's hold or a hidden tab never brings a
+   * block early. (It used Date.now(): time under a hold still counted.)
+   */
+  spawnClock: number;
+
+  // Runs (clips and the result card)
+  /** Goes up by one at each start, so a restart is a new run. */
+  runId: number;
+  /** The best score when this run started: the score to beat. */
+  runStartBest: number;
+  /** The run that just ended beat the best from before it. */
+  lastRunNewBest: boolean;
 
   // Counters
   nextBlockId: number;
@@ -75,7 +91,8 @@ type HextrisActions = {
   rotateLeft: () => void;
   rotateRight: () => void;
 
-  update: (deltaTime: number) => void;
+  /** One step of game time (the shared fixed-step loop gives 1000 / 60 ms). */
+  update: (stepMs: number) => void;
 
   getProgress: () => HextrisProgress;
   setProgress: (data: HextrisProgress) => void;
@@ -105,7 +122,7 @@ function createInitialState(): Partial<HextrisGameState> {
     particles: [],
     currentSpeed: INITIAL_FALL_SPEED,
     spawnInterval: SPAWN_INTERVAL,
-    lastSpawnTime: 0,
+    spawnClock: 0,
     nextBlockId: 1,
     nextParticleId: 1,
     chainCount: 0,
@@ -127,67 +144,6 @@ function createFallingBlock(id: number, speed: number): FallingBlock {
     angle: sideAngle,
     speed,
   };
-}
-
-// Audio
-let audioContext: AudioContext | null = null;
-
-function getAudioContext(): AudioContext {
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
-  }
-  return audioContext;
-}
-
-function playSound(type: "rotate" | "land" | "match" | "game-over", enabled: boolean) {
-  if (!enabled) return;
-
-  try {
-    const ctx = getAudioContext();
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    switch (type) {
-      case "rotate":
-        oscillator.frequency.value = 220;
-        oscillator.type = "sine";
-        gainNode.gain.value = 0.05;
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.05);
-        break;
-      case "land":
-        oscillator.frequency.value = 330;
-        oscillator.type = "triangle";
-        gainNode.gain.value = 0.1;
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.1);
-        break;
-      case "match":
-        oscillator.frequency.value = 523;
-        oscillator.type = "sine";
-        gainNode.gain.value = 0.15;
-        const now = ctx.currentTime;
-        oscillator.frequency.setValueAtTime(523, now);
-        oscillator.frequency.setValueAtTime(659, now + 0.05);
-        oscillator.frequency.setValueAtTime(784, now + 0.1);
-        oscillator.start();
-        oscillator.stop(now + 0.2);
-        break;
-      case "game-over":
-        oscillator.frequency.value = 200;
-        oscillator.type = "sawtooth";
-        gainNode.gain.value = 0.15;
-        oscillator.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.5);
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.5);
-        break;
-    }
-  } catch {
-    // Audio not supported
-  }
 }
 
 function checkMatches(stacks: Block[][]): { side: number; startIndex: number; length: number; color: BlockColor }[] {
@@ -253,6 +209,9 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
   persist(
     (set, get) => ({
       ...createInitialState() as HextrisGameState,
+      runId: 0,
+      runStartBest: 0,
+      lastRunNewBest: false,
       progress: defaultProgress,
 
       startGame: () => {
@@ -260,7 +219,9 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
         set({
           ...createInitialState(),
           status: "playing",
-          lastSpawnTime: Date.now(),
+          runId: state.runId + 1,
+          runStartBest: state.progress.highScore,
+          lastRunNewBest: false,
           progress: {
             ...state.progress,
             gamesPlayed: state.progress.gamesPlayed + 1,
@@ -279,16 +240,17 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
       resumeGame: () => {
         const state = get();
         if (state.status === "paused") {
-          set({ status: "playing", lastSpawnTime: Date.now() });
+          set({ status: "playing" });
         }
       },
 
       gameOver: () => {
         const state = get();
-        playSound("game-over", state.progress.soundEnabled);
+        playSound("game-over");
 
         set({
           status: "game-over",
+          lastRunNewBest: state.score > state.runStartBest,
           progress: {
             ...state.progress,
             highScore: Math.max(state.progress.highScore, state.score),
@@ -301,7 +263,7 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
         const state = get();
         if (state.status !== "playing") return;
 
-        playSound("rotate", state.progress.soundEnabled);
+        playSound("rotate");
         set({ targetRotation: state.targetRotation - Math.PI / 3 });
       },
 
@@ -309,15 +271,19 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
         const state = get();
         if (state.status !== "playing") return;
 
-        playSound("rotate", state.progress.soundEnabled);
+        playSound("rotate");
         set({ targetRotation: state.targetRotation + Math.PI / 3 });
       },
 
-      update: (deltaTime: number) => {
+      update: (stepMs: number) => {
         const state = get();
         if (state.status !== "playing") return;
 
-        const now = Date.now();
+        // The old loop called this once per screen frame with a nudge for
+        // the frame time, but moved the block a whole `speed` per call: on
+        // a 120 Hz screen blocks fell twice as fast. Every motion now scales
+        // with the step (1 at 60 steps a second).
+        const dt = stepMs / FRAME_MS;
         let {
           rotation,
           stacks,
@@ -325,7 +291,7 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
           particles,
           currentSpeed,
           spawnInterval,
-          lastSpawnTime,
+          spawnClock,
           nextBlockId,
           nextParticleId,
           chainCount,
@@ -341,15 +307,16 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
         // Smooth rotation
         const rotationDiff = targetRotation - rotation;
         if (Math.abs(rotationDiff) > 0.01) {
-          rotation += rotationDiff * ROTATION_SPEED * deltaTime;
+          rotation += rotationDiff * Math.min(1, ROTATION_SPEED * dt);
         } else {
           rotation = targetRotation;
         }
 
         // Spawn new block if needed
-        if (!fallingBlock && now - lastSpawnTime > spawnInterval) {
+        spawnClock += stepMs;
+        if (!fallingBlock && spawnClock > spawnInterval) {
           fallingBlock = createFallingBlock(nextBlockId++, currentSpeed);
-          lastSpawnTime = now;
+          spawnClock = 0;
 
           // Increase difficulty
           currentSpeed = Math.min(currentSpeed + SPEED_INCREMENT * 100, MAX_FALL_SPEED);
@@ -366,8 +333,8 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
           if (dist > 0) {
             fallingBlock = {
               ...fallingBlock,
-              x: fallingBlock.x + (dx / dist) * fallingBlock.speed,
-              y: fallingBlock.y + (dy / dist) * fallingBlock.speed,
+              x: fallingBlock.x + (dx / dist) * Math.min(dist, fallingBlock.speed * dt),
+              y: fallingBlock.y + (dy / dist) * Math.min(dist, fallingBlock.speed * dt),
             };
           }
 
@@ -387,7 +354,7 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
 
           if (blockDist <= landingDistance + 5) {
             // Block landed
-            playSound("land", progress.soundEnabled);
+            playSound("land");
             score += POINTS.BLOCK_LAND;
 
             // Add to stack
@@ -409,7 +376,7 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
                 particles,
                 currentSpeed,
                 spawnInterval,
-                lastSpawnTime,
+                spawnClock,
                 nextBlockId,
                 nextParticleId,
                 chainCount,
@@ -424,7 +391,7 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
             const matches = checkMatches(stacks);
 
             if (matches.length > 0) {
-              playSound("match", progress.soundEnabled);
+              playSound("match");
 
               // Calculate score
               let matchScore = 0;
@@ -492,10 +459,10 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
         particles = particles
           .map(p => ({
             ...p,
-            x: p.x + p.vx,
-            y: p.y + p.vy,
-            vy: p.vy + 0.1,
-            life: p.life - 1,
+            x: p.x + p.vx * dt,
+            y: p.y + p.vy * dt,
+            vy: p.vy + 0.1 * dt,
+            life: p.life - dt,
           }))
           .filter(p => p.life > 0);
 
@@ -507,7 +474,7 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
           particles,
           currentSpeed,
           spawnInterval,
-          lastSpawnTime,
+          spawnClock,
           nextBlockId,
           nextParticleId,
           chainCount,
