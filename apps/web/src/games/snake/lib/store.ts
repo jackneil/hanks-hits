@@ -50,6 +50,13 @@ export type SnakeGameState = {
   // Score
   score: number;
 
+  // The saved best from BEFORE this run. The store raises highScore during
+  // the run (each snack), so at game over a plain compare always reads as a
+  // record; the result card compares against this snapshot instead.
+  bestBeforeRun: number;
+  // True when the last run beat the best from before it.
+  lastRunNewBest: boolean;
+
   // Progress (persisted)
   progress: SnakeProgress;
 };
@@ -108,6 +115,8 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
       // Initial state
       gridSize: GRID_SIZE,
       ...createInitialGameState(),
+      bestBeforeRun: 0,
+      lastRunNewBest: false,
       progress: defaultProgress,
 
       // Start a new game
@@ -116,6 +125,8 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
         set({
           ...initialState,
           status: "playing",
+          bestBeforeRun: get().progress.highScore,
+          lastRunNewBest: false,
         });
       },
 
@@ -169,6 +180,7 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
             set({
               status: "game-over",
               direction,
+              lastRunNewBest: state.score > state.bestBeforeRun,
               progress: {
                 ...progress,
                 gamesPlayed: progress.gamesPlayed + 1,
@@ -190,6 +202,7 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
           set({
             status: "game-over",
             direction,
+            lastRunNewBest: state.score > state.bestBeforeRun,
             progress: {
               ...progress,
               gamesPlayed: progress.gamesPlayed + 1,

@@ -40,8 +40,9 @@ describe("Snake start overlay", () => {
   });
 
   it("shows the button hint on coarse pointers in the default button mode", () => {
-    // Regression: the card always said "Swipe to turn", but swipes are only
-    // read in swipe mode and the default control mode is buttons.
+    // Regression: the card always said "Swipe to turn". Swiping now works in
+    // both modes; the default mode also shows the arrow keys, so the hint
+    // names both.
     mockPointer(true);
     useSnakeStore.setState((state) => ({
       progress: { ...state.progress, controlMode: "buttons" },
@@ -49,10 +50,10 @@ describe("Snake start overlay", () => {
     render(<SnakeGame />);
 
     expect(
-      screen.getByText("🔼🔽 Tap the arrow buttons to turn")
+      screen.getByText("🔼 Tap the arrows, or swipe, to turn")
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("👆 Swipe to turn the snake")
+      screen.queryByText("👆 Swipe on the board to turn")
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText("⌨️ Arrow keys or WASD to turn")
@@ -66,9 +67,9 @@ describe("Snake start overlay", () => {
     }));
     render(<SnakeGame />);
 
-    expect(screen.getByText("👆 Swipe to turn the snake")).toBeInTheDocument();
+    expect(screen.getByText("👆 Swipe on the board to turn")).toBeInTheDocument();
     expect(
-      screen.queryByText("🔼🔽 Tap the arrow buttons to turn")
+      screen.queryByText("🔼 Tap the arrows, or swipe, to turn")
     ).not.toBeInTheDocument();
   });
 
@@ -77,7 +78,7 @@ describe("Snake start overlay", () => {
     render(<SnakeGame />);
 
     expect(screen.getByText("⌨️ Arrow keys or WASD to turn")).toBeInTheDocument();
-    expect(screen.queryByText("👆 Swipe to turn the snake")).not.toBeInTheDocument();
+    expect(screen.queryByText("👆 Swipe on the board to turn")).not.toBeInTheDocument();
   });
 
   it("starts the game exactly once however hard Play is mashed", () => {
