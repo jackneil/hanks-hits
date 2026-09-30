@@ -5,6 +5,7 @@ import { CuboidCollider, RigidBody } from "@react-three/rapier";
 import { useAdventureSession } from "../lib/adventureSession";
 import { useFourWheeler3dStore } from "../lib/store";
 import { useGameContext } from "../lib/gameContext";
+import { isCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { LANDMARKS } from "../lib/landmarks";
 import { DESTINATIONS, distanceTo } from "../lib/destinations";
 import { eatMeal, hungerReset, saddleHorse } from "../lib/life";
@@ -87,7 +88,11 @@ export function enterInterior(id: string, kind: string, rooms = 1) {
     Math.PI,
   );
   store.setMode("interior");
-  store.setHint("You’re inside. Press E or Go outside to leave.");
+  store.setHint(
+    isCoarsePointer()
+      ? "You’re inside. Tap Use or Go outside to leave."
+      : "You’re inside. Press E or Go outside to leave.",
+  );
   saveRiderPosition();
 }
 export function leaveInterior() {

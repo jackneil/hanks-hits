@@ -1,5 +1,6 @@
 "use client";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 import { useFourWheeler3dStore } from "../../lib/store";
 import { useAdventureSession } from "../../lib/adventureSession";
@@ -159,6 +160,7 @@ export function SpaceHUD() {
     mode = useFourWheeler3dStore((s) => s.mode),
     paused = useFourWheeler3dStore((s) => s.isPaused),
     gems = useFourWheeler3dStore((s) => s.progress.adventure.space.gems);
+  const isCoarse = useCoarsePointer();
   if (!flight || !["space", "planet"].includes(mode) || paused) return null;
   const planet = PLANETS.find((p) => p.id === flight.planet),
     near = PLANETS.find((p) => p.id === flight.nearPlanet),
@@ -209,15 +211,23 @@ export function SpaceHUD() {
           variant="icon"
           text={
             planet
-              ? "Walk with the on-screen arrows or WASD. Walk over gems to collect five thousand dollars each. Find your rocket on the map, then board it to leave."
-              : "Hold Thrust and use the turn buttons to fly. On a keyboard, W speeds up, A and D turn, S brakes. Fly close to a planet and choose Land. Return to Earth brings you home."
+              ? isCoarse
+                ? "Walk with the on-screen arrows. Walk over gems to collect five thousand dollars each. Find your rocket on the map, then board it to leave."
+                : "Walk with the on-screen arrows or WASD. Walk over gems to collect five thousand dollars each. Find your rocket on the map, then board it to leave."
+              : isCoarse
+                ? "Hold Thrust and use the turn buttons to fly. Fly close to a planet and choose Land. Return to Earth brings you home."
+                : "Hold Thrust and use the turn buttons to fly. On a keyboard, W speeds up, A and D turn, S brakes. Fly close to a planet and choose Land. Return to Earth brings you home."
           }
         />
       </div>
       <p className="absolute bottom-36 left-1/2 max-w-64 -translate-x-1/2 rounded-lg bg-slate-950/80 px-3 py-2 text-center text-xs sm:bottom-6">
         {planet
-          ? "Move with WASD or the arrows. Walk over gems to collect them. Return to your rocket to leave."
-          : "W / up: thrust. A and D: steer. S / down: brake. Fly close to a planet to land."}
+          ? isCoarse
+            ? "Move with the arrows. Walk over gems to collect them. Return to your rocket to leave."
+            : "Move with WASD or the arrows. Walk over gems to collect them. Return to your rocket to leave."
+          : isCoarse
+            ? "Hold Thrust to go. Tap the turn buttons to steer. Fly close to a planet to land."
+            : "W / up: thrust. A and D: steer. S / down: brake. Fly close to a planet to land."}
       </p>
     </div>
   );

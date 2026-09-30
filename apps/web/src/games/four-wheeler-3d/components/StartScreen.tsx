@@ -2,10 +2,13 @@
 import { useFourWheeler3dStore } from "../lib/store";
 import "./ui/adventure.css";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 export function StartScreen() {
   const start = useFourWheeler3dStore((s) => s.setHasStarted),
     p = useFourWheeler3dStore((s) => s.progress);
+  // A phone sees the on-screen controls note instead of the key chips.
+  const isCoarse = useCoarsePointer();
   return (
     <div
       className="fw-start"
@@ -45,24 +48,27 @@ export function StartScreen() {
             ? "Your saved world is ready"
             : "Your first ride starts at the garage"}
         </div>
-        <div className="fw-start-controls">
-          <span>
-            <kbd>W A S D</kbd> Drive
-          </span>
-          <span>
-            <kbd>E</kbd> Use / hop off
-          </span>
-          <span>
-            <kbd>M</kbd> Map
-          </span>
-          <span>
-            <kbd>P</kbd> Phone
-          </span>
-        </div>
-        <p className="fw-start-touch">
-          On a phone or tablet, use the controls on screen. Landscape gives you
-          more room to explore.
-        </p>
+        {isCoarse ? (
+          <p className="fw-start-touch">
+            Hold GAS to drive. Tap the arrows to steer. Tap Use beside a ride
+            or a building. Sideways gives you more room to explore.
+          </p>
+        ) : (
+          <div className="fw-start-controls">
+            <span>
+              <kbd>W A S D</kbd> Drive
+            </span>
+            <span>
+              <kbd>E</kbd> Use / hop off
+            </span>
+            <span>
+              <kbd>M</kbd> Map
+            </span>
+            <span>
+              <kbd>P</kbd> Phone
+            </span>
+          </div>
+        )}
       </div>
       <div className="fw-start-edition">
         <strong>FOUR-WHEELER ADVENTURE</strong>

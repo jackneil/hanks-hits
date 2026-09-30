@@ -5,6 +5,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useGameContext } from "../lib/gameContext";
 import { useFourWheeler3dStore } from "../lib/store";
 import { useAdventureSession } from "../lib/adventureSession";
+import { isCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import {
   canBoardFleetVehicle,
   advanceDelivery,
@@ -117,7 +118,11 @@ export function exitVehicle() {
   store.clearNos();
   s.relocate({ x, y: Math.max(0.1, heightAt(x, z)), z }, heading);
   s.openPanel(null);
-  store.setHint("On foot. Walk to a ride and press E to hop on.");
+  store.setHint(
+    isCoarsePointer()
+      ? "On foot. Walk to a ride and tap Use to hop on."
+      : "On foot. Walk to a ride and press E to hop on.",
+  );
 }
 export function boardVehicle(id: string) {
   const store = useFourWheeler3dStore.getState(),

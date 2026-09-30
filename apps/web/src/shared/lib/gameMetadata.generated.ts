@@ -98,7 +98,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     name: "Cookie Clicker",
     icon: "🍪",
     color: "purple",
-    description: "Click cookies, buy upgrades",
+    description: "Tap the cookie, buy upgrades",
     category: "puzzle",
     madeByKid: false,
     clips: false,

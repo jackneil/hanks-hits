@@ -5,5 +5,5 @@ export const metadata: GameMetadata = {
   name: "Cookie Clicker",
   emoji: "🍪",
   category: "puzzle",
-  description: "Click cookies, buy upgrades",
+  description: "Tap the cookie, buy upgrades",
 };

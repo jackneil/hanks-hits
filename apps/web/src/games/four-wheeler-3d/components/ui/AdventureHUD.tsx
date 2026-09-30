@@ -184,7 +184,11 @@ export function AdventureHUD({
               <strong>
                 {session.interior?.kind === "garage" ? "Your garage" : "Inside"}
               </strong>
-              <span>Walk around. Press E to use nearby things.</span>
+              <span>
+                {mobile
+                  ? "Walk around. Tap Use for nearby things."
+                  : "Walk around. Press E to use nearby things."}
+              </span>
               <button
                 onClick={() => action("home:exit")}
                 className="fw-primary"
@@ -220,7 +224,8 @@ export function AdventureHUD({
       <div className="fw-context" hidden={mode === "train"}>
         {(!["vehicle", "boat"].includes(mode) || session.interaction) && (
           <button onClick={() => action("world:interact")}>
-            <kbd>E</kbd>
+            {/* The key badge is for a keyboard; a finger taps the button. */}
+            {!mobile && <kbd>E</kbd>}
             {session.interaction?.label ??
               (["vehicle", "boat"].includes(mode)
                 ? "Hop off"
@@ -274,7 +279,7 @@ export function AdventureHUD({
           ) : session.panel === "settings" ? (
             <Settings />
           ) : session.panel === "help" ? (
-            <Guide />
+            <Guide mobile={mobile} />
           ) : session.panel === "trophies" ? (
             <Trophies />
           ) : (
@@ -390,7 +395,37 @@ function Settings() {
     </div>
   );
 }
-function Guide() {
+function Guide({ mobile }: { mobile: boolean }) {
+  // Two columns of the same guide: the phone one names the on-screen
+  // controls, the keyboard one names the keys (audit S5: the guide was
+  // keyboard copy only).
+  if (mobile) {
+    return (
+      <div className="fw-guide">
+        <h3>A whole county to call your own.</h3>
+        <p>
+          Ride the trails, buy a truck, follow your dog into the woods, catch a
+          fish worth a fortune, or build a place of your own.
+        </p>
+        <dl>
+          <dt>Drive / walk</dt>
+          <dd>Hold GAS to go. Tap the left and right arrows to steer. Tap JUMP to jump.</dd>
+          <dt>Use something nearby</dt>
+          <dd>Tap Use beside a store, ride, house or activity. Slow down first.</dd>
+          <dt>Find your way</dt>
+          <dd>Tap Map. Choose a destination to put a gold route on your GPS.</dd>
+          <dt>Phone and shopping</dt>
+          <dd>Tap Phone. Shop in town or order a delivery from anywhere.</dd>
+          <dt>Hunting and fishing</dt>
+          <dd>Tap Gear. Buy equipment in town, then walk to the woods or the lake.</dd>
+          <dt>Camera / recovery</dt>
+          <dd>Tap Camera to switch the view. Tap Flip to put your ride back on its wheels.</dd>
+          <dt>Pause</dt>
+          <dd>Tap Close on a panel. Tap Pause to pause the game.</dd>
+        </dl>
+      </div>
+    );
+  }
   return (
     <div className="fw-guide">
       <h3>A whole county to call your own.</h3>

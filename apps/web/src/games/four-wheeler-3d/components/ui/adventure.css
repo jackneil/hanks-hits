@@ -1028,7 +1028,9 @@
 }
 .fw-start-touch {
   max-width: 350px;
-  font-size: 10px;
+  /* 13 px minimum: this note replaces the key chips on a phone, and 10 px
+     was unreadable at arm's length (2026 phone audit). */
+  font-size: 13px;
   color: #93a390;
   line-height: 1.5;
   margin-top: 20px;
@@ -1101,8 +1103,12 @@
   .fw-start-controls {
     margin-top: 18px;
   }
+  /* The touch note is the phone's only controls copy (the key chips are
+     not rendered on a coarse pointer), so a short screen keeps it; it only
+     loses some margin. It used to be display: none under 580 px, which hid
+     it on every phone but a 390x664 upright. */
   .fw-start-touch {
-    display: none;
+    margin-top: 12px;
   }
   .fw-start-play {
     min-height: 48px;

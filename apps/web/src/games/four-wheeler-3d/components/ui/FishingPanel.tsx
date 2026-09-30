@@ -4,12 +4,14 @@ import { useAdventureSession } from "../../lib/adventureSession";
 import { useFourWheeler3dStore } from "../../lib/store";
 import { BAITS, FISH, fishSaleValue } from "../../lib/fishing";
 import { FISH_TYPES } from "../../lib/constants";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 const request = (name: string, payload?: string) =>
   useAdventureSession.getState().requestAction(`fishing:${name}`, payload);
 
 export function FishingPanel() {
   const fishing = useAdventureSession((s) => s.fishing);
+  const isCoarse = useCoarsePointer();
   const progress = useFourWheeler3dStore((s) => s.progress);
   const mode = useFourWheeler3dStore((s) => s.mode);
   const rods = progress.adventure.inventory.rod ?? 0;
@@ -99,8 +101,9 @@ export function FishingPanel() {
             />
           </label>
           <p className="fw-muted">
-            Release before tension reaches 100%. Hold Space or Enter on the reel
-            button, or press and hold with your finger.
+            {isCoarse
+              ? "Release before tension reaches 100%. Press and hold the reel button with your finger."
+              : "Release before tension reaches 100%. Hold Space or Enter on the reel button, or press and hold with your finger."}
           </p>
         </div>
       )}
