@@ -8,30 +8,60 @@ import {
   AUDIO_BUS_TEST_IGNORES,
   LEGACY_AUDIO_SITE_PATHS,
 } from "./src/shared/lib/audio/audioBusRule.mjs";
+import {
+  TOUCH_INPUT_RESTRICTED_SYNTAX,
+  TOUCH_INPUT_TEST_IGNORES,
+} from "./src/shared/lib/input/touchInputRule.mjs";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
-    // Game sound goes through the shared game-audio bus (getGameAudio() in
-    // src/shared/lib/audio), so clips can hear it and the game's sound
-    // switch can mute it. This bans new AudioContext, x.AudioContext,
-    // webkitAudioContext, .destination, new Audio(), <audio>, and three.js
-    // or drei audio in every game and app. See design/ARCHITECTURE.md,
-    // section "Audio".
-    name: "hanks-hits/game-audio-bus",
+    // Two bans in one no-restricted-syntax list (a later flat-config block
+    // replaces the rule, so both sets live together):
+    //
+    // 1. Game sound goes through the shared game-audio bus (getGameAudio()
+    //    in src/shared/lib/audio), so clips can hear it and the game's sound
+    //    switch can mute it. This bans new AudioContext, x.AudioContext,
+    //    webkitAudioContext, .destination, new Audio(), <audio>, and three.js
+    //    or drei audio in every game and app. See design/ARCHITECTURE.md,
+    //    section "Audio".
+    //
+    // 2. One input path per element. React registers touch listeners
+    //    passive, so onTouchStart + onClick (or onMouseDown) on one element
+    //    runs the action twice per tap, and preventDefault() inside a React
+    //    onTouch* handler is a no-op that logs an error. Use usePointerTap
+    //    (@/shared/lib/input), usePointerHold or useTouchInput
+    //    (@/shared/hooks). See design/ARCHITECTURE.md, section "Touch input".
+    name: "hanks-hits/game-audio-bus-and-touch-input",
     files: [...AUDIO_BUS_LINT_FILES],
     ignores: [
       ...AUDIO_BUS_TEST_IGNORES,
-      // LEGACY ignore list: the files that break this rule today. Each
+      // LEGACY ignore list: the files that break the audio rule today. Each
       // migration PR removes its own files from LEGACY_AUDIO_SITES (in
       // src/shared/lib/audio/audioBusRule.mjs). Never add a file to it. The
       // source-scan test shares the same list: it fails on a stale entry,
       // and on a listed file that gets more bypasses than its ceiling.
+      // The block below still applies the touch-input ban to these files.
       ...LEGACY_AUDIO_SITE_PATHS,
     ],
     rules: {
-      "no-restricted-syntax": ["error", ...AUDIO_BUS_RESTRICTED_SYNTAX],
+      "no-restricted-syntax": [
+        "error",
+        ...AUDIO_BUS_RESTRICTED_SYNTAX,
+        ...TOUCH_INPUT_RESTRICTED_SYNTAX,
+      ],
+    },
+  },
+  {
+    // The legacy audio files get the touch-input ban only (their audio
+    // bypasses are allowed up to the ceiling in LEGACY_AUDIO_SITES).
+    name: "hanks-hits/touch-input-legacy-audio",
+    // The list also names a static HTML game, which ESLint cannot parse.
+    files: LEGACY_AUDIO_SITE_PATHS.filter((file) => !file.endsWith(".html")),
+    ignores: [...TOUCH_INPUT_TEST_IGNORES],
+    rules: {
+      "no-restricted-syntax": ["error", ...TOUCH_INPUT_RESTRICTED_SYNTAX],
     },
   },
   // Override default ignores of eslint-config-next.

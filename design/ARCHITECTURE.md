@@ -462,6 +462,75 @@ with a new bus. `removeAudioMock()` also resets the bus.
 
 ---
 
+## Touch input
+
+Each control has one input path. A tap runs its action one time.
+
+**Why one path.** React registers `onTouchStart`, `onTouchMove` and
+`onTouchEnd` as passive listeners. A `preventDefault()` call in one of
+these handlers does nothing. The browser logs "Unable to preventDefault
+inside passive event listener" and then sends the compatibility mouse
+events and a click. An element with `onTouchStart` and `onClick` runs its
+action two times for one tap. The 2026 phone audit found this in ten
+games: Hextris turned 120 degrees for one tap, the Oregon Trail hunt spent
+two bullets, Bomberman placed two bombs. A handler that reads
+`e.touches[0]` reads the oldest finger, not the finger that moved.
+
+**The three helpers.** All three are in `src/shared`:
+
+| Helper | Module | Use it for |
+|---|---|---|
+| `usePointerTap(onTap)` | `@/shared/lib/input` | One action per tap on a button or a canvas (rotate, shoot, launch, drop). It acts on `pointerdown` and ignores the compatibility click. A click with no pointer (Enter on a focused button) still acts one time. |
+| `usePointerHold(onPress, onRelease)` | `@/shared/hooks` | A button that stays pressed while the finger is down (a pedal, a d-pad key, FIRE, DUCK). It captures the pointer, so a thumb that slides off still releases. It releases on `pointercancel`, on window blur, when the page is hidden, and on unmount. `usePointerHolds(keys, onChange)` makes one hold for each key of a pad. |
+| `useTouchInput(ref, handlers)` | `@/shared/hooks` | A play surface: zones, swipes, drags and taps on a canvas. It registers native `touchstart`, `touchmove`, `touchend` and `touchcancel` listeners with `{ passive: false }`. It reads every touch in `changedTouches` and tracks each finger by its identifier. `onStart`, `onMove`, `onEnd` and `onCancel` get a `TouchPoint` with the start point, the newest point and a `tag` slot for the zone. `createTouchInput(target, config)` is the same code for a target outside React, for example `window`. |
+
+**Rules for a game or an app:**
+
+- Use one helper for each control. Do not put `onTouchStart` together
+  with `onClick` or `onMouseDown` on one element. Do not call
+  `preventDefault()` in a React `onTouch*` handler.
+- Give a hold button `touch-action: none` (Tailwind `touch-none`). Give a
+  tap button `touch-action: manipulation` (`touch-manipulation`). Without
+  this, the browser can take the touch for a scroll or a zoom and cancel
+  the press.
+- Give a hold button `select-none` and `[-webkit-touch-callout:none]`, so
+  a long press does not select text or open the iOS menu.
+- A surface with `useTouchInput` prevents the default of each tracked
+  touch. Thus the page does not scroll under a drag, and the browser
+  sends no click. A `canvas` may keep `onClick` for the mouse. Set
+  `ignore` to a selector for the buttons over the surface, so they keep
+  their taps.
+- A drag is not a tap. On a surface where a drag steers (Breakout), act
+  only on a finger that lifts within a few pixels of where it landed.
+- Show a touch control when `useCoarsePointer()` is true, never behind a
+  width breakpoint such as `md:hidden`. A phone held sideways is 667 to
+  932 px wide and has no keyboard. Branch each keyboard phrase ("Press
+  Space", "press E", "Click", "WASD", "Escape") on the same value.
+  `isCoarsePointer()` gives the same answer outside a render.
+
+**Enforcement:**
+
+- ESLint (`no-restricted-syntax`) blocks these forms in `src/games/**`
+  and `src/apps/**`: a JSX element with `onTouchStart` and `onClick`, a
+  JSX element with `onTouchStart` and `onMouseDown`, and a
+  `preventDefault()` call written inside an inline `onTouch*` handler.
+  `src/shared/lib/input/touchInputRule.mjs` holds the selectors. Tests
+  are exempt.
+- `src/shared/lib/input/__tests__/keyboardCopySources.test.ts` reads every
+  file in `src/games` and `src/apps`. It fails on a keyboard phrase that
+  is not inside a branch on a coarse-pointer value, or inside a
+  `keyboardHints` slot of the start overlay.
+
+**Tests.** Use the finger double in `src/__tests__/finger-mock.ts`:
+`fingerDown`, `fingerMove`, `fingerUp`, `fingerCancel` and `fingerTap`.
+It sends what a phone browser sends for one finger, in the browser's
+order: the pointer event, then the native touch event, then (on
+`fingerUp`) the compatibility mouse events and the click, but only when
+no touch event was default-prevented. A test that taps an element with
+`fingerTap` and expects one action fails on the old double path.
+
+---
+
 ## Gameplay Clips
 
 A kid taps the clip button in the header, and the game keeps the last 30

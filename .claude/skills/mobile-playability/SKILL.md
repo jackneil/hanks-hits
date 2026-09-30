@@ -11,7 +11,7 @@ Kids play on phones. A game that needs a keyboard, a mouse, or a hover state is 
 - **Gate mode** (inside make-a-game Step 5 / change-a-game Step 4 / remix-a-game Step 6): audit THE game you just built/changed against the local dev server before you show the kid. A game is NOT done until this passes.
 - **Audit mode** (standalone): audit one game or sweep many, usually against production. Record a verdict matrix.
 
-**Apps too, not just games.** Everything under `src/apps/` (drawing, drum machine, trivia, virtual pet, weather...) gates on the same recipe and checklist — an app's "core action" is whatever the kid opens it to DO (draw a stroke, tap a pad, answer a question, feed the pet). Two app-specific traps: hover-revealed controls (`opacity-0 group-hover:opacity-100` delete/edit buttons are invisible to fingers) and `preventDefault()` inside React's synthetic `onTouch*` props (React attaches them passive, so it silently fails and the tap ALSO fires the compatibility mouse events — double-triggering the action; use the shared `usePointerTap` from `@/shared/lib/input` instead: it acts once on pointerdown and ignores the compatibility click. Use tap mode for a canvas or a button, and hold mode (`onRelease`) for a pedal or a hold-to-jump. For a drag, give the element `touch-action: none` (`touch-none`) so the browser does not scroll).
+**Apps too, not just games.** Everything under `src/apps/` (drawing, drum machine, trivia, virtual pet, weather...) gates on the same recipe and checklist — an app's "core action" is whatever the kid opens it to DO (draw a stroke, tap a pad, answer a question, feed the pet). Two app-specific traps: hover-revealed controls (`opacity-0 group-hover:opacity-100` delete/edit buttons are invisible to fingers) and `preventDefault()` inside React's synthetic `onTouch*` props (React attaches them passive, so it silently fails and the tap ALSO fires the compatibility mouse events — double-triggering the action). Use the shared helpers instead, one per control: `usePointerTap` from `@/shared/lib/input` for a tap on a button or a canvas (acts once on pointerdown, ignores the compatibility click), `usePointerHold` from `@/shared/hooks` for a pedal, a d-pad key or a hold-to-jump (pointer capture, releases on cancel/blur/unmount), and `useTouchInput(ref, handlers)` from `@/shared/hooks` for a play surface with zones, swipes or drags (native `{ passive: false }` listeners, every finger tracked by its identifier). ESLint blocks `onTouchStart` next to `onClick`/`onMouseDown` in games and apps. Give a hold or drag element `touch-action: none` (`touch-none`) and a tap element `touch-manipulation`. Details: `design/ARCHITECTURE.md`, section "Touch input".
 
 ## Step 1 — Set up the touch-only phone
 
@@ -91,8 +91,10 @@ For each game: load it, then actually play — not just look:
 
 | Problem | Reuse this |
 |---|---|
-| Game needs to know it's on touch | `useCoarsePointer()` from `@/shared/hooks` |
-| Keyboard-only instructions text | Branch copy on `useCoarsePointer()` |
+| Game needs to know it's on touch | `useCoarsePointer()` from `@/shared/hooks` (never a `md:` width breakpoint: a phone sideways is 667-932 px wide) |
+| Keyboard-only instructions text | Branch copy on `useCoarsePointer()`; the source-scan test `shared/lib/input/__tests__/keyboardCopySources.test.ts` fails on an unbranched "Press Space" / "press E" / "Click" / "WASD" / "Escape" |
+| A tap runs twice, or `Unable to preventDefault` in the console | One input path per control: `usePointerTap` (tap), `usePointerHold` (hold), `useTouchInput` (surface). See `design/ARCHITECTURE.md`, "Touch input" |
+| Tests for touch input | `fingerTap` / `fingerDown` / `fingerMove` / `fingerUp` / `fingerCancel` from `src/__tests__/finger-mock.ts` (sends the pointer, touch and compatibility-click sequence a real phone sends) |
 | Driving game needs controls | `monster-truck/components/MobileControls.tsx` (tilt + pedals) or `hill-climb/ui/MobileControls.tsx` (pedals) |
 | Action game needs buttons/d-pad | On-screen buttons wired to the same handlers as the keys — see monster-truck/hill-climb; keep them inside the game's own folder |
 | Wrong orientation for the game | `OrientationWarning` from `@/shared/components` |
