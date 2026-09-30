@@ -124,12 +124,6 @@ interface KnownFailure {
  * or a screen: a new failure is a regression to fix.
  */
 const KNOWN_FAILURES: KnownFailure[] = [
-  // PR-G1: Driving. four-wheeler-3d's own start screen puts Play under the
-  // fold at 667x311; its toolbelt buttons are 40 px tall upright and its
-  // icon buttons 29 px wide; monster-truck's Challenges pill is 36 px tall.
-  { route: "/games/four-wheeler-3d", check: "start-visible", screens: ["667x311"], fixedBy: "PR-G1" },
-  { route: "/games/four-wheeler-3d", check: "button-size", screens: EVERY_SCREEN, fixedBy: "PR-G1" },
-  { route: "/games/monster-truck", check: "button-size", screens: EVERY_SCREEN, fixedBy: "PR-G1" },
   // PR-G5: Puzzle and word. Wordle's keyboard keys are 32 px wide upright
   // (sideways the row has room, and the keys are 44 px or wider).
   { route: "/games/wordle", check: "button-size", screens: UPRIGHT, fixedBy: "PR-G5" },
