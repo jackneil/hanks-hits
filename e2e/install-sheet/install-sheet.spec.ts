@@ -365,11 +365,34 @@ function probeSheet(page: Page): Promise<SheetProbe> {
 }
 
 /** A tap on "Yay!" closes a celebration card; it can cover a control for about 4 s. */
+/**
+ * Waits until no trophy strip is on the page. On a page with no play the
+ * strip leaves by itself after 4 s per card (AchievementCelebrations), and
+ * it sits under an open sheet by the stacking contract: a tap on its Yay!
+ * can land on the sheet's Read it to me instead and never dismiss it. So
+ * tap Yay! only when a hit test says it is on top; otherwise wait it out.
+ * The joke generator and the virtual pet award their first-play trophy the
+ * moment they open, so the strip is up during this check there.
+ */
 async function dismissCelebrations(page: Page): Promise<void> {
-  const card = page.getByTestId("achievement-card");
-  for (let i = 0; i < 20; i++) {
-    if (!(await card.first().isVisible())) return;
-    await card.first().getByRole("button", { name: "Dismiss celebration" }).tap();
+  const strip = page.getByTestId("achievement-celebration");
+  for (let i = 0; i < 40; i++) {
+    if ((await strip.count()) === 0) return;
+    const yayOnTop = await page.evaluate(() => {
+      const yay = document.querySelector<HTMLElement>('[data-testid="achievement-card"] button');
+      if (!yay) return false;
+      const r = yay.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return !!hit && (hit === yay || yay.contains(hit));
+    });
+    if (yayOnTop) {
+      await page
+        .getByTestId("achievement-card")
+        .first()
+        .getByRole("button", { name: "Dismiss celebration" })
+        .tap({ timeout: 2000 })
+        .catch(() => undefined);
+    }
     await page.waitForTimeout(300);
   }
 }
@@ -579,7 +602,16 @@ for (const screen of SCREENS) {
         // pet). A finger scrolls the page to it.
         await page.getByTestId("ios-install-pill").scrollIntoViewIfNeeded();
         await page.waitForTimeout(300);
-        const problems = pillProblems(await probePill(page), { width: screen.width, height: screen.height });
+        let pillProbe = await probePill(page);
+        // A trophy strip that appeared after the wait above sits over a pill
+        // in a bottom control row (the virtual pet) for its 4 s window, and
+        // its Yay! takes the tap. That is the strip's own transient, not the
+        // pill's: wait the strip out and measure the pill again.
+        if (pillProbe.buttons.some((b) => !b.hit) && (await page.getByTestId("achievement-celebration").count()) > 0) {
+          await dismissCelebrations(page);
+          pillProbe = await probePill(page);
+        }
+        const problems = pillProblems(pillProbe, { width: screen.width, height: screen.height });
         await page.screenshot({ path: path.join(SCREENS_DIR, `${shot}-pill.png`) });
 
         await openSheetFromPill(page);
