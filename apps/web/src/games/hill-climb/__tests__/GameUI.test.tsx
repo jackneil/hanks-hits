@@ -27,7 +27,7 @@ describe("hill-climb GameUI HUD layer", () => {
       />
     );
     const layer = container.firstElementChild as HTMLElement;
-    expect(layer.className).toContain("top-12");
+    expect(layer.className.split(/\s+/)).toContain("top-[var(--shell-header-h)]");
     expect(layer.className).not.toContain("inset-0");
 
     const pause = screen.getByRole("button", { name: "Pause game" });

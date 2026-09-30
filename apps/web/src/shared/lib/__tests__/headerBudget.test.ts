@@ -172,6 +172,15 @@ describe("planHeader: step 0, a phone during play", () => {
     }
   });
 
+  it("moves them for a game with its own pause sheet (no shell pause menu)", () => {
+    const own = planHeader(375, fullControls({ phonePlay: true, pausable: false, pause: false, ownPauseSheet: true }));
+    expect(own.leaderboard).toBe("moved");
+    expect(own.signIn).toBe("moved");
+    const none = planHeader(375, fullControls({ phonePlay: true, pausable: false, pause: false, ownPauseSheet: false }));
+    expect(none.leaderboard).toBe("header");
+    expect(none.signIn).toBe("header");
+  });
+
   it("leaves the signed-in avatar in the header: it is a 44 px control", () => {
     const layout = planHeader(375, fullControls({ phonePlay: true, login: "signedIn" }));
     expect(layout.signIn).toBe("none");

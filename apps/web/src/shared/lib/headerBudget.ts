@@ -121,6 +121,12 @@ export interface HeaderControls {
    * menu is one tap away (step 0). Default false.
    */
   phonePlay?: boolean;
+  /**
+   * The game has its own pause screen on the shared GameSheet (it passes
+   * shellActions), so during play that sheet can hold Leaderboard and Sign
+   * In even with no shell pause menu (step 0). Default false.
+   */
+  ownPauseSheet?: boolean;
 }
 
 /** Where a movable control is shown. */
@@ -223,9 +229,10 @@ export function planHeader(width: number, controls: HeaderControls): HeaderLayou
     signInLabel: controls.login === "guest",
   };
 
-  // Step 0: a phone during play. The pause menu holds Leaderboard and Sign
-  // In (and the result chip holds Leaderboard at game over).
-  if (controls.phonePlay && controls.pausable) {
+  // Step 0: a phone during play. The pause menu (or the game's own pause
+  // sheet) holds Leaderboard and Sign In (and the result chip holds
+  // Leaderboard at game over).
+  if (controls.phonePlay && (controls.pausable || controls.ownPauseSheet)) {
     if (d.leaderboard === "header") d.leaderboard = "moved";
     if (d.signIn === "header") {
       d.signIn = "moved";

@@ -6,6 +6,7 @@ import { useShellHold } from "../../hooks/useShellHold";
 import { useShellOverlays } from "../../lib/shellOverlays";
 import { useStartOverlayPresence } from "../../lib/startOverlayPresence";
 import { GameShell } from "../GameShell";
+import { SECOND_FINGER_WAIT_MS } from "../../lib/input";
 import { ORIENTATION_TIP_COPY, ORIENTATION_TIP_KEEP_PLAYING, orientationTipKey } from "../OrientationWarning";
 
 vi.mock("next/navigation", () => ({
@@ -229,6 +230,33 @@ describe("GameShell holds the game under shell overlays", () => {
   });
 });
 
+describe("GameShell header pause and a second finger", () => {
+  it("pauses on a tap by the other thumb while one thumb holds a pedal", () => {
+    // A browser makes no click for a second finger, so an onClick pause did
+    // nothing mid-drive (phone check, 2026-09-30).
+    vi.useFakeTimers();
+    try {
+      const onPause = vi.fn();
+      render(
+        <GameShell gameName="Hill Climb" onPause={onPause} onResume={vi.fn()}>
+          <div data-testid="pedal">GAS</div>
+        </GameShell>
+      );
+      const pause = within(header()).getByRole("button", { name: "Pause game" });
+      act(() => {
+        fireEvent.pointerDown(screen.getByTestId("pedal"), { pointerId: 1, pointerType: "touch", button: 0 });
+        fireEvent.pointerDown(pause, { pointerId: 2, pointerType: "touch", button: 0, clientX: 0, clientY: 0 });
+        fireEvent.pointerUp(pause, { pointerId: 2, pointerType: "touch", button: 0, clientX: 0, clientY: 0 });
+      });
+      act(() => vi.advanceTimersByTime(SECOND_FINGER_WAIT_MS));
+      expect(onPause).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("pause-menu")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("GameShell orientation tip", () => {
   function renderLandscapeGame(props: Partial<React.ComponentProps<typeof GameShell>> = {}) {
     return render(
@@ -258,8 +286,7 @@ describe("GameShell orientation tip", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("pause-menu")).toBeNull();
     // The header stays free: the tip starts under it.
-    expect(tip.className).toMatch(/(^|\s)top-12(\s|$)/);
-    expect(tip.className).toMatch(/(^|\s)short:top-10(\s|$)/);
+    expect(tip.className.split(/\s+/)).toContain("top-[var(--shell-header-h)]");
     // The kid can read it aloud, or keep playing.
     const keep = within(tip).getByRole("button", { name: new RegExp(ORIENTATION_TIP_KEEP_PLAYING) });
     expect(keep.className).toContain("min-h-[44px]");

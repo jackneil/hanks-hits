@@ -9,6 +9,7 @@ import { ShellHoldContext } from "../hooks/useShellHold";
 import { useShellOverlayOpen } from "../lib/shellOverlays";
 import { OrientationWarning, preferredOrientationFor } from "./OrientationWarning";
 import { PauseMenu } from "./PauseMenu";
+import { ShellSheetActionsContext } from "./shellSheetActions";
 import { LeaderboardButton } from "./LeaderboardButton";
 import { ClipShellScope, useClipHeaderSlot, useClipShellUi } from "@/shared/clips";
 import { FullscreenButton } from "./FullscreenButton";
@@ -26,6 +27,7 @@ import {
   type HeaderLogin,
 } from "../lib/headerBudget";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { useSecondFingerClick } from "../lib/input";
 
 export type RestartConfirmationPolicy = "always" | "never";
 
@@ -58,6 +60,15 @@ interface GameShellProps {
   onShellOverlayOpen?: () => void;
   /** The last shell overlay closed (or the tab came back). */
   onShellOverlayClose?: () => void;
+  /**
+   * The game has its own pause screen on GameSheet with `shellActions`
+   * (no shell pause menu). With `inPlay`, a phone moves Leaderboard and
+   * Sign In off the header into that sheet during play, as it does for the
+   * shell pause menu.
+   */
+  ownPauseSheet?: boolean;
+  /** A run is live (for a game with ownPauseSheet; the shell cannot know). */
+  inPlay?: boolean;
   showHomeButton?: boolean;
   showPauseButton?: boolean;
   /** Hide the sign-in control (e.g. on the login/signup pages themselves) */
@@ -136,11 +147,11 @@ const HEADER_BUTTON =
   "min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl hover:scale-110 transition-transform active:scale-95 touch-manipulation";
 
 /**
- * The header bar: 48 px, and 40 px on a short screen (a phone held
- * sideways, the short: variant in globals.css). Never keyed on the width:
- * an 844 px wide phone held sideways is not a tablet.
+ * The header bar: --shell-header-h in globals.css, 48 px, and 44 px on a
+ * short screen (a phone held sideways, the short: variant). Never keyed on
+ * the width: an 844 px wide phone held sideways is not a tablet.
  */
-export const HEADER_HEIGHT_CLASSES = "h-12 short:h-10";
+export const HEADER_HEIGHT_CLASSES = "h-[var(--shell-header-h)]";
 
 /**
  * The play box: the screen under the header, in dvh, so it is the real
@@ -152,7 +163,7 @@ export const HEADER_HEIGHT_CLASSES = "h-12 short:h-10";
  * bottom sheet shows (bottomSheetSpace.ts), the box ends above it.
  */
 export const PLAY_BOX_CLASSES =
-  "relative w-full h-[calc(100dvh-3rem-var(--bottom-sheet-space,0px))] short:h-[calc(100dvh-2.5rem-var(--bottom-sheet-space,0px))] overflow-y-auto overscroll-contain select-none [-webkit-touch-callout:none] data-[fitted]:overflow-hidden data-[fitted]:touch-none";
+  "relative w-full h-[calc(100dvh-var(--shell-header-h)-var(--bottom-sheet-space,0px))] overflow-y-auto overscroll-contain select-none [-webkit-touch-callout:none] data-[fitted]:overflow-hidden data-[fitted]:touch-none";
 
 export function GameShell({
   children,
@@ -167,6 +178,8 @@ export function GameShell({
   onResume,
   onShellOverlayOpen,
   onShellOverlayClose,
+  ownPauseSheet = false,
+  inPlay = false,
   showHomeButton = true,
   showPauseButton = true,
   showLoginButton = true,
@@ -231,6 +244,8 @@ export function GameShell({
           pauseMenuChildren={pauseMenuChildren}
           clipSlot={clipSlot}
           resultChipReady={resultChipReady}
+          ownPauseSheet={ownPauseSheet}
+          inPlay={inPlay}
           isPaused={isPaused}
           resume={resume}
           togglePause={togglePause}
@@ -288,6 +303,8 @@ function GameShellFrame({
   pauseMenuChildren,
   clipSlot,
   resultChipReady,
+  ownPauseSheet = false,
+  inPlay = false,
   isPaused,
   resume,
   togglePause,
@@ -307,6 +324,9 @@ function GameShellFrame({
   const viewportHeight = useViewportHeight();
   const isCoarse = useCoarsePointer();
   const routeId = useRouteId();
+  // Pause works for a tap by the other thumb while one thumb holds a pedal
+  // or FIRE (a browser makes no click for a second finger).
+  const pauseTap = useSecondFingerClick<HTMLButtonElement>(togglePause);
 
   // Tell sheets and nudges that a game is on screen (gameBreaks.ts). A
   // layout effect runs before paint, so a nudge rendered in the same
@@ -357,8 +377,7 @@ function GameShellFrame({
     viewportWidth !== null &&
     viewportHeight !== null &&
     isPhoneScreen(viewportWidth, viewportHeight) &&
-    hasPauseSlot &&
-    canPause;
+    ((hasPauseSlot && canPause) || (ownPauseSheet && inPlay));
 
   // The server has no viewport: it renders the wide layout, and the
   // client corrects it on the first render after hydration.
@@ -374,230 +393,246 @@ function GameShellFrame({
     resultChipReady,
     hasEmoji: !!titleEmoji,
     phonePlay,
+    ownPauseSheet,
   });
 
+  // A game with its own pause sheet shows the moved controls there
+  // (GameSheet with shellActions); the shell pause menu shows its own.
+  const sheetActions =
+    ownPauseSheet && (layout.leaderboard === "moved" || layout.signIn === "moved") ? (
+      <>
+        {showLeaderboard && layout.leaderboard === "moved" && (
+          <LeaderboardButton appId={appId} variant="full" className="w-full" />
+        )}
+        {layout.signIn === "moved" && <LoginButton variant="menu" />}
+      </>
+    ) : null;
+
+  // dvh, not min-h-screen: 100vh is taller than an iPhone screen with the
+  // Safari toolbars shown, so the page scrolled on every route. The header
+  // room (pt) plus the play box is exactly one screen. A bottom sheet (the
+  // install tip on an app page, bottomSheetSpace.ts) gets its room from
+  // the body's padding-bottom, so the root leaves that much out: a full
+  // 100dvh root plus the padding made every app route 232 px taller than
+  // the screen, and the play box slid under the header.
   return (
-    // dvh, not min-h-screen: 100vh is taller than an iPhone screen with the
-    // Safari toolbars shown, so the page scrolled on every route. The header
-    // room (pt) plus the play box is exactly one screen. A bottom sheet (the
-    // install tip on an app page, bottomSheetSpace.ts) gets its room from
-    // the body's padding-bottom, so the root leaves that much out: a full
-    // 100dvh root plus the padding made every app route 232 px taller than
-    // the screen, and the play box slid under the header.
-    <div className="relative w-full min-h-[calc(100dvh-var(--bottom-sheet-space,0px))] pt-12 short:pt-10">
-      {/* Header bar. A solid background: the old backdrop-blur was a
-          glassmorphism tell, and a backdrop-filter also becomes the
-          containing block for position: fixed children, which trapped
-          sheets opened from header buttons inside the 48 px bar. */}
-      <div
-        data-testid="game-shell-header"
-        className={`fixed top-0 left-0 right-0 ${HEADER_HEIGHT_CLASSES} bg-slate-950 border-b border-white/10 z-[1000] flex items-center justify-between px-3 md:px-4 ${headerClassName}`}
-      >
-        {/* Home button (spacer keeps the title balanced when hidden) */}
-        {showHomeButton ? (
-          <button
-            onClick={goHome}
-            className={HEADER_BUTTON}
-            aria-label="Back to games"
-            title="Go Home"
-          >
-            🏠
-          </button>
-        ) : (
-          <div className="w-11 shrink-0" />
-        )}
-
-        {/* Game name — a flex child between the clusters (not absolutely
-            centered: a blind left-1/2 + max-w-[50%] title overlapped the
-            three-button cluster on long names at 375px). Below 480 px it
-            is the game's emoji; the full name stays the accessible name. */}
-        {/* Every title region is `relative`: the clip confirmation (plan
-            11.1, z-1000 like the header) lies over the title, never over a
-            control, and takes no taps. */}
-        {layout.title === "text" && (
-          <div className="relative flex-1 min-w-0 px-2 text-center text-white font-bold text-lg md:text-xl truncate">
-            {gameName}
-            {clip && <clip.InPlayConfirm />}
-          </div>
-        )}
-        {(layout.title === "emoji" || layout.title === "emojiTight") && (
-          <div
-            data-testid="header-title"
-            className={`relative flex-1 min-w-0 flex items-center justify-center ${
-              layout.title === "emoji" ? "px-2" : ""
-            }`}
-          >
-            {/* The tight title drops the padding and uses a smaller glyph,
-                so it stays visible on the narrowest phones (step 6). */}
-            <span
-              role="img"
-              aria-label={gameName}
-              title={gameName}
-              className={`${layout.title === "emoji" ? "text-2xl" : "text-xl"} leading-none`}
-            >
-              {titleEmoji}
-            </span>
-            {clip && <clip.InPlayConfirm />}
-          </div>
-        )}
-        {layout.title === "screenReaderOnly" && (
-          <div className="relative flex-1 min-w-0">
-            <span className="sr-only">{gameName}</span>
-            {clip && <clip.InPlayConfirm />}
-          </div>
-        )}
-
-        {/* Right side buttons */}
+    <ShellSheetActionsContext.Provider value={sheetActions}>
+      <div className="relative w-full min-h-[calc(100dvh-var(--bottom-sheet-space,0px))] pt-[var(--shell-header-h)]">
+        {/* Header bar. A solid background: the old backdrop-blur was a
+            glassmorphism tell, and a backdrop-filter also becomes the
+            containing block for position: fixed children, which trapped
+            sheets opened from header buttons inside the 48 px bar. */}
         <div
-          data-testid="game-shell-controls"
-          className={`flex shrink-0 items-center ${layout.compactGap ? "gap-0" : "gap-1"}`}
+          data-testid="game-shell-header"
+          className={`fixed top-0 left-0 right-0 ${HEADER_HEIGHT_CLASSES} bg-slate-950 border-b border-white/10 z-[1000] flex items-center justify-between px-3 md:px-4 ${headerClassName}`}
         >
-          {/* Leaderboard button */}
-          {showLeaderboard && layout.leaderboard === "header" && (
-            <LeaderboardButton appId={appId} variant="icon" />
-          )}
-
-          {/* Fullscreen lives IN the header row so it can never render
-              underneath it (games used to float their own copy at top-4) */}
-          {layout.fullscreen !== "moved" && <FullscreenButton variant="header" />}
-
-          {/* Restart button */}
-          {onRestart && layout.restart === "header" && (
-            <RestartGameButton
-              ref={restartTriggerRef}
-              onClick={() => {
-                if (restartConfirmation === "never") {
-                  onRestart();
-                } else {
-                  setIsRestartConfirmationOpen(true);
-                }
-              }}
-            />
-          )}
-
-          {/* Clip button slot: one sized slot for every clip state */}
-          {hasClipSlot && (
-            <div
-              data-testid="header-clip-slot"
-              className="w-11 h-11 shrink-0 flex items-center justify-center"
+          {/* Home button (spacer keeps the title balanced when hidden) */}
+          {showHomeButton ? (
+            <button
+              onClick={goHome}
+              className={HEADER_BUTTON}
+              aria-label="Back to games"
+              title="Go Home"
             >
-              {clipButton}
+              🏠
+            </button>
+          ) : (
+            <div className="w-11 shrink-0" />
+          )}
+
+          {/* Game name — a flex child between the clusters (not absolutely
+              centered: a blind left-1/2 + max-w-[50%] title overlapped the
+              three-button cluster on long names at 375px). Below 480 px it
+              is the game's emoji; the full name stays the accessible name. */}
+          {/* Every title region is `relative`: the clip confirmation (plan
+              11.1, z-1000 like the header) lies over the title, never over a
+              control, and takes no taps. */}
+          {layout.title === "text" && (
+            <div className="relative flex-1 min-w-0 px-2 text-center text-white font-bold text-lg md:text-xl truncate">
+              {gameName}
+              {clip && <clip.InPlayConfirm />}
+            </div>
+          )}
+          {(layout.title === "emoji" || layout.title === "emojiTight") && (
+            <div
+              data-testid="header-title"
+              className={`relative flex-1 min-w-0 flex items-center justify-center ${
+                layout.title === "emoji" ? "px-2" : ""
+              }`}
+            >
+              {/* The tight title drops the padding and uses a smaller glyph,
+                  so it stays visible on the narrowest phones (step 6). */}
+              <span
+                role="img"
+                aria-label={gameName}
+                title={gameName}
+                className={`${layout.title === "emoji" ? "text-2xl" : "text-xl"} leading-none`}
+              >
+                {titleEmoji}
+              </span>
+              {clip && <clip.InPlayConfirm />}
+            </div>
+          )}
+          {layout.title === "screenReaderOnly" && (
+            <div className="relative flex-1 min-w-0">
+              <span className="sr-only">{gameName}</span>
+              {clip && <clip.InPlayConfirm />}
             </div>
           )}
 
-          {/* Pause button. Between runs its slot stays reserved, so the
-              controls beside it do not jump when a run starts or ends. */}
-          {hasPauseSlot &&
-            (canPause ? (
-              <button
-                onClick={togglePause}
-                className={HEADER_BUTTON}
-                aria-label={isPaused ? "Resume game" : "Pause game"}
-                title="Pause (ESC)"
-              >
-                ⏸️
-              </button>
-            ) : layout.fullscreen === "moved" ? (
-              // Between runs there is no pause menu to hold Fullscreen
-              // (step 5), so it takes the free pause slot. Same 44 px, so
-              // nothing moves when the run starts and Pause comes back.
+          {/* Right side buttons */}
+          <div
+            data-testid="game-shell-controls"
+            className={`flex shrink-0 items-center ${layout.compactGap ? "gap-0" : "gap-1"}`}
+          >
+            {/* Leaderboard button */}
+            {showLeaderboard && layout.leaderboard === "header" && (
+              <LeaderboardButton appId={appId} variant="icon" />
+            )}
+
+            {/* Fullscreen lives IN the header row so it can never render
+                underneath it (games used to float their own copy at top-4) */}
+            {layout.fullscreen !== "moved" && <FullscreenButton variant="header" />}
+
+            {/* Restart button */}
+            {onRestart && layout.restart === "header" && (
+              <RestartGameButton
+                ref={restartTriggerRef}
+                onClick={() => {
+                  if (restartConfirmation === "never") {
+                    onRestart();
+                  } else {
+                    setIsRestartConfirmationOpen(true);
+                  }
+                }}
+              />
+            )}
+
+            {/* Clip button slot: one sized slot for every clip state */}
+            {hasClipSlot && (
               <div
-                data-testid="header-pause-slot-fullscreen"
+                data-testid="header-clip-slot"
                 className="w-11 h-11 shrink-0 flex items-center justify-center"
               >
-                <FullscreenButton variant="header" />
+                {clipButton}
               </div>
-            ) : (
-              <div
-                data-testid="header-pause-placeholder"
-                aria-hidden="true"
-                className="w-11 h-11 shrink-0"
+            )}
+
+            {/* Pause button. Between runs its slot stays reserved, so the
+                controls beside it do not jump when a run starts or ends. */}
+            {hasPauseSlot &&
+              (canPause ? (
+                <button
+                  type="button"
+                  {...pauseTap}
+                  className={HEADER_BUTTON}
+                  aria-label={isPaused ? "Resume game" : "Pause game"}
+                  title="Pause (ESC)"
+                >
+                  ⏸️
+                </button>
+              ) : layout.fullscreen === "moved" ? (
+                // Between runs there is no pause menu to hold Fullscreen
+                // (step 5), so it takes the free pause slot. Same 44 px, so
+                // nothing moves when the run starts and Pause comes back.
+                <div
+                  data-testid="header-pause-slot-fullscreen"
+                  className="w-11 h-11 shrink-0 flex items-center justify-center"
+                >
+                  <FullscreenButton variant="header" />
+                </div>
+              ) : (
+                <div
+                  data-testid="header-pause-placeholder"
+                  aria-hidden="true"
+                  className="w-11 h-11 shrink-0"
+                />
+              ))}
+
+            {/* Login (rightmost, matches the page Header): Sign In for guests,
+                avatar dropdown for signed-in users. Same control everywhere.
+                On a phone during play the guest Sign In is in the pause menu. */}
+            {showLoginButton && layout.signIn !== "moved" && (
+              <LoginButton showLabelOnMobile={layout.signInLabel} />
+            )}
+          </div>
+
+          {/* No trailing spacer: the flex-1 title fills the space between the
+              clusters, so a third flex child would just squeeze it (the old
+              spacer pushed the fullscreen button into the middle of the bar,
+              overlapping the then-absolutely-centered title — found by /qa). */}
+        </div>
+
+        {/* The orientation tip: once per session, never over the start card,
+            and the game is held while it shows (OrientationWarning.tsx). */}
+        {preferredOrientation && (
+          <OrientationWarning preferred={preferredOrientation} gameId={orientationGameId} />
+        )}
+
+        {/* The play box: the screen under the header (PLAY_BOX_CLASSES). */}
+        <PlayBoxContext.Provider value={playBoxRef}>
+          <div ref={playBoxRef} data-play-box="" data-testid="game-shell-play-box" className={PLAY_BOX_CLASSES}>
+            {children}
+          </div>
+        </PlayBoxContext.Provider>
+
+        {/* The in-play toast slot (plan 11.4): the new-clip chip, the Record
+            pill and tap replies, directly under the header. It portals to
+            document.body at z-1050. */}
+        {clip && <clip.ToastSlot />}
+
+        {/* Pause menu overlay */}
+        {canPause && (
+          <PauseMenu
+            isOpen={isPaused}
+            onResume={resume}
+            onHome={goHome}
+            onRestart={onRestart}
+            onRestartConfirmed={() => {
+              // The same order as the header's question: let the old run go
+              // (the question's hold, then the menu), THEN restart, so no
+              // resume reaches the new run after it started.
+              releaseShellOverlay();
+              resume();
+              onRestart?.();
+            }}
+            restartConfirmation={restartConfirmation}
+            restartConfirmationMessage={restartConfirmationMessage}
+            gameName={gameName}
+          >
+            {/* The menu reads every button here out loud, in this order
+                (PauseMenu reads the visible label of each child button, so
+                the "Clips" entry is spoken too, plan 11.4) */}
+            {clip && <clip.ClipsPauseEntry />}
+            {showLeaderboard && (
+              <LeaderboardButton
+                appId={appId}
+                variant="full"
+                className="w-full"
               />
-            ))}
+            )}
+            {layout.fullscreen === "moved" && <FullscreenButton variant="menu" />}
+            {layout.signIn === "moved" && <LoginButton variant="menu" />}
+            {pauseMenuChildren}
+          </PauseMenu>
+        )}
 
-          {/* Login (rightmost, matches the page Header): Sign In for guests,
-              avatar dropdown for signed-in users. Same control everywhere.
-              On a phone during play the guest Sign In is in the pause menu. */}
-          {showLoginButton && layout.signIn !== "moved" && (
-            <LoginButton showLabelOnMobile={layout.signInLabel} />
-          )}
-        </div>
-
-        {/* No trailing spacer: the flex-1 title fills the space between the
-            clusters, so a third flex child would just squeeze it (the old
-            spacer pushed the fullscreen button into the middle of the bar,
-            overlapping the then-absolutely-centered title — found by /qa). */}
-      </div>
-
-      {/* The orientation tip: once per session, never over the start card,
-          and the game is held while it shows (OrientationWarning.tsx). */}
-      {preferredOrientation && (
-        <OrientationWarning preferred={preferredOrientation} gameId={orientationGameId} />
-      )}
-
-      {/* The play box: the screen under the header (PLAY_BOX_CLASSES). */}
-      <PlayBoxContext.Provider value={playBoxRef}>
-        <div ref={playBoxRef} data-play-box="" data-testid="game-shell-play-box" className={PLAY_BOX_CLASSES}>
-          {children}
-        </div>
-      </PlayBoxContext.Provider>
-
-      {/* The in-play toast slot (plan 11.4): the new-clip chip, the Record
-          pill and tap replies, directly under the header. It portals to
-          document.body at z-1050. */}
-      {clip && <clip.ToastSlot />}
-
-      {/* Pause menu overlay */}
-      {canPause && (
-        <PauseMenu
-          isOpen={isPaused}
-          onResume={resume}
-          onHome={goHome}
-          onRestart={onRestart}
-          onRestartConfirmed={() => {
-            // The same order as the header's question: let the old run go
-            // (the question's hold, then the menu), THEN restart, so no
-            // resume reaches the new run after it started.
-            releaseShellOverlay();
-            resume();
-            onRestart?.();
-          }}
-          restartConfirmation={restartConfirmation}
-          restartConfirmationMessage={restartConfirmationMessage}
+        <RestartConfirmationDialog
+          isOpen={isRestartConfirmationOpen}
           gameName={gameName}
-        >
-          {/* The menu reads every button here out loud, in this order
-              (PauseMenu reads the visible label of each child button, so
-              the "Clips" entry is spoken too, plan 11.4) */}
-          {clip && <clip.ClipsPauseEntry />}
-          {showLeaderboard && (
-            <LeaderboardButton
-              appId={appId}
-              variant="full"
-              className="w-full"
-            />
-          )}
-          {layout.fullscreen === "moved" && <FullscreenButton variant="menu" />}
-          {layout.signIn === "moved" && <LoginButton variant="menu" />}
-          {pauseMenuChildren}
-        </PauseMenu>
-      )}
-
-      <RestartConfirmationDialog
-        isOpen={isRestartConfirmationOpen}
-        gameName={gameName}
-        message={restartConfirmationMessage}
-        triggerRef={restartTriggerRef}
-        onCancel={() => setIsRestartConfirmationOpen(false)}
-        onConfirm={() => {
-          // The question held the game: let the old run go first, so the
-          // new run never hears a resume after it started.
-          releaseShellOverlay();
-          setIsRestartConfirmationOpen(false);
-          onRestart?.();
-          if (isPaused) resume();
-        }}
-      />
-    </div>
+          message={restartConfirmationMessage}
+          triggerRef={restartTriggerRef}
+          onCancel={() => setIsRestartConfirmationOpen(false)}
+          onConfirm={() => {
+            // The question held the game: let the old run go first, so the
+            // new run never hears a resume after it started.
+            releaseShellOverlay();
+            setIsRestartConfirmationOpen(false);
+            onRestart?.();
+            if (isPaused) resume();
+          }}
+        />
+      </div>
+    </ShellSheetActionsContext.Provider>
   );
 }

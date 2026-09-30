@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { useGameBreaks } from "../../lib/gameBreaks";
-import { GAME_SHEET_ACTION, GAME_SHEET_Z_INDEX, GameSheet } from "../GameSheet";
+import { GAME_SHEET_ACTION, GAME_SHEET_Z_INDEX, GameSheet, shortActionColumnPx } from "../GameSheet";
 
 /**
  * The shared card for a game's own screens between runs (phone UX audit
@@ -72,8 +72,7 @@ describe("GameSheet", () => {
     expect(GAME_SHEET_Z_INDEX).toBe(60);
     expect(sheet.className).toContain("z-[60]");
     expect(sheet.className).toMatch(/(^|\s)fixed(\s|$)/);
-    expect(sheet.className).toMatch(/(^|\s)top-12(\s|$)/);
-    expect(sheet.className).toMatch(/(^|\s)short:top-10(\s|$)/);
+    expect(sheet.className.split(/\s+/)).toContain("top-[var(--shell-header-h)]");
     expect(sheet.className).not.toMatch(/inset-0|items-center/);
     expect(sheet.className).toMatch(/(^|\s)overflow-y-auto(\s|$)/);
     expect(sheet.parentElement).toBe(document.body);
@@ -194,5 +193,58 @@ describe("GameSheet", () => {
     const classes = [sheet, ...Array.from(sheet.querySelectorAll("*"))].map((el) => el.className).join(" ");
     expect(classes).toContain("bg-base-100");
     expect(classes).not.toMatch(/gradient|backdrop-blur|border-l-|border-t-|purple|violet/);
+  });
+});
+
+describe("GameSheet action column on a short screen", () => {
+  // A sheet with its own actions plus the moved header controls was one
+  // 404 px column on a 267 px screen sideways: Read it to me sat under the
+  // header and Sign In fell off the bottom (Hill Climb, 667x311).
+  function renderWithActions(count: number, roomPx: number) {
+    const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.getAttribute("role") === "dialog" ? roomPx : 0;
+    });
+    render(
+      <GameSheet
+        title="Paused"
+        actions={
+          <>
+            {Array.from({ length: count }, (_, i) => (
+              <button key={i} type="button" className={GAME_SHEET_ACTION}>
+                Action {i + 1}
+              </button>
+            ))}
+          </>
+        }
+      />
+    );
+    height.mockRestore();
+    return screen.getByTestId("game-sheet-actions");
+  }
+
+  it("goes two to a row when one column is taller than the room under the header", async () => {
+    installSpeechMock();
+    mockShort(true);
+    // 6 actions + read-aloud = 7 rows: 7*44 + 6*8 + 24 = 380 px > 243 px.
+    const actions = renderWithActions(6, 267);
+    expect(actions).toHaveAttribute("data-two-columns");
+    expect(actions.className).toMatch(/(^|\s)short:grid-cols-2(\s|$)/);
+    expect((await within(actions).findByTestId("read-aloud-button")).className).toMatch(/(^|\s)short:col-span-2(\s|$)/);
+    // The main action (the first) keeps a full row, so its words fit.
+    expect(actions.className).toContain("short:[&>[data-sheet-actions]>:first-child]:col-span-2");
+    expect(within(actions).getByText("Action 1").parentElement).toHaveAttribute("data-sheet-actions");
+  });
+
+  it("stays one column when it fits, and on a tall screen", () => {
+    mockShort(true);
+    expect(renderWithActions(2, 267)).not.toHaveAttribute("data-two-columns");
+    cleanup();
+    mockShort(false);
+    expect(renderWithActions(6, 267)).not.toHaveAttribute("data-two-columns");
+  });
+
+  it("measures one column of actions as 44 px each, 8 px apart, 24 px of padding", () => {
+    expect(shortActionColumnPx(1)).toBe(68);
+    expect(shortActionColumnPx(7)).toBe(7 * 44 + 6 * 8 + 24);
   });
 });

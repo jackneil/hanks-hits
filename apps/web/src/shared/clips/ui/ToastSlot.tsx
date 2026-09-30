@@ -304,7 +304,7 @@ export function ToastSlot() {
       {showStrip && (
         <div
           data-testid="clip-toast-slot"
-          className="pointer-events-none fixed inset-x-0 top-12 z-[1050] flex flex-col items-end gap-2 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-2 short:top-10"
+          className="pointer-events-none fixed inset-x-0 top-[var(--shell-header-h)] z-[1050] flex flex-col items-end gap-2 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-2"
         >
           {(showChip || recording) && (
             <div data-testid="clip-toast-row" className="flex items-center gap-2" style={{ maxWidth: plan.available }}>

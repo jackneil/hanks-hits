@@ -1,12 +1,13 @@
 "use client";
 
-import { useId, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { useShortViewport } from "../hooks/useShortViewport";
 import { useRegisterBreakSlot } from "../lib/gameBreaks";
 import { joinSpoken, spokenLabelsIn, spokenWordsOf } from "../lib/spokenLabels";
 import { ReadAloudButton } from "./ReadAloudButton";
+import { useShellSheetActions } from "./shellSheetActions";
 
 /**
  * The shared card for a game's own screens between runs: game over, level
@@ -18,7 +19,7 @@ import { ReadAloudButton } from "./ReadAloudButton";
  * Monster Truck's Resume showed 0 px (phone UX audit 2026-09-29, S3).
  *
  * Contract:
- * - It covers the screen under the header (top-12, short:top-10), never
+ * - It covers the screen under the header (top: --shell-header-h), never
  *   the header: Home and Pause stay one tap away.
  * - The card has a header (emoji, title), a body that scrolls when the
  *   screen is short, and an action column that never scrolls out of view.
@@ -61,6 +62,34 @@ export interface GameSheetProps {
   testId?: string;
   /** Extra classes for the card (a game's own colors). */
   className?: string;
+  /**
+   * A game's own pause screen: show the header controls GameShell moved off
+   * the header during play on a phone (Leaderboard, Sign In; headerBudget.ts
+   * step 0), after the game's own actions. The game also passes
+   * ownPauseSheet and inPlay to GameShell.
+   */
+  shellActions?: boolean;
+}
+
+/**
+ * The action column on a short screen: each action is 44 px (short:h-11)
+ * with 8 px between them (short:gap-2) and 12 px of padding at each end
+ * (short:p-3). When one column of that is taller than the room under the
+ * header, the actions go two to a row, as the shell pause menu does. The
+ * read-aloud button and the sheet's main action (its first) keep a full
+ * row each, so the main action stays the biggest and its words fit. A game sheet with its own actions plus the
+ * moved header controls (Leaderboard, Sign In) is 7 rows, 404 px, on a
+ * 267 px screen.
+ */
+const SHORT_ACTION_PX = 44;
+const SHORT_ACTION_GAP_PX = 8;
+const SHORT_COLUMN_PAD_PX = 24;
+const ACTION_SELECTOR = "button, a[href]";
+
+/** One column of `count` actions, in px, on a short screen. */
+export function shortActionColumnPx(count: number): number {
+  if (count <= 0) return SHORT_COLUMN_PAD_PX;
+  return count * SHORT_ACTION_PX + (count - 1) * SHORT_ACTION_GAP_PX + SHORT_COLUMN_PAD_PX;
 }
 
 function subscribeToNothing(): () => void {
@@ -79,12 +108,21 @@ export function GameSheet({
   spokenText,
   testId = "game-sheet",
   className = "",
+  shellActions = false,
 }: GameSheetProps) {
   const isClient = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const isShort = useShortViewport();
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const actionColumnRef = useRef<HTMLDivElement>(null);
+  const [measuredTwoColumns, setTwoColumns] = useState(false);
+  // Two columns only on a short screen; a tall screen never uses the last
+  // short-screen measurement.
+  const twoColumns = isShort && measuredTwoColumns;
   const titleId = useId();
   const wordsRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const shellActionsRef = useRef<HTMLDivElement>(null);
+  const movedHeaderControls = useShellSheetActions();
   const { slotRef: breakSlotRef, readNotes: readBreakNotes } = useRegisterBreakSlot();
 
   // Built at tap time: the title, the words of the body, then the label of
@@ -95,13 +133,40 @@ export function GameSheet({
         ? spokenText()
         : (spokenText ??
           joinSpoken([title, spokenWordsOf(wordsRef.current), ...spokenLabelsIn(actionsRef.current)]));
-    return joinSpoken([own, ...readBreakNotes()]);
+    // The moved header controls are read after the game's own words, even
+    // when the game wrote its own spokenText.
+    return joinSpoken([own, ...spokenLabelsIn(shellActionsRef.current), ...readBreakNotes()]);
   };
+
+  // Measured before paint, so the column never shows one frame too tall.
+  useLayoutEffect(() => {
+    const overlay = overlayRef.current;
+    const column = actionColumnRef.current;
+    if (!isShort || !overlay || !column) return;
+    const measure = () => {
+      // No layout (a test DOM): keep one column.
+      if (overlay.clientHeight === 0) {
+        setTwoColumns(false);
+        return;
+      }
+      const style = getComputedStyle(overlay);
+      const room = overlay.clientHeight - parseFloat(style.paddingTop || "0") - parseFloat(style.paddingBottom || "0");
+      const count = column.querySelectorAll(ACTION_SELECTOR).length;
+      setTwoColumns(shortActionColumnPx(count) > room);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(overlay);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [isShort, isClient, actions, shellActions, movedHeaderControls]);
 
   if (!isClient) return null;
 
   return createPortal(
     <div
+      ref={overlayRef}
       data-testid={testId}
       role="dialog"
       aria-modal="true"
@@ -114,9 +179,13 @@ export function GameSheet({
       onMouseUp={stopHere}
       onClick={stopHere}
       onKeyDown={stopHere}
-      className="fixed inset-x-0 bottom-0 top-12 z-[60] flex overflow-y-auto overscroll-contain bg-black/75 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:top-10 short:p-3 short:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] z-[60] flex overflow-y-auto overscroll-contain bg-black/75 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:p-3 short:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
-      <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:max-w-4xl short:flex-row short:items-center short:justify-center short:gap-2">
+      {/* short:h-full gives the row a definite height, so the card's
+          max-h-full holds and a long body scrolls inside the card. Without
+          it a tall body (Monster Truck's Garage) grew the card past the
+          screen and centring pushed its top (the tabs) above the screen. */}
+      <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:h-full short:max-w-4xl short:flex-row short:items-center short:justify-center short:gap-2">
         <div
           data-testid={`${testId}-card`}
           className={`flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-3xl bg-base-100 text-base-content shadow-2xl short:max-w-2xl short:flex-1 short:flex-row ${className}`}
@@ -139,15 +208,26 @@ export function GameSheet({
 
           {/* Actions: pinned, never scroll out of view; beside the body when short */}
           <div
+            ref={actionColumnRef}
             data-testid={`${testId}-actions`}
-            className="flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:w-[45%] short:gap-2 short:p-3 short:[align-self:safe_center]"
+            data-two-columns={twoColumns ? "" : undefined}
+            className={`flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:w-[45%] short:gap-2 short:overflow-y-auto short:p-3 short:[align-self:safe_center] ${
+              twoColumns
+                ? "short:grid short:w-[55%] short:grid-cols-2 short:content-center short:[&_.btn]:text-base short:[&>[data-sheet-actions]>:first-child]:col-span-2"
+                : ""
+            }`}
           >
-            <ReadAloudButton text={readAloudText} className="short:min-h-[44px]" />
+            <ReadAloudButton text={readAloudText} className={`short:min-h-[44px] ${twoColumns ? "short:col-span-2" : ""}`} />
             {/* display: contents keeps the actions in the column; the voice
                 reads only these, not the read-aloud button itself */}
-            <div ref={actionsRef} className="contents">
+            <div ref={actionsRef} data-sheet-actions="" className="contents">
               {actions}
             </div>
+            {shellActions && movedHeaderControls && (
+              <div ref={shellActionsRef} data-testid={`${testId}-shell-actions`} className="contents">
+                {movedHeaderControls}
+              </div>
+            )}
           </div>
         </div>
 
