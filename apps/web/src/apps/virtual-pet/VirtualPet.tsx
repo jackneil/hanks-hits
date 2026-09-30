@@ -195,7 +195,7 @@ export function VirtualPet() {
   return (
     <div
       ref={containerRef}
-      className="flex flex-col items-center min-h-screen bg-amber-50 p-4 select-none"
+      className="flex flex-col items-center min-h-full bg-amber-50 p-4 select-none"
     >
       {/* Header */}
       <div className="w-full max-w-md flex justify-between items-center mb-4">

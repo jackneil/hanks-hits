@@ -116,7 +116,7 @@ export function CookieClickerGame() {
   }, [hasStarted]);
 
   return (
-    <div className="relative min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] lg:h-[calc(100vh-3.5rem)] lg:overflow-hidden bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col">
+    <div className="relative min-h-full lg:h-full lg:overflow-hidden bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

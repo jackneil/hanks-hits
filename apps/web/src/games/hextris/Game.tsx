@@ -372,7 +372,7 @@ export function HextrisGame() {
   return (
     <div
       ref={containerRef}
-      className="relative flex flex-col items-center justify-center min-h-screen bg-slate-900 p-4 select-none"
+      className="relative flex flex-col items-center justify-center min-h-full bg-slate-900 p-4 select-none"
     >
       {/* Shared start screen. It covers the page (it portals to
           document.body), so the short scaled canvas box on a phone cannot

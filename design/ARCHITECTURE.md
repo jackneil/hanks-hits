@@ -474,7 +474,12 @@ selection. A game must not read `window.innerHeight` or use `100vh`,
   control row), an object keeps width and height (gutters beside the
   canvas on a phone held sideways). Nine canvas games scaled by width
   only, so a phone held sideways put the paddle below the screen.
-- A game root uses `h-full` or `min-h-full`, never `min-h-screen`.
+- A game root uses `h-full` or `min-h-full`, never `min-h-screen`. A
+  layer under the header keys its offset on `short:` (`top-12
+  short:top-10`), never on `md:`. A page with no shell (the home page,
+  the profile) uses `min-h-dvh`. `src/__tests__/play-box-roots.test.ts`
+  reads every game, app, route and shared component and fails on a
+  screen-height class or an `md:top-14` offset.
 
 Every button on the site has `touch-action: manipulation` (globals.css),
 so a fast double tap on a game button never zooms the page.

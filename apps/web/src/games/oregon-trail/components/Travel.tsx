@@ -19,7 +19,7 @@ export function Travel() {
   const toNext = nextLm ? nextLm.milesFromStart - st.milesTraveled : 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-900 via-green-800 to-green-900 text-green-100 p-2 md:p-4">
+    <div className="min-h-full bg-gradient-to-b from-green-900 via-green-800 to-green-900 text-green-100 p-2 md:p-4">
       <div className="max-w-4xl mx-auto space-y-4">
         {/* Day header */}
         <div className="text-center">

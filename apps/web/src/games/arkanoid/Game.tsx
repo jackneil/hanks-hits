@@ -397,7 +397,7 @@ export function ArkanoidGame() {
   const waitingToLaunch = gameState === "playing" && balls.some((b) => b.stuck);
 
   return (
-    <div className="flex h-[calc(100vh-3rem)] w-full flex-col bg-slate-900 md:h-[calc(100vh-3.5rem)]">
+    <div className="flex h-full w-full flex-col bg-slate-900">
       {/* Score HUD — the GameShell owns home / title / pause, so this slim
           strip only carries the live score and the sound toggle. */}
       <div className="relative z-10 flex items-center justify-between px-4 py-2">

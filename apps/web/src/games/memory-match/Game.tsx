@@ -381,7 +381,7 @@ export function MemoryMatchGame() {
 
   if (!isClient) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-800 to-purple-900 flex items-center justify-center">
+      <div className="min-h-full bg-gradient-to-b from-blue-800 to-purple-900 flex items-center justify-center">
         <div className="text-white text-2xl">Loading...</div>
       </div>
     );
@@ -397,7 +397,7 @@ export function MemoryMatchGame() {
       store.currentTime <= previousBestTime);
 
   return (
-    <div className="relative min-h-[calc(100vh-3rem)] md:min-h-[calc(100vh-3.5rem)] bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-3">
+    <div className="relative min-h-full bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-3">
       {/* Shared start screen. It covers the page (it portals to
           document.body), so the card and its picker never clip on a phone. */}
       {!hasStarted && (

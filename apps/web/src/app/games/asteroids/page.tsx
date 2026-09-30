@@ -7,7 +7,7 @@ const AsteroidsGameShell = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex items-center justify-center min-h-screen bg-black">
+      <div className="flex items-center justify-center min-h-full bg-black">
         <div className="text-6xl mb-4 animate-bounce">☄️</div>
         <div className="text-2xl text-white animate-pulse">Loading Asteroids...</div>
       </div>

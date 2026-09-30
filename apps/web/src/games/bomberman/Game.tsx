@@ -373,7 +373,7 @@ export function BombermanGame() {
   return (
     <div
       ref={containerRef}
-      className="relative flex flex-col items-center min-h-screen bg-gray-900 p-4 select-none"
+      className="relative flex flex-col items-center min-h-full bg-gray-900 p-4 select-none"
     >
       {/* HUD */}
       <div className="w-full max-w-[624px] flex justify-between items-center mb-2 text-white">

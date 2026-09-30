@@ -476,7 +476,7 @@ export function AsteroidsGame() {
   return (
     <div
       ref={containerRef}
-      className="flex flex-col items-center justify-center min-h-screen bg-black p-4 select-none"
+      className="flex flex-col items-center justify-center min-h-full bg-black p-4 select-none"
     >
       {/* Stats Bar: one line at every width, so the canvas never moves
           when a number grows (a new best at game over). */}

@@ -8,7 +8,7 @@ const JokeGenerator = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="min-h-screen bg-gradient-to-b from-yellow-300 via-yellow-400 to-orange-400 flex flex-col items-center justify-center">
+      <div className="min-h-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-orange-400 flex flex-col items-center justify-center">
         <div className="text-6xl mb-4 animate-bounce">&#x1F921;</div>
         <h1 className="text-4xl font-bold text-purple-800 mb-4">Joke Generator</h1>
         <div className="w-64 h-2 bg-purple-900/30 rounded-full overflow-hidden">

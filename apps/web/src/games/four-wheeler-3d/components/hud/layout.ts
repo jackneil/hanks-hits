@@ -7,7 +7,7 @@
  * header covers it. Every HUD piece uses this one offset, so they all line up
  * and a change to the header only has to be made here.
  */
-export const HUD_TOP = "top-14 md:top-16";
+export const HUD_TOP = "top-14";
 
 /** The side margins the HUD keeps, so nothing touches the screen edge. */
 export const HUD_LEFT = "left-3";

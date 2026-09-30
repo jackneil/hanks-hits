@@ -3,7 +3,7 @@ import { Header } from "@/shared/components/Header";
 
 export default function NotFound() {
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950">
+    <div className="flex min-h-dvh flex-col bg-slate-950">
       <Header />
       <main className="relative flex flex-1 flex-col items-center justify-center gap-8 overflow-hidden px-6 py-16 text-center">
       {/* Soft glows to match the home page adventure vibe */}

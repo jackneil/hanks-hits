@@ -163,7 +163,7 @@ export function ChessGame() {
   return (
     // px on the base breakpoint is trimmed so the 8-wide board keeps >=44px
     // squares at a 375px viewport; full p-4 padding is restored at md+
-    <div className="relative min-h-screen bg-gradient-to-b from-emerald-800 to-emerald-950 px-2 py-4 md:px-4 flex flex-col items-center justify-center gap-4">
+    <div className="relative min-h-full bg-gradient-to-b from-emerald-800 to-emerald-950 px-2 py-4 md:px-4 flex flex-col items-center justify-center gap-4">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

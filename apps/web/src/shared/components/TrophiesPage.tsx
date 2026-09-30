@@ -16,7 +16,7 @@ export function TrophiesPage() {
   const { status } = useSession();
 
   return (
-    <div className="min-h-screen bg-blue-800 pb-8">
+    <div className="min-h-dvh bg-blue-800 pb-8">
       <Header title="Trophy Case" titleIcon="🏆" />
 
       <TrophyCase />

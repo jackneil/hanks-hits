@@ -33,7 +33,7 @@ export function MobileControls({
     // kid could not see or tap them.
     <div
       data-testid="monster-truck-mobile-controls"
-      className="fixed inset-x-0 bottom-0 top-12 md:top-14 pointer-events-none z-50"
+      className="fixed inset-x-0 bottom-0 top-12 short:top-10 pointer-events-none z-50"
     >
       {/* TILT toggle, centered, with a fixed width and one place in both
           modes, so it never moves out from under the kid's thumb. It stays

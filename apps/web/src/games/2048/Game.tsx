@@ -375,7 +375,7 @@ export function Game2048() {
   }, [status, forceSync]);
 
   return (
-    <div className="min-h-screen bg-[#faf8ef] p-4 flex flex-col items-center justify-center">
+    <div className="min-h-full bg-[#faf8ef] p-4 flex flex-col items-center justify-center">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

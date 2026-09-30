@@ -301,7 +301,7 @@ export function DrumMachine() {
   return (
     <div
       ref={containerRef}
-      className="flex flex-col items-center min-h-screen bg-slate-900 p-4 select-none"
+      className="flex flex-col items-center min-h-full bg-slate-900 p-4 select-none"
     >
       {/* Header — title now lives in the shell bar, so no in-app <h1> here */}
       <div className="text-center mb-4">

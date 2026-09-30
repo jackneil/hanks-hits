@@ -9,7 +9,7 @@ const CookieClickerGame = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="min-h-screen bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col items-center justify-center">
+      <div className="min-h-full bg-gradient-to-b from-amber-100 to-amber-200 flex flex-col items-center justify-center">
         <div className="text-9xl mb-4 animate-bounce">🍪</div>
         <h1 className="text-4xl font-bold text-amber-800 mb-4">Cookie Clicker</h1>
         <div className="w-64 h-2 bg-amber-300 rounded-full overflow-hidden">

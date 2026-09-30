@@ -591,7 +591,7 @@ export function BreakoutGame() {
   }, [status, forceSync]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-900 via-purple-900 to-indigo-950 p-4 flex flex-col items-center justify-center gap-4">
+    <div className="min-h-full bg-gradient-to-b from-indigo-900 via-purple-900 to-indigo-950 p-4 flex flex-col items-center justify-center gap-4">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

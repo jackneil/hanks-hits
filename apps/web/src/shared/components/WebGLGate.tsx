@@ -28,7 +28,7 @@ export function detectWebGL(): boolean {
 
 export function WebGLFallback({ gameName }: { gameName: string }) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-6 text-center bg-slate-900 text-white">
+    <div className="min-h-full flex flex-col items-center justify-center gap-4 px-6 text-center bg-slate-900 text-white">
       <div className="text-7xl" aria-hidden>
         🛠️
       </div>

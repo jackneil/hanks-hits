@@ -132,7 +132,7 @@ export function WordleGame() {
   };
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="relative min-h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
       <IOSInstallPrompt />
       <TutorialModal />
 

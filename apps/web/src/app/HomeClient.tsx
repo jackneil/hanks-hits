@@ -158,7 +158,7 @@ export function HomeClient({ categories }: HomeClientProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 overflow-x-hidden">
+    <div className="min-h-dvh bg-slate-950 overflow-x-hidden">
       <Header title={SITE.name} titleIcon={SITE.emoji} showBackButton={false} />
 
       {/* Hero Section - Playful & Energetic */}

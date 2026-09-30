@@ -18,12 +18,13 @@ interface FourWheelerAdventureGameProps {
  * asset and shown full-screen in an iframe rather than ported to React,
  * to preserve exact behavior with zero risk of gameplay regressions.
  *
- * Layout note: GameShell renders a fixed, translucent header
- * (h-12 / md:h-14) above all game content. Hank's game draws its own HUD
- * (score/speed badges) at a fixed `top: 14px` *inside its own document*,
- * so if this iframe covered the full viewport, the shell header would
- * sit on top of and obscure that HUD. Instead we anchor the iframe just
- * below the header (top-12 / md:top-14) so nothing overlaps.
+ * Layout note: GameShell renders a fixed header (h-12 short:h-10) above
+ * all game content. Hank's game draws its own HUD (score/speed badges) at
+ * a fixed `top: 14px` *inside its own document*, so if this iframe covered
+ * the full viewport, the shell header would sit on top of and obscure that
+ * HUD. Instead the root fills the shell's play box (absolute inset-0 in
+ * the box, which starts under the header at any header height), so
+ * nothing overlaps and the page is never taller than the screen.
  *
  * Framing note: the site's global security headers send
  * `X-Frame-Options: DENY` / `frame-ancestors 'none'` on every route
@@ -85,7 +86,7 @@ export function FourWheelerAdventureGame({
   }, [restartNonce]);
 
   return (
-    <div className="fixed left-0 right-0 bottom-0 top-12 md:top-14 bg-[#1f6b3a]">
+    <div className="absolute inset-0 bg-[#1f6b3a]">
       {hasStarted && !isReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#1f6b3a] z-10">
           <div className="text-6xl mb-4 animate-bounce">🐕</div>

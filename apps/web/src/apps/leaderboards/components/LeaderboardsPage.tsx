@@ -117,7 +117,7 @@ export function LeaderboardsPage() {
   const selectedGameMeta = getGameMetadata(selectedGame);
 
   return (
-    <div className="min-h-screen bg-slate-950 overflow-x-hidden relative">
+    <div className="min-h-dvh bg-slate-950 overflow-x-hidden relative">
       {/* Animated gradient background */}
       <div className="fixed inset-0 bg-gradient-to-br from-purple-900/30 via-slate-950 to-cyan-900/30 pointer-events-none" />
 

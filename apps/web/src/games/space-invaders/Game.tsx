@@ -985,7 +985,7 @@ export function SpaceInvadersGame() {
   // Main Render
   // ============================================
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-start p-4">
+    <div className="min-h-full bg-black flex flex-col items-center justify-start p-4">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

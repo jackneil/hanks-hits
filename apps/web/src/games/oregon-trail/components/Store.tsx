@@ -15,7 +15,7 @@ export function Store() {
     { id: "tongue", name: "Spare Tongue", price: STORE_PRICES.tongue, unit: 1 },
   ];
   return (
-    <div className="min-h-screen bg-amber-800 text-amber-100 p-4">
+    <div className="min-h-full bg-amber-800 text-amber-100 p-4">
       <h2 className="text-2xl md:text-3xl mb-2 text-center">General Store at {lm?.name || "Independence"}</h2>
       <p className="text-xl text-center mb-4">Money: ${supplies.money.toFixed(2)}</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">

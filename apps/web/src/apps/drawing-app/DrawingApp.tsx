@@ -113,7 +113,7 @@ export function DrawingApp() {
   return (
     <div
       data-testid="drawing-app-root"
-      className="h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)] bg-gradient-to-b from-blue-400 via-purple-400 to-pink-400 flex flex-col overflow-hidden"
+      className="h-full bg-gradient-to-b from-blue-400 via-purple-400 to-pink-400 flex flex-col overflow-hidden"
     >
       {/* iOS install prompt */}
       <IOSInstallPrompt />

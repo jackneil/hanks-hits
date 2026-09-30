@@ -647,7 +647,7 @@ export function RetroArcadeGame() {
     if (catalogInfo && !showUploader) {
       return (
         <div
-          className={`min-h-screen bg-gradient-to-b ${system.bgGradient} p-4 sm:p-6 flex flex-col`}
+          className={`min-h-full bg-gradient-to-b ${system.bgGradient} p-4 sm:p-6 flex flex-col`}
         >
           {exitNoticeView}
           <header className="mb-4 sm:mb-6">
@@ -702,7 +702,7 @@ export function RetroArcadeGame() {
     // Other systems (or catalog systems with uploader) show ROM uploader
     return (
       <div
-        className={`min-h-screen bg-gradient-to-b ${system.bgGradient} p-6 flex flex-col`}
+        className={`min-h-full bg-gradient-to-b ${system.bgGradient} p-6 flex flex-col`}
       >
         {exitNoticeView}
         <header className="mb-8">
@@ -747,7 +747,7 @@ export function RetroArcadeGame() {
   // Show console selection
   const recentGames = recentGamesToShow(store.recentlyPlayed, CATALOG_NAMES, store.customRoms);
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 p-6 flex flex-col">
+    <div className="min-h-full bg-gradient-to-b from-gray-900 to-gray-800 p-6 flex flex-col">
       {exitNoticeView}
       {/* iOS install prompt */}
       <IOSInstallPrompt />

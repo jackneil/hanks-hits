@@ -9,7 +9,7 @@ const FourWheelerAdventureGame = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="min-h-screen bg-[#1f6b3a] flex flex-col items-center justify-center">
+      <div className="min-h-full bg-[#1f6b3a] flex flex-col items-center justify-center">
         <div className="text-6xl mb-4 animate-bounce">🐕</div>
         <h1 className="text-4xl font-bold text-white mb-4">
           Four-Wheeler Adventure

@@ -8,7 +8,7 @@ const Weather = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="min-h-screen bg-gradient-to-b from-blue-400 via-blue-500 to-blue-600 flex flex-col items-center justify-center">
+      <div className="min-h-full bg-gradient-to-b from-blue-400 via-blue-500 to-blue-600 flex flex-col items-center justify-center">
         <div className="text-8xl mb-4 animate-bounce">&#x26C5;</div>
         <h1 className="text-4xl font-bold text-white mb-4 drop-shadow-lg">Weather Buddy</h1>
         <div className="w-64 h-2 bg-white/30 rounded-full overflow-hidden">

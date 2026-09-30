@@ -122,7 +122,7 @@ function ComponentCard({ component }: { component: ThirdPartyComponent }) {
 
 export function LicensesPage() {
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-dvh bg-slate-950">
       <Header />
       <main className="mx-auto max-w-3xl space-y-6 px-4 pb-16 pt-8">
         <h1 className="text-4xl font-black text-white">Licenses</h1>

@@ -481,7 +481,7 @@ export function Hunting() {
   // Game over screen
   if (time <= 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-green-800 to-green-900">
+      <div className="min-h-full flex items-center justify-center bg-gradient-to-b from-green-800 to-green-900">
         <div className="bg-green-700/90 backdrop-blur p-8 rounded-2xl text-white text-center max-w-md shadow-2xl">
           <h2 className="text-4xl font-bold mb-4 text-amber-200">
             🎯 Hunt Complete!
@@ -526,7 +526,7 @@ export function Hunting() {
     <div
       ref={containerRef}
       data-testid="hunt-field"
-      className="min-h-screen bg-green-900 relative select-none overflow-hidden touch-none"
+      className="min-h-full bg-green-900 relative select-none overflow-hidden touch-none"
       style={{ cursor: "none" }}
       onPointerMove={handlePointerMove}
       {...shootTap}

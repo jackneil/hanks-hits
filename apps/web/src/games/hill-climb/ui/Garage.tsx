@@ -41,7 +41,7 @@ export function Garage({ onStartGame }: GarageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-base-200 to-base-300 p-4">
+    <div className="min-h-full bg-gradient-to-b from-base-200 to-base-300 p-4">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">

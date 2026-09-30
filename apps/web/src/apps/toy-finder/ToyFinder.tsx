@@ -95,7 +95,7 @@ export function ToyFinder() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-400 via-blue-500 to-purple-500 p-4 flex flex-col">
+    <div className="min-h-full bg-gradient-to-b from-blue-400 via-blue-500 to-purple-500 p-4 flex flex-col">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

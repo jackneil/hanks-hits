@@ -226,7 +226,7 @@ export function Weather() {
 
   return (
     <div
-      className={`min-h-screen bg-gradient-to-b ${getBgGradient()} p-4 flex flex-col transition-all duration-700`}
+      className={`min-h-full bg-gradient-to-b ${getBgGradient()} p-4 flex flex-col transition-all duration-700`}
     >
       {/* iOS install prompt */}
       <IOSInstallPrompt />

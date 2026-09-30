@@ -48,9 +48,9 @@ describe("DrawingApp", () => {
   it("fills the game shell content area instead of escaping under the shared header", () => {
     render(<DrawingApp />);
 
-    expect(screen.getByTestId("drawing-app-root")).toHaveClass(
-      "h-[calc(100vh-3rem)]"
-    );
+    // The root fills the GameShell play box (h-full), never the screen.
+    expect(screen.getByTestId("drawing-app-root")).toHaveClass("h-full");
+    expect(screen.getByTestId("drawing-app-root").className).not.toMatch(/100vh|h-screen/);
     expect(screen.queryByRole("link", { name: "Back to home" })).not.toBeInTheDocument();
     // The shared GameShell owns the centered app name now - no in-app title.
     expect(

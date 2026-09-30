@@ -7,7 +7,7 @@ const SnakeGameShell = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="min-h-screen bg-gradient-to-b from-green-800 to-green-950 flex flex-col items-center justify-center">
+      <div className="min-h-full bg-gradient-to-b from-green-800 to-green-950 flex flex-col items-center justify-center">
         <div className="text-6xl mb-4 animate-bounce">🐍</div>
         <h1 className="text-4xl font-bold text-white mb-4">Snake</h1>
         <div className="w-64 h-2 bg-black/30 rounded-full overflow-hidden">

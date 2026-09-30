@@ -147,7 +147,7 @@ export function JokeGenerator() {
   const isFav = store.currentJoke ? store.isFavorite(store.currentJoke.id) : false;
 
   return (
-    <div className="h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)] bg-gradient-to-b from-yellow-300 via-yellow-400 to-orange-400 p-3 md:p-4 flex flex-col overflow-hidden">
+    <div className="h-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-orange-400 p-3 md:p-4 flex flex-col overflow-hidden">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

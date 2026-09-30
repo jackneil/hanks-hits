@@ -8,7 +8,7 @@ const RetroArcadeGame = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center justify-center">
+      <div className="min-h-full bg-gradient-to-b from-gray-900 to-gray-800 flex flex-col items-center justify-center">
         <div className="text-6xl mb-4 animate-bounce">🕹️</div>
         <h1 className="text-4xl font-bold text-white mb-4">Retro Arcade</h1>
         <div className="w-64 h-2 bg-black/30 rounded-full overflow-hidden">

@@ -207,7 +207,7 @@ export function Trivia() {
   };
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-indigo-900 via-purple-900 to-pink-900 text-white">
+    <div className="relative min-h-full bg-gradient-to-b from-indigo-900 via-purple-900 to-pink-900 text-white">
       <IOSInstallPrompt />
 
       <div className="container mx-auto px-4 py-8 max-w-2xl">

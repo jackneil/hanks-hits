@@ -257,7 +257,7 @@ export function MathAttackGame() {
   }, [gameState]);
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white">
+    <div className="relative min-h-full bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white">
       <IOSInstallPrompt />
 
       {/* Shared start screen. It covers the page (it portals to

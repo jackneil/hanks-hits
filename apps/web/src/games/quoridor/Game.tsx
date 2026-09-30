@@ -439,7 +439,7 @@ export function QuoridorGame() {
   };
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-amber-800 to-amber-950 p-4 flex flex-col items-center justify-center gap-6">
+    <div className="relative min-h-full bg-gradient-to-b from-amber-800 to-amber-950 p-4 flex flex-col items-center justify-center gap-6">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

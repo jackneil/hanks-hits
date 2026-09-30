@@ -1180,7 +1180,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   // The canvas is absolute inset-0 in this root. The start card portals to
   // document.body (GameStartOverlay), so this root cannot clip it.
   return (
-    <div className="relative w-full h-[calc(100vh-3rem)] md:h-[calc(100vh-3.5rem)]">
+    <div className="relative w-full h-full">
       <canvas ref={canvasRef} className="absolute inset-0" style={{ touchAction: 'none' }} />
 
       {/* Shared start screen: a real DOM overlay over the page. It renders

@@ -186,7 +186,7 @@ export function ProfilePage() {
   // Loading state
   if (loading || status === "loading") {
     return (
-      <div className="min-h-screen bg-blue-800 flex items-center justify-center">
+      <div className="min-h-dvh bg-blue-800 flex items-center justify-center">
         <div className="text-center">
           <div className="text-6xl mb-4 animate-bounce">👤</div>
           <p className="text-white text-xl">Loading your profile...</p>
@@ -198,7 +198,7 @@ export function ProfilePage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-red-700 flex items-center justify-center p-4">
+      <div className="min-h-dvh bg-red-700 flex items-center justify-center p-4">
         <div className="text-center">
           <div className="text-6xl mb-4">😕</div>
           <p className="text-white text-xl mb-4">{error}</p>
@@ -216,7 +216,7 @@ export function ProfilePage() {
   const displayName = profile?.name || profile?.email || "Player";
 
   return (
-    <div className="min-h-screen bg-blue-800 pb-8">
+    <div className="min-h-dvh bg-blue-800 pb-8">
       <Header title="My Profile" titleIcon="👤" />
 
       {/* Profile Card */}

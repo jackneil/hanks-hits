@@ -78,7 +78,7 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950">
+    <div className="relative min-h-dvh overflow-hidden bg-slate-950">
       {/* Soft glows, offset toward the edges so the card doesn't swallow them */}
       <div className="pointer-events-none absolute -left-24 top-1/4 h-[400px] w-[400px] rounded-full bg-green-500/15 blur-3xl" />
       <div className="pointer-events-none absolute -right-20 top-2/3 h-[300px] w-[300px] rounded-full bg-yellow-500/10 blur-3xl" />

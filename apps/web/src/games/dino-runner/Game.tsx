@@ -650,7 +650,7 @@ export function DinoRunnerGame() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-100 to-gray-300 flex flex-col items-center justify-center p-4">
+    <div className="min-h-full bg-gradient-to-b from-gray-100 to-gray-300 flex flex-col items-center justify-center p-4">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
