@@ -277,6 +277,7 @@ function Board({
     <div
       ref={boardRef}
       data-testid="quoridor-board"
+      data-game-board=""
       data-mode={wallMode ? "wall" : "move"}
       aria-label="Quoridor board"
       role="group"
