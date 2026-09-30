@@ -15,6 +15,7 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { AppNotesSlot } from "@/shared/components/AppNotesSlot";
 
 const CONFETTI_SYMBOLS = ["&#x2B50;", "&#x1F389;", "&#x2728;", "&#x1F381;"];
 const CONFETTI_PIECES = Array.from({ length: 20 }, (_, i) => ({
@@ -98,6 +99,8 @@ export function ToyFinder() {
     <div className="min-h-full bg-gradient-to-b from-blue-400 via-blue-500 to-purple-500 p-4 flex flex-col">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
+      {/* A trophy shows here, as part of the page, never over the buttons. */}
+      <AppNotesSlot className="mb-3" />
 
 
       {/* The note and the idea list button share one row, so the toys start
