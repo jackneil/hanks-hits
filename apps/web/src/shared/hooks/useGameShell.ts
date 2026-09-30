@@ -152,7 +152,9 @@ export function useGameShell(options: UseGameShellOptions = {}) {
     if (!canPause || suppressEscape) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      // A game that used Escape itself (to close its own panel or scope)
+      // marks it handled; the shell then leaves the pause alone.
+      if (e.key === "Escape" && !e.defaultPrevented) {
         e.preventDefault();
         togglePause();
       }

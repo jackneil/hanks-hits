@@ -192,3 +192,28 @@ describe("useGameShell: a hidden tab", () => {
     expect(onResume).not.toHaveBeenCalled();
   });
 });
+
+describe("useGameShell Escape", () => {
+  it("pauses on Escape, and leaves an Escape a game already handled alone", () => {
+    const onPause = vi.fn();
+    const { result } = renderHook(() => useGameShell({ onPause }));
+
+    // A game closes its own panel with Escape (capture phase) and marks it.
+    const gameHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") e.preventDefault();
+    };
+    window.addEventListener("keydown", gameHandler, true);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    });
+    expect(result.current.isPaused).toBe(false);
+    expect(onPause).not.toHaveBeenCalled();
+    window.removeEventListener("keydown", gameHandler, true);
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
+    });
+    expect(result.current.isPaused).toBe(true);
+    expect(onPause).toHaveBeenCalledTimes(1);
+  });
+});
