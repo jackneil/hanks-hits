@@ -308,8 +308,14 @@ describe("PauseMenu on a short screen (a phone held sideways)", () => {
     }
     // The child button is a grid cell too (display: contents wrapper).
     expect(screen.getByRole("button", { name: /Leaderboard/ }).parentElement).toHaveClass("contents");
-    // The heading is smaller, so the grid has room.
-    expect(screen.getByRole("heading", { name: "Paused" }).className).toMatch(/(^|\s)short:text-2xl(\s|$)/);
+    // The heading is smaller and shares its line with the game name, so
+    // five buttons (Sign In and Leaderboard join the menu on a phone
+    // during play) fit in the 271 px under the header at 667x311.
+    const heading = screen.getByRole("heading", { name: "Paused" });
+    expect(heading.className).toMatch(/(^|\s)short:text-2xl(\s|$)/);
+    expect(heading.parentElement).toHaveClass("short:flex-row", "short:items-baseline");
+    expect(heading.parentElement).toContainElement(screen.getByText("Snake"));
+    expect(screen.getByTestId("pause-menu-content")).toHaveClass("short:py-1.5");
   });
 
   it("drops the install tip on a short screen, and keeps a slot for a trophy (one row) under the grid", () => {

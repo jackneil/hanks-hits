@@ -30,13 +30,18 @@
  *                       changes by TIP_HOLD_MAX_CHANGE or less of its
  *                       samples over TIP_HOLD_MS. A held game with a
  *                       decorative animation (the bird's wing, a coin's
- *                       sparkle, keyed on Date.now) changes under 1% of
- *                       its samples; a game that runs on scrolls its
- *                       ground and obstacles and changes 10% or more
- *                       (measured, see TIP_HOLD_MAX_CHANGE). Checked
- *                       before Keep playing is tapped; the change while
- *                       the game then runs is printed in the row, so the
- *                       two numbers stay apart on the record.
+ *                       sparkle, keyed on Date.now) changes 0.4% of its
+ *                       samples at most; a game that moves on its own
+ *                       (the bird falls, the runner runs) and is not
+ *                       held changes 2% or more (measured, see
+ *                       TIP_HOLD_MAX_CHANGE). A game that waits for a
+ *                       touch (the platformer) draws the same picture
+ *                       either way, so the check proves the hold for the
+ *                       games that move on their own, the ones that
+ *                       died under the tip. Checked before Keep playing
+ *                       is tapped; the change while the game then runs
+ *                       is printed in the row, so both numbers are on
+ *                       the record.
  *   keyboard-copy       no visible text says a keyboard phrase (Press
  *                       SPACE, arrow keys, WASD, Escape, Click ...) on a
  *                       coarse pointer, at the start card or in play.
@@ -200,12 +205,20 @@ const TIP_HOLD_SETTLE_MS = 300;
 const TIP_HOLD_MS = 700;
 /**
  * The largest share of the picture's samples that may change under the
- * tip. Measured on the tip games at 667x311 and 375x549: held, with the
- * wing and sparkle animations still drawing, under 1% of the samples
- * change in TIP_HOLD_MS; running, the scroll of the ground and the
- * obstacles changes 10% or more. 2% sits well clear of both.
+ * tip. Measured on the three tip games on the four screens (2026-09-30):
+ * held, with the wing, run-frame and sparkle animations still drawing,
+ * 0.0% to 0.4% of the samples change in TIP_HOLD_MS (platformer, which
+ * pauses through onPause, 0.3% to 0.4%). Not held, a game that moves on
+ * its own changes 1.9% to 2.8% (endless-runner, a flat ground) and 14.0%
+ * to 14.6% (flappy-bird): on the build before the hold reached the games,
+ * flappy-bird changed 12.1% to 13.4% under the tip and endless-runner
+ * 2.3% to 2.6%. The platformer waits for a touch and changes 0.8% to 1.1%
+ * while free, so the check cannot tell its hold apart; its hold has the
+ * unit tests. 1% sits between the held set and the self-moving set with
+ * room on both sides; the row prints both numbers, so a drift is on the
+ * record.
  */
-const TIP_HOLD_MAX_CHANGE = 0.02;
+const TIP_HOLD_MAX_CHANGE = 0.01;
 
 // ---------------------------------------------------------------- source
 

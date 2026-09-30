@@ -191,19 +191,21 @@ function OpenPauseMenu({
       <div
         ref={contentRef}
         data-testid="pause-menu-content"
-        className="m-auto flex flex-col items-center px-4 py-4 short:py-3"
+        className="m-auto flex flex-col items-center px-4 py-3 short:py-1.5"
       >
-        {/* Sentence case and no pulse: the old all-caps PAUSED blinked
-            forever and ignored reduced motion. */}
-        <h2 className="text-4xl md:text-6xl font-bold text-white mb-8 short:mb-1 short:text-2xl">
-          Paused
-        </h2>
-
-        {/* Game name */}
-        <div className="text-xl text-gray-400 mb-8 short:mb-1 short:text-base">{gameName}</div>
+        {/* The heading and the game name: one line on a short screen. The
+            room under the header is 501 px on a 375x549 phone and 271 px
+            sideways; with Sign In and Leaderboard in the menu during play
+            (five buttons) the old spacing overflowed both. */}
+        <div className="mb-4 flex flex-col items-center short:mb-1 short:flex-row short:items-baseline short:gap-2">
+          {/* Sentence case and no pulse: the old all-caps PAUSED blinked
+              forever and ignored reduced motion. */}
+          <h2 className="text-4xl md:text-6xl font-bold text-white short:text-2xl">Paused</h2>
+          <div className="mt-4 text-xl text-gray-400 md:mt-6 short:mt-0 short:text-base">{gameName}</div>
+        </div>
 
         {/* Read the menu out loud for players who cannot read yet */}
-        <div className="w-64 mb-4 short:mb-2 short:w-full">
+        <div className="w-64 mb-3 short:mb-2 short:w-full">
           <ReadAloudButton text={readAloudText} className="short:min-h-[44px]" />
         </div>
 
@@ -211,7 +213,7 @@ function OpenPauseMenu({
             Resume, Restart and Go Home are on screen with no scroll */}
         <div
           data-testid="pause-menu-buttons"
-          className="flex flex-col gap-4 w-64 short:grid short:w-[28rem] short:max-w-[calc(100vw-2rem)] short:grid-cols-2 short:gap-2"
+          className="flex flex-col gap-3 w-64 short:grid short:w-[28rem] short:max-w-[calc(100vw-2rem)] short:grid-cols-2 short:gap-2"
         >
           <button onClick={onResume} className={`${MENU_BUTTON} btn-primary`}>
             <span className="text-2xl">▶️</span>
