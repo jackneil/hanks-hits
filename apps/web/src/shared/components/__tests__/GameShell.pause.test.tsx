@@ -258,8 +258,7 @@ describe("GameShell orientation tip", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("pause-menu")).toBeNull();
     // The header stays free: the tip starts under it.
-    expect(tip.className).toMatch(/(^|\s)top-12(\s|$)/);
-    expect(tip.className).toMatch(/(^|\s)short:top-10(\s|$)/);
+    expect(tip.className.split(/\s+/)).toContain("top-[var(--shell-header-h)]");
     // The kid can read it aloud, or keep playing.
     const keep = within(tip).getByRole("button", { name: new RegExp(ORIENTATION_TIP_KEEP_PLAYING) });
     expect(keep.className).toContain("min-h-[44px]");

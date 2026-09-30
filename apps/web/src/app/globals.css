@@ -5,6 +5,19 @@
    use this to tighten spacing so the Play button stays on screen. */
 @custom-variant short (@media (max-height: 480px));
 
+/* The GameShell header height, one value for every layer under it (the
+   play box, sheets, overlays, toasts and game layers read it; nothing
+   repeats the number). 44 px on a short screen, the smallest a header
+   button may be, so a button never hangs off the top of the screen. */
+:root {
+  --shell-header-h: 3rem;
+}
+@media (max-height: 480px) {
+  :root {
+    --shell-header-h: 2.75rem;
+  }
+}
+
 /* Kid-friendly theme for Neil's Adventure Hub */
 @plugin "daisyui/theme" {
   name: "adventure";

@@ -7,6 +7,7 @@ import { useShortViewport } from "../hooks/useShortViewport";
 import { useRegisterBreakSlot } from "../lib/gameBreaks";
 import { joinSpoken, spokenLabelsIn, spokenWordsOf } from "../lib/spokenLabels";
 import { ReadAloudButton } from "./ReadAloudButton";
+import { useShellSheetActions } from "./shellSheetActions";
 
 /**
  * The shared card for a game's own screens between runs: game over, level
@@ -18,7 +19,7 @@ import { ReadAloudButton } from "./ReadAloudButton";
  * Monster Truck's Resume showed 0 px (phone UX audit 2026-09-29, S3).
  *
  * Contract:
- * - It covers the screen under the header (top-12, short:top-10), never
+ * - It covers the screen under the header (top: --shell-header-h), never
  *   the header: Home and Pause stay one tap away.
  * - The card has a header (emoji, title), a body that scrolls when the
  *   screen is short, and an action column that never scrolls out of view.
@@ -61,6 +62,13 @@ export interface GameSheetProps {
   testId?: string;
   /** Extra classes for the card (a game's own colors). */
   className?: string;
+  /**
+   * A game's own pause screen: show the header controls GameShell moved off
+   * the header during play on a phone (Leaderboard, Sign In; headerBudget.ts
+   * step 0), after the game's own actions. The game also passes
+   * ownPauseSheet and inPlay to GameShell.
+   */
+  shellActions?: boolean;
 }
 
 function subscribeToNothing(): () => void {
@@ -79,12 +87,15 @@ export function GameSheet({
   spokenText,
   testId = "game-sheet",
   className = "",
+  shellActions = false,
 }: GameSheetProps) {
   const isClient = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const isShort = useShortViewport();
   const titleId = useId();
   const wordsRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const shellActionsRef = useRef<HTMLDivElement>(null);
+  const movedHeaderControls = useShellSheetActions();
   const { slotRef: breakSlotRef, readNotes: readBreakNotes } = useRegisterBreakSlot();
 
   // Built at tap time: the title, the words of the body, then the label of
@@ -95,7 +106,9 @@ export function GameSheet({
         ? spokenText()
         : (spokenText ??
           joinSpoken([title, spokenWordsOf(wordsRef.current), ...spokenLabelsIn(actionsRef.current)]));
-    return joinSpoken([own, ...readBreakNotes()]);
+    // The moved header controls are read after the game's own words, even
+    // when the game wrote its own spokenText.
+    return joinSpoken([own, ...spokenLabelsIn(shellActionsRef.current), ...readBreakNotes()]);
   };
 
   if (!isClient) return null;
@@ -114,7 +127,7 @@ export function GameSheet({
       onMouseUp={stopHere}
       onClick={stopHere}
       onKeyDown={stopHere}
-      className="fixed inset-x-0 bottom-0 top-12 z-[60] flex overflow-y-auto overscroll-contain bg-black/75 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:top-10 short:p-3 short:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] z-[60] flex overflow-y-auto overscroll-contain bg-black/75 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:p-3 short:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
       <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:max-w-4xl short:flex-row short:items-center short:justify-center short:gap-2">
         <div
@@ -148,6 +161,11 @@ export function GameSheet({
             <div ref={actionsRef} className="contents">
               {actions}
             </div>
+            {shellActions && movedHeaderControls && (
+              <div ref={shellActionsRef} data-testid={`${testId}-shell-actions`} className="contents">
+                {movedHeaderControls}
+              </div>
+            )}
           </div>
         </div>
 

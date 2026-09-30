@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { GameSheet } from "../GameSheet";
 import { GameShell } from "../GameShell";
 
 vi.mock("../../hooks/useFullscreen", () => ({
@@ -152,5 +153,63 @@ describe("GameShell on a phone during play", () => {
     renderSnake({ canPause: true, showLoginButton: false });
     fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
     expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+  });
+});
+
+describe("GameShell on a phone during play, for a game with its own pause sheet", () => {
+  // Hill Climb and other own-loop games pause with their own GameSheet (no
+  // shell pause menu). Sign In and Leaderboard used to stay in the header
+  // during play there; now that sheet holds them, like the shell menu does.
+  function renderOwnSheet(inPlay: boolean, shellActions = true) {
+    return render(
+      <GameShell gameName="Hill Climb" appId="hill-climb" canPause={false} ownPauseSheet inPlay={inPlay} onRestart={vi.fn()}>
+        <GameSheet
+          title="Paused"
+          spokenText="Paused. Keep driving."
+          shellActions={shellActions}
+          actions={<button type="button">Keep driving</button>}
+        />
+      </GameShell>
+    );
+  }
+
+  it.each([
+    [375, 549],
+    [667, 311],
+  ])("at %ix%i moves them off the header into the game's sheet, and reads them out", async (w, h) => {
+    const synth = installSpeechMock();
+    mockPointer(true);
+    setViewport(w, h);
+    renderOwnSheet(true);
+
+    expect(within(header()).queryByRole("link", { name: /sign in/i })).toBeNull();
+    expect(within(header()).queryByRole("button", { name: /leaderboard/i })).toBeNull();
+    const moved = screen.getByTestId("game-sheet-shell-actions");
+    expect(within(moved).getByRole("link", { name: /sign in/i })).toHaveAttribute("href", "/login");
+    expect(within(moved).getByRole("button", { name: /leaderboard/i })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+    expect(synth.lastUtterance().text).toBe("Paused. Keep driving. Leaderboard. Sign In.");
+  });
+
+  it("keeps them in the header between runs, and a sheet without shellActions shows none", () => {
+    mockPointer(true);
+    setViewport(375, 549);
+    const { unmount } = renderOwnSheet(false);
+    expect(within(header()).getByRole("link", { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("game-sheet-shell-actions")).toBeNull();
+    unmount();
+
+    renderOwnSheet(true, false);
+    expect(within(header()).queryByRole("link", { name: /sign in/i })).toBeNull();
+    expect(screen.queryByTestId("game-sheet-shell-actions")).toBeNull();
+  });
+
+  it("keeps them in the header on a mouse at a phone size", () => {
+    mockPointer(false);
+    setViewport(375, 549);
+    renderOwnSheet(true);
+    expect(within(header()).getByRole("link", { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("game-sheet-shell-actions")).toBeNull();
   });
 });

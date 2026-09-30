@@ -341,10 +341,10 @@ export function GameStartOverlay({
       aria-labelledby={titleId}
       className="fixed inset-0 z-[90] bg-black/75"
     >
-      {/* The box under the GameShell header (h-12, short:h-10). The short:
+      {/* The box under the GameShell header (--shell-header-h). The short:
           variant (viewport under 480px tall, a phone held sideways)
           tightens the spacing and puts a note beside the card. */}
-      <div className="absolute inset-x-0 bottom-0 top-12 flex p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:top-10 short:p-2 short:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="absolute inset-x-0 bottom-0 top-[var(--shell-header-h)] flex p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:p-2 short:pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:h-full short:max-w-4xl short:flex-row short:items-center short:justify-center short:gap-2">
           <div
             ref={cardRef}
