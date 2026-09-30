@@ -86,6 +86,8 @@ interface GameStartOverlayButtonProps {
   variant?: "primary" | "choice";
   /** Toggle-state semantics for picker buttons (screen readers hear the selection) */
   "aria-pressed"?: boolean;
+  /** A choice that is not open yet (a locked set of pictures): shown, not tappable. */
+  disabled?: boolean;
 }
 
 /**
@@ -98,6 +100,7 @@ export function GameStartOverlayButton({
   className = "",
   variant = "choice",
   "aria-pressed": ariaPressed,
+  disabled = false,
   ref,
 }: GameStartOverlayButtonProps & { ref?: React.Ref<HTMLButtonElement> }) {
   const handleClick = () => {
@@ -111,6 +114,7 @@ export function GameStartOverlayButton({
       ref={ref}
       onClick={handleClick}
       aria-pressed={ariaPressed}
+      disabled={disabled}
       className={`btn ${
         // "choice" stays on the default (base-200/base-content) button: white
         // text on btn-secondary green is ~3.1:1 and fails the 4.5:1 contract
