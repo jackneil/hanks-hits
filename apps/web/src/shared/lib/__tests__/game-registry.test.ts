@@ -126,6 +126,29 @@ export const metadata = {
     expect(parseMetadata(content, "draw")?.clips).toBe(false);
   });
 
+  it("reads a plain preferredOrientation literal, and ignores any other value", () => {
+    const base = `
+export const metadata = {
+  id: "flappy-bird",
+  name: "Flappy Bird",
+  emoji: "🐦",
+  category: "arcade",
+  preferredOrientation: "portrait",
+};
+`;
+    expect(parseMetadata(base, "flappy-bird")?.preferredOrientation).toBe("portrait");
+    expect(
+      parseMetadata(base.replace('"portrait"', '"landscape"'), "flappy-bird")?.preferredOrientation
+    ).toBe("landscape");
+    // "any" and a computed value mean no preference: the tip never shows.
+    expect(parseMetadata(base.replace('"portrait"', '"any"'), "flappy-bird")?.preferredOrientation).toBeUndefined();
+    expect(parseMetadata(base.replace('"portrait"', "sideways"), "flappy-bird")?.preferredOrientation).toBeUndefined();
+    expect(parseMetadata(base.replace('"portrait"', '"upside-down"'), "flappy-bird")?.preferredOrientation).toBeUndefined();
+    expect(
+      parseMetadata(base.replace('  preferredOrientation: "portrait",\n', ""), "flappy-bird")?.preferredOrientation
+    ).toBeUndefined();
+  });
+
   it("reads id only at a word boundary, never from a field that ends in id", () => {
     const content = `
 export const metadata = {

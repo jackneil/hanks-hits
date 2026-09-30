@@ -7,3 +7,4 @@ export { fitCanvas, usePlayBox } from "./usePlayBox";
 export type { CanvasFit, PlayBoxOptions, PlayBoxSize } from "./usePlayBox";
 export { useReadAloud } from "./useReadAloud";
 export { useScrollCue } from "./useScrollCue";
+export { useScrollToTopOn } from "./useScrollToTopOn";

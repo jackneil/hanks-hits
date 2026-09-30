@@ -6,4 +6,5 @@ export const metadata: GameMetadata = {
   emoji: "🐦",
   category: "arcade",
   description: "Tap to fly through pipes",
+  preferredOrientation: "portrait",
 };

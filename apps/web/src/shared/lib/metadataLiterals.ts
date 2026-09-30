@@ -27,6 +27,19 @@ export interface MetadataLiterals {
   madeByKid?: boolean;
   /** The module records gameplay clips (plan 4.1: ClipProvider mounts only for clips: true). */
   clips?: boolean;
+  /**
+   * The orientation the game plays best in on a phone. GameShell shows the
+   * orientation tip once per session when the phone is held the other
+   * way. Absent (or "any") for a game that plays well both ways.
+   */
+  preferredOrientation?: "portrait" | "landscape";
+}
+
+const ORIENTATIONS = new Set(["portrait", "landscape"]);
+
+function orientationField(content: string): "portrait" | "landscape" | undefined {
+  const value = stringField(content, "preferredOrientation");
+  return value && ORIENTATIONS.has(value) ? (value as "portrait" | "landscape") : undefined;
 }
 
 function stringField(content: string, field: string): string | undefined {
@@ -50,5 +63,6 @@ export function readMetadataLiterals(content: string): MetadataLiterals {
     hidden: booleanField(content, "hidden"),
     madeByKid: booleanField(content, "madeByKid"),
     clips: booleanField(content, "clips"),
+    preferredOrientation: orientationField(content),
   };
 }

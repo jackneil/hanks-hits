@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 
 import { useBottomSheetSpace } from '../lib/bottomSheetSpace';
 import { useBreakSlot, useGameShellMounted } from '../lib/gameBreaks';
+import { useShellOverlay } from '../lib/shellOverlays';
 import { useStartOverlayShowing } from '../lib/startOverlayPresence';
 import { ReadAloudButton } from './ReadAloudButton';
 
@@ -223,6 +224,10 @@ export function IOSInstallPrompt({ onClose, requested = false }: IOSInstallPromp
   const startCardShowing = useStartOverlayShowing();
   const shellMounted = useGameShellMounted();
   const breakSlot = useBreakSlot();
+
+  // The requested sheet opens over play (from the 📲 button): it is a
+  // shell overlay, so GameShell holds the game while it is up.
+  useShellOverlay(requested && !closed);
 
   // Decide where to show only after the first layout pass. A start card or
   // a game shell that mounts in the same commit counts itself in a layout

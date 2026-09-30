@@ -4,10 +4,11 @@ export { LoginButton } from "./LoginButton";
 export { GuestWarning } from "./GuestWarning";
 export { SyncIndicator } from "./SyncIndicator";
 
-// Mobile/Fullscreen components
+// Mobile/Fullscreen components. The orientation tip (OrientationWarning)
+// is not here on purpose: GameShell renders it from the game's metadata
+// (preferredOrientation), and a game must not mount its own.
 export { FullscreenButton } from "./FullscreenButton";
 export { IOSInstallPrompt } from "./IOSInstallPrompt";
-export { OrientationWarning } from "./OrientationWarning";
 export { WebGLGate, WebGLFallback, detectWebGL } from "./WebGLGate";
 
 // Game shell components

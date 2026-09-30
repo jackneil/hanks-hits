@@ -258,6 +258,48 @@ no start moment (drawing-app, drum-machine) and a module with its own
 launcher (retro-arcade). Those modules put the same `ReadAloudButton` on
 their first screen instead.
 
+**Pause, holds and shell overlays.** `useGameShell`
+(`src/shared/hooks/useGameShell.ts`) owns the pause state. Two things stop
+a game. The pause MENU (the pause button, ESC, a hidden tab for a game
+that can pause) shows the PauseMenu. A HOLD shows no menu: a shell
+overlay is open, or the tab is hidden for a game that cannot pause. The
+shell overlays are the restart question (`RestartConfirmationDialog`),
+the leaderboard (`LeaderboardModal`), the install steps that the 📲 button
+opens (`IOSInstallPrompt requested`), the clip sheets (`clips/ui/Sheet`)
+and the orientation tip. Each one counts itself in
+`src/shared/lib/shellOverlays.ts` (`useShellOverlay(isOpen)`) while it is
+open. A new shell overlay must do the same. GameShell holds the game while
+the count is above 0. The game hears about the menu and a hold the same
+way, once each: `onPause` when it becomes stopped and it can pause,
+`onResume` when the last reason goes away. A game that runs its own loop
+and has no pause menu (`canPause={false}`) gets `onShellOverlayOpen` at the
+first hold and `onShellOverlayClose` at the last release. It must freeze
+its loop between them, so no game time passes under an overlay or while
+the kid is in another app. A restart from the question lets the old run
+go first, then restarts; no resume reaches the new run. Before this, a
+game kept running and took touches under "Restart game?", and only a game
+with `canPause` stopped on a hidden tab.
+
+**The orientation tip.** A game declares the orientation it plays best in
+with the metadata literal `preferredOrientation: "portrait"` or
+`"landscape"`. GameShell then renders `OrientationWarning` once, above the
+game, from `gameMetadata.generated.ts`. A game must not mount it. The tip
+is a suggestion, not a gate: it shows at most once per session for each
+game (`sessionStorage`), never over the start card, and it never blocks
+the header. It shows only on a phone with a touch screen (the short side
+of the screen is 480 px or less, in both orientations), when the phone is
+held the other way. The game is held while it shows (a shell overlay). It
+goes away when the kid turns the phone or taps Keep playing. A game that
+plays well both ways (Hill Climb, Monster Truck, Four-Wheeler 3D, and
+every game that a phone PR makes work both ways) declares nothing, and
+never shows it.
+
+**Scroll reset.** A module that swaps screens by state on one route (the
+Retro Arcade catalog, the Oregon Trail store, a board's New Game) calls
+`useScrollToTopOn(screenKey)` (`src/shared/hooks/useScrollToTopOn.ts`).
+It scrolls the play box and the page to the top, before paint, each time
+the key changes.
+
 **Read-aloud.** Kids aged 6 to 8 often cannot read yet. The shared chrome
 reads itself out loud: `useReadAloud` (`src/shared/hooks/useReadAloud.ts`)
 wraps the browser speech API (`window.speechSynthesis`), and
@@ -274,7 +316,8 @@ same button, in the same place: under the words, above the action buttons.
 - 90: GameStartOverlay, and the own start screen of a module with its own
   launcher (four-wheeler). It covers the viewport, so it must be above
   every game layer.
-- 100: OrientationWarning (phone-width portrait only).
+- 100: OrientationWarning, the orientation tip (a phone held the other way
+  than the game's preferredOrientation). It starts under the header.
 - 200: the install sheet that shows by itself on a page with no play.
 - 1000: the GameShell header. The clip confirmation (`InPlayConfirm`) lies
   in the title region of the header, at the same level.

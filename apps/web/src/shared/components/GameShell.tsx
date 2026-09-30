@@ -1,10 +1,12 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useSession } from "next-auth/react";
 import { useGameShell } from "../hooks/useGameShell";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { PlayBoxContext } from "../hooks/usePlayBox";
+import { useShellOverlayOpen } from "../lib/shellOverlays";
+import { OrientationWarning, preferredOrientationFor } from "./OrientationWarning";
 import { PauseMenu } from "./PauseMenu";
 import { LeaderboardButton } from "./LeaderboardButton";
 import { ClipShellScope, useClipHeaderSlot, useClipShellUi } from "@/shared/clips";
@@ -43,6 +45,17 @@ interface GameShellProps {
   restartConfirmationMessage?: string;
   onPause?: () => void;
   onResume?: () => void;
+  /**
+   * The first shell overlay opened over the game: the restart question,
+   * the leaderboard, the install steps, a clip sheet, the orientation tip,
+   * or the tab went hidden. A game that runs its own loop and cannot pause
+   * (no pause menu) freezes its loop here, so no game time passes under
+   * the overlay. A game with onPause hears onPause too (once), when it
+   * can pause.
+   */
+  onShellOverlayOpen?: () => void;
+  /** The last shell overlay closed (or the tab came back). */
+  onShellOverlayClose?: () => void;
   showHomeButton?: boolean;
   showPauseButton?: boolean;
   /** Hide the sign-in control (e.g. on the login/signup pages themselves) */
@@ -150,6 +163,8 @@ export function GameShell({
   restartConfirmationMessage,
   onPause,
   onResume,
+  onShellOverlayOpen,
+  onShellOverlayClose,
   showHomeButton = true,
   showPauseButton = true,
   showLoginButton = true,
@@ -160,13 +175,28 @@ export function GameShell({
   resultChipReady = false,
 }: GameShellProps) {
   const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
-  const { isPaused, pause, resume, togglePause, goHome } = useGameShell({
+  const { isPaused, pause, resume, togglePause, goHome, hold, release } = useGameShell({
     canPause,
     suppressEscape: isRestartConfirmationOpen,
     onPause,
     onResume,
     pauseOnBlur,
+    onShellOverlayOpen,
+    onShellOverlayClose,
   });
+
+  // Hold the game while any shell overlay is open (shellOverlays.ts): the
+  // restart question, the leaderboard, the install steps, a clip sheet or
+  // the orientation tip. The game hears onPause (no menu) or, with no
+  // pause, onShellOverlayOpen; and the reverse when the last one closes.
+  const overlayOpen = useShellOverlayOpen();
+  useEffect(() => {
+    if (overlayOpen) hold(SHELL_OVERLAY_HOLD);
+    else release(SHELL_OVERLAY_HOLD);
+  }, [overlayOpen, hold, release]);
+  // A restart from the question: let the old run go BEFORE the restart, so
+  // no resume reaches the new run after it started.
+  const releaseShellOverlay = useCallback(() => release(SHELL_OVERLAY_HOLD), [release]);
 
   return (
     // Gameplay clips (plan 4.1): only the clip service and the clip UI are
@@ -200,6 +230,7 @@ export function GameShell({
         goHome={goHome}
         isRestartConfirmationOpen={isRestartConfirmationOpen}
         setIsRestartConfirmationOpen={setIsRestartConfirmationOpen}
+        releaseShellOverlay={releaseShellOverlay}
       >
         {children}
       </GameShellFrame>
@@ -207,8 +238,14 @@ export function GameShell({
   );
 }
 
+/** The hold that GameShell puts on the game while a shell overlay is open. */
+const SHELL_OVERLAY_HOLD = "shell-overlay";
+
 interface GameShellFrameProps
-  extends Omit<GameShellProps, "pauseOnBlur" | "restartConfirmation" | "resultChipReady"> {
+  extends Omit<
+    GameShellProps,
+    "pauseOnBlur" | "restartConfirmation" | "resultChipReady" | "onShellOverlayOpen" | "onShellOverlayClose"
+  > {
   restartConfirmation: RestartConfirmationPolicy;
   resultChipReady: boolean;
   isPaused: boolean;
@@ -217,6 +254,8 @@ interface GameShellFrameProps
   goHome: () => void;
   isRestartConfirmationOpen: boolean;
   setIsRestartConfirmationOpen: (open: boolean) => void;
+  /** Lets the game go from the restart question's hold, before onRestart. */
+  releaseShellOverlay: () => void;
 }
 
 /**
@@ -247,6 +286,7 @@ function GameShellFrame({
   goHome,
   isRestartConfirmationOpen,
   setIsRestartConfirmationOpen,
+  releaseShellOverlay,
 }: GameShellFrameProps) {
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const playBoxRef = useRef<HTMLDivElement>(null);
@@ -287,6 +327,11 @@ function GameShellFrame({
   const clipButton = clip && clipButtonShown ? <clip.ClipButton /> : null;
   const hasClipSlot = clipButton !== null || clipSlot === true;
   const titleEmoji = resolveHeaderEmoji(GAME_METADATA, { emoji, appId, routeId, gameName });
+  // The orientation tip, for a game whose metadata declares an orientation.
+  // Rendered here, above the game: a game's own tree may be keyed and
+  // remount on each restart, and the tip must not come back with it.
+  const preferredOrientation = preferredOrientationFor(GAME_METADATA, { appId, routeId });
+  const orientationGameId = appId ?? routeId ?? gameName;
   // Mirrors LoginButton: a spinner while loading, the avatar when signed
   // in (both one 44 px control), and the Sign In button for a guest.
   const login: HeaderLogin = !showLoginButton
@@ -472,6 +517,12 @@ function GameShellFrame({
             overlapping the then-absolutely-centered title — found by /qa). */}
       </div>
 
+      {/* The orientation tip: once per session, never over the start card,
+          and the game is held while it shows (OrientationWarning.tsx). */}
+      {preferredOrientation && (
+        <OrientationWarning preferred={preferredOrientation} gameId={orientationGameId} />
+      )}
+
       {/* The play box: the screen under the header (PLAY_BOX_CLASSES). */}
       <PlayBoxContext.Provider value={playBoxRef}>
         <div ref={playBoxRef} data-play-box="" data-testid="game-shell-play-box" className={PLAY_BOX_CLASSES}>
@@ -519,6 +570,9 @@ function GameShellFrame({
         triggerRef={restartTriggerRef}
         onCancel={() => setIsRestartConfirmationOpen(false)}
         onConfirm={() => {
+          // The question held the game: let the old run go first, so the
+          // new run never hears a resume after it started.
+          releaseShellOverlay();
           setIsRestartConfirmationOpen(false);
           onRestart?.();
           if (isPaused) resume();

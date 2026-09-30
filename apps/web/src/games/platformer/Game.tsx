@@ -4,7 +4,6 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { usePlatformerStore, type PlatformerProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
-import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   GameStartOverlay,
@@ -760,9 +759,6 @@ export function PlatformerGame() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
-      {/* Orientation warning for mobile */}
-      <OrientationWarning />
-
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

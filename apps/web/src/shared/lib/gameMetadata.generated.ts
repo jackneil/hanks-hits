@@ -19,6 +19,12 @@ export interface GameMetadata {
    * (a test) can leave it out, which means false.
    */
   clips?: boolean;
+  /**
+   * The orientation the game plays best in on a phone (metadata literal
+   * preferredOrientation). GameShell shows the orientation tip from it.
+   * Absent for a game that plays well both ways.
+   */
+  preferredOrientation?: "portrait" | "landscape";
 }
 
 export const GAME_METADATA: Record<string, GameMetadata> = {
@@ -120,6 +126,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     category: "action",
     madeByKid: false,
     clips: false,
+    preferredOrientation: "landscape",
   },
   "flappy-bird": {
     name: "Flappy Bird",
@@ -129,6 +136,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     category: "arcade",
     madeByKid: false,
     clips: false,
+    preferredOrientation: "portrait",
   },
   "four-wheeler-3d": {
     name: "Four-Wheeler Adventure 3D",
@@ -210,6 +218,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     category: "action",
     madeByKid: false,
     clips: false,
+    preferredOrientation: "landscape",
   },
   "quoridor": {
     name: "Quoridor",

@@ -1,115 +1,220 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useId, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+
+import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { isPhoneScreen } from "../lib/headerBudget";
+import { useShellOverlay } from "../lib/shellOverlays";
+import { useStartOverlayShowing } from "../lib/startOverlayPresence";
+import { ReadAloudButton } from "./ReadAloudButton";
 
 /**
- * Orientation warning overlay
+ * The orientation tip: "Turn your phone sideways" or "Turn your phone
+ * upright", for a game whose metadata declares a preferredOrientation.
  *
- * Shows "Rotate your phone" message when a PHONE (viewport < 768px wide) is in
- * portrait mode. Games work best in landscape orientation. Tablets in portrait
- * (>= 768px) are fine, so the warning never fires there. Includes a
- * "Continue anyway" button for users who can't or don't want to rotate.
+ * GameShell renders it once, above the game (the game's own tree may be
+ * keyed and remount on each restart; this one does not). Rules (main-loop
+ * decision 2, phone UX audit 2026-09-29, S7):
+ * - A suggestion, not a gate. It shows at most once per session for each
+ *   game (sessionStorage), never over the start card (it waits until the
+ *   kid has pressed Play), and it never blocks the header.
+ * - The game is held while it shows (shellOverlays.ts: GameShell calls the
+ *   game's onPause, or onShellOverlayOpen for a game with its own loop),
+ *   so a finger under the tip drives nothing.
+ * - It shows only on a phone with a touch screen. "Phone" is the short
+ *   side of the screen at 480 px or less, in both orientations (the same
+ *   rule as the short: variant), so a tablet held upright never sees it.
+ * - It goes away when the kid turns the phone, or taps Keep playing.
+ * - A game that plays well both ways declares no preferredOrientation and
+ *   never shows it.
  *
- * Stacking contract: z-[100] — above every game HUD/touch-control layer
- * (games top out at z-60) and the start card (z-[90]), below the GameShell
- * header (z-[1000]) and PauseMenu (z-[2000]). It portals to document.body,
- * like the start card, so a game root that makes its own stacking context
- * (monster-truck's `fixed inset-0` root) cannot put it under the start card.
+ * Stacking: z-[100], above every game layer and the start card (z-90),
+ * below the header (z-1000). It portals to document.body, so a game root
+ * with its own stacking context cannot put it under anything.
  */
 
-/** Tailwind md breakpoint: at/above this width we treat the device as a tablet */
-const TABLET_MIN_WIDTH = 768;
+export type PreferredOrientation = "portrait" | "landscape";
 
-interface OrientationWarningProps {
-  /** Override to hide the warning even in portrait */
-  disabled?: boolean;
+/** The words of the tip, in kid English. The voice says the same words. */
+export const ORIENTATION_TIP_COPY: Record<
+  PreferredOrientation,
+  { title: string; body: string }
+> = {
+  landscape: {
+    title: "Turn your phone sideways",
+    body: "This game is bigger when your phone is sideways.",
+  },
+  portrait: {
+    title: "Turn your phone upright",
+    body: "This game is bigger when your phone is upright.",
+  },
+};
+
+/** The one button of the tip. */
+export const ORIENTATION_TIP_KEEP_PLAYING = "Keep playing";
+
+/** The sessionStorage key that remembers the tip for one game. */
+export function orientationTipKey(gameId: string): string {
+  return `hh-orientation-tip:${gameId}`;
 }
 
-export function OrientationWarning({ disabled = false }: OrientationWarningProps) {
-  const [isPortrait, setIsPortrait] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+/** When storage is blocked (a private tab), this set keeps the promise for this page. */
+const shownThisPage = new Set<string>();
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+function wasShown(gameId: string): boolean {
+  try {
+    return sessionStorage.getItem(orientationTipKey(gameId)) !== null;
+  } catch {
+    return shownThisPage.has(gameId);
+  }
+}
 
-    const checkOrientation = () => {
-      // Use matchMedia for more reliable detection; only warn on phone-width
-      // viewports — a tablet held in portrait plays games just fine.
-      const portrait =
-        window.matchMedia('(orientation: portrait)').matches &&
-        window.innerWidth < TABLET_MIN_WIDTH;
-      setIsPortrait(portrait);
-      if (!portrait) {
-        setDismissed(false);
-      }
-    };
+function markShown(gameId: string): void {
+  try {
+    sessionStorage.setItem(orientationTipKey(gameId), "1");
+  } catch {
+    shownThisPage.add(gameId);
+  }
+}
 
-    // Initial check
-    checkOrientation();
+/**
+ * The orientation of the screen from its size. A square screen counts as
+ * upright.
+ */
+export function orientationOf(width: number, height: number): PreferredOrientation {
+  return height >= width ? "portrait" : "landscape";
+}
 
-    // Listen for orientation changes
-    const mediaQuery = window.matchMedia('(orientation: portrait)');
-    mediaQuery.addEventListener('change', checkOrientation);
+function subscribeToResize(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  window.addEventListener("orientationchange", onChange);
+  return () => {
+    window.removeEventListener("resize", onChange);
+    window.removeEventListener("orientationchange", onChange);
+  };
+}
 
-    // Also listen for resize (backup)
-    window.addEventListener('resize', checkOrientation);
+/** "wxh" of the viewport, or null on the server. One string, so the store snapshot is stable. */
+function useViewportKey(): string | null {
+  return useSyncExternalStore(
+    subscribeToResize,
+    () => `${window.innerWidth}x${window.innerHeight}`,
+    () => null
+  );
+}
 
-    return () => {
-      mediaQuery.removeEventListener('change', checkOrientation);
-      window.removeEventListener('resize', checkOrientation);
-    };
+/**
+ * The preferred orientation of a route from the metadata lookup, by appId
+ * then by the route's own id. Null when the game plays well both ways.
+ */
+export function preferredOrientationFor(
+  lookup: Record<string, { preferredOrientation?: string }>,
+  options: { appId?: string; routeId?: string | null }
+): PreferredOrientation | null {
+  for (const id of [options.appId, options.routeId]) {
+    if (!id || !Object.hasOwn(lookup, id)) continue;
+    const value = lookup[id].preferredOrientation;
+    if (value === "portrait" || value === "landscape") return value;
+  }
+  return null;
+}
+
+interface OrientationWarningProps {
+  /** The orientation the game plays best in. */
+  preferred: PreferredOrientation;
+  /** The game id, for the once-per-session memory. */
+  gameId: string;
+}
+
+export function OrientationWarning({ preferred, gameId }: OrientationWarningProps) {
+  const isCoarse = useCoarsePointer();
+  const startCardShowing = useStartOverlayShowing();
+  const viewportKey = useViewportKey();
+  const titleId = useId();
+  const [state, setState] = useState<"waiting" | "shown" | "done">("waiting");
+
+  // Decide only after the first layout pass: a start card that mounts in
+  // the same commit counts itself in a layout effect, and this render
+  // cannot see it yet (the same rule as IOSInstallPrompt).
+  const [laidOut, setLaidOut] = useState(false);
+  useLayoutEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLaidOut(true);
   }, []);
 
-  // Don't show if disabled, dismissed, or in landscape
-  if (disabled || dismissed || !isPortrait) return null;
+  let mismatch = false;
+  if (viewportKey) {
+    const [width, height] = viewportKey.split("x").map(Number);
+    mismatch = isPhoneScreen(width, height) && orientationOf(width, height) !== preferred;
+  }
+  const due = laidOut && isCoarse && !startCardShowing && mismatch;
 
-  // isPortrait is set in an effect, so document exists here.
+  useEffect(() => {
+    if (state !== "waiting" || !due) return;
+    if (wasShown(gameId)) {
+      setState("done");
+      return;
+    }
+    markShown(gameId);
+    setState("shown");
+  }, [due, state, gameId]);
+
+  // The kid turned the phone: the tip has done its job.
+  useEffect(() => {
+    if (state === "shown" && !mismatch) setState("done");
+  }, [state, mismatch]);
+
+  const visible = state === "shown";
+  useShellOverlay(visible);
+
+  if (!visible) return null;
+
+  const copy = ORIENTATION_TIP_COPY[preferred];
+  const spoken = `${copy.title}. ${copy.body} ${ORIENTATION_TIP_KEEP_PLAYING}.`;
+
   return createPortal(
     <div
-      data-testid="orientation-warning"
-      className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-8"
+      data-testid="orientation-tip"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-x-0 bottom-0 top-12 z-[100] flex bg-black/70 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:top-10 short:p-2"
     >
-      {/* Animated rotating phone */}
-      <div className="text-8xl mb-6 animate-tilt">
-        📱
+      <div className="m-auto w-full max-w-sm rounded-3xl bg-base-100 p-5 text-center text-base-content shadow-2xl short:flex short:max-w-xl short:flex-row short:items-center short:gap-4 short:p-3 short:text-left">
+        <div className="short:min-w-0 short:flex-1">
+          <div className="orientation-tip-phone mb-2 text-5xl short:mb-0 short:text-4xl" aria-hidden="true">
+            📱
+          </div>
+          <h2 id={titleId} className="text-2xl font-bold short:text-xl">
+            {copy.title}
+          </h2>
+          <p className="mt-1 text-base opacity-80 short:text-sm">{copy.body}</p>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 short:mt-0 short:w-[45%] short:shrink-0">
+          <ReadAloudButton text={spoken} className="short:min-h-[44px]" />
+          <button
+            type="button"
+            onClick={() => setState("done")}
+            className="btn btn-primary btn-lg min-h-[44px] w-full text-xl"
+          >
+            <span aria-hidden="true">▶</span> {ORIENTATION_TIP_KEEP_PLAYING}
+          </button>
+        </div>
       </div>
-
-      <h2 className="text-white text-2xl font-bold text-center mb-2">
-        Rotate Your Phone
-      </h2>
-
-      <p className="text-white/70 text-center mb-8 max-w-xs">
-        This game works best in landscape mode. Turn your phone sideways for the best experience!
-      </p>
-
-      {/* Rotation arrow indicator */}
-      <div className="text-4xl text-white/50 mb-8 animate-pulse">
-        ↻
-      </div>
-
-      {/* Continue anyway button */}
-      <button
-        onClick={() => setDismissed(true)}
-        className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full text-sm transition-colors"
-      >
-        Continue in portrait anyway
-      </button>
 
       <style>{`
-        @keyframes tilt {
-          0%, 100% {
-            transform: rotate(0deg);
+        @media (prefers-reduced-motion: no-preference) {
+          @keyframes orientation-tip-turn {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-15deg); }
+            75% { transform: rotate(${preferred === "landscape" ? 90 : -90}deg); }
           }
-          25% {
-            transform: rotate(-15deg);
+          .orientation-tip-phone {
+            display: inline-block;
+            animation: orientation-tip-turn 2s ease-in-out infinite;
           }
-          75% {
-            transform: rotate(90deg);
-          }
-        }
-        .animate-tilt {
-          animation: tilt 2s ease-in-out infinite;
         }
       `}</style>
     </div>,

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { useShellOverlay } from "../lib/shellOverlays";
 import { Leaderboard } from "./Leaderboard";
 
 interface LeaderboardModalProps {
@@ -19,6 +20,9 @@ export function LeaderboardModal({
   gameName,
   icon = "🏆",
 }: LeaderboardModalProps) {
+  // A shell overlay: GameShell holds the game while it is open.
+  useShellOverlay(isOpen);
+
   // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

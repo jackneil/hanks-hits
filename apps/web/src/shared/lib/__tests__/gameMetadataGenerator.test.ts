@@ -40,6 +40,7 @@ describe("game metadata generator", () => {
         description: runtime.description,
         madeByKid: runtime.madeByKid,
         clips: runtime.clips,
+        preferredOrientation: runtime.preferredOrientation,
       });
     }
   });
@@ -75,6 +76,42 @@ describe("game metadata generator", () => {
       hidden: undefined,
       madeByKid: undefined,
       clips: undefined,
+      preferredOrientation: undefined,
     });
+  });
+
+  it("writes preferredOrientation into the lookup only for the modules that declare one", () => {
+    const sideways = parseMetadataContent(
+      `export const metadata = { id: "p", name: "P", emoji: "🏃", category: "action", preferredOrientation: "landscape" };`,
+      "p"
+    );
+    const upright = parseMetadataContent(
+      `export const metadata = { id: "f", name: "F", emoji: "🐦", category: "arcade", preferredOrientation: "portrait" };`,
+      "f"
+    );
+    const either = parseMetadataContent(
+      `export const metadata = { id: "h", name: "H", emoji: "🏔️", category: "racing" };`,
+      "h"
+    );
+    const output = generateOutput([sideways!, upright!, either!]);
+    expect(output).toMatch(/"p": \{[^}]*preferredOrientation: "landscape",/);
+    expect(output).toMatch(/"f": \{[^}]*preferredOrientation: "portrait",/);
+    expect(output).not.toMatch(/"h": \{[^}]*preferredOrientation/);
+  });
+
+  it("declares a preferred orientation only for the games the phone audit found one-way", () => {
+    // Endless Runner and Platformer asked for landscape before (they
+    // mounted OrientationWarning in their own tree). Flappy Bird is a
+    // portrait-shaped game. Hill Climb, Monster Truck and Four-Wheeler 3D
+    // play both ways (main-loop decision 2) and declare nothing. A genre
+    // PR that makes a game play both ways removes its line here.
+    const declared = Object.entries(GAME_METADATA)
+      .filter(([, m]) => m.preferredOrientation)
+      .map(([id, m]) => `${id}:${m.preferredOrientation}`)
+      .sort();
+    expect(declared).toEqual(["endless-runner:landscape", "flappy-bird:portrait", "platformer:landscape"]);
+    for (const id of ["hill-climb", "monster-truck", "four-wheeler-3d"]) {
+      expect(GAME_METADATA[id].preferredOrientation, id).toBeUndefined();
+    }
   });
 });

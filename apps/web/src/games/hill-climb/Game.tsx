@@ -35,7 +35,6 @@ import { Garage } from './ui/Garage';
 import {
   GameStartOverlay,
   GameStartOverlayButton,
-  OrientationWarning,
 } from '@/shared/components';
 
 /** Start-screen control hints, from the single source in gameHelpers. */
@@ -1203,10 +1202,6 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
           </GameStartOverlayButton>
         </GameStartOverlay>
       )}
-
-      {/* Orientation warning - shows in portrait mode */}
-      <OrientationWarning />
-
 
       {!showStartScreen && isPlaying && (
         <>

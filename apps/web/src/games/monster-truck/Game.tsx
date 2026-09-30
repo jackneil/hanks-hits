@@ -22,7 +22,6 @@ import { WORLD } from './lib/constants';
 import { getTerrainHeight } from './lib/terrainUtils';
 import {
   GameStartOverlay,
-  OrientationWarning,
   WebGLGate,
 } from '@/shared/components';
 
@@ -185,10 +184,6 @@ export function MonsterTruckGame() {
 
   return (
     <div className="fixed inset-0 bg-black">
-      {/* Orientation warning - shows in portrait mode */}
-      <OrientationWarning />
-
-
       {/* 3D Canvas - gated so a device without WebGL gets a friendly
           explanation instead of a silent black void */}
       <WebGLGate gameName="Monster Truck">

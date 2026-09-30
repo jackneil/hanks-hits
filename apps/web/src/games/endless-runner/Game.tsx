@@ -16,7 +16,6 @@ import {
   type CharacterId,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { getInstructionLines } from "./lib/instructions";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
@@ -564,9 +563,6 @@ export function EndlessRunnerGame() {
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
-      {/* Orientation warning for landscape */}
-      <OrientationWarning />
-
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
