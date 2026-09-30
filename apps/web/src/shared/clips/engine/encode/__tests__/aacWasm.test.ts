@@ -347,6 +347,13 @@ describe("WASM AAC backend (real module)", () => {
       s.pump();
       await new Promise((r) => setTimeout(r, 20));
     }
+    // The encoder gives its packets out in time slices, so the ring can pass
+    // 190 between two pumps, before the last pump fed the rest of the PCM
+    // (a closed stream flushes only what it was fed; the next stream encodes
+    // the rest again). One more pump feeds the rest: 1 s of feed-ahead is
+    // more than the 10 240 frames left. Without it the test failed on a busy
+    // machine with the ring at exactly 190 packets.
+    s.pump();
     await s.closeStream();
     expect(errors).toEqual([]);
     const packets = ring.packets;
