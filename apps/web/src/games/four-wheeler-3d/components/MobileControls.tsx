@@ -3,8 +3,8 @@
 /**
  * The on-screen controls for a phone.
  *
- * Two big pedals on the right, two steering arrows on the left, JUMP and HORN
- * above the pedals and the TILT chip above the arrows. Everything uses pointer
+ * Two big pedals on the right, two steering arrows on the left, NOS, JUMP and
+ * HORN above the pedals and the TILT chip above the arrows. Everything uses pointer
  * events with pointer capture, so a thumb can hold GAS while another thumb
  * taps LEFT. Every button is at least 44 px and the pedals are much bigger.
  *
@@ -14,6 +14,7 @@
 
 import type { GameControls } from "../hooks/useControls";
 import { boxStyle } from "../lib/hudLayout";
+import { useFourWheeler3dStore } from "../lib/store";
 
 const BUTTON =
   "flex select-none items-center justify-center rounded-2xl font-black " +
@@ -23,12 +24,15 @@ export type MobileControlsProps = {
   controls: GameControls;
   walking?: boolean;
   forwardLabel?: string;
+  /** True on a ride that has a NOS boost (a vehicle, a boat or a plane). */
+  nos?: boolean;
 };
 
 export function MobileControls({
   controls,
   walking = false,
   forwardLabel,
+  nos = false,
 }: MobileControlsProps) {
   const { touch, tilt, useTilt, setUseTilt } = controls;
   const { handlers, state } = touch;
@@ -93,7 +97,18 @@ export function MobileControls({
         </>
       )}
 
-      {/* Jump and horn, on the row above the pedals. */}
+      {/* NOS, jump and horn, on the row above the pedals, under the thumb. */}
+      {nos && (
+        <button
+          type="button"
+          aria-label="NOS boost"
+          style={boxStyle("nos")}
+          className={`${BUTTON} pointer-events-auto bg-[#3b4f7a] text-base active:bg-[#566fa6]`}
+          onClick={() => useFourWheeler3dStore.getState().startNos()}
+        >
+          NOS
+        </button>
+      )}
       <button
         type="button"
         aria-label="Jump"

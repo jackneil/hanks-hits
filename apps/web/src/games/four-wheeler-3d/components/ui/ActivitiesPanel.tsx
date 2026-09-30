@@ -127,7 +127,11 @@ export function ActivitiesPanel() {
     </div>
   );
 }
-/** Small live controls remain reachable after the panel closes. */
+/**
+ * Small live controls remain reachable after the panel closes. They render as
+ * plain buttons inside the HUD's context row, so on a phone they sit in the
+ * slot the shared layout keeps clear of the thumb controls.
+ */
 export function ActivitiesControls() {
   const nozzle = useActivitiesSession((s) => s.nozzle);
   const car = useFourWheeler3dStore(
@@ -136,16 +140,7 @@ export function ActivitiesControls() {
   );
   if (!nozzle && car?.type !== "firetruck") return null;
   return (
-    <div
-      style={{
-        position: "fixed",
-        right: 18,
-        bottom: 180,
-        zIndex: 45,
-        display: "flex",
-        gap: 8,
-      }}
-    >
+    <>
       {nozzle ? (
         <button
           className="fw-primary"
@@ -175,6 +170,6 @@ export function ActivitiesControls() {
       >
         Equipment
       </button>
-    </div>
+    </>
   );
 }
