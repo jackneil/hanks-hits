@@ -125,7 +125,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Run forever, dodge obstacles",
     category: "action",
     madeByKid: false,
-    clips: false,
+    clips: true,
     preferredOrientation: "landscape",
   },
   "flappy-bird": {
@@ -135,7 +135,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Tap to fly through pipes",
     category: "arcade",
     madeByKid: false,
-    clips: false,
+    clips: true,
     preferredOrientation: "portrait",
   },
   "four-wheeler-3d": {
@@ -217,7 +217,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Jump and run adventure",
     category: "action",
     madeByKid: false,
-    clips: false,
+    clips: true,
     preferredOrientation: "landscape",
   },
   "quoridor": {
