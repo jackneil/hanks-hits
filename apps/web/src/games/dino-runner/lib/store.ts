@@ -3,14 +3,12 @@ import { persist } from "zustand/middleware";
 import {
   type GameState,
   type Obstacle,
-  type ObstacleType,
   type CloudData,
   GROUND_Y,
   DINO,
   GRAVITY,
   JUMP_VELOCITY,
-  MAX_JUMP_VELOCITY,
-  JUMP_HOLD_MULTIPLIER,
+  JUMP_HOLD_GRAVITY_CUT,
   INITIAL_SPEED,
   MAX_SPEED,
   SPEED_INCREMENT,
@@ -82,6 +80,13 @@ export type DinoRunnerGameState = {
   // Current run stats
   runStartTime: number;
   currentRunDistance: number;
+  /**
+   * Counts every startGame. A new value while playing is a restart, so the
+   * clip service can end the old run and start a new one. Never saved.
+   */
+  runId: number;
+  /** The run that just ended beat the best from before it. Never saved. */
+  lastRunNewBest: boolean;
 
   // Progress (persisted)
   progress: DinoRunnerProgress;
@@ -157,6 +162,8 @@ function createInitialGameState(): Omit<DinoRunnerGameState, "progress"> {
 
     runStartTime: 0,
     currentRunDistance: 0,
+    runId: 0,
+    lastRunNewBest: false,
   };
 }
 
@@ -169,13 +176,15 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
       ...createInitialGameState(),
       progress: defaultProgress,
 
-      // Start a new game
+      // Start a new game, from the start card, from game over (the result
+      // chip's Play again) or in the middle of a run (the header's Restart).
       startGame: () => {
         const initialState = createInitialGameState();
         set({
           ...initialState,
           gameState: "playing",
           runStartTime: Date.now(),
+          runId: get().runId + 1,
         });
       },
 
@@ -187,6 +196,9 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
 
         set((s) => ({
           gameState: "game-over",
+          // Judged against the best from BEFORE this run, so a tie is not a
+          // new best and the result card can say so.
+          lastRunNewBest: finalScore > 0 && finalScore > s.progress.highScore,
           progress: {
             ...s.progress,
             highScore: Math.max(s.progress.highScore, finalScore),
@@ -247,7 +259,6 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
         }
 
         // Check for day/night toggle
-        const previousDayNight = Math.floor(state.score / DAY_NIGHT_INTERVAL);
         const currentDayNight = Math.floor(newScore / DAY_NIGHT_INTERVAL);
         const isNight = currentDayNight % 2 === 1;
 
@@ -256,14 +267,15 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
         let dinoVelocity = state.dinoVelocity;
         let isJumping = state.isJumping;
 
-        // Apply gravity
+        // Apply gravity. A held jump (the finger or the key stays down while
+        // the dino rises) feels lighter gravity, so it goes higher: the classic
+        // variable jump. The old code ADDED a positive term to the upward
+        // (negative) velocity, so holding made the jump LOWER than a tap
+        // (phone UX audit 2026-09-29: apex 74 px held, 108 px tapped).
         if (isJumping || dinoY < GROUND_Y - DINO.HEIGHT) {
-          // Add extra velocity if holding jump (variable height jump)
-          if (state.isHoldingJump && dinoVelocity < 0) {
-            dinoVelocity += JUMP_HOLD_MULTIPLIER * normalizedDelta;
-          }
-
-          dinoVelocity += GRAVITY * normalizedDelta;
+          const gravity =
+            state.isHoldingJump && dinoVelocity < 0 ? GRAVITY - JUMP_HOLD_GRAVITY_CUT : GRAVITY;
+          dinoVelocity += gravity * normalizedDelta;
           dinoY += dinoVelocity * normalizedDelta;
 
           // Land on ground

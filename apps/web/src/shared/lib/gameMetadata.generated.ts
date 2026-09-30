@@ -116,7 +116,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Chrome-style endless runner",
     category: "racing",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "endless-runner": {
     name: "Endless Runner",

@@ -24,8 +24,11 @@ const SRC = path.resolve(__dirname, "..");
 
 /** A wrapper file mounts GameShell with a literal canPause={false}. */
 const NO_PAUSE_SHELL = /<GameShell\b[\s\S]*?canPause=\{false\}/;
-/** The module runs its own loop. */
-const OWN_LOOP = /\b(?:requestAnimationFrame|setInterval|useFrame)\s*\(/;
+/**
+ * The module runs its own loop: a frame chain of its own, or the shared
+ * fixed-step loop (useGameLoop), which the game must pause under the hold.
+ */
+const OWN_LOOP = /\b(?:requestAnimationFrame|setInterval|useFrame|useGameLoop)\s*\(/;
 /** The module declares an orientation, so the tip can show over it. */
 const ORIENTATION = /\bpreferredOrientation:\s*["'](?:portrait|landscape)["']/;
 /** The module reads the hold. */
@@ -187,6 +190,7 @@ describe("every own-loop game behind a canPause={false} GameShell reads the shel
     expect(OWN_LOOP.test("animationFrameRef.current = requestAnimationFrame(gameLoop);")).toBe(true);
     expect(OWN_LOOP.test("timerRef.current = setInterval(() => {")).toBe(true);
     expect(OWN_LOOP.test("useFrame((state, delta) => {")).toBe(true);
+    expect(OWN_LOOP.test("useGameLoop({ update, render }, { running: true, paused: held });")).toBe(true);
     expect(OWN_LOOP.test("useEffect(() => {")).toBe(false);
     expect(ORIENTATION.test('preferredOrientation: "portrait",')).toBe(true);
     expect(ORIENTATION.test('preferredOrientation: "any",')).toBe(false);

@@ -22,11 +22,14 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 }));
 
 beforeEach(() => {
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  vi.stubGlobal("cancelAnimationFrame", () => {});
   localStorage.clear();
   useDinoRunnerStore.setState({ gameState: "idle" });
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   resetPointerMock();
 });
 
@@ -45,10 +48,8 @@ describe("DinoRunnerGame start overlay", () => {
     mockPointer(true);
     render(<DinoRunnerGame />);
 
-    expect(screen.getByText("Tap to jump (hold = higher)")).toBeInTheDocument();
-    expect(
-      screen.getByText("Swipe down or tap DUCK to duck")
-    ).toBeInTheDocument();
+    expect(screen.getByText("👆 Tap to jump (hold = higher)")).toBeInTheDocument();
+    expect(screen.getByText("👇 Hold DUCK or swipe down to duck")).toBeInTheDocument();
     expect(
       screen.queryByText("SPACE or ↑ to jump (hold = higher)")
     ).not.toBeInTheDocument();
@@ -63,25 +64,58 @@ describe("DinoRunnerGame start overlay", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("↓ to duck")).toBeInTheDocument();
     expect(
-      screen.queryByText("Tap to jump (hold = higher)")
+      screen.queryByText("👆 Tap to jump (hold = higher)")
     ).not.toBeInTheDocument();
   });
 });
 
-describe("DinoRunnerGame canvas box", () => {
-  // Regression (verify finding R9): the canvas box kept min-h-[360px] to
-  // give the old in-box start card room. The card portals to document.body
-  // now, so the reservation only left about 113 px of empty space above and
-  // below the canvas on a 390 px phone during play, and pushed DUCK down.
-  it("reserves no height for the start card: the box is as tall as the canvas", () => {
+describe("DinoRunnerGame play surface", () => {
+  it("fills the play box and takes no scroll: the start card portals out of it", () => {
     const { container } = render(<DinoRunnerGame />);
 
     const overlay = screen.getByTestId("game-start-overlay");
     expect(overlay.parentElement).toBe(document.body);
 
-    const box = container.querySelector("canvas")!.parentElement!;
-    expect(box).not.toContainElement(overlay);
-    expect(box.className).not.toMatch(/(^|\s)(\w+:)*min-h-/);
-    expect(box.style.minHeight).toBe("");
+    const surface = screen.getByTestId("dino-surface");
+    expect(surface).not.toContainElement(overlay);
+    expect(surface.className.split(/\s+/)).toContain("h-full");
+    expect(surface.className.split(/\s+/)).toContain("touch-none");
+    expect(surface.className).not.toMatch(/min-h-screen|100vh/);
+    // The picture is a window onto the world, never a scrolling box.
+    expect(container.querySelector('[data-testid="dino-viewport"]')?.className).toContain("overflow-hidden");
+  });
+
+  it("draws no words into the canvas at game over: the result is DOM and the chip has the buttons", () => {
+    const texts: string[] = [];
+    const ctx = new Proxy(
+      {},
+      {
+        get: (_target, key) => {
+          if (key === "fillText") return (text: string) => texts.push(text);
+          if (key === "canvas") return null;
+          return () => undefined;
+        },
+        set: () => true,
+      }
+    );
+    vi.unstubAllGlobals();
+    let frame: FrameRequestCallback | null = null;
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      frame = cb;
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    (vi.spyOn(HTMLCanvasElement.prototype, "getContext") as unknown as {
+      mockImplementation: (fn: () => unknown) => void;
+    }).mockImplementation(() => ctx);
+    useDinoRunnerStore.setState({ gameState: "game-over", score: 123 });
+    render(<DinoRunnerGame />);
+    // Two frames: the first seeds the clock, both draw.
+    (frame as unknown as FrameRequestCallback | null)?.(1000);
+    (frame as unknown as FrameRequestCallback | null)?.(1017);
+    expect(texts.some((t) => /game over|restart|space|tap/i.test(t))).toBe(false);
+    expect(screen.getByTestId("dino-result-card")).toHaveTextContent("Game over!");
+    expect(screen.getByTestId("dino-result-card")).toHaveTextContent("Score 123");
+    expect(screen.getByTestId("result-chip")).toBeInTheDocument();
   });
 });

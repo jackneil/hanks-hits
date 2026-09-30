@@ -1,26 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import { useDinoRunnerStore, type DinoRunnerProgress } from "./lib/store";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import type React from "react";
+import { useDinoRunnerStore } from "./lib/store";
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   GROUND_Y,
   DINO,
   CLOUD,
-  UI,
   getColors,
   type Obstacle,
   type CloudData,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useShellHold } from "@/shared/hooks/useShellHold";
+import { useGameLoop } from "@/shared/hooks/useGameLoop";
+import { fitCanvas, usePlayBox } from "@/shared/hooks/usePlayBox";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { ResultChip } from "@/shared/components/ResultChip";
 import { metadata } from "./metadata";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { usePointerHold, useTouchInput } from "@/shared/hooks/useTouchInput";
+import { DEFAULT_RESTART_GRACE_MS, useRestartGrace } from "@/shared/lib/input";
+import { useDinoClips } from "./lib/useDinoClips";
 
 // ============================================
 // DRAWING FUNCTIONS
@@ -255,71 +260,44 @@ function drawClouds(
 }
 
 /**
- * Draw score display
+ * Draw the score at the right edge of the VISIBLE world. On a phone held
+ * upright the world is cropped on the right (see PORTRAIT_VISIBLE_WORLD),
+ * so a score at the canvas edge would be off screen. The font grows when
+ * the scale is small, so the digits stay 16 CSS px or taller.
  */
 function drawScore(
   ctx: CanvasRenderingContext2D,
   score: number,
   highScore: number,
-  color: string
+  color: string,
+  view: { visibleWidth: number; scale: number }
 ) {
-  ctx.font = UI.SCORE_FONT;
+  const px = Math.max(24, Math.ceil(16 / Math.max(view.scale, 0.01)));
+  ctx.font = `bold ${px}px 'Courier New', monospace`;
   ctx.fillStyle = color;
   ctx.textAlign = "right";
+  const right = view.visibleWidth - 20;
+  const baseline = 12 + px;
 
   // Current score
   const scoreStr = Math.floor(score).toString().padStart(5, "0");
-  ctx.fillText(scoreStr, CANVAS_WIDTH - 20, 30);
+  ctx.fillText(scoreStr, right, baseline);
 
   // High score
   if (highScore > 0) {
     const highScoreStr = "HI " + Math.floor(highScore).toString().padStart(5, "0");
-    ctx.fillText(highScoreStr, CANVAS_WIDTH - 100, 30);
+    ctx.fillText(highScoreStr, right - px * 4, baseline);
   }
 }
 
-/**
- * Draw game over screen
- */
-function drawGameOver(
-  ctx: CanvasRenderingContext2D,
-  score: number,
-  highScore: number,
-  isNewHighScore: boolean,
-  color: string,
-  restartLine: string
-) {
-  // Semi-transparent overlay
-  ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-  ctx.textAlign = "center";
-  ctx.fillStyle = color;
-
-  // Game over text
-  ctx.font = UI.GAME_OVER_FONT;
-  ctx.fillText("G A M E   O V E R", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
-
-  // Score
-  ctx.font = UI.INSTRUCTION_FONT;
-  ctx.fillText(`Score: ${Math.floor(score)}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 10);
-
-  if (isNewHighScore) {
-    ctx.fillStyle = "#FFD700";
-    ctx.fillText("NEW HIGH SCORE!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
-    ctx.fillStyle = color;
-  }
-
-  // Restart instruction (branched by pointer type: a phone has no Space)
-  ctx.fillText(restartLine, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 70);
+/** The words of the result, in kid words (the result chip reads them out loud). */
+export function gameOverText({ score, best, newBest }: { score: number; best: number; newBest: boolean }): string {
+  const points = Math.floor(score);
+  const line = `Game over! You got ${points} ${points === 1 ? "point" : "points"}.`;
+  return newBest ? `${line} That is a new best!` : `${line} Your best is ${Math.floor(best)}.`;
 }
 
-/** The game-over restart line, branched by pointer type. */
-export function getRestartLine(isCoarse: boolean): string {
-  return isCoarse ? "Tap to Restart" : "Press Space or Tap to Restart";
-}
-
-/** What a finger on the canvas means, once the game knows. */
+/** What a finger on the play surface means, once the game knows. */
 type DinoTouchIntent = "pending" | "jump" | "duck" | "other";
 /** A pending finger that moves this far (CSS px) has shown its intent. */
 export const INTENT_MOVE_PX = 8;
@@ -334,189 +312,182 @@ export const JUMP_INTENT_MS = 80;
 export const SWIPE_DUCK_PX = 30;
 
 // ============================================
+// LAYOUT
+// ============================================
+
+/**
+ * How much of the 800 px world a phone held upright shows. The canvas is
+ * scaled to the height of the play box and the world is cropped on the
+ * right (the dino runs at x = 50, so the room ahead of it is what a kid
+ * needs). 600 px is the width of Chrome's own dino game on a phone. Before
+ * this the game was a strip 19 to 21 percent of the screen tall, with a
+ * 20 px dino (phone UX audit 2026-09-29).
+ */
+export const PORTRAIT_VISIBLE_WORLD = 600;
+/** A phone held sideways: the JUMP and DUCK buttons sit in gutters beside the picture, under the thumbs. */
+export const GUTTER_WIDTH = 88;
+/** A phone held upright: the two buttons share a row under the picture. */
+export const CONTROL_ROW_HEIGHT = 96;
+/** Room around the picture on every layout. */
+const MARGIN = 16;
+/** Pixel art past this scale looks chunky on a big monitor (the old cap). */
+export const MAX_SCALE = 1.5;
+
+export type DinoLayout = "sideways" | "upright" | "desktop";
+
+export interface DinoFit {
+  layout: DinoLayout;
+  /** One world px on screen, in CSS px. */
+  scale: number;
+  /** The size of the window onto the world, in CSS px. */
+  viewWidth: number;
+  viewHeight: number;
+  /** How many world px the window shows (800 when nothing is cropped). */
+  visibleWorld: number;
+}
+
+/**
+ * The picture and the controls for a play box: the layout, the scale, and
+ * the size of the window onto the world. Pure, so a test can check it.
+ */
+export function fitDino(box: { width: number; height: number }, coarse: boolean): DinoFit {
+  const sideways = box.width > box.height;
+  const layout: DinoLayout = coarse ? (sideways ? "sideways" : "upright") : "desktop";
+  const reserved =
+    layout === "sideways"
+      ? { width: 2 * GUTTER_WIDTH + MARGIN, height: MARGIN }
+      : layout === "upright"
+        ? { width: MARGIN, height: CONTROL_ROW_HEIGHT + MARGIN }
+        : { width: MARGIN, height: MARGIN };
+  const minVisibleWorld = box.width < box.height ? PORTRAIT_VISIBLE_WORLD : CANVAS_WIDTH;
+  const fit = fitCanvas(box, minVisibleWorld, CANVAS_HEIGHT, reserved);
+  if (fit.scale === 0) return { layout, scale: 0, viewWidth: 0, viewHeight: 0, visibleWorld: CANVAS_WIDTH };
+  const scale = Math.min(fit.scale, MAX_SCALE);
+  const roomWidth = Math.max(0, box.width - reserved.width);
+  const viewWidth = Math.min(roomWidth, Math.round(CANVAS_WIDTH * scale));
+  return {
+    layout,
+    scale,
+    viewWidth,
+    viewHeight: Math.max(1, Math.round(CANVAS_HEIGHT * scale)),
+    visibleWorld: Math.min(CANVAS_WIDTH, viewWidth / scale),
+  };
+}
+
+const HOLD_BUTTON =
+  "flex items-center justify-center rounded-2xl bg-gray-700 text-white text-xl font-bold shadow-md active:bg-gray-900 touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none]";
+
+// ============================================
 // MAIN GAME COMPONENT
 // ============================================
 export function DinoRunnerGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number | undefined>(undefined);
-  const lastTimeRef = useRef<number>(0);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const pterodactylFrameRef = useRef<number>(0);
-  const [scale, setScale] = useState(1);
   const isCoarse = useCoarsePointer();
   // The shell holds the game under an overlay (the restart question, the
-  // leaderboard, the install steps) and in a hidden tab: the loop skips
-  // its update while it is true, so no game time passes there.
+  // leaderboard, the install steps, a clip sheet) and in a hidden tab: the
+  // loop pauses while it is true, so no game time passes there.
   const held = useShellHold();
+  // The play box, fitted: the box does not scroll, and a touch on it is the game's.
+  const box = usePlayBox({ fit: true });
+  const fit = fitDino(box, isCoarse);
+  // The draw callback reads the newest fit (the score sits at the right
+  // edge of the VISIBLE world). A layout effect runs before the next frame.
+  const fitRef = useRef(fit);
+  useLayoutEffect(() => {
+    fitRef.current = fit;
+  });
 
-  const store = useDinoRunnerStore();
-  const {
-    gameState,
-    score,
-    isNight,
-    dinoY,
-    isDucking,
-    isJumping,
-    legFrame,
-    obstacles,
-    clouds,
-    groundOffset,
-    milestoneFlash,
-    progress,
-    startGame,
-    reset,
-    update,
-    jump,
-    releaseJump,
-    duck,
-  } = store;
+  // The DOM needs only these. The canvas reads the store at draw time.
+  const gameState = useDinoRunnerStore((s) => s.gameState);
+  const score = useDinoRunnerStore((s) => s.score);
+  const runId = useDinoRunnerStore((s) => s.runId);
+  const lastRunNewBest = useDinoRunnerStore((s) => s.lastRunNewBest);
+  const progress = useDinoRunnerStore((s) => s.progress);
+  const startGame = useDinoRunnerStore((s) => s.startGame);
+  const update = useDinoRunnerStore((s) => s.update);
+  const jump = useDinoRunnerStore((s) => s.jump);
+  const releaseJump = useDinoRunnerStore((s) => s.releaseJump);
+  const duck = useDinoRunnerStore((s) => s.duck);
+  const getProgress = useDinoRunnerStore((s) => s.getProgress);
+  const setProgress = useDinoRunnerStore((s) => s.setProgress);
+
+  const playing = gameState === "playing";
+  const gameOver = gameState === "game-over";
+
+  // Gameplay clips: the canvas, the run phases and the new-best moment.
+  useDinoClips(canvasRef, { gameState, score, highScore: progress.highScore, runId });
 
   // Auth sync
-  const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
+  const { forceSync } = useAuthSync({
     appId: "dino-runner",
     localStorageKey: "dino-runner-progress",
-    getState: () => store.getProgress(),
-    setState: (data: DinoRunnerProgress) => store.setProgress(data),
+    getState: getProgress,
+    setState: setProgress,
     debounceMs: 3000,
   });
 
   // Force save immediately on game over
   useEffect(() => {
-    if (gameState === "game-over") {
+    if (gameOver) {
       forceSync();
     }
-  }, [gameState, forceSync]);
+  }, [gameOver, forceSync]);
 
-  // Check if new high score
-  const isNewHighScore = gameState === "game-over" && Math.floor(score) >= progress.highScore && progress.highScore > 0;
+  // Restart waits out a short grace after the result appears, and a held
+  // key's repeats never count: a kid still tapping at the crash sees the
+  // result first. Every death used to cost two taps (tap, then Play on the
+  // start card); now Play again (or Space) starts the next run at once.
+  const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, gameState);
 
-  // Responsive scaling
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-      const containerWidth = containerRef.current.clientWidth;
-      const maxScale = Math.min(containerWidth / CANVAS_WIDTH, 1.5);
-      setScale(Math.max(0.4, maxScale));
-    };
+  // Draw the world. It reads the store at draw time, so the picture is the
+  // state of THIS frame, not of the last React commit.
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
+    const s = useDinoRunnerStore.getState();
+    const colors = getColors(s.isNight);
 
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
+    // Clear and fill background
+    ctx.fillStyle = s.milestoneFlash ? "#FFFFFF" : colors.SKY;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    drawClouds(ctx, s.clouds, colors.CLOUD);
+
+    pterodactylFrameRef.current += 0.05;
+    for (const obstacle of s.obstacles) {
+      if (obstacle.type.startsWith("cactus")) {
+        drawCactus(ctx, obstacle, colors.OBSTACLE);
+      } else {
+        drawPterodactyl(ctx, obstacle, colors.OBSTACLE, pterodactylFrameRef.current);
+      }
+    }
+
+    drawGround(ctx, s.groundOffset, colors);
+    drawDino(ctx, s.dinoY, s.isDucking, s.isJumping, s.legFrame, colors.DINO);
+
+    // In "idle" the canvas draws only the scene: the start card is DOM. At
+    // game over the scene dims under the DOM result card and the result
+    // chip; no words are drawn into the canvas.
+    if (s.gameState === "playing") {
+      drawScore(ctx, s.score, s.progress.highScore, colors.SCORE, {
+        visibleWidth: fitRef.current.visibleWorld,
+        scale: fitRef.current.scale,
+      });
+    } else if (s.gameState === "game-over") {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    }
   }, []);
 
-  // Main render function
-  const render = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      const colors = getColors(isNight);
-
-      // Clear and fill background
-      ctx.fillStyle = milestoneFlash ? "#FFFFFF" : colors.SKY;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      // Draw clouds
-      drawClouds(ctx, clouds, colors.CLOUD);
-
-      // Draw obstacles
-      pterodactylFrameRef.current += 0.05;
-      for (const obstacle of obstacles) {
-        if (obstacle.type.startsWith("cactus")) {
-          drawCactus(ctx, obstacle, colors.OBSTACLE);
-        } else {
-          drawPterodactyl(ctx, obstacle, colors.OBSTACLE, pterodactylFrameRef.current);
-        }
-      }
-
-      // Draw ground
-      drawGround(ctx, groundOffset, colors);
-
-      // Draw dino (always visible)
-      drawDino(ctx, dinoY, isDucking, isJumping, legFrame, colors.DINO);
-
-      // Draw UI based on state. In "idle" the canvas draws only the normal
-      // ground/dino scene — the start screen is now the DOM GameStartOverlay,
-      // so instruction text never overlaps the ground line again.
-      if (gameState === "playing") {
-        drawScore(ctx, score, progress.highScore, colors.SCORE);
-      } else if (gameState === "game-over") {
-        drawScore(ctx, score, progress.highScore, colors.SCORE);
-        drawGameOver(
-          ctx,
-          score,
-          progress.highScore,
-          isNewHighScore,
-          colors.GAME_OVER,
-          getRestartLine(isCoarse)
-        );
-      }
-    },
-    [
-      gameState,
-      score,
-      isNight,
-      dinoY,
-      isDucking,
-      isJumping,
-      legFrame,
-      obstacles,
-      clouds,
-      groundOffset,
-      milestoneFlash,
-      progress.highScore,
-      isNewHighScore,
-      isCoarse,
-    ]
+  // The shared loop: a fixed 60 Hz step of game time, the picture drawn
+  // every frame (also between runs), and no game time under a hold.
+  useGameLoop(
+    { update: (stepMs) => update(stepMs), render: draw },
+    { running: true, paused: !playing || held }
   );
-
-  // Game loop
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const gameLoop = (time: number) => {
-      // Skip first frame
-      if (lastTimeRef.current === 0) {
-        lastTimeRef.current = time;
-        render(ctx);
-        animationFrameRef.current = requestAnimationFrame(gameLoop);
-        return;
-      }
-
-      const delta = time - lastTimeRef.current;
-      lastTimeRef.current = time;
-
-      // Held: draw, but let no game time pass. `held` is a dependency, so
-      // the loop starts again with a seed frame when the hold ends.
-      if (gameState === "playing" && !held) {
-        update(delta);
-      }
-
-      render(ctx);
-      animationFrameRef.current = requestAnimationFrame(gameLoop);
-    };
-
-    animationFrameRef.current = requestAnimationFrame(gameLoop);
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      lastTimeRef.current = 0;
-    };
-  }, [gameState, held, update, render]);
-
-  // Input handler
-  const handleInput = useCallback(() => {
-    if (gameState === "idle") {
-      startGame();
-    } else if (gameState === "playing") {
-      jump();
-    } else if (gameState === "game-over") {
-      reset();
-    }
-  }, [gameState, startGame, jump, reset]);
 
   // Keyboard controls
   useEffect(() => {
@@ -526,19 +497,19 @@ export function DinoRunnerGame() {
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
       if (gameState === "idle") return;
+      if (gameState === "game-over") {
+        if (e.code === "Space" || e.code === "Enter" || e.code === "ArrowUp") {
+          e.preventDefault();
+          if (grace.accept(e)) startGame();
+        }
+        return;
+      }
       if (e.code === "Space" || e.code === "ArrowUp") {
         e.preventDefault();
-        handleInput();
+        jump();
       } else if (e.code === "ArrowDown") {
         e.preventDefault();
-        if (gameState === "playing") {
-          duck(true);
-        }
-      } else if (e.code === "Enter") {
-        e.preventDefault();
-        if (gameState === "game-over") {
-          reset();
-        }
+        duck(true);
       }
     };
 
@@ -557,22 +528,21 @@ export function DinoRunnerGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [handleInput, gameState, duck, releaseJump, reset]);
+  }, [gameState, grace, startGame, jump, duck, releaseJump]);
 
-  // Touch controls through the shared native touch hook: non-passive
-  // listeners, so the tap never scrolls the page and the browser sends no
-  // compatibility click. The canvas used to carry onTouchStart AND onClick,
-  // so one tap ran handleInput twice (at 844x340 a game-over tap restarted
-  // AND pressed the Play button that appeared under the finger). Each finger
-  // is tracked by its own identifier, so a swipe is measured from where that
-  // finger landed.
+  // Touch on the WHOLE play surface (not only the canvas): where a thumb
+  // rests on a phone held upright is below the picture, and that strip was
+  // dead. The shared native touch hook keeps the page still and sends no
+  // compatibility click; each finger is tracked by its own identifier.
   //
   // In play a finger does not jump the moment it lands: the old handler
-  // did, so "swipe down to duck" hopped the dino into the pterodactyl and
-  // the swipe only became a fast-fall in mid-air. A finger is "pending"
-  // until it moves INTENT_MOVE_PX (down = duck, any other way = jump),
-  // stays still for JUMP_INTENT_MS (jump, and keep holding for height), or
-  // lifts (a quick tap: jump, held for the rest of the window).
+  // did, so "swipe down to duck" hopped the dino into the pterodactyl. A
+  // finger is "pending" until it moves INTENT_MOVE_PX (down = duck, any
+  // other way = jump), stays still for JUMP_INTENT_MS (jump, and keep
+  // holding for height), or lifts (a quick tap: jump, held for the rest of
+  // the window). At game over a finger does nothing: the result chip's Play
+  // again starts the next run, so a tap meant for the last jump never
+  // wipes the result.
   const intentTimersRef = useRef(new Map<number, number>());
   const releaseTimersRef = useRef(new Set<number>());
   const clearIntentTimer = useCallback((id: number) => {
@@ -592,158 +562,229 @@ export function DinoRunnerGame() {
       releaseTimers.clear();
     };
   }, []);
-  useTouchInput<DinoTouchIntent>(canvasRef, {
-    onStart: (touch) => {
-      if (gameState !== "playing") {
-        // Start or restart: act at once.
-        touch.tag = "other";
-        handleInput();
-        return;
-      }
-      touch.tag = "pending";
-      const timer = window.setTimeout(() => {
-        intentTimersRef.current.delete(touch.id);
-        if (touch.tag !== "pending") return;
-        touch.tag = "jump";
-        jump();
-      }, JUMP_INTENT_MS);
-      intentTimersRef.current.set(touch.id, timer);
-    },
-    onMove: (touch) => {
-      if (gameState !== "playing") return;
-      const dx = touch.x - touch.startX;
-      const dy = touch.y - touch.startY;
-      if (touch.tag === "pending") {
-        if (Math.hypot(dx, dy) < INTENT_MOVE_PX) return;
-        clearIntentTimer(touch.id);
-        if (dy > 0 && dy >= Math.abs(dx)) {
-          touch.tag = "duck";
-          duck(true);
-        } else {
+  useTouchInput<DinoTouchIntent>(
+    surfaceRef,
+    {
+      onStart: (touch) => {
+        if (gameState !== "playing") {
+          touch.tag = "other";
+          return;
+        }
+        touch.tag = "pending";
+        const timer = window.setTimeout(() => {
+          intentTimersRef.current.delete(touch.id);
+          if (touch.tag !== "pending") return;
           touch.tag = "jump";
           jump();
-        }
-      } else if (touch.tag === "jump" && dy > SWIPE_DUCK_PX) {
-        // Swipe down in mid-air: fast fall.
-        duck(true);
-      }
-    },
-    onEnd: (touch) => {
-      clearIntentTimer(touch.id);
-      if (touch.tag === "pending") {
-        // A quick tap: the same hop a JUMP_INTENT_MS press gives.
-        jump();
-        const release = window.setTimeout(() => {
-          releaseTimersRef.current.delete(release);
-          releaseJump();
         }, JUMP_INTENT_MS);
-        releaseTimersRef.current.add(release);
-      } else if (touch.tag === "jump") {
-        releaseJump();
-        duck(false);
-      } else if (touch.tag === "duck") {
-        duck(false);
-      }
+        intentTimersRef.current.set(touch.id, timer);
+      },
+      onMove: (touch) => {
+        if (gameState !== "playing") return;
+        const dx = touch.x - touch.startX;
+        const dy = touch.y - touch.startY;
+        if (touch.tag === "pending") {
+          if (Math.hypot(dx, dy) < INTENT_MOVE_PX) return;
+          clearIntentTimer(touch.id);
+          if (dy > 0 && dy >= Math.abs(dx)) {
+            touch.tag = "duck";
+            duck(true);
+          } else {
+            touch.tag = "jump";
+            jump();
+          }
+        } else if (touch.tag === "jump" && dy > SWIPE_DUCK_PX) {
+          // Swipe down in mid-air: fast fall.
+          duck(true);
+        }
+      },
+      onEnd: (touch) => {
+        clearIntentTimer(touch.id);
+        if (touch.tag === "pending") {
+          // A quick tap: the same hop a JUMP_INTENT_MS press gives.
+          jump();
+          const release = window.setTimeout(() => {
+            releaseTimersRef.current.delete(release);
+            releaseJump();
+          }, JUMP_INTENT_MS);
+          releaseTimersRef.current.add(release);
+        } else if (touch.tag === "jump") {
+          releaseJump();
+          duck(false);
+        } else if (touch.tag === "duck") {
+          duck(false);
+        }
+      },
     },
-  });
+    // The buttons over the surface keep their own presses.
+    { ignore: "button" }
+  );
 
-  // The DUCK button is a hold: down ducks, up (or a cancel, or a blur)
-  // stands the dino back up. Its old React onTouchStart/onTouchEnd called
-  // preventDefault(), a no-op in React's passive touch listeners that
-  // logged an error on every press.
+  // A mouse (or a pen) on the surface: press = jump, release = let the
+  // jump go. A finger is the touch hook's; its pointer events are skipped
+  // here, or one tap would jump twice. A press on a button is the button's.
+  const onSurfacePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch" || event.button !== 0) return;
+    if ((event.target as Element).closest("button")) return;
+    if (gameState === "playing") jump();
+  };
+  const onSurfacePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return;
+    releaseJump();
+  };
+
+  // JUMP is a hold: down jumps, and the jump goes higher while the thumb
+  // stays down. DUCK is a hold: down ducks, up (or a cancel, or a blur)
+  // stands the dino back up.
+  const jumpHold = usePointerHold<HTMLButtonElement>(
+    () => jump(),
+    () => releaseJump()
+  );
   const duckHold = usePointerHold<HTMLButtonElement>(
     () => duck(true),
     () => duck(false)
   );
 
+  const sideways = fit.layout === "sideways";
+  const upright = fit.layout === "upright";
+  const controlsShown = playing;
+
+  const jumpButton = (
+    <button
+      type="button"
+      data-testid="dino-jump"
+      {...jumpHold}
+      aria-hidden={controlsShown ? undefined : true}
+      inert={!controlsShown}
+      className={`${HOLD_BUTTON} ${sideways ? "h-24 w-[72px]" : "h-20 flex-1"} ${controlsShown ? "" : "invisible"}`}
+    >
+      JUMP
+    </button>
+  );
+  const duckButton = (
+    <button
+      type="button"
+      data-testid="dino-duck"
+      {...duckHold}
+      aria-hidden={controlsShown ? undefined : true}
+      inert={!controlsShown}
+      className={`${HOLD_BUTTON} ${sideways ? "h-24 w-[72px]" : "h-20 flex-1"} ${controlsShown ? "" : "invisible"}`}
+    >
+      DUCK
+    </button>
+  );
+
+  const resultCopy = gameOverText({ score, best: progress.highScore, newBest: lastRunNewBest });
+
   return (
-    <div className="min-h-full bg-gradient-to-b from-gray-100 to-gray-300 flex flex-col items-center justify-center p-4">
+    <div
+      ref={surfaceRef}
+      data-testid="dino-surface"
+      data-layout={fit.layout}
+      onPointerDown={onSurfacePointerDown}
+      onPointerUp={onSurfacePointerUp}
+      onPointerCancel={onSurfacePointerUp}
+      className="relative h-full w-full bg-gray-200 touch-none select-none [-webkit-touch-callout:none]"
+    >
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Game container: as tall as the scaled canvas. The start card
-          portals to document.body and covers the viewport, so it needs no
-          room here (this box used to carry min-h-[360px] only to fit the
-          card, which left about 113px of empty space above and below the
-          canvas on a 390px phone during play). */}
       <div
-        ref={containerRef}
-        className="relative w-full max-w-4xl flex items-center justify-center"
+        className={`flex h-full w-full items-center justify-center gap-2 ${sideways ? "flex-row" : "flex-col"}`}
       >
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          // Mouse only: a finger's touch events are default-prevented by the
-          // hook above, so the browser sends no click for a tap.
-          onClick={handleInput}
-          className="rounded-lg shadow-xl cursor-pointer touch-manipulation border-2 border-gray-300"
-          style={{
-            width: CANVAS_WIDTH * scale,
-            height: CANVAS_HEIGHT * scale,
-            imageRendering: "pixelated",
-          }}
-        />
+        {/* A phone held sideways: JUMP under the left thumb. */}
+        {sideways && (
+          <div className="flex shrink-0 items-center justify-center" style={{ width: GUTTER_WIDTH }}>
+            {jumpButton}
+          </div>
+        )}
 
-        {gameState === "idle" && (
-          <GameStartOverlay
-            title="Dino Runner"
-            emoji={metadata.emoji ?? "🦖"}
-            subtitle={
-              progress.highScore > 0
-                ? `High Score: ${Math.floor(progress.highScore)}`
-                : undefined
-            }
-            keyboardHints={["SPACE or ↑ to jump (hold = higher)", "↓ to duck"]}
-            touchHints={[
-              "Tap to jump (hold = higher)",
-              "Swipe down or tap DUCK to duck",
-            ]}
-            onStart={startGame}
+        {/* The window onto the world. On a phone held upright it crops the
+            world on the right (fitDino), so the picture is as tall as the
+            box allows instead of a strip. */}
+        <div
+          data-testid="dino-viewport"
+          className="relative shrink-0 overflow-hidden rounded-lg border-2 border-gray-300 bg-gray-100 shadow-xl"
+          style={{ width: fit.viewWidth, height: fit.viewHeight }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            className="block"
+            style={{
+              width: Math.round(CANVAS_WIDTH * fit.scale),
+              height: fit.viewHeight,
+              imageRendering: "pixelated",
+            }}
           />
+
+          {/* The result, in the DOM, so it is legible at every scale (the
+              canvas text was 7.7 px on a phone upright). The chip under it
+              has the buttons and reads these words out loud. */}
+          {gameOver && (
+            <div
+              data-testid="dino-result-card"
+              className="pointer-events-none absolute inset-0 flex items-center justify-center p-2"
+            >
+              <div className="flex max-w-full flex-col items-center gap-0.5 rounded-xl bg-white/90 px-4 py-2 text-center text-gray-800 shadow-md short:flex-row short:gap-3 short:py-1.5">
+                <p className="text-2xl font-bold short:text-xl">Game over!</p>
+                <p className="text-lg font-semibold short:text-base">Score {Math.floor(score)}</p>
+                <p className="text-base short:text-sm">
+                  {lastRunNewBest ? "🏆 New best!" : `Best ${Math.floor(progress.highScore)}`}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* A phone held sideways: DUCK under the right thumb. */}
+        {sideways && (
+          <div className="flex shrink-0 items-center justify-center" style={{ width: GUTTER_WIDTH }}>
+            {duckButton}
+          </div>
+        )}
+
+        {/* A phone held upright: both buttons in a row under the picture,
+            where the thumbs rest. The row keeps its place between runs, so
+            the picture never jumps when a run starts or ends. */}
+        {upright && (
+          <div
+            data-testid="dino-control-row"
+            className="flex w-full shrink-0 items-center gap-3 px-3"
+            style={{ height: CONTROL_ROW_HEIGHT, maxWidth: Math.max(fit.viewWidth + 24, 280) }}
+          >
+            {jumpButton}
+            {duckButton}
+          </div>
         )}
       </div>
 
-      {/* Duck button: keyed on the pointer, never on a width breakpoint. A
-          phone held sideways (844 px wide) is past md and still has no
-          keyboard, so md:hidden took the only duck control away. */}
-      {isCoarse && (
-        <div className="mt-4">
-          <button
-            type="button"
-            {...duckHold}
-            className="w-24 h-16 bg-gray-600 hover:bg-gray-500 active:bg-gray-700 text-white rounded-xl shadow-lg flex items-center justify-center text-2xl font-bold touch-none select-none [-webkit-touch-callout:none]"
-          >
-            DUCK
-          </button>
-        </div>
+      {gameState === "idle" && (
+        <GameStartOverlay
+          title="Dino Runner"
+          emoji={metadata.emoji ?? "🦖"}
+          subtitle={
+            progress.highScore > 0
+              ? `High Score: ${Math.floor(progress.highScore)}`
+              : undefined
+          }
+          keyboardHints={["SPACE or ↑ to jump (hold = higher)", "↓ to duck"]}
+          touchHints={["👆 Tap to jump (hold = higher)", "👇 Hold DUCK or swipe down to duck"]}
+          onStart={startGame}
+        />
       )}
 
-      {/* Stats */}
-      <div className="mt-4 text-center text-gray-600 text-sm">
-        <p>
-          Games: {progress.gamesPlayed} | Best: {progress.highScore} | Distance:{" "}
-          {Math.floor(progress.totalDistance)}m
-        </p>
-      </div>
-
-      {/* Desktop controls hint — in-play reminder only; the start overlay
-          carries this copy on the idle screen */}
-      {gameState !== "idle" && !isCoarse && (
-        <div className="mt-2 text-gray-500 text-xs">
-          Space/Up = Jump | Down = Duck | Hold jump for height
-        </div>
-      )}
-
-      {/* Sync status */}
-      {isAuthenticated && (
-        <div className="fixed bottom-2 right-2 text-xs text-gray-400">
-          {syncStatus === "syncing"
-            ? "Saving..."
-            : syncStatus === "synced"
-            ? "Saved"
-            : ""}
-        </div>
+      {/* The result chip (plan 11.4): read it to me, Play again, the
+          leaderboard, and with clips on the clip buttons. Mounted only at
+          game over, so its grace starts then. */}
+      {gameOver && (
+        <ResultChip
+          resultText={resultCopy}
+          appId="dino-runner"
+          onRestart={startGame}
+          keyboardHint="Space"
+        />
       )}
     </div>
   );
