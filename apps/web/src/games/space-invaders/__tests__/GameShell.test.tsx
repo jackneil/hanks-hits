@@ -1,17 +1,6 @@
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Space Invaders builds an AudioContext at module load. jsdom has none, so stub
-// it BEFORE the Game module is imported (vi.hoisted runs above imports).
-vi.hoisted(() => {
-  class MockAudioContext {}
-  Object.defineProperty(globalThis, "AudioContext", {
-    writable: true,
-    configurable: true,
-    value: MockAudioContext,
-  });
-});
-
 // The GameShell reads useRouter (via useGameShell.goHome); jsdom has no Next
 // app-router context, so stub it.
 vi.mock("next/navigation", () => ({

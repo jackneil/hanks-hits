@@ -3,7 +3,6 @@ import { persist } from "zustand/middleware";
 import {
   type GameState,
   type Alien,
-  type AlienType,
   type Bullet,
   type MysteryShip,
   type ShieldBlock,
@@ -67,6 +66,18 @@ type SpaceInvadersState = {
   score: number;
   lives: number;
   wave: number;
+  /**
+   * Counts the runs of this page: startGame adds one (the start card's age
+   * choice, Play again, and a restart from the header or the pause menu).
+   * Gameplay clips read it: a new value while playing is a new run.
+   */
+  runId: number;
+  /**
+   * The saved best when this run started. The store raises the saved best
+   * during the run, so the clips' new-best moment reads this one: the
+   * record to beat is the one from before the run.
+   */
+  runStartBest: number;
 
   // Player
   playerX: number;
@@ -107,7 +118,7 @@ type SpaceInvadersState = {
   reset: () => void;
   movePlayer: (direction: -1 | 0 | 1) => void;
   shoot: () => void;
-  update: (delta: number) => void;
+  update: () => void;
   nextWave: () => void;
 
   // For useAuthSync
@@ -199,6 +210,8 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
       score: 0,
       lives: INITIAL_LIVES,
       wave: 1,
+      runId: 0,
+      runStartBest: 0,
 
       playerX: CANVAS_WIDTH / 2 - PLAYER.WIDTH / 2,
 
@@ -235,6 +248,8 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
           score: 0,
           lives: INITIAL_LIVES,
           wave: 1,
+          runId: state.runId + 1,
+          runStartBest: state.progress.highScore,
           playerX: CANVAS_WIDTH / 2 - PLAYER.WIDTH / 2,
           aliens: createAliens(
             1,
@@ -352,7 +367,8 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
         });
       },
 
-      update: (delta: number) => {
+      // One fixed step: useGameLoop runs 60 a second, whatever the screen's rate.
+      update: () => {
         const state = get();
         if (state.gameState !== "playing") return;
 

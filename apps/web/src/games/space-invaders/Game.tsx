@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, type ReactNode } from "react";
 import { useSpaceInvadersStore, type SpaceInvadersProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
@@ -8,6 +8,9 @@ import {
   GameStartOverlay,
   GameStartOverlayButton,
 } from "@/shared/components/GameStartOverlay";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { RESULT_CHIP_BUTTON } from "@/shared/components/buttonStyles";
 import { metadata } from "./metadata";
 import {
   CANVAS_WIDTH,
@@ -19,7 +22,6 @@ import {
   MYSTERY_SHIP,
   SHIELD,
   COLORS,
-  UI,
   DIFFICULTY_SETTINGS,
   type Alien,
   type AlienType,
@@ -27,8 +29,45 @@ import {
 } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
-import { usePointerHold } from "@/shared/hooks/useTouchInput";
-import { usePointerTap } from "@/shared/lib/input";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { useGameLoop } from "@/shared/hooks/useGameLoop";
+import { usePointerHold, type PointerHoldHandlers } from "@/shared/hooks/useTouchInput";
+import { DEFAULT_RESTART_GRACE_MS, usePointerTap, useRestartGrace } from "@/shared/lib/input";
+import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
+import { playSound, releaseSounds, SPACE_INVADERS_AUDIO_ID } from "./lib/sounds";
+import { useSpaceInvadersClips } from "./lib/useSpaceInvadersClips";
+import {
+  EDGE_PX,
+  FIRE_BUTTON_PX,
+  GUTTER_PX,
+  HUD_ROW_PX,
+  MOVE_BUTTON_PX,
+  PAD_GAP_PX,
+  spaceInvadersLayout,
+} from "./lib/layout";
+
+/** The pad buttons' accessible names (the voice and the tests use them). */
+export const PAD_LABELS = { left: "Move left", right: "Move right", fire: "Fire" } as const;
+/** The sound switch: the words say what the kid hears now. */
+export const SOUND_LABELS = { on: "Sound on", off: "Sound off" } as const;
+/** The one button of the wave-complete chip. */
+export const NEXT_WAVE_LABEL = "Next wave";
+
+/** The result chip's words at game over, read out loud first. */
+export function gameOverText({ score, wave, best, newBest }: { score: number; wave: number; best: number; newBest: boolean }): string {
+  const words = [`Game over! Your score is ${score}.`, `You got to wave ${wave}.`];
+  if (newBest) words.push("That is a new best!");
+  else if (best > 0) words.push(`Your best is ${best}.`);
+  return words.join(" ");
+}
+
+/** The wave-complete chip's words, read out loud first. */
+export function waveCompleteText({ wave, score }: { wave: number; score: number }): string {
+  return `Wave ${wave} done! Your score is ${score}.`;
+}
+
+/** Auto-fire: the game time between two shots while FIRE is held, in ms. */
+export const AUTO_FIRE_COOLDOWN_MS = 150;
 
 // ============================================
 // Touch pad (module scope)
@@ -39,13 +78,60 @@ import { usePointerTap } from "@/shared/lib/input";
 // remounted about 30 times a second: a held ◀ moved the cannon one step and
 // a 1.5 s FIRE hold fired one bullet. The parent reads the held state from
 // refs in its game loop, exactly like the keyboard.
+const PAD_BUTTON_CLASSES =
+  "flex flex-col items-center justify-center rounded-full font-bold leading-none text-white touch-none select-none [-webkit-touch-callout:none] shadow-md transition-transform";
+
+function PadButton({
+  hold,
+  label,
+  size,
+  pressed,
+  tone,
+  children,
+}: {
+  hold: PointerHoldHandlers<HTMLButtonElement>;
+  label: string;
+  size: number;
+  pressed: boolean;
+  tone: { up: string; down: string };
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      {...hold}
+      className={`${PAD_BUTTON_CLASSES} ${pressed ? `${tone.down} scale-95` : tone.up}`}
+      style={{ width: size, height: size }}
+    >
+      {children}
+    </button>
+  );
+}
+
 type PadProps = {
   onLeft: (down: boolean) => void;
   onRight: (down: boolean) => void;
   onFire: (down: boolean) => void;
+  /** The pad shows and takes taps only while a round plays. */
+  active: boolean;
+  /**
+   * Which part to render. "row": both groups in one row under the canvas
+   * (upright). "move" or "fire": that group alone in a gutter column
+   * beside the canvas (sideways), with `under` below it.
+   */
+  part: "row" | "move" | "fire";
+  /** What sits under the group in a gutter (the HUD, the sound switch). */
+  under?: ReactNode;
+  /** The width of the pad row when upright (the canvas width). */
+  rowWidth?: number;
 };
 
-function SpaceInvadersPad({ onLeft, onRight, onFire }: PadProps) {
+const GREEN = { up: "bg-green-600", down: "bg-green-700" };
+const RED = { up: "bg-red-600", down: "bg-red-700" };
+
+function SpaceInvadersPad({ onLeft, onRight, onFire, active, part, under, rowWidth }: PadProps) {
   const [leftPressed, setLeftPressed] = useState(false);
   const [rightPressed, setRightPressed] = useState(false);
   const [firePressed, setFirePressed] = useState(false);
@@ -85,155 +171,56 @@ function SpaceInvadersPad({ onLeft, onRight, onFire }: PadProps) {
     }
   );
 
+  // The groups keep their place on every screen, so the canvas never jumps
+  // when a run ends; hidden and inert between rounds.
+  const hidden = active ? "" : "invisible";
+  const inertProps = active ? {} : ({ "aria-hidden": true, inert: true } as const);
+
+  const moveGroup = (
+    <div data-testid="space-invaders-pad-move" className={`flex items-center ${hidden}`} style={{ gap: PAD_GAP_PX }} {...inertProps}>
+      <PadButton hold={leftHold} label={PAD_LABELS.left} size={MOVE_BUTTON_PX} pressed={leftPressed} tone={GREEN}>
+        <svg className="h-10 w-10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M15 19l-7-7 7-7" stroke="currentColor" strokeWidth="3" fill="none" />
+        </svg>
+      </PadButton>
+      <PadButton hold={rightHold} label={PAD_LABELS.right} size={MOVE_BUTTON_PX} pressed={rightPressed} tone={GREEN}>
+        <svg className="h-10 w-10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="3" fill="none" />
+        </svg>
+      </PadButton>
+    </div>
+  );
+  const fireGroup = (
+    <div data-testid="space-invaders-pad-fire" className={`flex items-center ${hidden}`} {...inertProps}>
+      <PadButton hold={fireHold} label={PAD_LABELS.fire} size={FIRE_BUTTON_PX} pressed={firePressed} tone={RED}>
+        <span className="text-xl">FIRE</span>
+      </PadButton>
+    </div>
+  );
+
+  if (part !== "row") {
+    return (
+      <div
+        data-testid={`space-invaders-gutter-${part === "move" ? "left" : "right"}`}
+        className="flex shrink-0 flex-col items-center justify-center gap-3"
+        style={{ width: GUTTER_PX }}
+      >
+        {part === "move" ? moveGroup : fireGroup}
+        {under}
+      </div>
+    );
+  }
   return (
     <div
       data-testid="space-invaders-pad"
-      className="flex justify-between items-center w-full max-w-md mx-auto mt-4 px-4 select-none"
+      className="flex w-full shrink-0 items-center justify-between select-none"
+      style={{ height: FIRE_BUTTON_PX, maxWidth: rowWidth }}
     >
-      {/* Left button */}
-      <button
-        type="button"
-        className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl touch-none transition-all ${
-          leftPressed ? "bg-green-700 scale-95" : "bg-green-600"
-        }`}
-        {...leftHold}
-        aria-label="Move left"
-      >
-        <svg className="w-10 h-10" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M15 19l-7-7 7-7" stroke="currentColor" strokeWidth="3" fill="none" />
-        </svg>
-      </button>
-
-      {/* Fire button */}
-      <button
-        type="button"
-        className={`w-24 h-24 rounded-full flex items-center justify-center text-white text-xl font-bold touch-none transition-all shadow-lg ${
-          firePressed ? "bg-red-700 scale-95" : "bg-red-600 hover:bg-red-500"
-        }`}
-        {...fireHold}
-        aria-label="Fire"
-      >
-        FIRE
-      </button>
-
-      {/* Right button */}
-      <button
-        type="button"
-        className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl touch-none transition-all ${
-          rightPressed ? "bg-green-700 scale-95" : "bg-green-600"
-        }`}
-        {...rightHold}
-        aria-label="Move right"
-      >
-        <svg className="w-10 h-10" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="3" fill="none" />
-        </svg>
-      </button>
+      {moveGroup}
+      {fireGroup}
     </div>
   );
 }
-
-// ============================================
-// Sound Manager
-// ============================================
-class SoundManager {
-  private audioContext: AudioContext | null = null;
-  private enabled: boolean = true;
-
-  constructor() {
-    if (typeof window !== "undefined") {
-      this.audioContext = new (window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    }
-  }
-
-  setEnabled(enabled: boolean) {
-    this.enabled = enabled;
-  }
-
-  private createOscillator(
-    frequency: number,
-    duration: number,
-    type: OscillatorType = "square"
-  ) {
-    if (!this.audioContext || !this.enabled) return;
-
-    const oscillator = this.audioContext.createOscillator();
-    const gainNode = this.audioContext.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(this.audioContext.destination);
-
-    oscillator.type = type;
-    oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
-
-    gainNode.gain.setValueAtTime(0.1, this.audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(
-      0.01,
-      this.audioContext.currentTime + duration
-    );
-
-    oscillator.start();
-    oscillator.stop(this.audioContext.currentTime + duration);
-  }
-
-  playShoot() {
-    this.createOscillator(880, 0.1, "square");
-  }
-
-  playExplosion() {
-    if (!this.audioContext || !this.enabled) return;
-    // Noise-like explosion
-    const duration = 0.15;
-    for (let i = 0; i < 3; i++) {
-      setTimeout(() => {
-        this.createOscillator(100 + Math.random() * 200, 0.05, "sawtooth");
-      }, i * 30);
-    }
-  }
-
-  playPlayerDeath() {
-    if (!this.audioContext || !this.enabled) return;
-    // Descending tone
-    const oscillator = this.audioContext.createOscillator();
-    const gainNode = this.audioContext.createGain();
-    oscillator.connect(gainNode);
-    gainNode.connect(this.audioContext.destination);
-    oscillator.type = "sawtooth";
-    oscillator.frequency.setValueAtTime(400, this.audioContext.currentTime);
-    oscillator.frequency.exponentialRampToValueAtTime(
-      50,
-      this.audioContext.currentTime + 0.5
-    );
-    gainNode.gain.setValueAtTime(0.15, this.audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(
-      0.01,
-      this.audioContext.currentTime + 0.5
-    );
-    oscillator.start();
-    oscillator.stop(this.audioContext.currentTime + 0.5);
-  }
-
-  playMystery() {
-    this.createOscillator(330, 0.2, "sine");
-    setTimeout(() => this.createOscillator(440, 0.2, "sine"), 100);
-  }
-
-  playMarch(step: number) {
-    const frequencies = [100, 90, 80, 70];
-    this.createOscillator(frequencies[step % 4], 0.08, "square");
-  }
-
-  playWaveClear() {
-    if (!this.audioContext || !this.enabled) return;
-    // Ascending arpeggio
-    [440, 554, 659, 880].forEach((freq, i) => {
-      setTimeout(() => this.createOscillator(freq, 0.15, "square"), i * 100);
-    });
-  }
-}
-
-const soundManager = new SoundManager();
 
 // ============================================
 // Alien Sprites (Simple pixel art using canvas)
@@ -337,19 +324,14 @@ function drawAlien(
 // ============================================
 export function SpaceInvadersGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number | undefined>(undefined);
-  const lastTimeRef = useRef<number>(0);
   const keysRef = useRef<Set<string>>(new Set());
-  const lastMarchRef = useRef<number>(0);
-  const marchStepRef = useRef<number>(0);
-  const [scale, setScale] = useState(1);
+  /** Game time since the last march sound, and the march step (0 to 3). */
+  const marchRef = useRef({ sinceMs: 0, step: 0 });
   const isCoarse = useCoarsePointer();
 
-  // Auto-fire support
+  // Auto-fire: game time since the last shot while FIRE (or the key) is held.
   const fireHeldRef = useRef(false);
-  const lastAutoFireRef = useRef<number>(0);
-  const AUTO_FIRE_COOLDOWN = 150; // ms between auto-fire shots
+  const sinceShotRef = useRef(AUTO_FIRE_COOLDOWN_MS);
   // The pad's ◀ ▶ held state, read by the game loop like keysRef.
   const touchHeldRef = useRef({ left: false, right: false });
 
@@ -370,17 +352,37 @@ export function SpaceInvadersGame() {
     playerInvincible,
     progress,
     startGame,
-    pauseGame,
     resumeGame,
-    reset,
-    movePlayer,
     shoot,
-    update,
     nextWave,
   } = store;
 
+  // The canvas fits the play box on both axes (layout.ts): upright the pad
+  // sits under it, sideways the pad sits in the gutters beside it. The box
+  // is fitted: it never scrolls, and a touch on it goes to the game.
+  const box = usePlayBox({ fit: true });
+  const { canvas: fit, sideways } = spaceInvadersLayout(box);
+
+  // Gameplay clips: the canvas, the run phases and the new-best moment.
+  useSpaceInvadersClips(canvasRef, {
+    gameState,
+    score,
+    highScore: store.runStartBest,
+    runId: store.runId,
+  });
+
+  // Sound: the first tap starts the shared game-audio bus, the sound switch
+  // is this game's speaker (also after the saved setting loads), and the
+  // game's channel leaves the bus when the game unmounts.
+  useEffect(() => wantGameAudio(), []);
+  const soundEnabled = progress.settings.soundEnabled;
+  useEffect(() => {
+    setGameSpeakerEnabled(SPACE_INVADERS_AUDIO_ID, soundEnabled);
+  }, [soundEnabled]);
+  useEffect(() => () => releaseSounds(), []);
+
   // Sync with auth system
-  const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
+  const { forceSync } = useAuthSync({
     appId: "space-invaders",
     localStorageKey: "space-invaders-progress",
     getState: () => store.getProgress(),
@@ -395,26 +397,10 @@ export function SpaceInvadersGame() {
     }
   }, [gameState, forceSync]);
 
-  // Update sound manager
+  // The wave-clear fanfare plays when the wave is done (not when the kid taps Next wave).
   useEffect(() => {
-    soundManager.setEnabled(progress.settings.soundEnabled);
-  }, [progress.settings.soundEnabled]);
-
-  // Responsive scaling
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight - 100; // Account for controls
-      const scaleX = containerWidth / CANVAS_WIDTH;
-      const scaleY = containerHeight / CANVAS_HEIGHT;
-      setScale(Math.min(scaleX, scaleY, 1.5)); // Cap at 1.5x
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
+    if (gameState === "waveComplete") playSound("waveClear");
+  }, [gameState]);
 
   // ============================================
   // Drawing Functions
@@ -567,31 +553,6 @@ export function SpaceInvadersGame() {
     [explosions]
   );
 
-  const drawHUD = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      ctx.fillStyle = COLORS.HUD;
-      ctx.font = UI.SMALL_FONT;
-      ctx.textAlign = "left";
-
-      // Score
-      ctx.fillText(`SCORE: ${score}`, 10, 25);
-
-      // High score
-      ctx.textAlign = "center";
-      ctx.fillText(`HI: ${progress.highScore}`, CANVAS_WIDTH / 2, 25);
-
-      // Lives
-      ctx.textAlign = "right";
-      ctx.fillText(`LIVES: ${lives}`, CANVAS_WIDTH - 10, 25);
-
-      // Wave
-      ctx.textAlign = "center";
-      ctx.font = "12px monospace";
-      ctx.fillText(`WAVE ${wave}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 10);
-    },
-    [score, lives, wave, progress.highScore]
-  );
-
   const drawReadyScreen = useCallback(
     (ctx: CanvasRenderingContext2D) => {
       // Ready state: the DOM start overlay owns all start UI (title, hints,
@@ -618,206 +579,153 @@ export function SpaceInvadersGame() {
       ctx.font = "bold 36px monospace";
       ctx.textAlign = "center";
       ctx.fillText("PAUSED", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillText("Tap to Resume", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
     },
     []
   );
 
-  const drawGameOverScreen = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  // Game over and the wave card only dim the field: the words are a
+  // ResultCard over the canvas (canvas text sat under the result chip, and
+  // was 6 px on a phone before the layout fit the box).
+  const drawGameOverScreen = useCallback((ctx: CanvasRenderingContext2D) => {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }, []);
 
-      ctx.fillStyle = COLORS.GAME_OVER;
-      ctx.font = "bold 36px monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("GAME OVER", CANVAS_WIDTH / 2, 200);
-
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillText(`SCORE: ${score}`, CANVAS_WIDTH / 2, 280);
-      ctx.fillText(`WAVE: ${wave}`, CANVAS_WIDTH / 2, 320);
-
-      if (score >= progress.highScore && score > 0) {
-        ctx.fillStyle = "#fbbf24";
-        ctx.fillText("NEW HIGH SCORE!", CANVAS_WIDTH / 2, 380);
-      }
-
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.fillText("TAP TO PLAY AGAIN", CANVAS_WIDTH / 2, 450);
-    },
-    [score, wave, progress.highScore]
-  );
-
-  const drawWaveCompleteScreen = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#22c55e";
-      ctx.font = "bold 36px monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("WAVE COMPLETE!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
-
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillText(`WAVE ${wave} CLEARED`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
-      ctx.fillText("TAP FOR NEXT WAVE", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 70);
-    },
-    [wave]
-  );
+  const drawWaveCompleteScreen = useCallback((ctx: CanvasRenderingContext2D) => {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }, []);
 
   // ============================================
   // Main Render Function
   // ============================================
-  const render = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      // Clear screen
-      ctx.fillStyle = COLORS.BACKGROUND;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  const render = useCallback(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!ctx) return;
 
-      if (gameState === "ready") {
-        drawReadyScreen(ctx);
-        return;
-      }
+    // Clear screen
+    ctx.fillStyle = COLORS.BACKGROUND;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      // Draw game elements
-      drawShields(ctx);
-      drawPlayer(ctx);
-      drawAliens(ctx);
-      drawBullets(ctx);
-      drawMysteryShip(ctx);
-      drawExplosions(ctx);
-      drawHUD(ctx);
+    if (gameState === "ready") {
+      drawReadyScreen(ctx);
+      return;
+    }
 
-      // Draw overlay screens
-      if (gameState === "paused") {
-        drawPausedScreen(ctx);
-      } else if (gameState === "gameOver") {
-        drawGameOverScreen(ctx);
-      } else if (gameState === "waveComplete") {
-        drawWaveCompleteScreen(ctx);
-      }
-    },
-    [
-      gameState,
-      drawReadyScreen,
-      drawShields,
-      drawPlayer,
-      drawAliens,
-      drawBullets,
-      drawMysteryShip,
-      drawExplosions,
-      drawHUD,
-      drawPausedScreen,
-      drawGameOverScreen,
-      drawWaveCompleteScreen,
-    ]
-  );
+    // Draw game elements. The score, the best, the lives and the wave are
+    // DOM text above the canvas (or beside it), readable at any scale.
+    drawShields(ctx);
+    drawPlayer(ctx);
+    drawAliens(ctx);
+    drawBullets(ctx);
+    drawMysteryShip(ctx);
+    drawExplosions(ctx);
+
+    // Draw overlay screens
+    if (gameState === "paused") {
+      drawPausedScreen(ctx);
+    } else if (gameState === "gameOver") {
+      drawGameOverScreen(ctx);
+    } else if (gameState === "waveComplete") {
+      drawWaveCompleteScreen(ctx);
+    }
+  }, [
+    gameState,
+    drawReadyScreen,
+    drawShields,
+    drawPlayer,
+    drawAliens,
+    drawBullets,
+    drawMysteryShip,
+    drawExplosions,
+    drawPausedScreen,
+    drawGameOverScreen,
+    drawWaveCompleteScreen,
+  ]);
 
   // ============================================
   // Game Loop
   // ============================================
+  // One fixed step of game time: the held input (keys or the pad) moves the
+  // cannon, FIRE auto-fires on a game-time cooldown, the store moves the
+  // world, and the march sound keeps its beat in game time. The shared
+  // loop runs 60 steps a second on any screen; before, the store's
+  // per-frame update ran once per screen frame (double speed at 120 Hz)
+  // and the loop effect restarted on every store change.
+  const playing = gameState === "playing";
+  const step = useCallback(
+    (stepMs: number) => {
+      const state = useSpaceInvadersStore.getState();
+      if (state.gameState !== "playing") return;
+
+      if (keysRef.current.has("ArrowLeft") || keysRef.current.has("KeyA") || touchHeldRef.current.left) {
+        state.movePlayer(-1);
+      }
+      if (keysRef.current.has("ArrowRight") || keysRef.current.has("KeyD") || touchHeldRef.current.right) {
+        state.movePlayer(1);
+      }
+
+      // Auto-fire while FIRE is held: one shot each AUTO_FIRE_COOLDOWN_MS of game time.
+      sinceShotRef.current += stepMs;
+      if (fireHeldRef.current && sinceShotRef.current >= AUTO_FIRE_COOLDOWN_MS) {
+        state.shoot();
+        playSound("shoot");
+        sinceShotRef.current = 0;
+      }
+
+      state.update();
+
+      // The march sound: faster as the aliens fall (scaled by difficulty).
+      const after = useSpaceInvadersStore.getState();
+      const aliveAliens = after.aliens.filter((a) => a.alive).length;
+      const totalAliens = after.aliens.length || 55;
+      const percentKilled = (totalAliens - aliveAliens) / totalAliens;
+      const baseInterval = 800 - percentKilled * 700; // 800 ms at the start, 100 ms at the end
+      const diffSettings = DIFFICULTY_SETTINGS[after.progress.settings.difficulty];
+      const marchInterval = Math.max(100, baseInterval / diffSettings.enemySpeedMultiplier);
+      marchRef.current.sinceMs += stepMs;
+      if (marchRef.current.sinceMs >= marchInterval && aliveAliens > 0) {
+        playSound("march", marchRef.current.step);
+        marchRef.current.step = (marchRef.current.step + 1) % 4;
+        marchRef.current.sinceMs = 0;
+      }
+    },
+    []
+  );
+  useGameLoop({ update: step, render }, { running: true, paused: !playing });
+
+  // Between rounds the picture changes only with the state (a card, a
+  // pause): draw it in the same commit, so the card is on the canvas
+  // before the next frame, also where frames are throttled.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!playing) render();
+  }, [render, playing]);
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const gameLoop = (time: number) => {
-      if (lastTimeRef.current === 0) {
-        lastTimeRef.current = time;
-        render(ctx);
-        animationFrameRef.current = requestAnimationFrame(gameLoop);
-        return;
-      }
-
-      const delta = time - lastTimeRef.current;
-      lastTimeRef.current = time;
-
-      // Handle held input (keys or the touch pad) for continuous movement
-      if (gameState === "playing") {
-        if (
-          keysRef.current.has("ArrowLeft") ||
-          keysRef.current.has("KeyA") ||
-          touchHeldRef.current.left
-        ) {
-          movePlayer(-1);
-        }
-        if (
-          keysRef.current.has("ArrowRight") ||
-          keysRef.current.has("KeyD") ||
-          touchHeldRef.current.right
-        ) {
-          movePlayer(1);
-        }
-
-        // Auto-fire when fire key is held
-        if (fireHeldRef.current) {
-          const now = Date.now();
-          if (now - lastAutoFireRef.current >= AUTO_FIRE_COOLDOWN) {
-            shoot();
-            soundManager.playShoot();
-            lastAutoFireRef.current = now;
-          }
-        }
-
-        // Update game state
-        update(delta);
-
-        // Play march sound based on alien movement (scaled by difficulty)
-        const aliveAliens = aliens.filter((a) => a.alive).length;
-        const totalAliens = aliens.length || 55;
-        const percentKilled = (totalAliens - aliveAliens) / totalAliens;
-        const baseInterval = 800 - percentKilled * 700; // 800ms at start, 100ms at end
-        const diffSettings = DIFFICULTY_SETTINGS[progress.settings.difficulty];
-        const marchInterval = Math.max(100, baseInterval / diffSettings.enemySpeedMultiplier);
-        if (time - lastMarchRef.current >= marchInterval && aliveAliens > 0) {
-          soundManager.playMarch(marchStepRef.current);
-          marchStepRef.current = (marchStepRef.current + 1) % 4;
-          lastMarchRef.current = time;
-        }
-      }
-
-      render(ctx);
-      animationFrameRef.current = requestAnimationFrame(gameLoop);
-    };
-
-    animationFrameRef.current = requestAnimationFrame(gameLoop);
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      lastTimeRef.current = 0;
-    };
-  }, [gameState, update, render, movePlayer, aliens]);
+  // A held input lets go when the round stops: the next round never starts
+  // with the cannon moving or firing on its own.
+  useEffect(() => {
+    if (playing) return;
+    fireHeldRef.current = false;
+    touchHeldRef.current.left = false;
+    touchHeldRef.current.right = false;
+    keysRef.current.clear();
+  }, [playing]);
 
   // ============================================
   // Input Handling
   // ============================================
-  const handleInput = useCallback(() => {
-    if (gameState === "ready") {
-      startGame();
-    } else if (gameState === "paused") {
-      resumeGame();
-    } else if (gameState === "gameOver") {
-      reset();
-    } else if (gameState === "waveComplete") {
-      soundManager.playWaveClear();
-      nextWave();
-    }
-  }, [gameState, startGame, resumeGame, reset, nextWave]);
+  // Play again and Next wave wait out a short grace after the card appears,
+  // and a held key's repeats never count: a kid who is still firing when
+  // the round ends sees the card first.
+  const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, gameState);
 
   const handleShoot = useCallback(() => {
-    if (gameState === "playing") {
-      shoot();
-      soundManager.playShoot();
-    }
-  }, [gameState, shoot]);
+    if (useSpaceInvadersStore.getState().gameState !== "playing") return;
+    shoot();
+    playSound("shoot");
+    sinceShotRef.current = 0;
+  }, [shoot]);
 
   // Keyboard controls
   useEffect(() => {
@@ -827,34 +735,42 @@ export function SpaceInvadersGame() {
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
       if (gameState === "ready") return;
+
+      if (gameState === "gameOver") {
+        if (e.code === "Space") {
+          e.preventDefault();
+          if (grace.accept(e)) startGame();
+        }
+        return;
+      }
+      if (gameState === "waveComplete") {
+        if (e.code === "Space") {
+          e.preventDefault();
+          if (grace.accept(e)) nextWave();
+        }
+        return;
+      }
+      // Pause is owned by the GameShell (it binds ESC and shows the pause
+      // button). Handling P/ESC here too is exactly what desynced the shell's
+      // pause menu from the game's own paused state.
+      if (gameState === "paused") return;
+
       keysRef.current.add(e.code);
 
       if (e.code === "Space" || e.code === "KeyW" || e.code === "ArrowUp") {
         e.preventDefault();
-        if (gameState === "playing") {
-          // Start auto-fire and fire immediately on first press
-          if (!fireHeldRef.current) {
-            fireHeldRef.current = true;
-            handleShoot();
-            lastAutoFireRef.current = Date.now();
-          }
-        } else if (e.code === "Space") {
-          handleInput();
+        // Fire at once, then the loop auto-fires while the key is held.
+        if (!fireHeldRef.current) {
+          fireHeldRef.current = true;
+          handleShoot();
         }
       }
-
-      // Pause is owned by the GameShell now (it binds ESC and shows the pause
-      // button). Handling P/ESC here too is exactly what desynced the shell's
-      // pause menu from the game's own paused state.
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       keysRef.current.delete(e.code);
-
-      // Stop auto-fire when fire key is released
       if (e.code === "Space" || e.code === "KeyW" || e.code === "ArrowUp") {
         fireHeldRef.current = false;
-        lastAutoFireRef.current = 0;
       }
     };
 
@@ -864,10 +780,10 @@ export function SpaceInvadersGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [gameState, handleInput, handleShoot]);
+  }, [gameState, grace, handleShoot, nextWave, startGame]);
 
   // The touch pad writes the same refs the keyboard writes; the game loop
-  // moves and auto-fires from them every frame.
+  // moves and auto-fires from them every step.
   const pressLeft = useCallback((down: boolean) => {
     touchHeldRef.current.left = down;
   }, []);
@@ -881,235 +797,234 @@ export function SpaceInvadersGame() {
         // Fire at once, then the loop auto-fires while held.
         fireHeldRef.current = true;
         handleShoot();
-        lastAutoFireRef.current = Date.now();
       } else {
         fireHeldRef.current = false;
-        lastAutoFireRef.current = 0;
       }
     },
     [handleShoot]
   );
 
-  // One tap on the canvas = one action. A finger's tap only acts between
-  // rounds (the FIRE button shoots); a mouse click also shoots in play.
+  // One tap on the canvas = one action: a mouse click shoots in play, and a
+  // tap resumes the game's own pause. Game over and wave complete go on
+  // only from the result chip (or Space): a tap meant for FIRE at the
+  // moment the round ended must not skip the card.
   const canvasTap = usePointerTap<HTMLCanvasElement>((e) => {
-    if ("pointerType" in e && e.pointerType === "touch" && gameState === "playing") return;
-    handleInput();
+    const state = useSpaceInvadersStore.getState().gameState;
+    if (state === "paused") {
+      resumeGame();
+      return;
+    }
+    if (state === "playing" && !("pointerType" in e && e.pointerType === "touch")) handleShoot();
   });
 
-  // ============================================
-  // Settings Panel
-  // ============================================
-  const SettingsPanel = () => {
-    const [isOpen, setIsOpen] = useState(false);
-    const { progress, setSoundEnabled } = useSpaceInvadersStore();
+  const toggleSound = () => store.setSoundEnabled(!soundEnabled);
+  const soundLabel = soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off;
 
-    return (
-      <div className="w-full max-w-md mx-auto mt-4">
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="w-full min-h-[44px] bg-gray-800 hover:bg-gray-700 text-white py-2 px-4 rounded-lg flex items-center justify-between"
-        >
-          <span>Settings</span>
-          <span
-            className="transform transition-transform"
-            style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)" }}
-          >
-            v
-          </span>
-        </button>
+  const soundButton = (
+    <button
+      type="button"
+      data-testid="space-invaders-sound"
+      aria-label={soundLabel}
+      onClick={toggleSound}
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gray-800 text-xl text-white hover:bg-gray-700 touch-manipulation"
+    >
+      <span aria-hidden="true">{soundEnabled ? "🔊" : "🔇"}</span>
+    </button>
+  );
 
-        {isOpen && (
-          <div className="mt-2 bg-gray-800 rounded-lg p-4 space-y-4">
-            {/* Sound toggle */}
-            <div className="flex items-center justify-between">
-              <label className="text-white font-bold">Sound</label>
-              <button
-                onClick={() => setSoundEnabled(!progress.settings.soundEnabled)}
-                className={`w-14 h-8 rounded-full transition-all ${
-                  progress.settings.soundEnabled ? "bg-green-600" : "bg-gray-600"
-                }`}
-              >
-                <div
-                  className={`w-6 h-6 bg-white rounded-full shadow transition-transform ${
-                    progress.settings.soundEnabled ? "translate-x-7" : "translate-x-1"
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Difficulty now lives ONLY in the start overlay's age picker —
-                this panel used to duplicate it on the same ready screen. */}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // ============================================
-  // Stats Display
-  // ============================================
-  const StatsDisplay = () => (
-    <div className="w-full max-w-md mx-auto mt-4 bg-gray-800 rounded-lg p-4 text-white">
-      <h3 className="font-bold text-lg mb-3 text-center">Your Stats</h3>
-      <div className="grid grid-cols-3 gap-3 text-sm">
-        <div className="bg-gray-700 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">Games</div>
-          <div className="text-lg font-bold">{progress.gamesPlayed}</div>
-        </div>
-        <div className="bg-gray-700 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">High Score</div>
-          <div className="text-lg font-bold text-yellow-400">{progress.highScore}</div>
-        </div>
-        <div className="bg-gray-700 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">Best Wave</div>
-          <div className="text-lg font-bold text-green-400">{progress.highestWave}</div>
-        </div>
-        <div className="bg-gray-700 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">Aliens</div>
-          <div className="text-lg font-bold">{progress.totalAliensKilled}</div>
-        </div>
-        <div className="bg-gray-700 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">UFOs</div>
-          <div className="text-lg font-bold text-red-400">{progress.mysteryShipsHit}</div>
-        </div>
-        <div className="bg-gray-700 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">Waves</div>
-          <div className="text-lg font-bold">{progress.wavesCompleted}</div>
-        </div>
-      </div>
+  // The HUD is DOM text: the canvas HUD was 5.7 px on a phone. One line
+  // upright (it never wraps, so the canvas never moves when a number
+  // grows); short lines in the gutter sideways.
+  const hud = (
+    <div
+      data-testid="space-invaders-hud"
+      className={
+        sideways
+          ? "flex max-w-full flex-col items-center gap-0.5 overflow-hidden whitespace-nowrap text-center font-mono text-xs font-bold text-green-400"
+          : "flex max-w-full items-center gap-3 overflow-hidden whitespace-nowrap font-mono text-sm font-bold text-green-400 sm:gap-4"
+      }
+    >
+      <span>SCORE {score}</span>
+      <span>BEST {progress.highScore}</span>
+      <span aria-label={`${lives} lives`}>{lives > 0 ? "♥".repeat(Math.min(lives, 5)) : "♡"}</span>
+      <span>WAVE {wave}</span>
     </div>
   );
 
-  // ============================================
-  // Main Render
-  // ============================================
+  const canvasBox = (
+    <div className="relative shrink-0" style={{ width: fit.width, height: fit.height }}>
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        {...canvasTap}
+        className="rounded-lg border-2 border-green-800 shadow-2xl touch-manipulation"
+        style={{ width: fit.width, height: fit.height }}
+      />
+
+      {gameState === "gameOver" && (
+        <ResultCard testId="space-invaders-result-card" title="Game over!">
+          <ResultLine big>Score {score}</ResultLine>
+          <ResultLine>
+            Wave {wave} ·{" "}
+            {score > store.runStartBest && score > 0 ? "🏆 New best!" : `Best ${progress.highScore}`}
+          </ResultLine>
+        </ResultCard>
+      )}
+      {gameState === "waveComplete" && (
+        <ResultCard testId="space-invaders-result-card" title={`Wave ${wave} done!`}>
+          <ResultLine big>Score {score}</ResultLine>
+        </ResultCard>
+      )}
+
+      {/* DOM start overlay: title, hints, age picker, and start button.
+          Replaces the in-canvas ready text and the old below-canvas picker. */}
+      {gameState === "ready" && (
+        <GameStartOverlay
+          title="Space Invaders"
+          emoji={metadata.emoji}
+          touchHints={["Hold ◀ ▶ to move", "Hold FIRE to shoot"]}
+          keyboardHints={[
+            "A/D or Arrows to move",
+            "SPACE or W to shoot (hold to auto-fire)",
+            "ESC to pause",
+          ]}
+          showStartButton={false}
+          spokenChoices={`Tap how old you are and the game starts: ${(
+            Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
+          )
+            .map((diff) => DIFFICULTY_SETTINGS[diff].label)
+            .join(", ")}.`}
+          onStart={startGame}
+        >
+          {progress.highScore > 0 && (
+            <div className="text-sm font-semibold text-amber-700">
+              🏆 High Score: {progress.highScore}
+            </div>
+          )}
+          {/* Tap an age = start at that difficulty (same one-tap model as
+              blitz-bomber/platformer). A separate Start button pushed the
+              CTA below the overlay's scroll clip at common viewports while
+              these look-alike buttons only selected — a kid tapped an age
+              and nothing happened. Two columns keep all five on-screen. */}
+          <p className="text-sm font-semibold opacity-80">
+            How old are you? Tap to play!
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map(
+              (diff, index, all) => {
+                const settings = DIFFICULTY_SETTINGS[diff];
+                const isSelected = progress.settings.difficulty === diff;
+                return (
+                  <GameStartOverlayButton
+                    key={diff}
+                    onClick={() => {
+                      store.setDifficulty(diff);
+                      startGame();
+                    }}
+                    className={`${isSelected ? "btn-primary" : ""} ${
+                      index === all.length - 1 ? "col-span-2" : ""
+                    }`}
+                  >
+                    {settings.emoji} {settings.label}
+                  </GameStartOverlayButton>
+                );
+              }
+            )}
+          </div>
+        </GameStartOverlay>
+      )}
+    </div>
+  );
+
+  // The pad shows on a touch screen (never behind a width breakpoint: a
+  // phone held sideways is 844 px wide and has no keyboard). A mouse has
+  // the keys, and the click on the canvas.
+  const padProps = { onLeft: pressLeft, onRight: pressRight, onFire: pressFire, active: playing };
+
+  // A mouse: the in-play key reminder, keyed on the pointer, never on a
+  // width breakpoint. Short lines, so it also fits the gutter column.
+  const keyReminder =
+    !isCoarse && gameState !== "ready" ? (
+      <div data-testid="space-invaders-key-reminder" className="text-center text-xs leading-snug text-gray-500">
+        <p>A/D or Arrows to move</p>
+        <p>SPACE or W to shoot (hold to auto-fire)</p>
+        <p>ESC to pause</p>
+      </div>
+    ) : null;
+
   return (
-    <div className="min-h-full bg-black flex flex-col items-center justify-start p-4">
-      {/* iOS install prompt */}
+    <div
+      data-testid="space-invaders-root"
+      data-layout={sideways ? "sideways" : "upright"}
+      className="h-full w-full select-none bg-black"
+    >
+      {sideways ? (
+        // Sideways: the pad in the gutters, the canvas full height between them.
+        <div className="flex h-full w-full items-center justify-center" style={{ padding: EDGE_PX, gap: PAD_GAP_PX }}>
+          {isCoarse ? (
+            <SpaceInvadersPad {...padProps} part="move" under={hud} />
+          ) : (
+            <div className="flex shrink-0 flex-col items-center justify-center gap-3" style={{ width: GUTTER_PX }}>
+              {hud}
+              {soundButton}
+              {keyReminder}
+            </div>
+          )}
+          {canvasBox}
+          {isCoarse ? (
+            <SpaceInvadersPad {...padProps} part="fire" under={soundButton} />
+          ) : (
+            // A mouse: the left gutter holds the HUD; this one keeps the canvas centred.
+            <div className="shrink-0" style={{ width: GUTTER_PX }} aria-hidden="true" />
+          )}
+        </div>
+      ) : (
+        // Upright: the HUD line, the canvas, then the pad in one row.
+        <div className="flex h-full w-full flex-col items-center" style={{ padding: EDGE_PX, gap: PAD_GAP_PX }}>
+          <div className="flex w-full shrink-0 items-center justify-center gap-3" style={{ height: HUD_ROW_PX }}>
+            {hud}
+            {soundButton}
+          </div>
+          {canvasBox}
+          {isCoarse && <SpaceInvadersPad {...padProps} part="row" rowWidth={fit.width} />}
+          {keyReminder}
+        </div>
+      )}
+
       <IOSInstallPrompt />
 
-      {/* Game container */}
-      <div
-        ref={containerRef}
-        className="relative w-full flex items-center justify-center"
-        style={{ height: "60vh" }}
-      >
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          {...canvasTap}
-          className="rounded-lg shadow-2xl cursor-pointer touch-manipulation border-2 border-green-800"
-          style={{
-            width: CANVAS_WIDTH * scale,
-            height: CANVAS_HEIGHT * scale,
-          }}
+      {/* The result chip under the game-over card: read it to me, Play
+          again, the leaderboard, and with clips on the clip buttons.
+          Mounted only at game over, so its grace starts then. */}
+      {gameState === "gameOver" && (
+        <ResultChip
+          resultText={gameOverText({
+            score,
+            wave,
+            best: progress.highScore,
+            newBest: score > store.runStartBest && score > 0,
+          })}
+          appId="space-invaders"
+          onRestart={startGame}
+          keyboardHint="Space"
         />
+      )}
 
-        {/* DOM start overlay: title, hints, age picker, and start button.
-            Replaces the in-canvas ready text and the old below-canvas picker. */}
-        {gameState === "ready" && (
-          <GameStartOverlay
-            title="Space Invaders"
-            emoji={metadata.emoji}
-            touchHints={["Tap ◀ ▶ to move", "Tap FIRE to shoot"]}
-            keyboardHints={[
-              "A/D or Arrows to move",
-              "SPACE or W to shoot (hold to auto-fire)",
-              "ESC to pause",
-            ]}
-            showStartButton={false}
-            spokenChoices={`Tap how old you are and the game starts: ${(
-              Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
-            )
-              .map((diff) => DIFFICULTY_SETTINGS[diff].label)
-              .join(", ")}.`}
-            onStart={startGame}
+      {/* The wave-complete chip: read it to me, then Next wave. */}
+      {gameState === "waveComplete" && (
+        <ResultChip resultText={waveCompleteText({ wave, score })} spokenExtras={[NEXT_WAVE_LABEL]}>
+          <button
+            type="button"
+            data-testid="space-invaders-next-wave"
+            // The chip holds every button in its bar through the grace.
+            onClick={() => nextWave()}
+            className={`btn btn-primary gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} active:scale-[0.97] touch-manipulation`}
           >
-            {progress.highScore > 0 && (
-              <div className="text-sm font-semibold text-amber-700">
-                🏆 High Score: {progress.highScore}
-              </div>
-            )}
-            {/* Tap an age = start at that difficulty (same one-tap model as
-                blitz-bomber/platformer). A separate Start button pushed the
-                CTA below the overlay's scroll clip at common viewports while
-                these look-alike buttons only selected — a kid tapped an age
-                and nothing happened. Two columns keep all five on-screen. */}
-            <p className="text-sm font-semibold opacity-80">
-              How old are you? Tap to play!
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map(
-                (diff, index, all) => {
-                  const settings = DIFFICULTY_SETTINGS[diff];
-                  const isSelected = progress.settings.difficulty === diff;
-                  return (
-                    <GameStartOverlayButton
-                      key={diff}
-                      onClick={() => {
-                        store.setDifficulty(diff);
-                        startGame();
-                      }}
-                      className={`${isSelected ? "btn-primary" : ""} ${
-                        index === all.length - 1 ? "col-span-2" : ""
-                      }`}
-                    >
-                      {settings.emoji} {settings.label}
-                    </GameStartOverlayButton>
-                  );
-                }
-              )}
-            </div>
-          </GameStartOverlay>
-        )}
-      </div>
-
-      {/* Touch pad, keyboard hint and the in-page pause are keyed on the
-          pointer, never on the md: width breakpoint: a large phone held
-          sideways is 844 px wide and still has no keyboard, and md:hidden
-          took away its controls and showed it "A/D or Arrows". */}
-      {isCoarse && gameState === "playing" && (
-        <div className="w-full">
-          <SpaceInvadersPad onLeft={pressLeft} onRight={pressRight} onFire={pressFire} />
-        </div>
-      )}
-
-      {/* Desktop keyboard hint — in-play reminder only; the start overlay
-          carries this copy on the ready screen */}
-      {gameState !== "ready" && !isCoarse && (
-        <div className="text-gray-500 text-sm text-center mt-2">
-          A/D or Arrows to move | SPACE or W to shoot (hold to auto-fire) | ESC to pause
-        </div>
-      )}
-
-      {/* Pause button for touch */}
-      {gameState === "playing" && isCoarse && (
-        <button
-          type="button"
-          onClick={pauseGame}
-          className="mt-4 min-h-11 bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded-lg font-bold"
-        >
-          PAUSE
-        </button>
-      )}
-
-      {/* Settings */}
-      <SettingsPanel />
-
-      {/* Stats */}
-      <StatsDisplay />
-
-      {/* Sync status indicator */}
-      {isAuthenticated && (
-        <div className="fixed bottom-2 right-2 text-xs text-green-400/60">
-          {syncStatus === "syncing"
-            ? "Saving..."
-            : syncStatus === "synced"
-            ? "Saved"
-            : ""}
-        </div>
+            <span aria-hidden="true">▶</span>
+            {NEXT_WAVE_LABEL}
+          </button>
+        </ResultChip>
       )}
     </div>
   );
