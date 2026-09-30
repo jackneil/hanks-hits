@@ -99,7 +99,7 @@ export function Garage({ onClose }: GarageProps) {
               role="tab"
               aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
-              className={`min-h-11 flex-1 rounded-lg px-2 text-base font-bold transition-colors ${
+              className={`min-h-11 flex-1 whitespace-nowrap rounded-lg px-2 text-base font-bold transition-colors short:px-1 short:text-sm ${
                 activeTab === tab ? 'bg-orange-600 text-white' : 'text-gray-300'
               }`}
             >
