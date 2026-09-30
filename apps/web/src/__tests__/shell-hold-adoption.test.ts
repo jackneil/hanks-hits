@@ -140,7 +140,8 @@ describe("every own-loop game behind a canPause={false} GameShell reads the shel
       "games/dino-runner",
       "games/hill-climb",
       "games/monster-truck",
-      "games/four-wheeler-3d",
+      // four-wheeler-3d left this list in PR-G1: it pauses through the shell
+      // once the ride starts (canPause={hasStarted}), and still reads the hold.
       "apps/trivia",
     ]) {
       expect(ids, `${id} mounts GameShell with canPause={false}`).toContain(id);
