@@ -1,0 +1,600 @@
+/**
+ * Phone gate: every game and app route works on a real iPhone screen.
+ *
+ * The test reads the routes that the home page lists (every /games/... and
+ * /apps/... link) and opens each one on four iPhone Safari inner sizes:
+ * 375x549 and 390x664 (upright), 667x311 and 844x340 (sideways), with
+ * touch and an iPhone user agent. A tap is a real touch
+ * (Input.dispatchTouchEvent), never a mouse click, and no key is pressed:
+ * a kid on a phone has fingers only.
+ *
+ * For each route and screen it checks:
+ *   page-height-start   the page is not taller than the screen at the
+ *                       start card (document.scrollingElement.scrollHeight
+ *                       <= innerHeight + 1). The play box scrolls, the page
+ *                       never does (phone UX audit 2026-09-29, S1).
+ *   start-visible       the start control (Play, or the choice buttons of
+ *                       a picker that starts the game) is on screen and a
+ *                       tap at its centre hits it.
+ *   enters-play         a touch on the start control leaves the start card.
+ *   page-height-play    the page is not taller than the screen 2 s into
+ *                       play.
+ *   fixed-over-play     during the first 5 s of play, no element with
+ *                       position: fixed intersects the play box, other than
+ *                       the GameShell header, the game's own controls (in
+ *                       the play box) and the orientation tip (it holds the
+ *                       game while it shows; main-loop decision 2).
+ *   keyboard-copy       no visible text says a keyboard phrase (Press
+ *                       SPACE, arrow keys, WASD, Escape, Click ...) on a
+ *                       coarse pointer, at the start card or in play.
+ *   button-size         every visible button is at least 44x44 px, at the
+ *                       start card and in play.
+ *   prevent-default     the console logs no "Unable to preventDefault"
+ *                       (a preventDefault() inside a passive React
+ *                       onTouch* handler, which also doubles the tap).
+ *
+ * KNOWN FAILURES. The genre PRs (PR-G1 to PR-G8 in the phone UX audit)
+ * fix the games one family at a time. Until then, the rows that fail
+ * today are listed in KNOWN_FAILURES below, one line per route and check,
+ * each naming the PR that fixes it. The gate is green while the failures
+ * match the list exactly:
+ *   - a failing row that is not in the list fails the gate (a regression);
+ *   - a listed row that passes on every screen fails the gate too (the
+ *     line is stale: the PR that fixed it must delete its line).
+ * A genre PR deletes its lines; it never adds one.
+ *
+ * Every route and screen prints one PASS, KNOWN or FAIL row. Run it: see
+ * playwright.config.ts beside this file.
+ */
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+
+import { expect, test, type Browser, type BrowserContextOptions, type CDPSession, type Page } from "playwright/test";
+
+const REPO_ROOT = path.resolve(__dirname, "..", "..");
+const APP_SRC = path.join(REPO_ROOT, "apps", "web", "src");
+
+// ---------------------------------------------------------------- known failures
+
+type Check =
+  | "page-height-start"
+  | "start-visible"
+  | "enters-play"
+  | "page-height-play"
+  | "fixed-over-play"
+  | "keyboard-copy"
+  | "button-size"
+  | "prevent-default";
+
+const CHECKS: Check[] = [
+  "page-height-start",
+  "start-visible",
+  "enters-play",
+  "page-height-play",
+  "fixed-over-play",
+  "keyboard-copy",
+  "button-size",
+  "prevent-default",
+];
+
+interface KnownFailure {
+  route: string;
+  check: Check;
+  /** The genre PR of the phone UX audit that fixes it. */
+  fixedBy: string;
+}
+
+/**
+ * The rows that fail today, one line per route and check. Each genre PR
+ * deletes its own lines when its games pass; the gate fails on a stale
+ * line. Never add a line: a new failure is a regression to fix.
+ */
+const KNOWN_FAILURES: KnownFailure[] = [
+  // PR-G1: Driving. four-wheeler-3d's own start screen puts Play under the
+  // fold at 667x311; its toolbelt buttons are 40 px tall upright and its
+  // icon buttons 29 px wide; monster-truck's Challenges pill is 36 px tall.
+  { route: "/games/four-wheeler-3d", check: "start-visible", fixedBy: "PR-G1" },
+  { route: "/games/four-wheeler-3d", check: "button-size", fixedBy: "PR-G1" },
+  { route: "/games/monster-truck", check: "button-size", fixedBy: "PR-G1" },
+  // PR-G5: Puzzle and word. Wordle's keyboard keys are 32 px wide upright.
+  { route: "/games/wordle", check: "button-size", fixedBy: "PR-G5" },
+  // PR-G8: Apps. The drum machine's Pads and Sequencer tabs are 40 px
+  // tall. The joke generator and the virtual pet have no start card and
+  // no break surface, so the First Play trophy shows as the 60 px strip at
+  // the bottom of the page for 4 s, over the app's bottom row.
+  { route: "/apps/drum-machine", check: "button-size", fixedBy: "PR-G8" },
+  { route: "/apps/joke-generator", check: "fixed-over-play", fixedBy: "PR-G8" },
+  { route: "/apps/virtual-pet", check: "fixed-over-play", fixedBy: "PR-G8" },
+];
+
+// ---------------------------------------------------------------- screens
+
+const IPHONE_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7 Mobile/15E148 Safari/604.1";
+const IPHONE: BrowserContextOptions = {
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 2,
+  userAgent: IPHONE_UA,
+};
+
+/** The inner sizes of iPhone Safari with its toolbars shown (main-loop decision 1). */
+const SCREENS: { name: string; options: BrowserContextOptions }[] = [
+  { name: "375x549", options: { ...IPHONE, viewport: { width: 375, height: 549 } } },
+  { name: "667x311", options: { ...IPHONE, viewport: { width: 667, height: 311 } } },
+  { name: "390x664", options: { ...IPHONE, viewport: { width: 390, height: 664 } } },
+  { name: "844x340", options: { ...IPHONE, viewport: { width: 844, height: 340 } } },
+];
+
+/** How many screens run at once. Two: a WebGL game on a busy machine needs the room. */
+const SCREENS_AT_ONCE = 2;
+
+/** The keyboard phrases a phone must never show (the same list as keyboardCopySources.test.ts). */
+const KEYBOARD_COPY_SOURCE = [
+  String.raw`\bPress [A-Z]`,
+  String.raw`\bpress (E|R|T|Q|M|P|C|I|Space|Enter|Escape|any key|SPACE)\b`,
+  String.raw`\bEscape\b`,
+  String.raw`\bClick `,
+  String.raw`\bWASD\b`,
+  String.raw`\bArrow [Kk]eys?\b`,
+  String.raw`\bSPACE\b`,
+  String.raw`\bESC\b`,
+  String.raw`\bSpace (to|bar|for|or|=|/)`,
+].join("|");
+
+/** A font family name that matches the regex. */
+const NOT_KEYBOARD_COPY = ["Press Start 2P"];
+
+const MIN_TARGET = 44;
+/** The first seconds of play under watch for a fixed element over the play box. */
+const PLAY_WATCH_MS = 5_000;
+const PLAY_SAMPLE_MS = 400;
+/** When the in-play page height, copy and buttons are measured. */
+const PLAY_PROBE_AT_MS = 2_000;
+
+// ---------------------------------------------------------------- source
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === "__tests__" ? [] : sourceFiles(full);
+    return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) ? [full] : [];
+  });
+}
+
+/**
+ * True when the route's module mounts GameStartOverlay (the shared start
+ * card). The module folders come from the route's page.tsx imports
+ * (@/games/<id>, @/apps/<id>). This reads the checkout the spec runs
+ * from, so run it against a server built from the same checkout.
+ */
+function mountsStartCard(route: string): boolean {
+  const pageFile = path.join(APP_SRC, "app", ...route.split("/").filter(Boolean), "page.tsx");
+  if (!existsSync(pageFile)) throw new Error(`no page file at ${path.relative(REPO_ROOT, pageFile)}`);
+  const pageSource = readFileSync(pageFile, "utf8");
+  const moduleDirs = [
+    ...new Set([...pageSource.matchAll(/["']@\/((?:games|apps)\/[a-z0-9-]+)/g)].map((m) => m[1])),
+  ].map((m) => path.join(APP_SRC, m));
+  const files = [pageFile, ...moduleDirs.filter(existsSync).flatMap(sourceFiles)];
+  return files.some((file) => /<GameStartOverlay\b/.test(readFileSync(file, "utf8")));
+}
+
+// ---------------------------------------------------------------- page
+
+async function homeRoutes(page: Page): Promise<string[]> {
+  await page.goto("/", { waitUntil: "load" });
+  await expect(page.locator('a[href^="/games/"]').first()).toBeVisible();
+  const hrefs = await page.$$eval('a[href^="/games/"], a[href^="/apps/"]', (links) =>
+    links.map((a) => a.getAttribute("href") ?? "")
+  );
+  return [...new Set(hrefs.map((href) => href.split(/[?#]/)[0].replace(/\/+$/, "")))].sort();
+}
+
+/** A real finger: a touch start and a touch end at one point. */
+async function tapAt(cdp: CDPSession, x: number, y: number): Promise<void> {
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+}
+
+/** Waits until the page stops moving (fonts, the start card, the tip). */
+async function settle(page: Page): Promise<void> {
+  await page.evaluate(() => document.fonts.ready.then(() => undefined)).catch(() => undefined);
+  let last = "";
+  for (let i = 0; i < 12; i++) {
+    const now = await page.evaluate(() => {
+      const ids = ["game-start-overlay", "start-card", "start-card-actions", "orientation-tip", "ios-install-tip"];
+      return ids
+        .map((id) => {
+          const el = document.querySelector(`[data-testid="${id}"]`);
+          if (!el) return `${id}:-`;
+          const r = el.getBoundingClientRect();
+          return `${id}:${r.top.toFixed(0)},${r.bottom.toFixed(0)},${r.left.toFixed(0)},${r.right.toFixed(0)}`;
+        })
+        .join("|");
+    });
+    if (now === last) return;
+    last = now;
+    await page.waitForTimeout(250);
+  }
+}
+
+interface Box {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  width: number;
+  height: number;
+}
+
+interface Control {
+  name: string;
+  box: Box;
+  onScreen: boolean;
+  hit: boolean;
+}
+
+/** The start control: the start card's Play, or the choice buttons that start the game. */
+function probeStartControls(page: Page): Promise<Control[]> {
+  return page.evaluate(() => {
+    const vw = innerWidth;
+    const vh = innerHeight;
+    const actions = document.querySelector<HTMLElement>('[data-testid="start-card-actions"]');
+    if (!actions) return [];
+    const buttons = [...actions.querySelectorAll<HTMLElement>("button")].filter(
+      (b) => b.dataset.testid !== "read-aloud-button"
+    );
+    return buttons.map((button) => {
+      const r = button.getBoundingClientRect();
+      const hitEl = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+      return {
+        name: (button.getAttribute("aria-label") ?? button.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40),
+        box: { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height },
+        onScreen: r.top >= -0.5 && r.bottom <= vh + 0.5 && r.left >= -0.5 && r.right <= vw + 0.5,
+        hit: !!hitEl && (hitEl === button || button.contains(hitEl)),
+      };
+    });
+  });
+}
+
+/** A module with its own launcher (no shared start card): its Play or Start button, if any. */
+function probeOwnStart(page: Page): Promise<Control | null> {
+  return page.evaluate(() => {
+    const vw = innerWidth;
+    const vh = innerHeight;
+    const buttons = [...document.querySelectorAll<HTMLElement>('button, [role="button"]')];
+    const start = buttons.find((b) => {
+      const name = (b.getAttribute("aria-label") ?? b.textContent ?? "").trim();
+      const r = b.getBoundingClientRect();
+      return /^(▶\s*)?(play|start)\b/i.test(name) && r.width > 0 && r.height > 0;
+    });
+    if (!start) return null;
+    const r = start.getBoundingClientRect();
+    const hitEl = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    return {
+      name: (start.getAttribute("aria-label") ?? start.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40),
+      box: { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height },
+      onScreen: r.top >= -0.5 && r.bottom <= vh + 0.5 && r.left >= -0.5 && r.right <= vw + 0.5,
+      hit: !!hitEl && (hitEl === start || start.contains(hitEl)),
+    };
+  });
+}
+
+interface PageProbe {
+  scrollHeight: number;
+  innerHeight: number;
+  keyboardCopy: string[];
+  smallButtons: string[];
+}
+
+/** The page height, the keyboard phrases on screen and the buttons under 44 px. */
+function probePage(page: Page): Promise<PageProbe> {
+  return page.evaluate(
+    ({ pattern, notCopy, minTarget }) => {
+      const regex = new RegExp(pattern);
+      const vw = innerWidth;
+      const vh = innerHeight;
+      const visible = (el: Element) => {
+        const style = getComputedStyle(el);
+        if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) < 0.01) return false;
+        const r = el.getBoundingClientRect();
+        // A 1x1 px box is sr-only text; a box off the screen is not on it.
+        return r.width > 1 && r.height > 1 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+      };
+
+      const keyboardCopy: string[] = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+        if (!text || !regex.test(text) || notCopy.some((s: string) => text.includes(s))) continue;
+        const parent = node.parentElement;
+        if (!parent || !visible(parent)) continue;
+        keyboardCopy.push(text.slice(0, 60));
+      }
+
+      const smallButtons: string[] = [];
+      for (const button of document.querySelectorAll<HTMLElement>('button, [role="button"]')) {
+        if (!visible(button)) continue;
+        const r = button.getBoundingClientRect();
+        if (r.width >= minTarget - 0.5 && r.height >= minTarget - 0.5) continue;
+        const name = (button.getAttribute("aria-label") ?? button.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 30);
+        smallButtons.push(`"${name || button.className.slice(0, 30)}" ${Math.round(r.width)}x${Math.round(r.height)}`);
+      }
+
+      return {
+        scrollHeight: document.scrollingElement?.scrollHeight ?? document.documentElement.scrollHeight,
+        innerHeight: vh,
+        keyboardCopy: [...new Set(keyboardCopy)],
+        smallButtons: [...new Set(smallButtons)],
+      };
+    },
+    { pattern: KEYBOARD_COPY_SOURCE, notCopy: NOT_KEYBOARD_COPY, minTarget: MIN_TARGET }
+  );
+}
+
+/**
+ * Fixed elements that lie over the play box right now, other than the
+ * header, the game's own layers (inside the play box) and the orientation
+ * tip. Returns a short name for each.
+ */
+function probeFixedOverPlay(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const box = document.querySelector<HTMLElement>("[data-play-box]");
+    if (!box) return ["no play box on the page"];
+    const b = box.getBoundingClientRect();
+    const header = document.querySelector('[data-testid="game-shell-header"]');
+    const tip = document.querySelector('[data-testid="orientation-tip"]');
+    const out: string[] = [];
+    for (const el of document.querySelectorAll<HTMLElement>("body *")) {
+      if (el === header || el === box) continue;
+      if (header?.contains(el) || box.contains(el) || tip?.contains(el) || el === tip) continue;
+      const style = getComputedStyle(el);
+      if (style.position !== "fixed") continue;
+      if (style.visibility === "hidden" || Number(style.opacity) < 0.01) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      const overlaps = r.left < b.right - 0.5 && r.right > b.left + 0.5 && r.top < b.bottom - 0.5 && r.bottom > b.top + 0.5;
+      if (!overlaps) continue;
+      // A fixed parent whose fixed child is the thing on screen: name the parent once.
+      const id = el.dataset.testid ? `[${el.dataset.testid}]` : `${el.tagName.toLowerCase()}.${el.className.toString().split(/\s+/).slice(0, 3).join(".")}`;
+      const text = (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 30);
+      out.push(`${id}${text ? ` "${text}"` : ""} at ${Math.round(r.top)}-${Math.round(r.bottom)}`);
+    }
+    return [...new Set(out)];
+  });
+}
+
+/** The orientation tip is up: tap Keep playing, by touch. */
+async function passOrientationTip(page: Page, cdp: CDPSession): Promise<boolean> {
+  const tip = page.getByTestId("orientation-tip");
+  if (!(await tip.count())) return false;
+  const button = tip.getByRole("button", { name: /Keep playing/ });
+  const box = await button.boundingBox();
+  if (!box) return false;
+  await tapAt(cdp, box.x + box.width / 2, box.y + box.height / 2);
+  await expect(tip).toBeHidden();
+  return true;
+}
+
+/**
+ * page.screenshot, tried again when Chromium says "Unable to capture
+ * screenshot" (the moment after a heavy WebGL page closes).
+ */
+async function capture(page: Page, file: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await page.screenshot({ path: file });
+      return;
+    } catch (error) {
+      if (attempt >= 6 || !/Unable to capture screenshot/.test(String(error))) return;
+      await page.waitForTimeout(500 * attempt);
+    }
+  }
+}
+
+const px = (n: number) => Math.round(n);
+
+interface RouteResult {
+  route: string;
+  screen: string;
+  problems: Partial<Record<Check, string>>;
+  summary: string;
+  errors: string[];
+}
+
+/** Opens one route on one screen, plays its first seconds by touch, and judges every check. */
+async function checkRoute(browser: Browser, screen: (typeof SCREENS)[number], route: string, shotPath: string): Promise<RouteResult> {
+  const context = await browser.newContext(screen.options);
+  const page = await context.newPage();
+  const problems: Partial<Record<Check, string>> = {};
+  const errors: string[] = [];
+  const preventDefault: string[] = [];
+  const notes: string[] = [];
+  page.on("pageerror", (error) => errors.push(String(error.message).split("\n")[0].slice(0, 120)));
+  page.on("console", (message) => {
+    const text = message.text();
+    if (/Unable to preventDefault/.test(text)) preventDefault.push(text.slice(0, 120));
+  });
+
+  try {
+    const cdp = await context.newCDPSession(page);
+    const expectCard = mountsStartCard(route);
+    await page.goto(route, { waitUntil: "load" });
+    if (expectCard) await expect(page.getByTestId("game-start-overlay")).toBeVisible();
+    await settle(page);
+
+    // At the start card (or the first screen of a module with no card).
+    const start = await probePage(page);
+    if (start.scrollHeight > start.innerHeight + 1) {
+      problems["page-height-start"] = `page ${start.scrollHeight} px tall on a ${start.innerHeight} px screen at the start`;
+    }
+    if (start.keyboardCopy.length) problems["keyboard-copy"] = `at the start: ${start.keyboardCopy.map((s) => `"${s}"`).join(", ")}`;
+    if (start.smallButtons.length) problems["button-size"] = `at the start: ${start.smallButtons.join(", ")}`;
+
+    // The start control, and a touch on it.
+    let startControl: Control | null = null;
+    let controlCount = 0;
+    if (expectCard) {
+      const controls = await probeStartControls(page);
+      controlCount = controls.length;
+      if (!controls.length) {
+        problems["start-visible"] = "no Play or choice button in the start card's action row";
+      } else {
+        // Play is the last button of the row (a pinned picker comes before
+        // it); a picker that starts the game has its choices in the row.
+        startControl = controls[controls.length - 1];
+        const bad = controls.filter((c) => !c.onScreen || !c.hit);
+        if (bad.length) {
+          problems["start-visible"] = bad
+            .map((c) => `"${c.name}" ${!c.onScreen ? `off screen (${px(c.box.top)}-${px(c.box.bottom)} of ${start.innerHeight})` : "covered at its centre"}`)
+            .join("; ");
+        }
+      }
+    } else {
+      startControl = await probeOwnStart(page);
+      if (startControl && (!startControl.onScreen || !startControl.hit)) {
+        problems["start-visible"] = `"${startControl.name}" ${!startControl.onScreen ? "off screen" : "covered at its centre"}`;
+      }
+    }
+
+    if (startControl) {
+      const { box } = startControl;
+      await tapAt(cdp, (box.left + box.right) / 2, (box.top + box.bottom) / 2);
+      if (expectCard) {
+        const overlay = page.getByTestId("game-start-overlay");
+        try {
+          await expect(overlay).toBeHidden({ timeout: 3_000 });
+        } catch {
+          // A picker with two steps (an age, then a level): tap the first choice.
+          if (controlCount > 1) {
+            const again = await probeStartControls(page);
+            if (again.length) await tapAt(cdp, (again[0].box.left + again[0].box.right) / 2, (again[0].box.top + again[0].box.bottom) / 2);
+          }
+          try {
+            await expect(overlay).toBeHidden({ timeout: 3_000 });
+          } catch {
+            problems["enters-play"] = `the start card is still up after a touch on "${startControl.name}"`;
+          }
+        }
+      }
+      notes.push(`start "${startControl.name}"`);
+    } else {
+      notes.push("no start control (in use from load)");
+    }
+
+    // The first seconds of play, under watch.
+    const t0 = Date.now();
+    let probedInPlay = false;
+    let tipPassed = false;
+    const fixedSeen = new Set<string>();
+    while (Date.now() - t0 < PLAY_WATCH_MS) {
+      if (!tipPassed && (await passOrientationTip(page, cdp))) {
+        tipPassed = true;
+        notes.push("passed the orientation tip");
+      }
+      for (const name of await probeFixedOverPlay(page)) fixedSeen.add(name);
+      if (!probedInPlay && Date.now() - t0 >= PLAY_PROBE_AT_MS) {
+        probedInPlay = true;
+        const play = await probePage(page);
+        if (play.scrollHeight > play.innerHeight + 1) {
+          problems["page-height-play"] = `page ${play.scrollHeight} px tall on a ${play.innerHeight} px screen in play`;
+        }
+        if (play.keyboardCopy.length) {
+          problems["keyboard-copy"] = [problems["keyboard-copy"], `in play: ${play.keyboardCopy.map((s) => `"${s}"`).join(", ")}`].filter(Boolean).join("; ");
+        }
+        if (play.smallButtons.length) {
+          problems["button-size"] = [problems["button-size"], `in play: ${play.smallButtons.join(", ")}`].filter(Boolean).join("; ");
+        }
+      }
+      await page.waitForTimeout(PLAY_SAMPLE_MS);
+    }
+    if (fixedSeen.size) problems["fixed-over-play"] = [...fixedSeen].join(", ");
+    if (preventDefault.length) problems["prevent-default"] = `${preventDefault.length} console message(s): ${preventDefault[0]}`;
+
+    if (Object.keys(problems).length) await capture(page, shotPath);
+  } catch (error) {
+    problems["enters-play"] = `error: ${String(error instanceof Error ? error.message : error).split("\n")[0].slice(0, 200)}`;
+    await capture(page, shotPath);
+  }
+  await context.close();
+  return { route, screen: screen.name, problems, summary: notes.join("; "), errors };
+}
+
+/** Runs `items` through `work`, `limit` at a time, in order of start. */
+async function inBatches<T, R>(items: T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await work(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+// ---------------------------------------------------------------- the gate
+
+test("phone gate: every listed route on four iPhone screens", async ({ browser }, testInfo) => {
+  const home = await browser.newContext(SCREENS[0].options);
+  const routes = await homeRoutes(await home.newPage());
+  await home.close();
+  expect(routes.length, "the home page lists games and apps").toBeGreaterThan(10);
+
+  const known = new Map(KNOWN_FAILURES.map((k) => [`${k.route}|${k.check}`, k.fixedBy]));
+  // A known line names a route the home page lists, and a real check.
+  for (const k of KNOWN_FAILURES) {
+    expect(routes, `KNOWN_FAILURES names a route the home page does not list: ${k.route}`).toContain(k.route);
+    expect(CHECKS, `KNOWN_FAILURES names an unknown check: ${k.check}`).toContain(k.check);
+  }
+
+  const results = await inBatches(SCREENS, SCREENS_AT_ONCE, async (screen) => {
+    const rows: RouteResult[] = [];
+    for (const route of routes) {
+      const shot = testInfo.outputPath(`${screen.name}_${route.replace(/^\//, "").replace(/\//g, "_")}.png`);
+      const row = await checkRoute(browser, screen, route, shot);
+      const failed = Object.keys(row.problems) as Check[];
+      const unknown = failed.filter((c) => !known.has(`${route}|${c}`));
+      const status = failed.length === 0 ? "PASS" : unknown.length === 0 ? "KNOWN" : "FAIL";
+      const detail = failed
+        .map((c) => `${c}${known.has(`${route}|${c}`) ? ` (${known.get(`${route}|${c}`)})` : ""}: ${row.problems[c]}`)
+        .join(" | ");
+      const info = row.errors.length ? ` | page errors: ${row.errors.join(" ; ")}` : "";
+      console.log(`${status} | ${screen.name} | ${route} | ${row.summary}${detail ? ` | ${detail}` : ""}${info}`);
+      rows.push(row);
+    }
+    return rows;
+  });
+  const rows = results.flat();
+
+  // Judge: a failure outside the list, and a listed line that passes everywhere.
+  const failures: string[] = [];
+  const seenFailing = new Set<string>();
+  for (const row of rows) {
+    for (const check of Object.keys(row.problems) as Check[]) {
+      const key = `${row.route}|${check}`;
+      seenFailing.add(key);
+      if (!known.has(key)) failures.push(`${row.screen} ${row.route} ${check}: ${row.problems[check]}`);
+    }
+  }
+  const stale = KNOWN_FAILURES.filter((k) => !seenFailing.has(`${k.route}|${k.check}`)).map(
+    (k) => `${k.route} ${k.check} (${k.fixedBy}) passes on every screen: delete its line from KNOWN_FAILURES`
+  );
+
+  const counts = { PASS: 0, KNOWN: 0, FAIL: 0 };
+  for (const row of rows) {
+    const failed = Object.keys(row.problems) as Check[];
+    if (!failed.length) counts.PASS++;
+    else if (failed.every((c) => known.has(`${row.route}|${c}`))) counts.KNOWN++;
+    else counts.FAIL++;
+  }
+  const perCheck = CHECKS.map((c) => `${c} ${rows.filter((r) => r.problems[c]).length}`).join(", ");
+  console.log(
+    `phone gate: ${rows.length} rows (${routes.length} routes x ${SCREENS.length} screens): ${counts.PASS} PASS, ${counts.KNOWN} KNOWN, ${counts.FAIL} FAIL; failing rows per check: ${perCheck}; ${KNOWN_FAILURES.length} known lines, ${stale.length} stale`
+  );
+
+  expect(failures, "rows that fail outside KNOWN_FAILURES (a regression, or a new line for the genre PR that owns it)").toEqual([]);
+  expect(stale, "stale KNOWN_FAILURES lines").toEqual([]);
+});
