@@ -362,6 +362,116 @@ describe("AchievementCelebrations at a break", () => {
     expect(queue()).toEqual([]);
   });
 
+  it("is one truncated row on a short screen, so the start card's slot holds it under the install tip", () => {
+    // Live at 667x311 the start card's slot stacked the two-line card
+    // under the 150 px install tip, and the card ran to the bottom edge
+    // of the screen.
+    resetAchievements(["first-play:snake"]);
+    renderGame();
+    pause();
+    const card = screen.getByTestId("achievement-card");
+    expect(card).toHaveClass("short:py-1");
+    const words = within(card).getByText(/First Play!/).parentElement!;
+    expect(words).toHaveClass("short:truncate");
+    expect(within(card).getByText(/First Play!/)).toHaveClass("block", "short:inline");
+    expect(within(card).getByText(/You tried Snake!/)).toHaveClass("block", "short:inline");
+  });
+
+  describe("seen means in view (IntersectionObserver)", () => {
+    class FakeIntersectionObserver {
+      static instances: FakeIntersectionObserver[] = [];
+      targets: Element[] = [];
+      constructor(private readonly callback: IntersectionObserverCallback) {
+        FakeIntersectionObserver.instances.push(this);
+      }
+      observe(el: Element) {
+        this.targets.push(el);
+      }
+      unobserve() {}
+      disconnect() {
+        this.targets = [];
+      }
+      takeRecords() {
+        return [];
+      }
+      /** The browser reports the card in view, or out of it. */
+      report(isIntersecting: boolean) {
+        act(() => {
+          this.callback(
+            this.targets.map((target) => ({ isIntersecting, target }) as IntersectionObserverEntry),
+            this as unknown as IntersectionObserver
+          );
+        });
+      }
+    }
+    const newest = () => FakeIntersectionObserver.instances[FakeIntersectionObserver.instances.length - 1];
+
+    beforeEach(() => {
+      FakeIntersectionObserver.instances = [];
+      vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("a card under the fold of the pause menu is not seen: it comes back at the next break", () => {
+      // Live at 667x311 the pause menu is a long column and the card sat
+      // below Restart, off screen. Resume must not count it as seen.
+      resetAchievements(["first-play:snake"]);
+      renderGame();
+      pause();
+      expect(newest().targets).toEqual([screen.getByTestId("achievement-card")]);
+      newest().report(false);
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      resume();
+      expect(queue()).toEqual(["first-play:snake"]);
+
+      pause();
+      expect(
+        within(screen.getByTestId("pause-menu-break-slot")).getByTestId("achievement-celebration")
+      ).toBeInTheDocument();
+    });
+
+    it("a card in view for SEEN_MS in total counts as seen, even if it scrolled out later", () => {
+      resetAchievements(["first-play:snake"]);
+      renderGame();
+      pause();
+      newest().report(true);
+      act(() => {
+        vi.advanceTimersByTime(SEEN_MS - 200);
+      });
+      newest().report(false);
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      newest().report(true);
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      resume();
+      expect(queue()).toEqual([]);
+    });
+
+    it("a card that scrolled into view for less than SEEN_MS is kept", () => {
+      resetAchievements(["first-play:snake"]);
+      renderGame();
+      pause();
+      newest().report(false);
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      newest().report(true);
+      act(() => {
+        vi.advanceTimersByTime(SEEN_MS - 500);
+      });
+      resume();
+      expect(queue()).toEqual(["first-play:snake"]);
+    });
+  });
+
   it("is a card inside the result chip at game over, read after the chip's buttons", async () => {
     // findBy waits on real timers.
     vi.useRealTimers();

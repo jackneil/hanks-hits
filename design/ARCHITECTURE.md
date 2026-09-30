@@ -285,7 +285,13 @@ same button, in the same place: under the words, above the action buttons.
 - 1150: AchievementCelebrations, as the thin strip at the bottom of a page
   with no play. At a break the celebration is a card inside the break
   surface (the start card, the pause menu, the result chip) and has no
-  level of its own. During play it waits for the next break.
+  level of its own. During play it waits for the next break. The card
+  leaves the queue when the kid taps Yay!, or when the break ends after
+  the card was in view (an IntersectionObserver, half of the card) for
+  1.5 s in total. A card the kid never scrolled to comes back at the next
+  break. The queue is persisted, so a trophy that waits survives a
+  reload. On a short screen (the `short:` variant) the card is one row,
+  so the start card's slot can hold it under the install tip.
 - 1200: ResultChip.
 - 1500: modals (LeaderboardModal, tutorials).
 - 2000: PauseMenu.

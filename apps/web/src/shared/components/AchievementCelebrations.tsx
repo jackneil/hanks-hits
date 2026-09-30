@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
@@ -40,8 +40,11 @@ const CONFETTI = [
  * - At a break (the start card, the pause menu, the result chip): as a
  *   card INSIDE that surface, part of it. The surface reads the card's
  *   words out loud with its own. The card stays for the whole break; the
- *   kid taps Yay! to close it, or the break ends. A card that was on
- *   screen for SEEN_MS or longer counts as seen when the break ends.
+ *   kid taps Yay! to close it, or the break ends. A card that was in view
+ *   for SEEN_MS or longer counts as seen when the break ends; a card the
+ *   kid never scrolled to comes back at the next break. On a short
+ *   screen the card is one row, so the start card's slot can hold it
+ *   under the install tip.
  * - During play: nothing. The unlock waits in the queue for the next
  *   break. The queue is persisted (achievements/store.ts), so a kid who
  *   closes the tab mid-run gets the card on the next visit. Before this, a
@@ -149,19 +152,46 @@ export function AchievementCelebrations() {
   }, [inStrip, currentId, summary, dequeueCelebration, clearCelebrations]);
 
   // The card in a break surface: no timer while the break lasts. When the
-  // card leaves the slot (the break ends), a card that the kid could see
-  // for SEEN_MS counts as seen and leaves the queue. A tap on Yay! shifts
-  // the queue first, so the cleanup's dequeue for the old id is a no-op.
-  const inSlot = currentId !== null && placement.kind === "slot";
+  // card leaves the slot (the break ends, or the next break takes it), a
+  // card that was IN VIEW (half of it or more, by IntersectionObserver)
+  // for SEEN_MS in total counts as seen and leaves the queue. A card under
+  // the fold of a long menu (the pause menu on a phone held sideways) was
+  // never seen: it comes back at the next break. Where the browser has no
+  // IntersectionObserver (tests), on screen counts as in view. A tap on
+  // Yay! shifts the queue first, so the cleanup's dequeue for the old id
+  // is a no-op.
+  const slotEl = currentId !== null && placement.kind === "slot" ? placement.slot : null;
+  const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!inSlot || currentId === null) return;
-    const shownAt = Date.now();
+    if (!slotEl || currentId === null) return;
+    const card = cardRef.current;
+    let seenMs = 0;
+    let inViewSince: number | null = null;
+    let observer: IntersectionObserver | null = null;
+    if (card && typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver(
+        (entries) => {
+          const inView = entries.some((entry) => entry.isIntersecting);
+          if (inView && inViewSince === null) inViewSince = Date.now();
+          if (!inView && inViewSince !== null) {
+            seenMs += Date.now() - inViewSince;
+            inViewSince = null;
+          }
+        },
+        { threshold: 0.5 }
+      );
+      observer.observe(card);
+    } else {
+      inViewSince = Date.now();
+    }
     return () => {
-      if (Date.now() - shownAt < SEEN_MS) return;
+      observer?.disconnect();
+      if (inViewSince !== null) seenMs += Date.now() - inViewSince;
+      if (seenMs < SEEN_MS) return;
       if (summary) clearCelebrations();
       else dequeueCelebration(currentId);
     };
-  }, [inSlot, currentId, summary, dequeueCelebration, clearCelebrations]);
+  }, [slotEl, currentId, summary, dequeueCelebration, clearCelebrations]);
 
   if (currentId === null || placement.kind === "wait") return null;
   const current: AchievementInfo = getAchievementInfo(currentId);
@@ -186,15 +216,20 @@ export function AchievementCelebrations() {
             visible on a same-hue surface; yellow-950 on amber-300 is
             about 11:1. */}
         <div
+          ref={cardRef}
           data-testid="achievement-card"
-          className="achievement-pop rounded-2xl bg-amber-300 ring-2 ring-white/70 shadow-lg px-4 py-3 flex items-center gap-3"
+          className="achievement-pop rounded-2xl bg-amber-300 ring-2 ring-white/70 shadow-lg px-4 py-3 flex items-center gap-3 short:px-3 short:py-1 short:gap-2"
         >
-          <span className="text-4xl" aria-hidden="true">
+          <span className="text-4xl short:text-2xl" aria-hidden="true">
             {words.emoji}
           </span>
-          <div className="min-w-0 flex-1">
-            <div className="font-bold text-lg text-yellow-950">{words.title}</div>
-            <div className="text-sm text-yellow-950">{words.description}</div>
+          {/* On a short screen (a phone held sideways) the card is one
+              truncated row, like the strip: the start card's slot stacks
+              this card under the install tip, and a two-line card ran to
+              the bottom edge of a 311 px screen. */}
+          <div className="min-w-0 flex-1 text-yellow-950 short:truncate">
+            <span className="block font-bold text-lg short:inline short:text-base">{words.title}</span>
+            <span className="block text-sm short:ml-1 short:inline">{words.description}</span>
           </div>
           <button type="button" onClick={dismiss} className={DISMISS_BUTTON} aria-label="Dismiss celebration">
             Yay!
