@@ -78,4 +78,16 @@ describe("BombermanGameShell pause wiring", () => {
     expect(useBombermanStore.getState().gameState).toBe("playing");
     expect(screen.queryByText("Paused")).not.toBeInTheDocument();
   });
+
+  it("holds the sound switch in the pause menu (the in-game control row is gone)", () => {
+    act(() => {
+      useBombermanStore.setState({ gameState: "playing" });
+    });
+    render(<BombermanGameShell />);
+    expect(screen.queryByRole("button", { name: /Sound on/ })).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: /Sound on/ }));
+    expect(useBombermanStore.getState().progress.settings.soundEnabled).toBe(false);
+    expect(screen.getByRole("button", { name: /Sound off/ })).toBeInTheDocument();
+  });
 });

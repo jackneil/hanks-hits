@@ -6,4 +6,5 @@ export const metadata: GameMetadata = {
   emoji: "💣",
   category: "action",
   description: "Grid-based bomb action",
+  clips: true,
 };
