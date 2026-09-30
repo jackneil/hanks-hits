@@ -11,6 +11,7 @@ import Matter from 'matter-js';
 import { useCombinedControls, useIsMobile, usePauseKeyboard } from './hooks/useControls';
 import { useHillClimbStore, type HillClimbProgress } from './lib/store';
 import { useAuthSync } from '@/shared/hooks/useAuthSync';
+import { useShellHold } from '@/shared/hooks/useShellHold';
 import { clampDeltaTime, getControlsCopy } from './lib/gameHelpers';
 import {
   createVehicle,
@@ -174,15 +175,24 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
+  // The shell holds the game under a shell overlay (the restart question,
+  // the leaderboard, the install steps, a clip sheet) and in a hidden tab.
+  // A hold stops the game exactly like the game's own pause: the physics
+  // runner stops and the render loop skips the game logic (fuel, distance,
+  // the camera). Before this the truck kept driving under "Restart game?"
+  // (213 m to 890 m; phone UX audit 2026-09-29, S8).
+  const held = useShellHold();
+  const stopped = isPaused || held;
+
   useEffect(() => {
-    isPausedRef.current = isPaused;
+    isPausedRef.current = stopped;
     // Stop/start physics engine when pause state changes
-    if (isPaused && runnerRef.current) {
+    if (stopped && runnerRef.current) {
       Matter.Runner.stop(runnerRef.current);
-    } else if (!isPaused && runnerRef.current && engineRef.current) {
+    } else if (!stopped && runnerRef.current && engineRef.current) {
       Matter.Runner.run(runnerRef.current, engineRef.current);
     }
-  }, [isPaused]);
+  }, [stopped]);
 
   useEffect(() => {
     nitroRef.current = nitro;
@@ -1061,10 +1071,12 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     // Set up collision detection
     Matter.Events.on(engine, 'collisionStart', handleCollision);
 
-    // Create runner
+    // Create runner. A run that starts while the game is stopped (a
+    // restart under a hold) waits for the stop to end.
     const runner = Matter.Runner.create();
     runnerRef.current = runner;
     Matter.Runner.run(runner, engine);
+    if (isPausedRef.current) Matter.Runner.stop(runner);
 
     // Reset tracking
     lastRotationRef.current = 0;

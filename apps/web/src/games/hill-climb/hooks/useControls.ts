@@ -7,18 +7,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHillClimbStore } from '../lib/store';
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 import { createTouchInput } from "@/shared/hooks/useTouchInput";
 
 /**
  * A touch that lands on one of these is a press on that control, never a
  * gas or brake press: the header buttons, the NITRO button, the pause
  * button, a form control, the shell's restart dialog, a menu and the
- * rotate prompt. (The zones used to classify every touch on the window by
- * clientX alone, so a finger resting on the "Restart game?" dialog drove
- * the truck.)
+ * orientation tip. (The zones used to classify every touch on the window
+ * by clientX alone, so a finger resting on the "Restart game?" dialog
+ * drove the truck.) The zones are also off altogether while the shell
+ * holds the game (useTouchControls below), so a finger on the dark
+ * backdrop of a dialog, or on the install sheet, drives nothing either.
  */
 export const ZONE_IGNORE_SELECTOR =
-  'button, a, input, select, textarea, label, [role=button], [role=dialog], [role=menu], [role=menuitem], [data-testid=orientation-warning]';
+  'button, a, input, select, textarea, label, [role=button], [role=dialog], [role=menu], [role=menuitem], [data-testid=orientation-tip]';
 
 // =============================================================================
 // TYPES
@@ -210,9 +213,13 @@ export function useTouchControls(enabled = true): ControlState & { setNitro: (ac
   // finger is tracked by its own identifier. A finger that lands on a
   // control (ZONE_IGNORE_SELECTOR) is never a zone press. The zones are off
   // while the game is paused, so the pause sheet scrolls and a finger on it
-  // never drives the truck.
+  // never drives the truck, and while the shell holds the game (every
+  // shell overlay, present and future: the restart question's backdrop,
+  // the install sheet, a clip sheet), so a finger under or beside an
+  // overlay drives nothing.
   const isPaused = useHillClimbStore((state) => state.isPaused);
-  const zonesActive = enabled && !isPaused;
+  const held = useShellHold();
+  const zonesActive = enabled && !isPaused && !held;
 
   useEffect(() => {
     if (!zonesActive) return;

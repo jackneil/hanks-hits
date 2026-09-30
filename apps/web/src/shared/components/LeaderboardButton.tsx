@@ -41,7 +41,7 @@ export function LeaderboardButton({
           min-w-[44px] min-h-[44px]
           ${variant === "icon"
             ? "text-2xl hover:scale-110 active:scale-95"
-            : "px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold rounded-xl shadow-lg hover:scale-105 active:scale-95"
+            : "px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-slate-900 font-bold rounded-xl shadow-lg hover:scale-105 active:scale-95 short:h-11 short:min-h-11"
           }
           ${className}
         `}

@@ -154,21 +154,22 @@ describe("wordle spoken choices", () => {
 });
 
 describe("wordle age picker layout", () => {
-  it("gives the odd last age the full width, so no half cell dangles", () => {
+  it("puts three ages to a row, and the two left over take half a row each", () => {
+    // Two columns put "99yo" and How to Play under the fold at 375x549,
+    // behind a faint scroll shadow (phone UX audit 2026-09-29, S12).
     render(<WordleGame  />);
 
-    const buttons = screen
-      .getAllByRole("button")
-      .filter((b) => /years old|^\S+ \d+yo$|\d+yo/.test(b.textContent ?? ""));
-    const grid = screen.getByText("How old are you?").nextElementSibling!;
-    expect(grid.className).toContain("grid-cols-2");
+    const grid = screen.getByTestId("age-picker");
+    expect(grid.className.split(/\s+/)).toEqual(expect.arrayContaining(["grid", "grid-cols-6"]));
+    expect(grid.className).not.toContain("grid-cols-2");
 
     const cells = Array.from(grid.children);
-    expect(cells.length % 2).toBe(1);
-    expect(cells[cells.length - 1].className).toContain("col-span-2");
-    cells.slice(0, -1).forEach((cell) => {
-      expect(cell.className).not.toContain("col-span-2");
-    });
-    expect(buttons.length).toBeGreaterThan(0);
+    expect(cells).toHaveLength(5);
+    expect(cells.slice(0, 3).map((cell) => cell.className)).toEqual(
+      expect.arrayContaining([expect.stringContaining("col-span-2")])
+    );
+    cells.slice(0, 3).forEach((cell) => expect(cell.className).toContain("col-span-2"));
+    cells.slice(3).forEach((cell) => expect(cell.className).toContain("col-span-3"));
+    expect(screen.getByRole("button", { name: /99yo/ })).toBeInTheDocument();
   });
 });

@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useGameShell } from "../hooks/useGameShell";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { PlayBoxContext } from "../hooks/usePlayBox";
+import { ShellHoldContext } from "../hooks/useShellHold";
 import { useShellOverlayOpen } from "../lib/shellOverlays";
 import { OrientationWarning, preferredOrientationFor } from "./OrientationWarning";
 import { PauseMenu } from "./PauseMenu";
@@ -48,10 +49,11 @@ interface GameShellProps {
   /**
    * The first shell overlay opened over the game: the restart question,
    * the leaderboard, the install steps, a clip sheet, the orientation tip,
-   * or the tab went hidden. A game that runs its own loop and cannot pause
-   * (no pause menu) freezes its loop here, so no game time passes under
-   * the overlay. A game with onPause hears onPause too (once), when it
-   * can pause.
+   * or the tab went hidden. A game with onPause hears onPause too (once),
+   * when it can pause. A game that runs its own loop and cannot pause (no
+   * pause menu) reads `useShellHold()` instead (the same hold, as a
+   * boolean in ShellHoldContext) and stands still while it is true, so no
+   * game time passes under the overlay.
    */
   onShellOverlayOpen?: () => void;
   /** The last shell overlay closed (or the tab came back). */
@@ -175,7 +177,7 @@ export function GameShell({
   resultChipReady = false,
 }: GameShellProps) {
   const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
-  const { isPaused, pause, resume, togglePause, goHome, hold, release } = useGameShell({
+  const { isPaused, isHeld, pause, resume, togglePause, goHome, hold, release } = useGameShell({
     canPause,
     suppressEscape: isRestartConfirmationOpen,
     onPause,
@@ -199,42 +201,48 @@ export function GameShell({
   const releaseShellOverlay = useCallback(() => release(SHELL_OVERLAY_HOLD), [release]);
 
   return (
-    // Gameplay clips (plan 4.1): only the clip service and the clip UI are
-    // gated on the metadata literal clips: true (and, for the UI, on the flag
-    // turning capture on). The shell itself is the same for every game: the
-    // plan 11.2 header work (the solid header, the emoji title below 480 px,
-    // the white restart glyph, the width budget), the moved toast and the
-    // start-card and pause-menu parts change every GameShell route, with or
-    // without clips.
-    <ClipShellScope appId={appId} gameName={gameName} canPause={canPause} paused={isPaused} pause={pause} resume={resume}>
-      <GameShellFrame
-        gameName={gameName}
-        appId={appId}
-        emoji={emoji}
-        canPause={canPause}
-        onRestart={onRestart}
-        restartConfirmation={restartConfirmation}
-        restartConfirmationMessage={restartConfirmationMessage}
-        onPause={onPause}
-        onResume={onResume}
-        showHomeButton={showHomeButton}
-        showPauseButton={showPauseButton}
-        showLoginButton={showLoginButton}
-        headerClassName={headerClassName}
-        pauseMenuChildren={pauseMenuChildren}
-        clipSlot={clipSlot}
-        resultChipReady={resultChipReady}
-        isPaused={isPaused}
-        resume={resume}
-        togglePause={togglePause}
-        goHome={goHome}
-        isRestartConfirmationOpen={isRestartConfirmationOpen}
-        setIsRestartConfirmationOpen={setIsRestartConfirmationOpen}
-        releaseShellOverlay={releaseShellOverlay}
-      >
-        {children}
-      </GameShellFrame>
-    </ClipShellScope>
+    // The hold, as a boolean, for a game that runs its own loop
+    // (useShellHold.ts). Above ClipShellScope: the clip sheets count
+    // themselves in shellOverlays.ts, and the value comes from the same
+    // useGameShell that hears them.
+    <ShellHoldContext.Provider value={isHeld}>
+      {/* Gameplay clips (plan 4.1): only the clip service and the clip UI
+          are gated on the metadata literal clips: true (and, for the UI,
+          on the flag turning capture on). The shell itself is the same for
+          every game: the plan 11.2 header work (the solid header, the
+          emoji title below 480 px, the white restart glyph, the width
+          budget), the moved toast and the start-card and pause-menu parts
+          change every GameShell route, with or without clips. */}
+      <ClipShellScope appId={appId} gameName={gameName} canPause={canPause} paused={isPaused} pause={pause} resume={resume}>
+        <GameShellFrame
+          gameName={gameName}
+          appId={appId}
+          emoji={emoji}
+          canPause={canPause}
+          onRestart={onRestart}
+          restartConfirmation={restartConfirmation}
+          restartConfirmationMessage={restartConfirmationMessage}
+          onPause={onPause}
+          onResume={onResume}
+          showHomeButton={showHomeButton}
+          showPauseButton={showPauseButton}
+          showLoginButton={showLoginButton}
+          headerClassName={headerClassName}
+          pauseMenuChildren={pauseMenuChildren}
+          clipSlot={clipSlot}
+          resultChipReady={resultChipReady}
+          isPaused={isPaused}
+          resume={resume}
+          togglePause={togglePause}
+          goHome={goHome}
+          isRestartConfirmationOpen={isRestartConfirmationOpen}
+          setIsRestartConfirmationOpen={setIsRestartConfirmationOpen}
+          releaseShellOverlay={releaseShellOverlay}
+        >
+          {children}
+        </GameShellFrame>
+      </ClipShellScope>
+    </ShellHoldContext.Provider>
   );
 }
 
@@ -546,6 +554,14 @@ function GameShellFrame({
           onResume={resume}
           onHome={goHome}
           onRestart={onRestart}
+          onRestartConfirmed={() => {
+            // The same order as the header's question: let the old run go
+            // (the question's hold, then the menu), THEN restart, so no
+            // resume reaches the new run after it started.
+            releaseShellOverlay();
+            resume();
+            onRestart?.();
+          }}
           restartConfirmation={restartConfirmation}
           restartConfirmationMessage={restartConfirmationMessage}
           gameName={gameName}

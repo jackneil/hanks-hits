@@ -237,10 +237,14 @@ action row (the read-aloud button, then Play or the picker choices) stays at
 the bottom of the card, so the start action is always on screen with no
 scroll. On a short screen (a phone held sideways) the action row sits to the
 right of the body. A nudge such as the iOS install tip or a trophy
-celebration shows in a break slot outside the card (below it, or beside it
-on a short screen), never in the card. The slot shows only while the whole
-card still fits next to it. If it does not fit, the nudge waits for the
-next break (the pause menu, or the result chip for a celebration). The
+celebration shows in a break slot outside the card (below it), never in
+the card's body. The slot shows only while the whole card still fits next
+to it. If it does not fit, the nudge waits for the next break (the pause
+menu, or the result chip for a celebration). On a short screen there is
+no slot beside the card (the tip took 288 px of a 667 px screen); a
+trophy, one row there, gets a slot at the top of the action column
+instead, under the same rule: when the card would not fit with it, the
+slot goes away and the trophy waits. The
 break surfaces and the rule that places a nudge live in
 `src/shared/lib/gameBreaks.ts` (`useNudgePlacement`): a nudge renders into
 the newest slot that holds its kind; it waits while a game shell is on
@@ -279,11 +283,27 @@ the scroll cue). A desktop with a mouse reads how to play, then the
 choices. The hints use two columns on a short screen only with two or
 more hints.
 
-**The pause menu on a short screen.** On a phone held sideways the menu
-buttons are a 2 x 2 grid of 44 px targets, so Resume, Restart and Go Home
-are on screen with no scroll, and the install tip stays away (no break
-slot). A menu that is still taller than the screen scrolls, with the
-scroll cue at its edges.
+**The pause menu.** The menu covers the screen under the header (`top-12
+short:top-10`), like the start card and the orientation tip: the header
+stays in view and in use, and "Paused" never sits over its ghost. The
+menu has two break slots under its buttons: one for a trophy celebration,
+on every screen, and one for the install tip, on a tall screen only and
+only while the whole menu still fits on the screen with the tip in it.
+When the tip lands and the menu would scroll, the tip's slot goes away
+for this open and the tip waits for the next break (the same rule as the
+start card). On a phone held sideways the menu buttons are a 2 x 2 grid
+of 44 px targets (Sign In and Leaderboard in the menu are 44 px there
+too), so Resume, Restart and Go Home are on screen with no scroll, and
+the celebration is one row under the grid. A menu that is still taller
+than the screen scrolls, with the scroll cue at its edges. The restart
+question of the menu is answered by GameShell in the same order as the
+header's: let the run go, then restart.
+
+**The restart question.** "Restart game?" makes the safe choice the big
+blue button, "Keep playing" (the same words as the orientation tip and
+the leaderboard), with the focus on it; Restart is a plain bordered
+button with a red word. On a phone the header packs Restart next to
+Pause, so a mis-tap must not lose the run on a reflex tap.
 
 **GameSheet.** A game's own screens between runs (game over, level
 complete, settings, a garage, a store) use `GameSheet`
@@ -322,13 +342,26 @@ open. A new shell overlay must do the same. GameShell holds the game while
 the count is above 0. The game hears about the menu and a hold the same
 way, once each: `onPause` when it becomes stopped and it can pause,
 `onResume` when the last reason goes away. A game that runs its own loop
-and has no pause menu (`canPause={false}`) gets `onShellOverlayOpen` at the
-first hold and `onShellOverlayClose` at the last release. It must freeze
-its loop between them, so no game time passes under an overlay or while
-the kid is in another app. A restart from the question lets the old run
-go first, then restarts; no resume reaches the new run. Before this, a
-game kept running and took touches under "Restart game?", and only a game
-with `canPause` stopped on a hidden tab.
+and has no pause menu (`canPause={false}`) reads the hold as a boolean:
+`useShellHold()` (`src/shared/hooks/useShellHold.ts`, from
+`ShellHoldContext`, which GameShell provides from `isHeld`; the shell also
+calls `onShellOverlayOpen` at the first hold and `onShellOverlayClose` at
+the last release). The game must stand still while the hold is true, so
+no game time passes under an overlay or while the kid is in another app:
+a requestAnimationFrame loop skips its update and starts again with a
+seed frame when the hold ends (Flappy Bird, Endless Runner, Dino Runner,
+Math Attack); a physics runner stops (Hill Climb, and the R3F games
+through `<Physics paused>`); a timer is not set (Trivia). A loop also
+caps one step (Math Attack at three frames, Dino Runner at 50 ms), so a
+throttled frame never moves the world by a whole stall. The source scan
+`src/__tests__/shell-hold-adoption.test.ts` fails on an own-loop game
+behind a `canPause={false}` shell, or a game with a `preferredOrientation`,
+that reads neither; an idle game (Cookie Clicker, the virtual pet) is
+exempt by name, with its reason. A restart from the question, from the
+header or from the pause menu, lets the old run go first, then restarts;
+no resume reaches the new run. Before this, a game kept running and took
+touches under "Restart game?", the hold had no subscriber in any game, and
+only a game with `canPause` stopped on a hidden tab.
 
 **The orientation tip.** A game declares the orientation it plays best in
 with the metadata literal `preferredOrientation: "portrait"` or
@@ -382,8 +415,10 @@ same button, in the same place: under the words, above the action buttons.
   the card was in view (an IntersectionObserver, half of the card) for
   1.5 s in total. A card the kid never scrolled to comes back at the next
   break. The queue is persisted, so a trophy that waits survives a
-  reload. On a short screen (the `short:` variant) the card is one row,
-  so the start card's slot can hold it under the install tip.
+  reload. On a short screen (the `short:` variant, a phone held
+  sideways) the card is one row: the start card holds it at the top of
+  its action column, the pause menu under its grid, and the result chip
+  above its buttons (the install tip has no slot on a short screen).
 - 1200: ResultChip.
 - 1500: modals (LeaderboardModal, tutorials).
 - 2000: PauseMenu.

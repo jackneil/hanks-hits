@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useMathAttackStore, type MathAttackProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { PICKER_GRID, pickerCellClass } from "@/shared/lib/pickerGrid";
 import {
   GameStartOverlay,
   GameStartOverlayButton,
@@ -17,6 +19,13 @@ import {
   type Operation,
 } from "./lib/constants";
 import { generateProblem, findMatchingProblem, type Problem } from "./lib/problems";
+
+/**
+ * The most 60 fps frames one loop step may cover. A frame after a stall
+ * (a throttled tab, a slow phone) moves the problems by this much at
+ * most, never by the whole stall.
+ */
+export const MAX_FRAME_STEP = 3;
 
 export function MathAttackGame() {
   const store = useMathAttackStore();
@@ -64,6 +73,10 @@ export function MathAttackGame() {
   const [inputValue, setInputValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const gameStateRef = useRef(gameState); // Track gameState in ref for animation loop
+  // The shell holds the game under an overlay and in a hidden tab: the
+  // loop below does not run while it is true, so no problem falls and no
+  // life is lost (a 25 s background lost two lives).
+  const held = useShellHold();
 
   const diffSettings = getDifficultySettings(settings.difficulty);
 
@@ -127,9 +140,11 @@ export function MathAttackGame() {
     gameStateRef.current = gameState;
   }, [gameState]);
 
-  // Game loop
+  // Game loop. Not while the shell holds the game: the effect ends (the
+  // frame chain stops) and starts again with a fresh clock when the hold
+  // ends, so the time under the overlay never reaches the problems.
   useEffect(() => {
-    if (gameState !== "playing") return;
+    if (gameState !== "playing" || held) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -143,7 +158,10 @@ export function MathAttackGame() {
     const gameLoop = (time: number) => {
       if (!isRunning) return;
 
-      const delta = lastTime ? (time - lastTime) / 16.67 : 1; // Normalize to ~60fps
+      // Normalize to ~60fps, and never more than MAX_FRAME_STEP frames at
+      // once: a throttled or resumed requestAnimationFrame must not drop
+      // every problem to the ground in one step.
+      const delta = Math.min(lastTime ? (time - lastTime) / 16.67 : 1, MAX_FRAME_STEP);
       lastTime = time;
 
       // Check if game is still playing (use ref for fresh value)
@@ -247,7 +265,7 @@ export function MathAttackGame() {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [gameState, diffSettings, loseLife]);
+  }, [gameState, held, diffSettings, loseLife]);
 
   // Focus input when game starts
   useEffect(() => {
@@ -295,20 +313,16 @@ export function MathAttackGame() {
             </div>
           )}
           <div className="text-sm font-bold opacity-80">How old are you?</div>
-          {/* Two columns with the odd last choice spanning both, the same
-              pattern space-invaders uses: an odd count in a plain 2-up grid
-              left a lone half-width cell dangling. */}
-          <div className="grid grid-cols-2 gap-2">
+          {/* Three short choices to a row (shared/lib/pickerGrid.ts), so
+              every age is on screen with the heading on a phone upright;
+              two columns put 12yo and up under the fold. */}
+          <div data-testid="age-picker" className={PICKER_GRID}>
             {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff, index, all) => (
               <GameStartOverlayButton
                 key={diff}
                 onClick={() => setDifficulty(diff)}
                 aria-pressed={settings.difficulty === diff}
-                className={`${settings.difficulty === diff ? "btn-primary" : ""} ${
-                  all.length % 2 === 1 && index === all.length - 1
-                    ? "col-span-2"
-                    : ""
-                }`}
+                className={`${settings.difficulty === diff ? "btn-primary" : ""} ${pickerCellClass(index, all.length)}`}
               >
                 {DIFFICULTY_SETTINGS[diff].emoji} {diff}
               </GameStartOverlayButton>

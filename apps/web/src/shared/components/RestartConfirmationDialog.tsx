@@ -3,7 +3,17 @@
 import { useEffect, useId, useRef } from "react";
 
 import { useShellOverlay } from "../lib/shellOverlays";
+import { SECONDARY_ACTION } from "./buttonStyles";
 import { ReadAloudButton } from "./ReadAloudButton";
+
+/**
+ * The safe choice of the restart question, the same words as the
+ * orientation tip and the leaderboard: the big blue button keeps the run.
+ * Before this the destructive Restart was the primary button next to a
+ * ghost Cancel, one tap from the header's Pause on a phone, so a mis-tap
+ * on the way to Pause and a reflex tap on the big button lost the run.
+ */
+export const RESTART_KEEP_PLAYING = "Keep playing";
 
 interface RestartConfirmationDialogProps {
   isOpen: boolean;
@@ -53,8 +63,8 @@ export function RestartConfirmationDialog({
 
       // Cycle every focusable button inside the dialog, so the read-aloud
       // button joins the trap instead of letting focus escape to the page.
-      // Order is Cancel first and Restart last (the two decisions bracket
-      // the cycle); anything between them keeps its DOM order.
+      // Order is Keep playing first and Restart last (the two decisions
+      // bracket the cycle); anything between them keeps its DOM order.
       const inDom = Array.from(
         dialogRef.current?.querySelectorAll<HTMLButtonElement>(
           "button:not([disabled])"
@@ -89,7 +99,7 @@ export function RestartConfirmationDialog({
   const readAloudText = [
     "Restart game?",
     message ?? `Start ${gameName} again from the beginning?`,
-    "Cancel",
+    RESTART_KEEP_PLAYING,
     "Restart",
   ].join(". ");
 
@@ -114,18 +124,20 @@ export function RestartConfirmationDialog({
         </p>
         <ReadAloudButton text={readAloudText} className="mt-4 short:mt-2 short:min-h-[44px]" />
 
+        {/* The safe choice is the big blue button and gets the focus; the
+            restart is a plain bordered button with a red word. */}
         <div className="mt-6 flex justify-end gap-3 short:mt-3">
-          <button ref={cancelRef} type="button" onClick={onCancel} className="btn btn-ghost min-h-[44px]">
-            Cancel
-          </button>
           <button
             ref={confirmRef}
             type="button"
             onClick={onConfirm}
-            className="btn btn-primary min-h-[44px]"
+            className={`btn ${SECONDARY_ACTION} min-h-[44px] text-error`}
             aria-label="Confirm restart"
           >
             Restart
+          </button>
+          <button ref={cancelRef} type="button" onClick={onCancel} className="btn btn-primary min-h-[44px]">
+            <span aria-hidden="true">▶</span> {RESTART_KEEP_PLAYING}
           </button>
         </div>
       </div>

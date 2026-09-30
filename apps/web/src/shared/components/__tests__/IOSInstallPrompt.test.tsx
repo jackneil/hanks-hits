@@ -312,7 +312,7 @@ describe("IOSInstallPrompt", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
 
-      const slot = screen.getByTestId("pause-menu-break-slot");
+      const slot = screen.getByTestId("pause-menu-tip-slot");
       const tip = within(slot).getByTestId("ios-install-tip");
       expect(within(tip).getByText("Play Fullscreen!")).toBeInTheDocument();
       // It is part of the menu, not a sheet floating over it.
@@ -394,7 +394,7 @@ describe("IOSInstallPrompt", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
       expect(
-        within(screen.getByTestId("pause-menu-break-slot")).getByTestId("ios-install-tip")
+        within(screen.getByTestId("pause-menu-tip-slot")).getByTestId("ios-install-tip")
       ).toBeInTheDocument();
       expect(screen.getAllByTestId("ios-install-tip")).toHaveLength(1);
 
@@ -522,7 +522,7 @@ describe("IOSInstallPrompt", () => {
         // The next break shows it.
         fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
         expect(
-          within(screen.getByTestId("pause-menu-break-slot")).getByTestId("ios-install-tip")
+          within(screen.getByTestId("pause-menu-tip-slot")).getByTestId("ios-install-tip")
         ).toBeInTheDocument();
       });
 

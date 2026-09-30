@@ -60,9 +60,14 @@ export type WorldProps = {
   controls: GameControls;
   /** Called every frame with the speed, for the speedometer. */
   onSpeed: (metersPerSecond: number) => void;
+  /**
+   * The shell holds the game (a shell overlay is open, or the tab is
+   * hidden): the physics stand still, like under the game's own pause.
+   */
+  held?: boolean;
 };
 
-export function World({ controls, onSpeed }: WorldProps) {
+export function World({ controls, onSpeed, held = false }: WorldProps) {
   // The live session clock, not the saved one. See lib/store.ts.
   const timeOfDay = useFourWheeler3dStore((state) => state.clock);
   const weather = useFourWheeler3dStore(
@@ -115,7 +120,7 @@ export function World({ controls, onSpeed }: WorldProps) {
         </>
       )}
 
-      <Physics gravity={[0, -9.81, 0]} paused={paused || !!panel}>
+      <Physics gravity={[0, -9.81, 0]} paused={paused || !!panel || held}>
         {!inSpace && (
           <>
             <Buildings timeOfDay={timeOfDay} />

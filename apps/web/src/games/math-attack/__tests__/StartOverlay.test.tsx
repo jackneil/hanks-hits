@@ -128,21 +128,20 @@ describe("math-attack spoken choices", () => {
 });
 
 describe("math-attack age picker layout", () => {
-  it("gives the odd last age the full width, so no half cell dangles", () => {
+  it("puts three ages to a row, and the one left over takes the whole row", () => {
+    // Two columns showed 4yo to 10yo and hid 12yo and up under the fold at
+    // 375x549, so a 12-year-old could not see their own age (phone UX
+    // audit 2026-09-29, S12).
     render(<MathAttackGame  />);
 
-    const buttons = screen
-      .getAllByRole("button")
-      .filter((b) => /years old|^\S+ \d+yo$|\d+yo/.test(b.textContent ?? ""));
-    const grid = screen.getByText("How old are you?").nextElementSibling!;
-    expect(grid.className).toContain("grid-cols-2");
+    const grid = screen.getByTestId("age-picker");
+    expect(grid.className.split(/\s+/)).toEqual(expect.arrayContaining(["grid", "grid-cols-6"]));
+    expect(grid.className).not.toContain("grid-cols-2");
 
     const cells = Array.from(grid.children);
-    expect(cells.length % 2).toBe(1);
-    expect(cells[cells.length - 1].className).toContain("col-span-2");
-    cells.slice(0, -1).forEach((cell) => {
-      expect(cell.className).not.toContain("col-span-2");
-    });
-    expect(buttons.length).toBeGreaterThan(0);
+    expect(cells).toHaveLength(7);
+    cells.slice(0, 6).forEach((cell) => expect(cell.className).toContain("col-span-2"));
+    expect(cells[6].className).toContain("col-span-6");
+    expect(screen.getByRole("button", { name: /99yo/ })).toBeInTheDocument();
   });
 });

@@ -23,8 +23,11 @@ import { useRouter } from "next/navigation";
  *   still on sends nothing.
  * - `onShellOverlayOpen` when the first hold starts and
  *   `onShellOverlayClose` when the last one ends, whether the game can
- *   pause or not. A game that runs its own loop and has no pause menu
- *   (Flappy Bird, Math Attack) freezes its loop on these.
+ *   pause or not.
+ * - `isHeld` is true between those two. GameShell gives it to the game
+ *   tree as ShellHoldContext (useShellHold.ts): a game that runs its own
+ *   loop and has no pause menu (Flappy Bird, Math Attack, Hill Climb)
+ *   reads `useShellHold()` and stands still while it is true.
  * - When `canPause` turns on while a hold is on (the orientation tip
  *   shows in the same commit that starts the run), `onPause` follows.
  *
@@ -58,6 +61,8 @@ export function useGameShell(options: UseGameShellOptions = {}) {
     onShellOverlayClose,
   } = options;
   const [isPaused, setIsPaused] = useState(false);
+  /** True while at least one hold is on (a shell overlay, a hidden tab). */
+  const [isHeld, setIsHeld] = useState(false);
   const router = useRouter();
 
   // The newest options, for callbacks that never change identity.
@@ -110,7 +115,10 @@ export function useGameShell(options: UseGameShellOptions = {}) {
       const holds = holdsRef.current;
       if (holds.has(source)) return;
       holds.add(source);
-      if (holds.size === 1) latest.current.onShellOverlayOpen?.();
+      if (holds.size === 1) {
+        setIsHeld(true);
+        latest.current.onShellOverlayOpen?.();
+      }
       sync();
     },
     [sync]
@@ -120,7 +128,10 @@ export function useGameShell(options: UseGameShellOptions = {}) {
     (source: string) => {
       const holds = holdsRef.current;
       if (!holds.delete(source)) return;
-      if (holds.size === 0) latest.current.onShellOverlayClose?.();
+      if (holds.size === 0) {
+        setIsHeld(false);
+        latest.current.onShellOverlayClose?.();
+      }
       sync();
     },
     [sync]
@@ -174,6 +185,7 @@ export function useGameShell(options: UseGameShellOptions = {}) {
 
   return {
     isPaused,
+    isHeld,
     pause,
     resume,
     togglePause,

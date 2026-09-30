@@ -26,6 +26,7 @@ import { useTriviaStore } from "../lib/store";
 import { DIFFICULTY_SETTINGS } from "../lib/constants";
 import { mockPointer } from "@/__tests__/pointer-mock";
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
+import { ShellHoldContext } from "@/shared/hooks/useShellHold";
 
 beforeEach(() => {
   questionBank.empty = false;
@@ -224,5 +225,36 @@ describe("trivia age picker layout", () => {
       expect(cell.className).not.toContain("col-span-2");
     });
     expect(buttons.length).toBeGreaterThan(0);
+  });
+});
+
+describe("trivia clock under the shell's hold", () => {
+  it("does not count while the shell holds the quiz, and counts again when the hold ends", () => {
+    // The shell holds the quiz under the restart question and the install
+    // steps, and in a hidden tab; the 20 s clock used to run on there.
+    function Quiz({ held }: { held: boolean }) {
+      return (
+        <ShellHoldContext.Provider value={held}>
+          <Trivia />
+        </ShellHoldContext.Provider>
+      );
+    }
+    const { rerender } = render(<Quiz held={false} />);
+    fireEvent.click(screen.getByRole("button", { name: /start quiz/i }));
+    expect(useTriviaStore.getState().gameState).toBe("playing");
+    const timerSec = DIFFICULTY_SETTINGS[useTriviaStore.getState().settings.difficulty].timerSec;
+    expect(screen.getByText(`${timerSec}s`)).toBeInTheDocument();
+
+    rerender(<Quiz held />);
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(screen.getByText(`${timerSec}s`)).toBeInTheDocument();
+
+    rerender(<Quiz held={false} />);
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(screen.getByText(`${timerSec - 2}s`)).toBeInTheDocument();
   });
 });

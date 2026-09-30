@@ -189,12 +189,79 @@ describe("PauseMenu layout", () => {
     // justify-center on a scroll container clips the top of a column that
     // is taller than the screen ("Paused" included), where no scroll can
     // reach it. Auto margins center it only when it fits.
-    expect(overlay).toHaveClass("fixed", "inset-0", "flex", "overflow-y-auto");
+    expect(overlay).toHaveClass("fixed", "inset-x-0", "bottom-0", "top-12", "flex", "overflow-y-auto");
     expect(overlay.className).not.toMatch(/justify-center|items-center/);
     expect(content.parentElement).toBe(overlay);
     expect(content).toHaveClass("m-auto");
     expect(content).toContainElement(screen.getByRole("heading", { name: "Paused" }));
     expect(content).toContainElement(screen.getByTestId("pause-menu-break-slot"));
+    expect(content).toContainElement(screen.getByTestId("pause-menu-tip-slot"));
+  });
+
+  it("drops the tip's slot for this open when the menu would scroll with the tip in it", async () => {
+    // The install tip made the menu 748 px tall on a 549 px phone, with
+    // "Don't show this again" off screen behind a faint scroll shadow. The
+    // start card already waits in that case; the menu does the same.
+    render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
+    const overlay = screen.getByTestId("pause-menu");
+    const tipSlot = screen.getByTestId("pause-menu-tip-slot");
+    // jsdom has no layout: give the overlay a screen and a taller column.
+    Object.defineProperty(overlay, "clientHeight", { configurable: true, value: 549 });
+    Object.defineProperty(overlay, "scrollHeight", { configurable: true, value: 748 });
+
+    // The tip lands in the slot.
+    const tip = document.createElement("div");
+    tip.setAttribute("data-read-aloud", "Play full screen!");
+    tipSlot.appendChild(tip);
+
+    await waitFor(() => expect(screen.queryByTestId("pause-menu-tip-slot")).toBeNull());
+    // The trophy slot stays: a one-row card fits.
+    expect(screen.getByTestId("pause-menu-break-slot")).toBeInTheDocument();
+    expect(useGameBreaks.getState().slots.map((s) => s.holds)).toEqual([["celebration"]]);
+  });
+
+  it("keeps the tip's slot when the menu fits with the tip in it", async () => {
+    render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
+    const overlay = screen.getByTestId("pause-menu");
+    const tipSlot = screen.getByTestId("pause-menu-tip-slot");
+    Object.defineProperty(overlay, "clientHeight", { configurable: true, value: 664 });
+    Object.defineProperty(overlay, "scrollHeight", { configurable: true, value: 640 });
+    tipSlot.appendChild(document.createElement("div"));
+    // The observer runs after the mutation; give it a turn.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByTestId("pause-menu-tip-slot")).toBeInTheDocument();
+  });
+});
+
+describe("PauseMenu restart question order", () => {
+  it("runs the shell's restart when GameShell gives it one, instead of its own resume and restart", async () => {
+    const order: string[] = [];
+    const onRestart = vi.fn(() => order.push("restart"));
+    const onResume = vi.fn(() => order.push("resume"));
+    const onRestartConfirmed = vi.fn(() => order.push("shell"));
+    render(
+      <PauseMenu
+        isOpen
+        onResume={onResume}
+        onHome={vi.fn()}
+        onRestart={onRestart}
+        onRestartConfirmed={onRestartConfirmed}
+        gameName="Snake"
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /confirm restart/i }));
+    expect(order).toEqual(["shell"]);
+  });
+
+  it("on its own, lets the run go first and restarts second", async () => {
+    const order: string[] = [];
+    const onRestart = vi.fn(() => order.push("restart"));
+    const onResume = vi.fn(() => order.push("resume"));
+    render(<PauseMenu isOpen onResume={onResume} onHome={vi.fn()} onRestart={onRestart} gameName="Snake" />);
+    fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /confirm restart/i }));
+    expect(order).toEqual(["resume", "restart"]);
   });
 });
 
@@ -245,17 +312,32 @@ describe("PauseMenu on a short screen (a phone held sideways)", () => {
     expect(screen.getByRole("heading", { name: "Paused" }).className).toMatch(/(^|\s)short:text-2xl(\s|$)/);
   });
 
-  it("drops the install tip: no break slot on a short screen", () => {
+  it("drops the install tip on a short screen, and keeps a slot for a trophy (one row) under the grid", () => {
     mockScreen({ short: true });
     render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
-    expect(screen.queryByTestId("pause-menu-break-slot")).toBeNull();
-    expect(useGameBreaks.getState().slots).toEqual([]);
+    expect(screen.queryByTestId("pause-menu-tip-slot")).toBeNull();
+    const slot = screen.getByTestId("pause-menu-break-slot");
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"] }]);
+    // Under the grid, as wide as the grid.
+    expect(slot.className).toMatch(/(^|\s)short:w-\[28rem\](\s|$)/);
+    expect(slot.compareDocumentPosition(screen.getByTestId("pause-menu-buttons")) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 
-  it("keeps the break slot on a tall screen", () => {
+  it("keeps the tip slot on a tall screen", () => {
     mockScreen({ short: false });
     render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
+    expect(screen.getByTestId("pause-menu-tip-slot")).toBeInTheDocument();
     expect(screen.getByTestId("pause-menu-break-slot")).toBeInTheDocument();
+  });
+
+  it("starts under the header, so Paused never sits over the header's ghost", () => {
+    // The overlay covered the whole screen at 90% black: "Paused" sat
+    // over the ghosted header icons at 375x549 and 667x311, and the
+    // ghosted pause button invited a tap that did nothing.
+    render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
+    const overlay = screen.getByTestId("pause-menu");
+    expect(overlay).toHaveClass("fixed", "inset-x-0", "bottom-0", "top-12", "short:top-10");
+    expect(overlay).not.toHaveClass("inset-0");
   });
 
   it("shows a scroll cue when the menu is taller than the screen", () => {
@@ -273,9 +355,15 @@ describe("PauseMenu break slot", () => {
     const { rerender } = render(
       <PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />
     );
-    const slot = screen.getByTestId("pause-menu-break-slot");
-    // The menu holds every note: the install tip and a trophy celebration.
-    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ALL_NOTES }]);
+    const celebrationSlot = screen.getByTestId("pause-menu-break-slot");
+    const tipSlot = screen.getByTestId("pause-menu-tip-slot");
+    // The menu holds every note, each in its own slot: a trophy
+    // celebration under the grid, the install tip below that.
+    expect(useGameBreaks.getState().slots).toEqual([
+      { el: celebrationSlot, holds: ["celebration"] },
+      { el: tipSlot, holds: ["tip"] },
+    ]);
+    expect(ALL_NOTES).toEqual(["tip", "celebration"]);
 
     rerender(<PauseMenu isOpen={false} onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
     expect(useGameBreaks.getState().slots).toEqual([]);

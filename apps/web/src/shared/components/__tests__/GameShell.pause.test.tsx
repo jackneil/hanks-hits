@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { useShellHold } from "../../hooks/useShellHold";
 import { useShellOverlays } from "../../lib/shellOverlays";
 import { useStartOverlayPresence } from "../../lib/startOverlayPresence";
 import { GameShell } from "../GameShell";
@@ -78,8 +79,63 @@ describe("GameShell holds the game under shell overlays", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("pause-menu")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+    fireEvent.click(screen.getByRole("button", { name: /keep playing/i }));
     expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the old run go before a restart from the pause menu's question too, never after", async () => {
+    // The menu's question used to restart first and resume after: the
+    // resume reached the new run through the dialog's hold (the header
+    // path already had the right order).
+    const order: string[] = [];
+    const onRestart = vi.fn(() => order.push("restart"));
+    const onPause = vi.fn(() => order.push("pause"));
+    const onResume = vi.fn(() => order.push("resume"));
+    render(
+      <GameShell gameName="Snake" onRestart={onRestart} onPause={onPause} onResume={onResume}>
+        <div>game</div>
+      </GameShell>
+    );
+    fireEvent.click(within(header()).getByRole("button", { name: "Pause game" }));
+    expect(order).toEqual(["pause"]);
+    const menu = screen.getByTestId("pause-menu");
+    fireEvent.click(within(menu).getByRole("button", { name: "Restart game" }));
+    fireEvent.click(await screen.findByRole("button", { name: /confirm restart/i }));
+    expect(order).toEqual(["pause", "resume", "restart"]);
+    expect(screen.queryByTestId("pause-menu")).toBeNull();
+  });
+
+  it("gives the hold to the game tree as ShellHoldContext, for a game that runs its own loop", () => {
+    const seen: boolean[] = [];
+    function OwnLoopGame() {
+      const held = useShellHold();
+      seen.push(held);
+      return <div data-testid="own-loop">{held ? "held" : "free"}</div>;
+    }
+    render(
+      <GameShell gameName="Flappy Bird" appId="flappy-bird" canPause={false} onRestart={vi.fn()}>
+        <OwnLoopGame />
+      </GameShell>
+    );
+    expect(screen.getByTestId("own-loop")).toHaveTextContent("free");
+
+    fireEvent.click(within(header()).getByRole("button", { name: "Restart game" }));
+    expect(screen.getByTestId("own-loop")).toHaveTextContent("held");
+    fireEvent.click(screen.getByRole("button", { name: /keep playing/i }));
+    expect(screen.getByTestId("own-loop")).toHaveTextContent("free");
+
+    // A hidden tab holds it too.
+    act(() => {
+      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(screen.getByTestId("own-loop")).toHaveTextContent("held");
+    act(() => {
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(screen.getByTestId("own-loop")).toHaveTextContent("free");
+    expect(seen).toContain(true);
   });
 
   it("lets the old run go before the restart, so no resume reaches the new run", () => {

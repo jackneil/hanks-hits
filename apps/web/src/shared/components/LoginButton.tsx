@@ -22,7 +22,10 @@ interface LoginButtonProps {
   variant?: "header" | "menu";
 }
 
-const MENU_CLASSES = "btn btn-lg w-full text-xl gap-3 shadow-lg hover:scale-105 transition-transform";
+// The same size as the pause menu's own buttons (PauseMenu MENU_BUTTON):
+// 48 px, and 44 px on a short screen, so the 2 x 2 grid has even rows.
+const MENU_CLASSES =
+  "btn btn-lg w-full text-xl gap-3 shadow-lg hover:scale-105 transition-transform short:h-11 short:min-h-11 short:text-lg";
 
 export function LoginButton({ showLabelOnMobile = false, variant = "header" }: LoginButtonProps) {
   const { data: session, status } = useSession();

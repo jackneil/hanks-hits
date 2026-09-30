@@ -6,6 +6,7 @@ import {
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
 
+import { SECONDARY_ACTION } from "../buttonStyles";
 import { RestartConfirmationDialog } from "../RestartConfirmationDialog";
 
 describe("RestartConfirmationDialog", () => {
@@ -20,7 +21,7 @@ describe("RestartConfirmationDialog", () => {
       />
     );
 
-    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const cancel = screen.getByRole("button", { name: /keep playing/i });
     const confirm = screen.getByRole("button", { name: "Confirm restart" });
     expect(document.activeElement).toBe(cancel);
 
@@ -100,7 +101,7 @@ describe("RestartConfirmationDialog read aloud", () => {
 
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
     expect(synth.lastUtterance().text).toBe(
-      "Restart game? Start Snake again from the beginning? Cancel. Restart"
+      "Restart game? Start Snake again from the beginning? Keep playing. Restart"
     );
   });
 
@@ -116,7 +117,7 @@ describe("RestartConfirmationDialog read aloud", () => {
     );
 
     const readAloud = await screen.findByTestId("read-aloud-button");
-    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const cancel = screen.getByRole("button", { name: /keep playing/i });
     const confirm = screen.getByRole("button", { name: "Confirm restart" });
     expect(document.activeElement).toBe(cancel);
 
@@ -130,5 +131,27 @@ describe("RestartConfirmationDialog read aloud", () => {
     // Shift+Tab from Cancel wraps back to Restart
     fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(confirm);
+  });
+});
+
+describe("RestartConfirmationDialog choices", () => {
+  it("makes Keep playing the big blue button and Restart a plain bordered one with a red word", () => {
+    // A mis-tap on the way to Pause opened the question with the
+    // destructive Restart as the primary button beside a ghost Cancel; a
+    // kid tapped the big blue thing by reflex and lost the run. The safe
+    // verb is the same word as on the orientation tip and the leaderboard.
+    render(
+      <RestartConfirmationDialog isOpen gameName="Snake" onConfirm={vi.fn()} onCancel={vi.fn()} />
+    );
+    const keep = screen.getByRole("button", { name: /keep playing/i });
+    const restart = screen.getByRole("button", { name: "Confirm restart" });
+    expect(keep).toHaveClass("btn-primary");
+    expect(keep).toHaveTextContent("Keep playing");
+    expect(restart).not.toHaveClass("btn-primary");
+    expect(restart.className.split(/\s+/)).toEqual(expect.arrayContaining(SECONDARY_ACTION.split(" ")));
+    expect(restart).toHaveClass("text-error");
+    expect(restart).toHaveTextContent("Restart");
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(document.activeElement).toBe(keep);
   });
 });

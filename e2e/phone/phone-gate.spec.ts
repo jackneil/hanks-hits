@@ -24,6 +24,19 @@
  *                       the GameShell header, the game's own controls (in
  *                       the play box) and the orientation tip (it holds the
  *                       game while it shows; main-loop decision 2).
+ *   tip-holds-game      while the orientation tip is up, the game is held:
+ *                       the picture in the play box (the first canvas,
+ *                       sampled pixel by pixel, or the text of a DOM game)
+ *                       changes by TIP_HOLD_MAX_CHANGE or less of its
+ *                       samples over TIP_HOLD_MS. A held game with a
+ *                       decorative animation (the bird's wing, a coin's
+ *                       sparkle, keyed on Date.now) changes under 1% of
+ *                       its samples; a game that runs on scrolls its
+ *                       ground and obstacles and changes 10% or more
+ *                       (measured, see TIP_HOLD_MAX_CHANGE). Checked
+ *                       before Keep playing is tapped; the change while
+ *                       the game then runs is printed in the row, so the
+ *                       two numbers stay apart on the record.
  *   keyboard-copy       no visible text says a keyboard phrase (Press
  *                       SPACE, arrow keys, WASD, Escape, Click ...) on a
  *                       coarse pointer, at the start card or in play.
@@ -36,15 +49,19 @@
  * KNOWN FAILURES. The genre PRs (PR-G1 to PR-G8 in the phone UX audit)
  * fix the games one family at a time. Until then, the rows that fail
  * today are listed in KNOWN_FAILURES below, one line per route and check,
- * each naming the PR that fixes it. The gate is green while the failures
- * match the list exactly:
- *   - a failing row that is not in the list fails the gate (a regression);
- *   - a listed row that passes on every screen fails the gate too (the
- *     line is stale: the PR that fixed it must delete its line).
+ * with the screens it fails on, each naming the PR that fixes it. The
+ * gate is green while the failures match the list exactly, screen by
+ * screen:
+ *   - a failing row that is not in the list fails the gate (a regression,
+ *     also on a screen that a line does not name);
+ *   - a listed screen that passes fails the gate too (the entry is stale:
+ *     the PR that fixed it must delete the screen, or the whole line).
  * A genre PR deletes its lines; it never adds one.
  *
  * Every route and screen prints one PASS, KNOWN or FAIL row. Run it: see
- * playwright.config.ts beside this file.
+ * playwright.config.ts beside this file. E2E_ROUTES (a comma-separated
+ * list, for example /games/flappy-bird,/games/endless-runner) runs only
+ * those routes; the stale check then covers only the lines of those routes.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -62,6 +79,7 @@ type Check =
   | "enters-play"
   | "page-height-play"
   | "fixed-over-play"
+  | "tip-holds-game"
   | "keyboard-copy"
   | "button-size"
   | "prevent-default";
@@ -72,40 +90,65 @@ const CHECKS: Check[] = [
   "enters-play",
   "page-height-play",
   "fixed-over-play",
+  "tip-holds-game",
   "keyboard-copy",
   "button-size",
   "prevent-default",
 ];
 
+/** The names of the four screens (SCREENS below). */
+type ScreenName = "375x549" | "667x311" | "390x664" | "844x340";
+
+const UPRIGHT: ScreenName[] = ["375x549", "390x664"];
+const SIDEWAYS: ScreenName[] = ["667x311", "844x340"];
+const EVERY_SCREEN: ScreenName[] = [...UPRIGHT, ...SIDEWAYS];
+
 interface KnownFailure {
   route: string;
   check: Check;
+  /** The screens the row fails on. A screen not named here must pass. */
+  screens: ScreenName[];
   /** The genre PR of the phone UX audit that fixes it. */
   fixedBy: string;
 }
 
 /**
- * The rows that fail today, one line per route and check. Each genre PR
- * deletes its own lines when its games pass; the gate fails on a stale
- * line. Never add a line: a new failure is a regression to fix.
+ * The rows that fail today, one line per route and check, with the
+ * screens it fails on. Each genre PR deletes its own lines (or screens)
+ * when its games pass; the gate fails on a stale entry. Never add a line
+ * or a screen: a new failure is a regression to fix.
  */
 const KNOWN_FAILURES: KnownFailure[] = [
   // PR-G1: Driving. four-wheeler-3d's own start screen puts Play under the
   // fold at 667x311; its toolbelt buttons are 40 px tall upright and its
   // icon buttons 29 px wide; monster-truck's Challenges pill is 36 px tall.
-  { route: "/games/four-wheeler-3d", check: "start-visible", fixedBy: "PR-G1" },
-  { route: "/games/four-wheeler-3d", check: "button-size", fixedBy: "PR-G1" },
-  { route: "/games/monster-truck", check: "button-size", fixedBy: "PR-G1" },
-  // PR-G5: Puzzle and word. Wordle's keyboard keys are 32 px wide upright.
-  { route: "/games/wordle", check: "button-size", fixedBy: "PR-G5" },
+  { route: "/games/four-wheeler-3d", check: "start-visible", screens: ["667x311"], fixedBy: "PR-G1" },
+  { route: "/games/four-wheeler-3d", check: "button-size", screens: EVERY_SCREEN, fixedBy: "PR-G1" },
+  { route: "/games/monster-truck", check: "button-size", screens: EVERY_SCREEN, fixedBy: "PR-G1" },
+  // PR-G5: Puzzle and word. Wordle's keyboard keys are 32 px wide upright
+  // (sideways the row has room, and the keys are 44 px or wider).
+  { route: "/games/wordle", check: "button-size", screens: UPRIGHT, fixedBy: "PR-G5" },
   // PR-G8: Apps. The drum machine's Pads and Sequencer tabs are 40 px
   // tall. The joke generator and the virtual pet have no start card and
   // no break surface, so the First Play trophy shows as the 60 px strip at
   // the bottom of the page for 4 s, over the app's bottom row.
-  { route: "/apps/drum-machine", check: "button-size", fixedBy: "PR-G8" },
-  { route: "/apps/joke-generator", check: "fixed-over-play", fixedBy: "PR-G8" },
-  { route: "/apps/virtual-pet", check: "fixed-over-play", fixedBy: "PR-G8" },
+  { route: "/apps/drum-machine", check: "button-size", screens: EVERY_SCREEN, fixedBy: "PR-G8" },
+  { route: "/apps/joke-generator", check: "fixed-over-play", screens: EVERY_SCREEN, fixedBy: "PR-G8" },
+  { route: "/apps/virtual-pet", check: "fixed-over-play", screens: EVERY_SCREEN, fixedBy: "PR-G8" },
 ];
+
+/** `${route}|${check}|${screen}` of a known failure. */
+const knownKey = (route: string, check: string, screen: string) => `${route}|${check}|${screen}`;
+
+/**
+ * The routes to run: every route the home page lists, or the ones in
+ * E2E_ROUTES (comma-separated) for a targeted run.
+ */
+function routeFilter(): Set<string> | null {
+  const raw = process.env.E2E_ROUTES?.trim();
+  if (!raw) return null;
+  return new Set(raw.split(",").map((r) => r.trim().replace(/\/+$/, "")).filter(Boolean));
+}
 
 // ---------------------------------------------------------------- screens
 
@@ -119,7 +162,7 @@ const IPHONE: BrowserContextOptions = {
 };
 
 /** The inner sizes of iPhone Safari with its toolbars shown (main-loop decision 1). */
-const SCREENS: { name: string; options: BrowserContextOptions }[] = [
+const SCREENS: { name: ScreenName; options: BrowserContextOptions }[] = [
   { name: "375x549", options: { ...IPHONE, viewport: { width: 375, height: 549 } } },
   { name: "667x311", options: { ...IPHONE, viewport: { width: 667, height: 311 } } },
   { name: "390x664", options: { ...IPHONE, viewport: { width: 390, height: 664 } } },
@@ -151,6 +194,18 @@ const PLAY_WATCH_MS = 5_000;
 const PLAY_SAMPLE_MS = 400;
 /** When the in-play page height, copy and buttons are measured. */
 const PLAY_PROBE_AT_MS = 2_000;
+/** The tip is on screen: this long for the shell's hold to land before the first picture. */
+const TIP_HOLD_SETTLE_MS = 300;
+/** The time between the two pictures of the play box under the tip, and again in play. */
+const TIP_HOLD_MS = 700;
+/**
+ * The largest share of the picture's samples that may change under the
+ * tip. Measured on the tip games at 667x311 and 375x549: held, with the
+ * wing and sparkle animations still drawing, under 1% of the samples
+ * change in TIP_HOLD_MS; running, the scroll of the ground and the
+ * obstacles changes 10% or more. 2% sits well clear of both.
+ */
+const TIP_HOLD_MAX_CHANGE = 0.02;
 
 // ---------------------------------------------------------------- source
 
@@ -364,6 +419,52 @@ function probeFixedOverPlay(page: Page): Promise<string[]> {
   });
 }
 
+/**
+ * The picture in the play box right now: every 8th pixel of the first
+ * canvas (a 2D context), the data URL of a WebGL canvas, or the text of a
+ * DOM game. Two pictures compare sample by sample (pictureChange).
+ */
+type Picture = { kind: "canvas" | "canvas-url" | "text"; samples: (number | string)[] };
+
+function probePicture(page: Page): Promise<Picture> {
+  return page.evaluate(() => {
+    const box = document.querySelector<HTMLElement>("[data-play-box]");
+    const canvas = box?.querySelector("canvas") ?? null;
+    if (canvas) {
+      // getContext("2d") on a canvas that already has a 2D context returns
+      // that context; on a WebGL canvas it returns null.
+      const ctx = canvas.getContext("2d");
+      if (ctx && canvas.width > 0 && canvas.height > 0) {
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        const samples: number[] = [];
+        for (let i = 0; i < data.length; i += 32) {
+          samples.push(data[i] | (data[i + 1] << 8) | (data[i + 2] << 16));
+        }
+        return { kind: "canvas" as const, samples };
+      }
+      return { kind: "canvas-url" as const, samples: [canvas.toDataURL()] };
+    }
+    return { kind: "text" as const, samples: [(box?.innerText ?? "").replace(/\s+/g, " ")] };
+  });
+}
+
+/** The share of samples that differ between two pictures (0 to 1). */
+function pictureChange(a: Picture, b: Picture): number {
+  if (a.kind !== b.kind || a.samples.length !== b.samples.length) return 1;
+  if (a.samples.length === 0) return 0;
+  let changed = 0;
+  for (let i = 0; i < a.samples.length; i++) if (a.samples[i] !== b.samples[i]) changed++;
+  return changed / a.samples.length;
+}
+
+/** Two pictures of the play box, `ms` apart: the share that changed. */
+async function probePictureChange(page: Page, ms: number): Promise<number> {
+  const before = await probePicture(page);
+  await page.waitForTimeout(ms);
+  const after = await probePicture(page);
+  return pictureChange(before, after);
+}
+
 /** The orientation tip is up: tap Keep playing, by touch. */
 async function passOrientationTip(page: Page, cdp: CDPSession): Promise<boolean> {
   const tip = page.getByTestId("orientation-tip");
@@ -486,11 +587,26 @@ async function checkRoute(browser: Browser, screen: (typeof SCREENS)[number], ro
     const t0 = Date.now();
     let probedInPlay = false;
     let tipPassed = false;
+    let probedRunning = false;
     const fixedSeen = new Set<string>();
     while (Date.now() - t0 < PLAY_WATCH_MS) {
-      if (!tipPassed && (await passOrientationTip(page, cdp))) {
-        tipPassed = true;
-        notes.push("passed the orientation tip");
+      if (!tipPassed && (await page.getByTestId("orientation-tip").count())) {
+        // The tip holds the game: the picture must stand still under it.
+        await page.waitForTimeout(TIP_HOLD_SETTLE_MS);
+        const held = await probePictureChange(page, TIP_HOLD_MS);
+        const pct = (held * 100).toFixed(1);
+        if (held > TIP_HOLD_MAX_CHANGE) {
+          problems["tip-holds-game"] = `${pct}% of the play box picture changed in ${TIP_HOLD_MS} ms under the orientation tip (limit ${TIP_HOLD_MAX_CHANGE * 100}%)`;
+        }
+        if (await passOrientationTip(page, cdp)) {
+          tipPassed = true;
+          notes.push(`passed the orientation tip (held: ${pct}% changed`);
+        }
+      } else if (tipPassed && !probedRunning) {
+        // The same measure with the game running, for the record.
+        probedRunning = true;
+        const running = await probePictureChange(page, TIP_HOLD_MS);
+        notes[notes.length - 1] += `; running: ${(running * 100).toFixed(1)}%)`;
       }
       for (const name of await probeFixedOverPlay(page)) fixedSeen.add(name);
       if (!probedInPlay && Date.now() - t0 >= PLAY_PROBE_AT_MS) {
@@ -539,15 +655,30 @@ async function inBatches<T, R>(items: T[], limit: number, work: (item: T) => Pro
 
 test("phone gate: every listed route on four iPhone screens", async ({ browser }, testInfo) => {
   const home = await browser.newContext(SCREENS[0].options);
-  const routes = await homeRoutes(await home.newPage());
+  const listed = await homeRoutes(await home.newPage());
   await home.close();
-  expect(routes.length, "the home page lists games and apps").toBeGreaterThan(10);
+  expect(listed.length, "the home page lists games and apps").toBeGreaterThan(10);
 
-  const known = new Map(KNOWN_FAILURES.map((k) => [`${k.route}|${k.check}`, k.fixedBy]));
-  // A known line names a route the home page lists, and a real check.
+  const filter = routeFilter();
+  if (filter) {
+    for (const route of filter) expect(listed, `E2E_ROUTES names a route the home page does not list: ${route}`).toContain(route);
+  }
+  const routes = filter ? listed.filter((r) => filter.has(r)) : listed;
+
+  // A known entry names a route the home page lists, a real check, and
+  // real screens, each once.
+  const screenNames = SCREENS.map((s) => s.name);
+  const known = new Map<string, string>();
   for (const k of KNOWN_FAILURES) {
-    expect(routes, `KNOWN_FAILURES names a route the home page does not list: ${k.route}`).toContain(k.route);
+    expect(listed, `KNOWN_FAILURES names a route the home page does not list: ${k.route}`).toContain(k.route);
     expect(CHECKS, `KNOWN_FAILURES names an unknown check: ${k.check}`).toContain(k.check);
+    expect(k.screens.length, `KNOWN_FAILURES ${k.route} ${k.check} names no screen`).toBeGreaterThan(0);
+    for (const screen of k.screens) {
+      expect(screenNames, `KNOWN_FAILURES ${k.route} ${k.check} names an unknown screen: ${screen}`).toContain(screen);
+      const key = knownKey(k.route, k.check, screen);
+      expect(known.has(key), `KNOWN_FAILURES names ${k.route} ${k.check} ${screen} twice`).toBe(false);
+      known.set(key, k.fixedBy);
+    }
   }
 
   const results = await inBatches(SCREENS, SCREENS_AT_ONCE, async (screen) => {
@@ -556,10 +687,11 @@ test("phone gate: every listed route on four iPhone screens", async ({ browser }
       const shot = testInfo.outputPath(`${screen.name}_${route.replace(/^\//, "").replace(/\//g, "_")}.png`);
       const row = await checkRoute(browser, screen, route, shot);
       const failed = Object.keys(row.problems) as Check[];
-      const unknown = failed.filter((c) => !known.has(`${route}|${c}`));
+      const fixedBy = (c: Check) => known.get(knownKey(route, c, screen.name));
+      const unknown = failed.filter((c) => !fixedBy(c));
       const status = failed.length === 0 ? "PASS" : unknown.length === 0 ? "KNOWN" : "FAIL";
       const detail = failed
-        .map((c) => `${c}${known.has(`${route}|${c}`) ? ` (${known.get(`${route}|${c}`)})` : ""}: ${row.problems[c]}`)
+        .map((c) => `${c}${fixedBy(c) ? ` (${fixedBy(c)})` : ""}: ${row.problems[c]}`)
         .join(" | ");
       const info = row.errors.length ? ` | page errors: ${row.errors.join(" ; ")}` : "";
       console.log(`${status} | ${screen.name} | ${route} | ${row.summary}${detail ? ` | ${detail}` : ""}${info}`);
@@ -569,32 +701,36 @@ test("phone gate: every listed route on four iPhone screens", async ({ browser }
   });
   const rows = results.flat();
 
-  // Judge: a failure outside the list, and a listed line that passes everywhere.
+  // Judge: a failure outside the list, and a listed screen that passes.
   const failures: string[] = [];
   const seenFailing = new Set<string>();
   for (const row of rows) {
     for (const check of Object.keys(row.problems) as Check[]) {
-      const key = `${row.route}|${check}`;
+      const key = knownKey(row.route, check, row.screen);
       seenFailing.add(key);
       if (!known.has(key)) failures.push(`${row.screen} ${row.route} ${check}: ${row.problems[check]}`);
     }
   }
-  const stale = KNOWN_FAILURES.filter((k) => !seenFailing.has(`${k.route}|${k.check}`)).map(
-    (k) => `${k.route} ${k.check} (${k.fixedBy}) passes on every screen: delete its line from KNOWN_FAILURES`
+  const stale = KNOWN_FAILURES.flatMap((k) =>
+    routes.includes(k.route)
+      ? k.screens
+          .filter((screen) => !seenFailing.has(knownKey(k.route, k.check, screen)))
+          .map((screen) => `${k.route} ${k.check} (${k.fixedBy}) passes at ${screen}: delete that screen (or the line) from KNOWN_FAILURES`)
+      : []
   );
 
   const counts = { PASS: 0, KNOWN: 0, FAIL: 0 };
   for (const row of rows) {
     const failed = Object.keys(row.problems) as Check[];
     if (!failed.length) counts.PASS++;
-    else if (failed.every((c) => known.has(`${row.route}|${c}`))) counts.KNOWN++;
+    else if (failed.every((c) => known.has(knownKey(row.route, c, row.screen)))) counts.KNOWN++;
     else counts.FAIL++;
   }
   const perCheck = CHECKS.map((c) => `${c} ${rows.filter((r) => r.problems[c]).length}`).join(", ");
   console.log(
-    `phone gate: ${rows.length} rows (${routes.length} routes x ${SCREENS.length} screens): ${counts.PASS} PASS, ${counts.KNOWN} KNOWN, ${counts.FAIL} FAIL; failing rows per check: ${perCheck}; ${KNOWN_FAILURES.length} known lines, ${stale.length} stale`
+    `phone gate: ${rows.length} rows (${routes.length} routes x ${SCREENS.length} screens): ${counts.PASS} PASS, ${counts.KNOWN} KNOWN, ${counts.FAIL} FAIL; failing rows per check: ${perCheck}; ${KNOWN_FAILURES.length} known lines (${known.size} screens), ${stale.length} stale`
   );
 
   expect(failures, "rows that fail outside KNOWN_FAILURES (a regression, or a new line for the genre PR that owns it)").toEqual([]);
-  expect(stale, "stale KNOWN_FAILURES lines").toEqual([]);
+  expect(stale, "stale KNOWN_FAILURES entries").toEqual([]);
 });

@@ -130,7 +130,7 @@ describe("GameShell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
     await screen.findByRole("dialog", { name: /restart game/i });
-    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+    fireEvent.click(screen.getByRole("button", { name: /keep playing/i }));
 
     expect(onRestart).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

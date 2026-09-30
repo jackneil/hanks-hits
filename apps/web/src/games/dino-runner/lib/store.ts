@@ -26,6 +26,13 @@ import {
   createCloud,
 } from "./constants";
 
+/**
+ * The most milliseconds one update step may cover (three 60 fps frames).
+ * A frame after a stall (a throttled tab, a slow phone, a hold that just
+ * ended) moves the world by this much at most, never by the whole stall.
+ */
+export const MAX_FRAME_MS = 50;
+
 // ============================================
 // PROGRESS TYPE (persisted)
 // ============================================
@@ -200,10 +207,14 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
       },
 
       // Main update loop
-      update: (delta: number) => {
+      update: (rawDelta: number) => {
         const state = get();
         if (state.gameState !== "playing") return;
 
+        // One step covers MAX_FRAME_MS at most: a frame after a stall (a
+        // throttled tab, a slow phone) must not run the dino into the
+        // next obstacle in one giant step.
+        const delta = Math.min(rawDelta, MAX_FRAME_MS);
         // Normalize delta (target 60fps)
         const normalizedDelta = delta / 16.67;
 

@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 import { PauseMenu, WebGLGate } from "@/shared/components";
 
 import { World } from "./components/World";
@@ -48,6 +49,11 @@ export function FourWheeler3dGame() {
 
   const hasStarted = useFourWheeler3dStore((s) => s.hasStarted);
   const isPaused = useFourWheeler3dStore((s) => s.isPaused);
+  // The shell holds the game under a shell overlay (the restart question,
+  // the install steps) and in a hidden tab: the physics stand still, like
+  // under the game's own pause menu. Read here, outside the Canvas (its
+  // own React root), and passed down as a prop.
+  const held = useShellHold();
   const setPaused = useFourWheeler3dStore((s) => s.setPaused);
   const generation = useAdventureSession((s) => s.generation);
   const panel = useAdventureSession((s) => s.panel);
@@ -119,7 +125,7 @@ export function FourWheeler3dGame() {
             style={{ touchAction: "none" }}
           >
             <Suspense fallback={null}>
-              <World key={generation} controls={controls} onSpeed={onSpeed} />
+              <World key={generation} controls={controls} onSpeed={onSpeed} held={held} />
               <SceneCapture />
             </Suspense>
           </Canvas>

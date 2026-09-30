@@ -19,6 +19,7 @@ import {
 } from "./lib/constants";
 import { getKeyboardStatus, type LetterStatus } from "./lib/utils";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { PICKER_GRID, pickerCellClass } from "@/shared/lib/pickerGrid";
 
 export function WordleGame() {
   const store = useWordleStore();
@@ -173,20 +174,16 @@ export function WordleGame() {
             </div>
           )}
           <div className="text-sm font-bold opacity-80">How old are you?</div>
-          {/* Two columns with the odd last choice spanning both, the same
-              pattern space-invaders uses: an odd count in a plain 2-up grid
-              left a lone half-width cell dangling. */}
-          <div className="grid grid-cols-2 gap-2">
+          {/* Three short choices to a row (shared/lib/pickerGrid.ts), so
+              every age is on screen with the heading on a phone upright;
+              two columns put "99yo" and How to Play under the fold. */}
+          <div data-testid="age-picker" className={PICKER_GRID}>
             {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((diff, index, all) => (
               <GameStartOverlayButton
                 key={diff}
                 onClick={() => setDifficulty(diff)}
                 aria-pressed={settings.difficulty === diff}
-                className={`${settings.difficulty === diff ? "btn-primary" : ""} ${
-                  all.length % 2 === 1 && index === all.length - 1
-                    ? "col-span-2"
-                    : ""
-                }`}
+                className={`${settings.difficulty === diff ? "btn-primary" : ""} ${pickerCellClass(index, all.length)}`}
               >
                 {DIFFICULTY_SETTINGS[diff].emoji} {diff}
               </GameStartOverlayButton>

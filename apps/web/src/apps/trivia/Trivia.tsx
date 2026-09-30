@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useTriviaStore, type TriviaProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   GameStartOverlay,
@@ -171,11 +172,15 @@ export function Trivia() {
     };
   }, []);
 
+  // The shell holds the quiz under a shell overlay (the restart question,
+  // the install steps) and in a hidden tab: the clock does not run there.
+  const held = useShellHold();
+
   // Timer countdown. The updater only counts — side effects in a state
   // updater are illegal (calling handleAnswer inside it fired React's
   // "setState while rendering" warning every time the clock ran out).
   useEffect(() => {
-    if (gameState !== "playing" || showResult) return;
+    if (gameState !== "playing" || showResult || held) return;
 
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => Math.max(prev - 1, 0));
@@ -184,7 +189,7 @@ export function Trivia() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [gameState, questionIndex, showResult]);
+  }, [gameState, questionIndex, showResult, held]);
 
   // Time's up - counts as a wrong answer (use ref for fresh closure)
   useEffect(() => {

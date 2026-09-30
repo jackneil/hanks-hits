@@ -14,6 +14,7 @@ import {
   type CloudData,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
@@ -343,6 +344,10 @@ export function DinoRunnerGame() {
   const pterodactylFrameRef = useRef<number>(0);
   const [scale, setScale] = useState(1);
   const isCoarse = useCoarsePointer();
+  // The shell holds the game under an overlay (the restart question, the
+  // leaderboard, the install steps) and in a hidden tab: the loop skips
+  // its update while it is true, so no game time passes there.
+  const held = useShellHold();
 
   const store = useDinoRunnerStore();
   const {
@@ -482,7 +487,9 @@ export function DinoRunnerGame() {
       const delta = time - lastTimeRef.current;
       lastTimeRef.current = time;
 
-      if (gameState === "playing") {
+      // Held: draw, but let no game time pass. `held` is a dependency, so
+      // the loop starts again with a seed frame when the hold ends.
+      if (gameState === "playing" && !held) {
         update(delta);
       }
 
@@ -498,7 +505,7 @@ export function DinoRunnerGame() {
       }
       lastTimeRef.current = 0;
     };
-  }, [gameState, update, render]);
+  }, [gameState, held, update, render]);
 
   // Input handler
   const handleInput = useCallback(() => {

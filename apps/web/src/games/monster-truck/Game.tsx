@@ -17,6 +17,7 @@ import { Garage } from './components/Garage';
 import { useCombinedControls } from './hooks/useControls';
 import { useGameStore, type MonsterTruckProgress } from './lib/store';
 import { useAuthSync } from '@/shared/hooks/useAuthSync';
+import { useShellHold } from '@/shared/hooks/useShellHold';
 import { sounds } from './lib/sounds';
 import { WORLD } from './lib/constants';
 import { getTerrainHeight } from './lib/terrainUtils';
@@ -53,10 +54,13 @@ function GameScene({
   getControls,
   vehicleRef,
   onSpeedUpdate,
+  paused,
 }: {
   getControls: () => { throttle: number; steering: number; nos: boolean; horn: boolean; reset: boolean };
   vehicleRef: React.RefObject<RapierRigidBody | null>;
   onSpeedUpdate: (speed: number) => void;
+  /** The physics stand still: the game's own pause, or the shell's hold. */
+  paused: boolean;
 }) {
   // Calculate spawn position dynamically based on terrain height
   // This prevents the truck from spawning inside the terrain
@@ -70,7 +74,7 @@ function GameScene({
     <>
       <Environment />
 
-      <Physics gravity={[0, -20, 0]} debug={false}>
+      <Physics gravity={[0, -20, 0]} debug={false} paused={paused}>
         <Terrain />
         <Boundaries />
         <EnvironmentColliders />
@@ -113,6 +117,11 @@ export function MonsterTruckGame() {
   // Game state from store
   const isPaused = useGameStore((s) => s.isPaused);
   const setPaused = useGameStore((s) => s.setPaused);
+  // The shell holds the game under a shell overlay (the restart question,
+  // the install steps) and in a hidden tab: the physics stand still, like
+  // under the game's own pause menu. Read here, outside the Canvas (its
+  // own React root), and passed down as a prop.
+  const held = useShellHold();
   const showGarage = useGameStore((s) => s.showGarage);
   const setShowGarage = useGameStore((s) => s.setShowGarage);
   const nosCharge = useGameStore((s) => s.nosCharge);
@@ -202,6 +211,7 @@ export function MonsterTruckGame() {
               getControls={controls.getControlValues}
               vehicleRef={vehicleRef}
               onSpeedUpdate={handleSpeedUpdate}
+              paused={isPaused || held}
             />
           </Suspense>
         </Canvas>

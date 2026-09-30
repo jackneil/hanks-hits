@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
 import { useScrollCue } from "../hooks/useScrollCue";
 import { useShortViewport } from "../hooks/useShortViewport";
@@ -16,6 +17,12 @@ interface PauseMenuProps {
   onHome: () => void;
   gameName: string;
   onRestart?: () => void;
+  /**
+   * The kid confirmed the restart question. GameShell passes this to run
+   * the restart in the shell's order (let the run go, then restart).
+   * Without it the menu resumes, then restarts.
+   */
+  onRestartConfirmed?: () => void;
   restartConfirmation?: "always" | "never";
   restartConfirmationMessage?: string;
   children?: React.ReactNode;
@@ -31,12 +38,55 @@ interface PauseMenuProps {
 const MENU_BUTTON =
   "btn btn-lg text-xl gap-3 shadow-lg hover:scale-105 transition-transform short:h-11 short:min-h-11 short:text-lg";
 
-export function PauseMenu({
-  isOpen,
+/**
+ * The pause menu. It covers the screen UNDER the header (top-12, and
+ * top-10 on a short screen), like the start card, the orientation tip and
+ * a game sheet: the header stays in view and in use (Home, Restart, and
+ * the pause button, which resumes). Before this it covered the whole
+ * screen, and "Paused" sat over the ghost of the header on a phone.
+ *
+ * Break slots (gameBreaks.ts): a trophy celebration renders into the slot
+ * under the buttons on every screen (one row on a short screen). The iOS
+ * install tip has its own slot below that, on a tall screen only, and
+ * only while the whole menu still fits on the screen with it: when the
+ * tip lands and the menu would scroll, the tip's slot goes away for this
+ * open and the tip waits for the next break (the same rule as the start
+ * card). Before this, the tip made the menu 748 px tall on a 549 px
+ * phone, with "Don't show this again" off screen.
+ */
+export function PauseMenu(props: PauseMenuProps) {
+  const { isOpen } = props;
+
+  // Prevent body scroll when paused
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  // The open menu is its own component, so its state (the restart
+  // question, the room for the tip) starts fresh at each open.
+  return <OpenPauseMenu {...props} />;
+}
+
+/** True when an element's content is taller than the element. */
+function overflows(el: HTMLElement): boolean {
+  return el.scrollHeight > el.clientHeight + 1;
+}
+
+function OpenPauseMenu({
   onResume,
   onHome,
   gameName,
   onRestart,
+  onRestartConfirmed,
   restartConfirmation = "always",
   restartConfirmationMessage,
   children,
@@ -54,30 +104,66 @@ export function PauseMenu({
   // phone UX audit 2026-09-29, S3).
   const isShort = useShortViewport();
 
-  // The break slot: nudges such as the iOS install tip render into it
-  // while the menu is open, so they never float over play (gameBreaks.ts).
-  const { slotRef: breakSlotRef, readNotes: readBreakNotes } = useRegisterBreakSlot();
+  // The celebration slot: a trophy renders into it while the menu is
+  // open, under the buttons, on every screen.
+  const { slotRef: celebrationSlotRef, readNotes: readCelebrationNotes } = useRegisterBreakSlot(["celebration"]);
+
+  // The tip slot: the iOS install tip renders into it, on a tall screen
+  // only, and only while the menu fits on the screen with it.
+  const { slotRef: registerTipSlot, readNotes: readTipNotes } = useRegisterBreakSlot(["tip"]);
+  const tipSlotElRef = useRef<HTMLElement | null>(null);
+  const tipSlotRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      tipSlotElRef.current = el;
+      if (!el) return undefined;
+      const unregister = registerTipSlot(el);
+      return () => {
+        tipSlotElRef.current = null;
+        unregister?.();
+      };
+    },
+    [registerTipSlot]
+  );
+  // One way only, for this open: once the menu would scroll with the tip
+  // in it, the tip's slot goes away and the tip waits for the next break.
+  const [tipRoom, setTipRoom] = useState(true);
+  useLayoutEffect(() => {
+    const overlay = overlayRef.current;
+    const slot = tipSlotElRef.current;
+    if (!tipRoom || !overlay || !slot) return;
+    const noRoom = () => overflows(overlay);
+    // The tip lands in the slot after this commit: measure before paint,
+    // so a tip that does not fit never shows.
+    const notes =
+      typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            if (noRoom()) flushSync(() => setTipRoom(false));
+          })
+        : null;
+    notes?.observe(slot, { childList: true, subtree: true });
+    // Later changes: the phone turns, a font loads, a button appears.
+    const sizes =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            if (slot.childElementCount > 0 && noRoom()) setTipRoom(false);
+          })
+        : null;
+    if (contentRef.current) sizes?.observe(contentRef.current);
+    sizes?.observe(overlay);
+    return () => {
+      notes?.disconnect();
+      sizes?.disconnect();
+    };
+  }, [tipRoom]);
 
   // The overlay's scroll cue: a shadow at an edge only while more of the
   // menu is past that edge (a long menu on a short screen).
-  useScrollCue(overlayRef, contentRef, isOpen);
-
-  // Prevent body scroll when paused
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [isOpen]);
+  useScrollCue(overlayRef, contentRef, true);
 
   // Same order as the screen: title, Resume, the children slot, Restart,
-  // Go Home, then the notes in the break slot. Built at tap time from what
-  // is on screen, so every child button is spoken (the children slot used
-  // to be silent).
+  // Go Home, then the notes in the break slots. Built at tap time from
+  // what is on screen, so every child button is spoken (the children slot
+  // used to be silent).
   const readAloudText = () =>
     [
       "Paused",
@@ -86,24 +172,22 @@ export function PauseMenu({
       ...(spokenExtras ?? spokenLabelsIn(extrasRef.current)),
       onRestart ? "Restart" : null,
       "Go Home",
-      ...readBreakNotes(),
+      ...readCelebrationNotes(),
+      ...readTipNotes(),
     ]
       .filter(Boolean)
       .join(". ");
-
-  if (!isOpen) return null;
 
   return (
     <div
       ref={overlayRef}
       data-testid="pause-menu"
-      className="scroll-cue fixed inset-0 z-[2000] flex overflow-y-auto overscroll-contain bg-black/90"
+      className="scroll-cue fixed inset-x-0 bottom-0 top-12 z-[2000] flex overflow-y-auto overscroll-contain bg-black/90 short:top-10"
     >
       {/* m-auto (not justify-center on the parent) centers the column when
-          it fits, and lets a taller column (an install tip on a short
-          iPhone, or a phone held sideways) scroll from its top. A centered
-          column that overflows clips its top, "Paused" included, where no
-          scroll can reach it. */}
+          it fits, and lets a taller column (a long menu on a phone held
+          sideways) scroll from its top. A centered column that overflows
+          clips its top, "Paused" included, where no scroll can reach it. */}
       <div
         ref={contentRef}
         data-testid="pause-menu-content"
@@ -160,12 +244,20 @@ export function PauseMenu({
           </button>
         </div>
 
-        {/* Break slot (empty unless a nudge renders into it). Not on a short
-            screen: the tip waits for a taller break. */}
-        {!isShort && (
+        {/* Celebration slot (empty unless a trophy renders into it): one
+            row on a short screen, under the grid. */}
+        <div
+          ref={celebrationSlotRef}
+          data-testid="pause-menu-break-slot"
+          className="mt-4 w-72 max-w-[calc(100vw-2rem)] empty:hidden short:mt-2 short:w-[28rem]"
+        />
+
+        {/* Tip slot (empty unless the install tip renders into it). Not on
+            a short screen, and only while the menu fits with the tip. */}
+        {!isShort && tipRoom && (
           <div
-            ref={breakSlotRef}
-            data-testid="pause-menu-break-slot"
+            ref={tipSlotRef}
+            data-testid="pause-menu-tip-slot"
             className="mt-4 w-72 max-w-[calc(100vw-2rem)] empty:hidden"
           />
         )}
@@ -184,8 +276,13 @@ export function PauseMenu({
         onCancel={() => setIsRestartConfirmationOpen(false)}
         onConfirm={() => {
           setIsRestartConfirmationOpen(false);
-          onRestart?.();
-          onResume();
+          if (onRestartConfirmed) {
+            onRestartConfirmed();
+          } else {
+            // Let the run go first, then restart: the shell's order.
+            onResume();
+            onRestart?.();
+          }
         }}
       />
     </div>

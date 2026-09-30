@@ -16,6 +16,7 @@ import {
   type CharacterId,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { getInstructionLines } from "./lib/instructions";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
@@ -30,6 +31,11 @@ export function EndlessRunnerGame() {
   const lastTimeRef = useRef<number>(0);
   const [scale, setScale] = useState(1);
   const isCoarse = useCoarsePointer();
+  // The shell holds the game under an overlay (the orientation tip, the
+  // restart question, the leaderboard, the install steps) and in a hidden
+  // tab: the loop skips its update while it is true, so the runner stands
+  // still under "Turn your phone sideways" (phone UX audit 2026-09-29, S7).
+  const held = useShellHold();
 
   const store = useEndlessRunnerStore();
 
@@ -475,7 +481,9 @@ export function EndlessRunnerGame() {
       const delta = time - lastTimeRef.current;
       lastTimeRef.current = time;
 
-      if (gameState === "playing") {
+      // Held: draw, but let no game time pass. `held` is a dependency, so
+      // the loop starts again with a seed frame when the hold ends.
+      if (gameState === "playing" && !held) {
         update(delta);
       }
 
@@ -492,7 +500,7 @@ export function EndlessRunnerGame() {
       // Reset so first frame of next game loop is skipped
       lastTimeRef.current = 0;
     };
-  }, [gameState, update, render]);
+  }, [gameState, held, update, render]);
 
   // Input handling
   // Taps and keys never start the run any more: the shared start overlay owns

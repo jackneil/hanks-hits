@@ -8,6 +8,7 @@ export type { CanvasFit, PlayBoxOptions, PlayBoxSize } from "./usePlayBox";
 export { useReadAloud } from "./useReadAloud";
 export { useScrollCue } from "./useScrollCue";
 export { useScrollToTopOn } from "./useScrollToTopOn";
+export { ShellHoldContext, useShellHold } from "./useShellHold";
 export { useShortViewport } from "./useShortViewport";
 export {
   createPointerHold,

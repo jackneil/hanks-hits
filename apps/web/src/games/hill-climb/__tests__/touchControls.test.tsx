@@ -7,6 +7,7 @@ import { MobileControls } from "../ui/MobileControls";
 import { SettingsMenu } from "../ui/SettingsMenu";
 import { fingerCancel, fingerDown, fingerUp, liftAllFingers } from "@/__tests__/finger-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { useShellOverlays } from "@/shared/lib/shellOverlays";
 
 // Regression (2026 phone audit, hill-climb): the gas/brake zones classified
 // EVERY touch on the window by clientX alone, so a finger on the NITRO
@@ -113,7 +114,8 @@ describe("hill-climb touch zones", () => {
   it("names the controls that must never drive", () => {
     expect(ZONE_IGNORE_SELECTOR).toContain("button");
     expect(ZONE_IGNORE_SELECTOR).toContain("[role=dialog]");
-    expect(ZONE_IGNORE_SELECTOR).toContain("[data-testid=orientation-warning]");
+    expect(ZONE_IGNORE_SELECTOR).toContain("[data-testid=orientation-tip]");
+    expect(ZONE_IGNORE_SELECTOR).not.toContain("orientation-warning");
   });
 });
 
@@ -143,5 +145,44 @@ describe("hill-climb settings hint", () => {
     mockPointer(false);
     render(<SettingsMenu onBack={() => {}} />);
     expect(screen.getByText("Press Escape to go back")).toBeInTheDocument();
+  });
+});
+
+describe("hill-climb touch zones under a shell overlay", () => {
+  afterEach(() => {
+    useShellOverlays.setState({ count: 0 });
+  });
+
+  it("are off while a shell overlay is open, so a finger on a dialog's backdrop or the install sheet drives nothing", () => {
+    // The restart question's role=dialog is on its card; its dark
+    // backdrop and the install sheet (a section with no role) matched no
+    // entry of ZONE_IGNORE_SELECTOR, so a finger resting there was a zone
+    // press and the truck drove on under "Restart game?".
+    act(() => {
+      useShellOverlays.getState().open();
+    });
+    const { result } = renderHook(() => useTouchControls(true));
+    const start = windowTouch("touchstart", document.body, 1, 600);
+    act(() => {
+      window.dispatchEvent(start);
+    });
+    expect(result.current.gas).toBe(false);
+    expect(start.defaultPrevented).toBe(false);
+    act(() => {
+      window.dispatchEvent(windowTouch("touchend", document.body, 1, 600));
+    });
+
+    // The overlay closes: the zones are back.
+    act(() => {
+      useShellOverlays.getState().close();
+    });
+    act(() => {
+      window.dispatchEvent(windowTouch("touchstart", document.body, 2, 600));
+    });
+    expect(result.current.gas).toBe(true);
+    act(() => {
+      window.dispatchEvent(windowTouch("touchend", document.body, 2, 600));
+    });
+    expect(result.current.gas).toBe(false);
   });
 });
