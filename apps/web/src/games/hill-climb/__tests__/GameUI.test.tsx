@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { GameUI } from "../ui/GameUI";
-import { PauseMenu } from "../ui/PauseMenu";
+import { PauseSheet } from "../ui/PauseSheet";
 import { mockPointer } from "@/__tests__/pointer-mock";
 
 describe("hill-climb GameUI HUD layer", () => {
@@ -38,20 +38,16 @@ describe("hill-climb GameUI HUD layer", () => {
   });
 });
 
-describe("hill-climb PauseMenu hint copy", () => {
-  it("shows touch copy on coarse pointers, Escape copy on fine pointers", () => {
-    mockPointer(true);
-    const touch = render(<PauseMenu onGoToGarage={() => {}} />);
-    expect(screen.getByText("Tap Continue to keep driving")).toBeInTheDocument();
-    expect(screen.queryByText("Press Escape to resume")).not.toBeInTheDocument();
-    touch.unmount();
-
-    mockPointer(false);
-    render(<PauseMenu onGoToGarage={() => {}} />);
-    expect(screen.getByText("Press Escape to resume")).toBeInTheDocument();
-    expect(
-      screen.queryByText("Tap Continue to keep driving")
-    ).not.toBeInTheDocument();
+describe("hill-climb pause sheet copy", () => {
+  it("never shows keyboard words, on a touch screen or with a mouse", () => {
+    // The old pause menu told a finger to "Press Escape to resume". The
+    // sheet's actions are big buttons, so it needs no hint at all.
+    for (const coarse of [true, false]) {
+      mockPointer(coarse);
+      const view = render(<PauseSheet onGoToGarage={() => {}} />);
+      expect(screen.queryByText(/escape|press /i)).not.toBeInTheDocument();
+      view.unmount();
+    }
   });
 });
 
@@ -67,9 +63,9 @@ describe("hill-climb pause menu read aloud", () => {
   });
 
   it("reads the pause menu out loud, naming every button", () => {
-    // CLAUDE.md promises a read-aloud button on every pause screen. This menu
+    // CLAUDE.md promises a read-aloud button on every pause screen. This sheet
     // is the game's own, not the shared PauseMenu, so it needs its own.
-    render(<PauseMenu onGoToGarage={() => {}} />);
+    render(<PauseSheet onGoToGarage={() => {}} />);
 
     const speaker = screen.getByRole("button", { name: /read it to me/i });
     fireEvent.click(speaker);
@@ -77,9 +73,11 @@ describe("hill-climb pause menu read aloud", () => {
     const spoken = speech.lastUtterance().text;
     expect(spoken).toContain("Paused");
     expect(spoken).toContain("Hill Climb Racing");
-    expect(spoken).toContain("Continue");
-    expect(spoken).toContain("Settings");
+    expect(spoken).toContain("Keep driving");
     expect(spoken).toContain("Garage");
-    expect(spoken).toContain("Quit to Main");
+    expect(spoken).toContain("Go Home");
+    // The settings live in the sheet now, so the voice names them too.
+    expect(spoken).toContain("Lean speed");
+    expect(spoken).toContain("Sound");
   });
 });

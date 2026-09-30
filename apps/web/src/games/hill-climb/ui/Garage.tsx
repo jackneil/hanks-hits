@@ -128,15 +128,6 @@ export function Garage({ onStartGame, onBack }: GarageProps) {
           )}
         </div>
 
-        {/* Play Button */}
-        <div className="text-center">
-          <button
-            onClick={onStartGame}
-            className="btn btn-primary btn-lg min-h-11 text-2xl px-12 gap-2"
-          >
-            🎮 Play Now
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -145,6 +136,17 @@ export function Garage({ onStartGame, onBack }: GarageProps) {
 // =============================================================================
 // VEHICLES TAB
 // =============================================================================
+
+const VEHICLE_EMOJI: Record<string, string> = {
+  jeep: '🚙',
+  motorbike: '🏍️',
+  'monster-truck': '🚗',
+  'quad-bike': '🏎️',
+  'dune-buggy': '🛻',
+  'big-rig': '🚛',
+  tank: '🪖',
+  rocket: '🚀',
+};
 
 interface VehiclesTabProps {
   vehicles: typeof VEHICLES;
@@ -170,53 +172,50 @@ function VehiclesTab({
         const isSelected = currentVehicleId === vehicle.id;
         const canAfford = coins >= vehicle.cost;
 
-        return (
-          <div
-            key={vehicle.id}
-            role="button"
-            tabIndex={0}
-            aria-pressed={isSelected}
-            className={`card min-h-11 cursor-pointer bg-base-200 transition-colors ${
-              isSelected ? 'ring-4 ring-primary' : ''
-            } ${!isUnlocked ? 'opacity-70' : ''}`}
-            onClick={() => isUnlocked && onSelect(vehicle.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                if (isUnlocked) onSelect(vehicle.id);
-              }
-            }}
-          >
-            <div className="card-body items-center text-center p-4">
-              <span className="text-4xl mb-2">
-                {vehicle.id === 'jeep' && '🚙'}
-                {vehicle.id === 'motorbike' && '🏍️'}
-                {vehicle.id === 'monster-truck' && '🚗'}
-                {vehicle.id === 'quad-bike' && '🏎️'}
-                {vehicle.id === 'dune-buggy' && '🛻'}
-                {vehicle.id === 'big-rig' && '🚛'}
-                {vehicle.id === 'tank' && '🪖'}
-                {vehicle.id === 'rocket' && '🚀'}
-              </span>
-              <h3 className="font-bold">{vehicle.name}</h3>
-              <p className="text-xs text-base-content/60">{vehicle.description}</p>
+        const art = VEHICLE_EMOJI[vehicle.id] ?? '🚙';
+        const body = (
+          <>
+            <span className="text-4xl mb-2" aria-hidden="true">{art}</span>
+            <span className="block font-bold">{vehicle.name}</span>
+            <span className="block text-xs text-base-content/70">{vehicle.description}</span>
+          </>
+        );
 
-              {!isUnlocked ? (
-                <button
-                  type="button"
-                  className={`btn btn-sm mt-2 min-h-11 ${canAfford ? 'btn-warning' : 'btn-disabled'}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (canAfford) onUnlock(vehicle.id);
-                  }}
-                >
-                  🔓 {vehicle.cost.toLocaleString()}
-                </button>
-              ) : isSelected ? (
-                <span className="badge badge-primary mt-2">Selected</span>
-              ) : (
-                <span className="badge badge-ghost mt-2">Unlocked</span>
-              )}
+        // An unlocked vehicle is one button that selects it. A locked one is a
+        // panel whose only control is its Unlock button: a button inside a
+        // button confuses screen readers and can fire both on one tap.
+        if (isUnlocked) {
+          return (
+            <button
+              key={vehicle.id}
+              type="button"
+              aria-pressed={isSelected}
+              onClick={() => onSelect(vehicle.id)}
+              className={`card min-h-11 bg-base-200 transition-colors ${isSelected ? 'ring-4 ring-primary' : ''}`}
+            >
+              <span className="card-body items-center text-center p-4">
+                {body}
+                <span className={`badge mt-2 ${isSelected ? 'badge-primary' : 'badge-ghost'}`}>
+                  {isSelected ? 'Selected' : 'Unlocked'}
+                </span>
+              </span>
+            </button>
+          );
+        }
+
+        return (
+          <div key={vehicle.id} className="card bg-base-200 opacity-80">
+            <div className="card-body items-center text-center p-4">
+              {body}
+              <button
+                type="button"
+                disabled={!canAfford}
+                aria-label={`Unlock ${vehicle.name} for ${vehicle.cost.toLocaleString()} coins`}
+                className={`btn btn-sm mt-2 min-h-11 ${canAfford ? 'btn-warning' : 'btn-disabled'}`}
+                onClick={() => onUnlock(vehicle.id)}
+              >
+                🔓 {vehicle.cost.toLocaleString()}
+              </button>
             </div>
           </div>
         );
@@ -342,30 +341,24 @@ function StagesTab({
         const isSelected = currentStageId === stage.id;
 
         return (
-          <div
+          <button
             key={stage.id}
-            role="button"
-            tabIndex={0}
+            type="button"
+            disabled={!isUnlocked}
             aria-pressed={isSelected}
-            className={`card min-h-11 cursor-pointer transition-colors ${
+            className={`card min-h-11 transition-colors disabled:cursor-not-allowed ${
               isSelected ? 'ring-4 ring-primary' : ''
             } ${!isUnlocked ? 'opacity-50' : ''}`}
             style={{ backgroundColor: stage.skyColor }}
-            onClick={() => isUnlocked && onSelect(stage.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                if (isUnlocked) onSelect(stage.id);
-              }
-            }}
+            onClick={() => onSelect(stage.id)}
           >
-            <div className="card-body items-center text-center text-white">
+            <span className="card-body items-center text-center text-white">
               <span className="text-4xl">
                 {stage.id === 'countryside' && '🌳'}
                 {stage.id === 'arctic' && '❄️'}
                 {stage.id === 'moon' && '🌙'}
               </span>
-              <h3 className="font-bold text-xl">{stage.name}</h3>
+              <span className="block font-bold text-xl">{stage.name}</span>
 
               {!isUnlocked ? (
                 <span className="badge badge-lg">
@@ -377,13 +370,13 @@ function StagesTab({
                 <span className="badge badge-ghost badge-lg">Unlocked</span>
               )}
 
-              <div className="text-sm opacity-80 mt-2">
+              <span className="block text-sm opacity-80 mt-2">
                 {stage.id === 'countryside' && 'Rolling green hills'}
                 {stage.id === 'arctic' && 'Slippery ice!'}
                 {stage.id === 'moon' && 'Low gravity!'}
-              </div>
-            </div>
-          </div>
+              </span>
+            </span>
+          </button>
         );
       })}
     </div>

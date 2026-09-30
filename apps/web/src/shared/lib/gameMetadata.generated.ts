@@ -172,7 +172,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Physics-based hill climbing",
     category: "racing",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "math-attack": {
     name: "Math Attack",
