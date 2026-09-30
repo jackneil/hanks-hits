@@ -15,8 +15,8 @@ export type RunnerInstructions = {
 export function getInstructions(isCoarse: boolean): RunnerInstructions {
   if (isCoarse) {
     return {
-      jump: "👆 Tap the top to jump",
-      duck: "👇 Tap the bottom to duck",
+      jump: "👆 Tap JUMP or the sky to jump",
+      duck: "👇 Hold DUCK or the ground to duck",
     };
   }
   return {
