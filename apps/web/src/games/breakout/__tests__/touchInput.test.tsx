@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
@@ -15,7 +15,8 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
 
-import { BreakoutGame, getCanvasCopy, TAP_SLOP_PX } from "../Game";
+import { BreakoutGame, getLaunchHint, TAP_SLOP_PX } from "../Game";
+import { DEFAULT_RESTART_GRACE_MS } from "@/shared/lib/input";
 import { useBreakoutStore } from "../lib/store";
 import { fingerDown, fingerMove, fingerTap, fingerUp, liftAllFingers } from "@/__tests__/finger-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
@@ -74,32 +75,36 @@ describe("Breakout touch input", () => {
     expect(stuckBalls()).toBe(0);
   });
 
-  it("a game-over tap restarts with the ball STUCK, not already flying", () => {
+  it("a game-over tap never restarts; Play again starts a run with the ball STUCK", () => {
+    let clock = 1_000_000;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
     act(() => {
       useBreakoutStore.getState().gameOver();
     });
     const canvas = renderPlaying();
     fingerTap(canvas, { x: 100, y: 500 });
+    expect(useBreakoutStore.getState().status).toBe("game-over");
+    clock += DEFAULT_RESTART_GRACE_MS + 50;
+    fireEvent.click(screen.getByRole("button", { name: /play again/i }));
     expect(useBreakoutStore.getState().status).toBe("playing");
     expect(stuckBalls()).toBeGreaterThan(0);
   });
 
-  it("keys the in-play hint on the pointer, not on a width breakpoint", () => {
+  it("shows the launch hint as DOM text keyed on the pointer, never on a width breakpoint", () => {
     mockPointer(true);
     const { unmount } = render(<BreakoutGame />);
-    expect(screen.getByText("Drag to move paddle | Tap to launch")).toBeInTheDocument();
-    expect(screen.queryByText(/Space to launch/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("breakout-launch-hint")).toHaveTextContent("Tap to launch!");
+    expect(screen.queryByText(/Space/)).not.toBeInTheDocument();
     unmount();
 
     mockPointer(false);
     render(<BreakoutGame />);
-    expect(screen.getByText(/Space to launch/)).toBeInTheDocument();
-    expect(screen.queryByText("Drag to move paddle | Tap to launch")).not.toBeInTheDocument();
+    expect(screen.getByTestId("breakout-launch-hint")).toHaveTextContent("press Space to launch");
   });
 
-  it("draws touch copy on the canvas for a finger and keyboard copy for a mouse", () => {
-    expect(getCanvasCopy(true).launch).toBe("Tap to Launch!");
-    expect(getCanvasCopy(true).playAgain).not.toMatch(/Space/);
-    expect(getCanvasCopy(false).launch).toBe("Tap or Press Space to Launch!");
+  it("gives a finger no keyboard words in the launch hint", () => {
+    expect(getLaunchHint(true)).toBe("👆 Tap to launch!");
+    expect(getLaunchHint(true)).not.toMatch(/Space|Click/);
+    expect(getLaunchHint(false)).toBe("👆 Click or press Space to launch!");
   });
 });

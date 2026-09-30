@@ -7,19 +7,25 @@ import {
   CANVAS_HEIGHT,
   COLORS,
   POWERUP_CONFIG,
-  type Ball,
-  type Brick,
-  type PowerUp,
-  type Paddle,
-  type Particle,
 } from "./lib/constants";
-import { getLevel, getTotalLevels } from "./lib/levels";
+import { getTotalLevels } from "./lib/levels";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { useGameLoop } from "@/shared/hooks/useGameLoop";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 import { useTouchInput } from "@/shared/hooks/useTouchInput";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { RESULT_CHIP_BUTTON } from "@/shared/components/buttonStyles";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { DEFAULT_RESTART_GRACE_MS, useRestartGrace } from "@/shared/lib/input";
+import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
+import { BREAKOUT_AUDIO_ID, releaseSounds } from "./lib/sounds";
+import { useBreakoutClips } from "./lib/useBreakoutClips";
+import { breakoutLayout, EDGE_PX, GAP_PX, HUD_COLUMN_PX, HUD_ROW_PX } from "./lib/layout";
 
 /**
  * A finger that moves less than this (CSS px) before it lifts is a tap; more
@@ -27,21 +33,28 @@ import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
  */
 export const TAP_SLOP_PX = 12;
 
-/** The canvas overlay lines, branched by pointer type: a phone has no Space. */
-export function getCanvasCopy(isCoarse: boolean) {
-  return isCoarse
-    ? {
-        launch: "Tap to Launch!",
-        resume: "Tap to Resume",
-        playAgain: "Tap to Play Again!",
-        nextLevel: "Tap for Next Level!",
-      }
-    : {
-        launch: "Tap or Press Space to Launch!",
-        resume: "Tap or Press Space to Resume",
-        playAgain: "Tap or Press Space to Play Again!",
-        nextLevel: "Tap or Press Space for Next Level!",
-      };
+/** The launch hint over the canvas, branched by pointer type: a phone has no Space. */
+export function getLaunchHint(isCoarse: boolean): string {
+  return isCoarse ? "👆 Tap to launch!" : "👆 Click or press Space to launch!";
+}
+
+/** The sound switch: the words say what the kid hears now. */
+export const SOUND_LABELS = { on: "Sound on", off: "Sound off" } as const;
+/** The one button of the level-complete chip. */
+export const NEXT_LEVEL_LABEL = "Next level";
+
+/** The result chip's words at game over, read out loud first. */
+export function gameOverText({ score, level, best, newBest }: { score: number; level: number; best: number; newBest: boolean }): string {
+  const words = [`Game over! Your score is ${score}.`, `You got to level ${level}.`];
+  if (newBest) words.push("That is a new best!");
+  else if (best > 0) words.push(`Your best is ${best}.`);
+  return words.join(" ");
+}
+
+/** The level-complete chip's words, read out loud first. */
+export function levelCompleteText({ level, score, last }: { level: number; score: number; last: boolean }): string {
+  if (last) return `You beat every level! Your score is ${score}. Amazing!`;
+  return `Level ${level} done! Your score is ${score}.`;
 }
 
 // ============================================
@@ -49,7 +62,6 @@ export function getCanvasCopy(isCoarse: boolean) {
 // ============================================
 function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   const store = useBreakoutStore();
-  const isCoarse = useCoarsePointer();
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -58,8 +70,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const { paddle, balls, bricks, powerUps, particles, score, lives, level, status, activePowerUps } = store;
-    const copy = getCanvasCopy(isCoarse);
+    const { paddle, balls, bricks, powerUps, particles, status } = store;
 
     // Clear canvas
     ctx.fillStyle = COLORS.BACKGROUND;
@@ -116,99 +127,35 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
 
       // Icon text
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 10px Arial";
+      ctx.font = "bold 12px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(config.icon, powerUp.x + powerUp.width / 2, powerUp.y + powerUp.height / 2);
+      ctx.textBaseline = "alphabetic";
     }
 
-    // Draw paddle
-    const paddleGradient = ctx.createLinearGradient(paddle.x, paddle.y, paddle.x, paddle.y + paddle.height);
-    paddleGradient.addColorStop(0, "#60a5fa");
-    paddleGradient.addColorStop(0.5, COLORS.PADDLE);
-    paddleGradient.addColorStop(1, "#2563eb");
-    ctx.fillStyle = paddleGradient;
+    // Draw paddle: a flat blue bar with a light top edge (the old gradient
+    // and the ball's glow were decoration that cost a gradient per frame).
+    ctx.fillStyle = COLORS.PADDLE;
     ctx.beginPath();
     ctx.roundRect(paddle.x, paddle.y, paddle.width, paddle.height, 4);
     ctx.fill();
-
-    // Paddle highlight
-    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
     ctx.fillRect(paddle.x + 2, paddle.y + 2, paddle.width - 4, 3);
 
     // Draw balls
     for (const ball of balls) {
-      // Ball glow
-      const glowGradient = ctx.createRadialGradient(
-        ball.x, ball.y, 0,
-        ball.x, ball.y, ball.radius * 2
-      );
-      glowGradient.addColorStop(0, "rgba(255, 255, 255, 0.3)");
-      glowGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-      ctx.fillStyle = glowGradient;
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, ball.radius * 2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Ball
-      const ballGradient = ctx.createRadialGradient(
-        ball.x - ball.radius / 3, ball.y - ball.radius / 3, 0,
-        ball.x, ball.y, ball.radius
-      );
-      ballGradient.addColorStop(0, "#ffffff");
-      ballGradient.addColorStop(1, "#d1d5db");
-      ctx.fillStyle = ballGradient;
+      ctx.fillStyle = COLORS.BALL;
       ctx.beginPath();
       ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+      ctx.beginPath();
+      ctx.arc(ball.x + ball.radius / 4, ball.y + ball.radius / 4, ball.radius * 0.55, 0, Math.PI * 2);
+      ctx.fill();
     }
 
-    // Draw HUD
-    ctx.fillStyle = COLORS.HUD_TEXT;
-    ctx.font = "bold 18px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText(`Score: ${score}`, 10, 25);
-
-    ctx.textAlign = "center";
-    ctx.fillText(`Level ${level}`, CANVAS_WIDTH / 2, 25);
-
-    ctx.textAlign = "right";
-    // Draw lives as hearts
-    const heartText = "❤️".repeat(lives);
-    ctx.font = "16px Arial";
-    ctx.fillText(heartText, CANVAS_WIDTH - 10, 25);
-
-    // Draw active power-up indicators
-    const activePowerUpTypes = [...new Set(activePowerUps.map(p => p.type))];
-    if (activePowerUpTypes.length > 0) {
-      ctx.font = "bold 12px Arial";
-      ctx.textAlign = "left";
-      let x = 10;
-      const y = 45;
-
-      for (const type of activePowerUpTypes) {
-        const config = POWERUP_CONFIG[type];
-        const powerUp = activePowerUps.find(p => p.type === type)!;
-        const remaining = Math.max(0, powerUp.expiresAt - Date.now());
-        const seconds = Math.ceil(remaining / 1000);
-
-        ctx.fillStyle = config.color;
-        ctx.fillRect(x, y - 10, 50, 14);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(`${config.icon} ${seconds}s`, x + 4, y);
-        x += 55;
-      }
-    }
-
-    // Draw launch hint
-    if (balls.some(b => b.stuck)) {
-      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-      ctx.font = "16px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(copy.launch, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 80);
-    }
-
-    // Draw overlays for game states
+    // The shell's pause menu covers the field; the canvas only says PAUSED.
     if (status === "paused") {
       ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -216,57 +163,22 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 36px Arial";
       ctx.textAlign = "center";
-      ctx.fillText("PAUSED", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-
-      ctx.font = "18px Arial";
-      ctx.fillText(copy.resume, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+      ctx.fillText("PAUSED", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     }
 
+    // Game over and the level card only tint the field: the words are a
+    // ResultCard over the canvas (canvas text was 10 px sideways and sat
+    // under the result chip).
     if (status === "game-over") {
       ctx.fillStyle = COLORS.GAME_OVER_BG;
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#ef4444";
-      ctx.font = "bold 42px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("GAME OVER", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 60);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "24px Arial";
-      ctx.fillText(`Final Score: ${score}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-
-      ctx.font = "18px Arial";
-      ctx.fillText(`Level Reached: ${level}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 35);
-
-      ctx.fillStyle = "#22c55e";
-      ctx.font = "bold 20px Arial";
-      ctx.fillText(copy.playAgain, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
     }
 
     if (status === "level-complete") {
       ctx.fillStyle = COLORS.LEVEL_COMPLETE_BG;
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 36px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("LEVEL COMPLETE!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 40);
-
-      ctx.font = "24px Arial";
-      ctx.fillText(`Score: ${score}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 10);
-
-      if (level < getTotalLevels()) {
-        ctx.fillStyle = "#fbbf24";
-        ctx.font = "bold 20px Arial";
-        ctx.fillText(copy.nextLevel, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
-      } else {
-        ctx.fillStyle = "#fbbf24";
-        ctx.font = "bold 20px Arial";
-        ctx.fillText("You Beat All Levels! Amazing!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
-        ctx.fillText(copy.playAgain, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
-      }
     }
-  }, [canvasRef, store, isCoarse]);
+  }, [canvasRef, store]);
 
   return render;
 }
@@ -279,303 +191,50 @@ export function touchXToCanvasX(clientX: number, rectLeft: number, scale: number
 }
 
 // ============================================
-// GAME CANVAS COMPONENT
-// ============================================
-function GameCanvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-  const store = useBreakoutStore();
-  const { status, progress, movePaddle, launchBall, resumeGame, startGame, nextLevel } = store;
-
-  const render = useCanvasRenderer(canvasRef);
-
-  // Calculate scale for responsive canvas
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight;
-
-      const scaleX = containerWidth / CANVAS_WIDTH;
-      const scaleY = containerHeight / CANVAS_HEIGHT;
-      const newScale = Math.min(scaleX, scaleY, 1.5); // Cap at 1.5x
-
-      setScale(newScale);
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
-
-  // Game loop
-  useEffect(() => {
-    let animationFrameId: number;
-    let lastTime = performance.now();
-
-    const gameLoop = (currentTime: number) => {
-      const deltaTime = currentTime - lastTime;
-      lastTime = currentTime;
-
-      if (status === "playing") {
-        store.update(deltaTime);
-      }
-
-      render();
-      animationFrameId = requestAnimationFrame(gameLoop);
-    };
-
-    animationFrameId = requestAnimationFrame(gameLoop);
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [status, store, render]);
-
-  // Mouse control is RELATIVE: the paddle follows the direction the
-  // mouse moves (movementX), not where the cursor happens to sit. This
-  // kills the dead zone that absolute tracking had - with the cursor
-  // parked far off-board, the paddle used to ignore rightward motion
-  // until the cursor traveled all the way back over the board. Now any
-  // motion anywhere over the page moves the paddle instantly, and the
-  // cursor stays visible and free (pointer lock hid it system-wide,
-  // which was scary). movePaddle clamps, so excess motion past a wall
-  // is simply discarded instead of accumulating drift.
-  useEffect(() => {
-    const handleWindowPointerMove = (e: PointerEvent) => {
-      // Touch drags are handled absolutely by handleTouchMove; relative
-      // deltas from synthesized pointer events would double-move.
-      if (e.pointerType === "touch") return;
-
-      // Nothing moves while the start overlay is up.
-      if (useBreakoutStore.getState().status !== "playing") return;
-
-      const { paddle } = useBreakoutStore.getState();
-      const center = paddle.x + paddle.width / 2;
-      movePaddle(center + e.movementX / scale);
-    };
-
-    window.addEventListener("pointermove", handleWindowPointerMove);
-    return () => window.removeEventListener("pointermove", handleWindowPointerMove);
-  }, [movePaddle, scale]);
-
-  // Handle clicks/taps
-  // "idle" is the start state and the shared start overlay owns it, so a tap
-  // on the overlay's Play button can never also launch the ball.
-  const handleClick = useCallback(() => {
-    if (status === "playing") {
-      // If ball is stuck, launch it
-      if (store.balls.some(b => b.stuck)) {
-        launchBall();
-      }
-    } else if (status === "paused") {
-      resumeGame();
-    } else if (status === "game-over") {
-      startGame();
-    } else if (status === "level-complete") {
-      if (store.level < getTotalLevels()) {
-        nextLevel();
-      } else {
-        startGame();
-      }
-    }
-  }, [status, store.balls, store.level, startGame, launchBall, resumeGame, nextLevel]);
-
-  // Finger input through the shared native touch hook (non-passive, so the
-  // page never scrolls or pull-to-refreshes under a drag, and the browser
-  // sends no compatibility click). A drag steers the paddle; only a finger
-  // that lifts where it landed is a tap. The canvas used to carry onClick AND
-  // onTouchStart with the same handler, so the first touch launched the ball
-  // at once (before the kid could place the paddle) and again on the click:
-  // a game-over tap restarted AND launched the new ball.
-  useTouchInput(canvasRef, {
-    onMove: (touch) => {
-      // Nothing moves while the start overlay is up.
-      if (useBreakoutStore.getState().status !== "playing") return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      movePaddle(touchXToCanvasX(touch.x, rect.left, scale));
-    },
-    onEnd: (touch, event) => {
-      // A cancel (event null) is never a tap.
-      if (!event) return;
-      const moved = Math.hypot(touch.x - touch.startX, touch.y - touch.startY);
-      if (moved <= TAP_SLOP_PX) handleClick();
-    },
-  });
-
-  // Keyboard controls
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // A focused button or link owns its own Space and Enter: never swallow them.
-      if (keyBelongsToTarget(e)) return;
-      if (["ArrowLeft", "ArrowRight", " "].includes(e.key)) {
-        e.preventDefault();
-      }
-
-      // Pause/resume is owned by the GameShell now (ESC + pause button), so we
-      // ignore game keys while paused instead of double-handling ESC/P — the
-      // old handler here is exactly what desynced the shell's pause menu from
-      // the game's own paused state (Space would resume the sim behind the
-      // still-open menu).
-      if (status === "paused") return;
-
-      // The start overlay owns the idle state; keys must not move or start
-      // the game underneath it.
-      if (status === "idle") return;
-
-      switch (e.key) {
-        case "ArrowLeft":
-        case "a":
-        case "A":
-          movePaddle(store.paddle.x - 20);
-          break;
-        case "ArrowRight":
-        case "d":
-        case "D":
-          movePaddle(store.paddle.x + store.paddle.width + 20);
-          break;
-        case " ":
-          handleClick();
-          break;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [movePaddle, store.paddle.x, store.paddle.width, status, handleClick]);
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative w-full max-w-lg mx-auto flex items-center justify-center"
-      style={{ aspectRatio: `${CANVAS_WIDTH}/${CANVAS_HEIGHT}` }}
-    >
-      <canvas
-        ref={canvasRef}
-        width={CANVAS_WIDTH}
-        height={CANVAS_HEIGHT}
-        className="border-4 border-blue-600 rounded-lg shadow-2xl touch-none cursor-default"
-        style={{
-          width: CANVAS_WIDTH * scale,
-          height: CANVAS_HEIGHT * scale,
-        }}
-        // Mouse only: a finger's touchend is default-prevented above, so the
-        // browser sends no click for it.
-        onClick={handleClick}
-      />
-
-      {/* Shared DOM start screen (renders the title once) */}
-      {status === "idle" && (
-        <GameStartOverlay
-          title="Breakout"
-          emoji="🧱"
-          subtitle="Smash every brick!"
-          touchHints={["👈👉 Drag to move the paddle", "👆 Tap to launch the ball"]}
-          keyboardHints={["👈👉 Arrow keys move the paddle", "⌨️ Space to launch the ball"]}
-          onStart={() => startGame()}
-        >
-          <div className="text-base font-medium opacity-90">
-            🏆 High Score: {progress.highScore}
-          </div>
-        </GameStartOverlay>
-      )}
-    </div>
-  );
-}
-
-// ============================================
-// STATS DISPLAY
-// ============================================
-function StatsDisplay() {
-  const { progress } = useBreakoutStore();
-
-  return (
-    <div className="w-full max-w-lg mx-auto bg-gray-800/80 rounded-lg p-4 text-white">
-      <h3 className="font-bold text-lg mb-3 text-center">Your Stats</h3>
-      <div className="grid grid-cols-3 gap-3 text-sm">
-        <div className="bg-gray-700/50 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">High Score</div>
-          <div className="text-xl font-bold text-amber-400">{progress.highScore}</div>
-        </div>
-        <div className="bg-gray-700/50 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">Highest Level</div>
-          <div className="text-xl font-bold text-green-400">{progress.highestLevel}</div>
-        </div>
-        <div className="bg-gray-700/50 p-2 rounded text-center">
-          <div className="text-gray-400 text-xs">Bricks Smashed</div>
-          <div className="text-xl font-bold text-red-400">{progress.totalBricksDestroyed}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================
-// SETTINGS PANEL
-// ============================================
-function SettingsPanel() {
-  const { progress } = useBreakoutStore();
-  const [isOpen, setIsOpen] = useState(false);
-
-  const toggleSound = () => {
-    useBreakoutStore.setState(state => ({
-      progress: {
-        ...state.progress,
-        soundEnabled: !state.progress.soundEnabled,
-        lastModified: Date.now(),
-      }
-    }));
-  };
-
-  return (
-    <div className="w-full max-w-lg mx-auto">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full min-h-[44px] bg-gray-700/80 hover:bg-gray-600 text-white py-2 px-4 rounded-lg flex items-center justify-between"
-      >
-        <span>Settings</span>
-        <span
-          className="transform transition-transform"
-          style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)" }}
-        >
-          ▼
-        </span>
-      </button>
-
-      {isOpen && (
-        <div className="mt-2 bg-gray-800/80 rounded-lg p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <label className="text-white font-bold">Sound Effects</label>
-            <button
-              onClick={toggleSound}
-              className={`w-14 h-8 rounded-full transition-all ${
-                progress.soundEnabled ? "bg-green-600" : "bg-gray-600"
-              }`}
-            >
-              <div
-                className={`w-6 h-6 bg-white rounded-full shadow transition-transform ${
-                  progress.soundEnabled ? "translate-x-7" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================
 // MAIN GAME COMPONENT
 // ============================================
 export function BreakoutGame() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const store = useBreakoutStore();
-  const { status, progress } = store;
+  const { status, progress, movePaddle, launchBall, resumeGame, startGame, nextLevel } = store;
   const isCoarse = useCoarsePointer();
 
+  const render = useCanvasRenderer(canvasRef);
+
+  // The canvas fits the play box on both axes (layout.ts): upright the HUD
+  // line sits above it, sideways the HUD sits beside it. The box is fitted:
+  // it never scrolls, and a touch on it goes to the game.
+  const box = usePlayBox({ fit: true });
+  const { canvas: fit, sideways } = breakoutLayout(box);
+  const scale = fit.scale || 1;
+
+  // The shell holds the game under an overlay (the orientation tip, the
+  // restart question, the leaderboard, the install steps) and in a hidden
+  // tab. The shell also pauses the store (onPause) while a round plays;
+  // the hold covers the rest, so no game time passes under the tip.
+  const held = useShellHold();
+
+  // Gameplay clips: the canvas, the run phases and the new-best moment.
+  useBreakoutClips(canvasRef, {
+    status,
+    score: store.score,
+    highScore: store.runStartBest,
+    runId: store.runId,
+  });
+
+  // Sound: the first tap starts the shared game-audio bus, the sound switch
+  // is this game's speaker (also after the saved setting loads), and the
+  // game's channel leaves the bus when the game unmounts.
+  useEffect(() => wantGameAudio(), []);
+  const soundEnabled = progress.soundEnabled;
+  useEffect(() => {
+    setGameSpeakerEnabled(BREAKOUT_AUDIO_ID, soundEnabled);
+  }, [soundEnabled]);
+  useEffect(() => () => releaseSounds(), []);
+
   // Sync with auth system
-  const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
+  const { forceSync } = useAuthSync({
     appId: "breakout",
     localStorageKey: "breakout-game-state",
     getState: () => store.getProgress(),
@@ -590,37 +249,340 @@ export function BreakoutGame() {
     }
   }, [status, forceSync]);
 
+  // The shared fixed-step loop: 60 steps of game time each second on any
+  // screen (the store moves the ball a fixed distance per step). No steps
+  // between rounds, under the shell's pause, or under its hold.
+  const playing = status === "playing";
+  const update = useCallback(() => {
+    const state = useBreakoutStore.getState();
+    if (state.status === "playing") state.update();
+  }, []);
+  useGameLoop({ update, render }, { running: true, paused: !playing || held });
+
+  // Between rounds the picture changes only with the state (a card, a
+  // pause): draw it in the same commit.
+  useEffect(() => {
+    if (!playing) render();
+  }, [render, playing]);
+
+  // Play again and Next level wait out a short grace after the card
+  // appears, and a held key's repeats never count.
+  const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, status);
+
+  // Mouse control is RELATIVE: the paddle follows the direction the
+  // mouse moves (movementX), not where the cursor happens to sit. Any
+  // motion anywhere over the page moves the paddle instantly, and the
+  // cursor stays visible and free. movePaddle clamps, so excess motion
+  // past a wall is simply discarded instead of accumulating drift.
+  useEffect(() => {
+    const handleWindowPointerMove = (e: PointerEvent) => {
+      // Touch drags are handled by the touch surface below.
+      if (e.pointerType === "touch") return;
+      if (useBreakoutStore.getState().status !== "playing") return;
+      const { paddle } = useBreakoutStore.getState();
+      const center = paddle.x + paddle.width / 2;
+      movePaddle(center + e.movementX / scale);
+    };
+
+    window.addEventListener("pointermove", handleWindowPointerMove);
+    return () => window.removeEventListener("pointermove", handleWindowPointerMove);
+  }, [movePaddle, scale]);
+
+  // A tap (or a click, or Space) launches a resting ball, or resumes the
+  // game's own pause. Game over and level complete go on only from the
+  // result chip (or Space after its grace): a tap meant for the paddle at
+  // the moment the round ended must not skip the card.
+  const handleTap = useCallback(() => {
+    const state = useBreakoutStore.getState();
+    if (state.status === "playing") {
+      if (state.balls.some((b) => b.stuck)) launchBall();
+    } else if (state.status === "paused") {
+      resumeGame();
+    }
+  }, [launchBall, resumeGame]);
+
+  // Finger input through the shared native touch hook on the WHOLE play
+  // area (non-passive, so the page never scrolls under a drag, and the
+  // browser sends no compatibility click). A drag is RELATIVE, like the
+  // mouse: the paddle moves by the finger's motion, so the thumb can rest
+  // under the canvas (upright) or beside it (sideways) and never covers
+  // the paddle or the ball. Only a finger that lifts where it landed is a
+  // tap. The canvas used to carry onClick AND onTouchStart, so the first
+  // touch launched the ball at once (before the kid could place the
+  // paddle) and again on the click.
+  const lastXRef = useRef(new Map<number, number>());
+  useTouchInput(rootRef, {
+    onStart: (touch) => {
+      lastXRef.current.set(touch.id, touch.x);
+    },
+    onMove: (touch) => {
+      const last = lastXRef.current.get(touch.id) ?? touch.x;
+      lastXRef.current.set(touch.id, touch.x);
+      if (useBreakoutStore.getState().status !== "playing") return;
+      const { paddle } = useBreakoutStore.getState();
+      const center = paddle.x + paddle.width / 2;
+      movePaddle(center + (touch.x - last) / scale);
+    },
+    onEnd: (touch, event) => {
+      lastXRef.current.delete(touch.id);
+      // A cancel (event null) is never a tap.
+      if (!event) return;
+      const moved = Math.hypot(touch.x - touch.startX, touch.y - touch.startY);
+      if (moved <= TAP_SLOP_PX) handleTap();
+    },
+  }, {
+    // The sound switch keeps its tap.
+    ignore: "button",
+  });
+
+  // Keyboard controls
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      // The start overlay owns the idle state; keys must not move or start
+      // the game underneath it.
+      if (status === "idle") return;
+      if (["ArrowLeft", "ArrowRight", " "].includes(e.key)) {
+        e.preventDefault();
+      }
+
+      if (status === "game-over") {
+        if (e.key === " " && grace.accept(e)) startGame();
+        return;
+      }
+      if (status === "level-complete") {
+        if (e.key === " " && grace.accept(e)) {
+          if (store.level < getTotalLevels()) nextLevel();
+          else startGame();
+        }
+        return;
+      }
+      // Pause/resume is owned by the GameShell (ESC + pause button): game
+      // keys wait while paused, so Space cannot resume the sim behind the
+      // still-open menu.
+      if (status === "paused") return;
+
+      switch (e.key) {
+        case "ArrowLeft":
+        case "a":
+        case "A":
+          movePaddle(store.paddle.x - 20);
+          break;
+        case "ArrowRight":
+        case "d":
+        case "D":
+          movePaddle(store.paddle.x + store.paddle.width + 20);
+          break;
+        case " ":
+          handleTap();
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [movePaddle, store.paddle.x, store.paddle.width, store.level, status, handleTap, grace, startGame, nextLevel]);
+
+  const toggleSound = () => {
+    useBreakoutStore.setState((state) => ({
+      progress: {
+        ...state.progress,
+        soundEnabled: !state.progress.soundEnabled,
+        lastModified: Date.now(),
+      },
+    }));
+  };
+
+  const soundLabel = soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off;
+  const soundButton = (
+    <button
+      type="button"
+      data-testid="breakout-sound"
+      aria-label={soundLabel}
+      onClick={toggleSound}
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xl text-white hover:bg-slate-600 touch-manipulation"
+    >
+      <span aria-hidden="true">{soundEnabled ? "🔊" : "🔇"}</span>
+    </button>
+  );
+
+  // The HUD is DOM text (the canvas HUD was 12.9 px on a phone): the score,
+  // the level, the lives, and the active power-ups with their seconds.
+  const activeTypes = [...new Set(store.activePowerUps.map((p) => p.type))];
+  // The clock for the power-up seconds: it ticks only while one is active,
+  // so render stays pure (no Date.now() in the body).
+  const [now, setNow] = useState(() => Date.now());
+  const hasPowerUps = activeTypes.length > 0;
+  useEffect(() => {
+    if (!hasPowerUps) return;
+    const first = window.setTimeout(() => setNow(Date.now()), 0);
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [hasPowerUps]);
+  const hud = (
+    <div
+      data-testid="breakout-hud"
+      className={
+        sideways
+          ? "flex max-w-full flex-col items-center gap-1 overflow-hidden whitespace-nowrap text-center text-sm font-bold text-white"
+          : "flex max-w-full items-center gap-3 overflow-hidden whitespace-nowrap text-sm font-bold text-white sm:gap-4"
+      }
+    >
+      <span>Score {store.score}</span>
+      <span>Level {store.level}</span>
+      <span aria-label={`${store.lives} lives`} className="text-red-400">
+        {store.lives > 0 ? "♥".repeat(Math.min(store.lives, 6)) : "♡"}
+      </span>
+      {activeTypes.map((type) => {
+        const config = POWERUP_CONFIG[type];
+        const powerUp = store.activePowerUps.find((p) => p.type === type)!;
+        const seconds = Math.ceil(Math.max(0, powerUp.expiresAt - now) / 1000);
+        return (
+          <span key={type} className="rounded px-1.5 text-xs text-white" style={{ backgroundColor: config.color }}>
+            {config.icon} {seconds}s
+          </span>
+        );
+      })}
+    </div>
+  );
+
+  const waitingToLaunch = playing && store.balls.some((b) => b.stuck);
+
+  const canvasBox = (
+    <div className="relative shrink-0" style={{ width: fit.width, height: fit.height }}>
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        className={`rounded-lg border-4 border-blue-600 shadow-2xl touch-none ${isCoarse ? "" : "cursor-default"}`}
+        style={{ width: fit.width, height: fit.height }}
+        // Mouse only: a finger's touchend is default-prevented above, so the
+        // browser sends no click for it.
+        onClick={handleTap}
+      />
+
+      {/* The launch hint over the canvas while the ball rests on the paddle:
+          DOM text, readable at any canvas size. */}
+      {waitingToLaunch && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[18%] flex justify-center px-2">
+          <div data-testid="breakout-launch-hint" className="animate-pulse rounded-full bg-slate-900/90 px-4 py-2 text-center text-sm font-bold text-white shadow-lg">
+            {getLaunchHint(isCoarse)}
+          </div>
+        </div>
+      )}
+
+      {status === "game-over" && (
+        <ResultCard testId="breakout-result-card" title="Game over!">
+          <ResultLine big>Score {store.score}</ResultLine>
+          <ResultLine>
+            Level {store.level} ·{" "}
+            {store.score > store.runStartBest && store.score > 0 ? "🏆 New best!" : `Best ${progress.highScore}`}
+          </ResultLine>
+        </ResultCard>
+      )}
+      {status === "level-complete" && (
+        <ResultCard
+          testId="breakout-result-card"
+          title={store.level < getTotalLevels() ? `Level ${store.level} done!` : "You beat every level!"}
+        >
+          <ResultLine big>Score {store.score}</ResultLine>
+        </ResultCard>
+      )}
+
+      {/* Shared DOM start screen (renders the title once) */}
+      {status === "idle" && (
+        <GameStartOverlay
+          title="Breakout"
+          emoji="🧱"
+          subtitle="Smash every brick!"
+          touchHints={["👈👉 Slide your finger to move the paddle", "👆 Tap to launch the ball"]}
+          keyboardHints={["👈👉 Arrow keys move the paddle", "⌨️ Space to launch the ball"]}
+          onStart={() => startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 High Score: {progress.highScore}
+          </div>
+        </GameStartOverlay>
+      )}
+    </div>
+  );
+
+  const gameOver = status === "game-over";
+  const levelComplete = status === "level-complete";
+  const lastLevel = store.level >= getTotalLevels();
+
   return (
-    <div className="min-h-full bg-gradient-to-b from-indigo-900 via-purple-900 to-indigo-950 p-4 flex flex-col items-center justify-center gap-4">
-      {/* iOS install prompt */}
+    <div
+      ref={rootRef}
+      data-testid="breakout-root"
+      data-layout={sideways ? "sideways" : "upright"}
+      className="h-full w-full select-none bg-slate-950"
+    >
+      {sideways ? (
+        // Sideways: the HUD beside the canvas, the canvas full height. The
+        // room on both sides is play room: a finger drags the paddle from anywhere.
+        <div className="flex h-full w-full items-center justify-center" style={{ padding: EDGE_PX, gap: GAP_PX }}>
+          <div data-testid="breakout-hud-column" className="flex shrink-0 flex-col items-center justify-center gap-3" style={{ width: HUD_COLUMN_PX }}>
+            {hud}
+            {soundButton}
+          </div>
+          {canvasBox}
+          <div className="shrink-0" style={{ width: HUD_COLUMN_PX }} aria-hidden="true" />
+        </div>
+      ) : (
+        // Upright: the HUD line, then the canvas. The room under the canvas is play room too.
+        <div className="flex h-full w-full flex-col items-center" style={{ padding: EDGE_PX, gap: GAP_PX }}>
+          <div className="flex w-full shrink-0 items-center justify-center gap-3" style={{ height: HUD_ROW_PX }}>
+            {hud}
+            {soundButton}
+          </div>
+          {canvasBox}
+        </div>
+      )}
+
       <IOSInstallPrompt />
 
+      {/* The result chip under the game-over card: read it to me, Play
+          again, the leaderboard, and with clips on the clip buttons. */}
+      {gameOver && (
+        <ResultChip
+          resultText={gameOverText({
+            score: store.score,
+            level: store.level,
+            best: progress.highScore,
+            newBest: store.score > store.runStartBest && store.score > 0,
+          })}
+          appId="breakout"
+          onRestart={startGame}
+          keyboardHint="Space"
+        />
+      )}
 
-      {/* Game Canvas */}
-      <GameCanvas />
-
-      {/* Controls hint */}
-      {/* Keyed on the pointer, never on a width breakpoint: a phone held
-          sideways is wider than md and still has no keyboard. */}
-      <div className="text-center text-purple-200 text-sm">
-        {isCoarse ? (
-          <span>Drag to move paddle | Tap to launch</span>
-        ) : (
-          <span>Slide mouse left/right to steer | Arrow keys work too | Space to launch | ESC to pause</span>
-        )}
-      </div>
-
-      {/* Settings */}
-      <SettingsPanel />
-
-      {/* Stats */}
-      <StatsDisplay />
-
-      {/* Sync status indicator */}
-      {isAuthenticated && (
-        <div className="fixed bottom-2 right-2 text-xs text-purple-300/60">
-          {syncStatus === "syncing" ? "Saving..." : syncStatus === "synced" ? "Saved" : ""}
-        </div>
+      {/* The level-complete chip: Next level, or Play again after the last level. */}
+      {levelComplete && (
+        <ResultChip
+          resultText={levelCompleteText({ level: store.level, score: store.score, last: lastLevel })}
+          onRestart={lastLevel ? startGame : undefined}
+          spokenExtras={lastLevel ? [] : [NEXT_LEVEL_LABEL]}
+          keyboardHint="Space"
+        >
+          {!lastLevel && (
+            <button
+              type="button"
+              data-testid="breakout-next-level"
+              // The chip holds every button in its bar through the grace.
+              onClick={() => nextLevel()}
+              className={`btn btn-primary gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} active:scale-[0.97] touch-manipulation`}
+            >
+              <span aria-hidden="true">▶</span>
+              {NEXT_LEVEL_LABEL}
+            </button>
+          )}
+        </ResultChip>
       )}
     </div>
   );
