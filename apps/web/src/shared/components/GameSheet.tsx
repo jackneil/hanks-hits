@@ -114,7 +114,10 @@ export function GameSheet({
   const isShort = useShortViewport();
   const overlayRef = useRef<HTMLDivElement>(null);
   const actionColumnRef = useRef<HTMLDivElement>(null);
-  const [twoColumns, setTwoColumns] = useState(false);
+  const [measuredTwoColumns, setTwoColumns] = useState(false);
+  // Two columns only on a short screen; a tall screen never uses the last
+  // short-screen measurement.
+  const twoColumns = isShort && measuredTwoColumns;
   const titleId = useId();
   const wordsRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -139,10 +142,7 @@ export function GameSheet({
   useLayoutEffect(() => {
     const overlay = overlayRef.current;
     const column = actionColumnRef.current;
-    if (!isShort || !overlay || !column) {
-      setTwoColumns(false);
-      return;
-    }
+    if (!isShort || !overlay || !column) return;
     const measure = () => {
       // No layout (a test DOM): keep one column.
       if (overlay.clientHeight === 0) {
