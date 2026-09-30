@@ -132,9 +132,6 @@ const KNOWN_FAILURES: KnownFailure[] = [
   { route: "/games/four-wheeler-3d", check: "start-visible", screens: ["667x311"], fixedBy: "PR-G1" },
   { route: "/games/four-wheeler-3d", check: "button-size", screens: EVERY_SCREEN, fixedBy: "PR-G1" },
   { route: "/games/monster-truck", check: "button-size", screens: EVERY_SCREEN, fixedBy: "PR-G1" },
-  // PR-G5: Puzzle and word. Wordle's keyboard keys are 32 px wide upright
-  // (sideways the row has room, and the keys are 44 px or wider).
-  { route: "/games/wordle", check: "button-size", screens: UPRIGHT, fixedBy: "PR-G5" },
   // PR-G8: Apps. The drum machine's Pads and Sequencer tabs are 40 px
   // tall. The joke generator and the virtual pet have no start card and
   // no break surface, so the First Play trophy shows as the 60 px strip at
