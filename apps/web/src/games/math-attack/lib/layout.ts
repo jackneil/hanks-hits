@@ -15,12 +15,15 @@ import { GAME } from "./constants";
  *
  * - Upright: the pad is two rows of six keys (1 to 5 and delete, 6 to 0
  *   and send) under the sky, so the sky keeps most of the height.
- * - Sideways: the pad is three keys by four in the right gutter, and the
- *   sky takes the whole height.
+ * - Sideways: the pad is three keys by four in the right gutter, the HUD a
+ *   column on the left, and the sky takes the whole height (a HUD row over
+ *   it left a 133 x 199 sky with 10 px sums).
  * - A mouse: the pad under the sky, and the number keys type too.
  */
 
 export const HUD_ROW = 44;
+/** The HUD as a column beside the sky, sideways. */
+export const HUD_COLUMN = 96;
 export const EDGE = 8;
 export const GAP = 8;
 export const KEY_GAP = 6;
@@ -62,8 +65,8 @@ export function mathAttackLayout(box: { width: number; height: number }): MathAt
     const key = clamp(Math.floor((box.height - 2 * EDGE - (pad.length - 1) * KEY_GAP) / pad.length), MIN_KEY, MAX_KEY);
     const size = padSize(pad, key);
     const sky = fitCanvas(box, GAME.width, GAME.height, {
-      width: 2 * EDGE + GAP + size.width,
-      height: 2 * EDGE + HUD_ROW + GAP,
+      width: 2 * EDGE + HUD_COLUMN + GAP + GAP + size.width,
+      height: 2 * EDGE,
     });
     return { sideways, sky, key, pad, padSize: size };
   }

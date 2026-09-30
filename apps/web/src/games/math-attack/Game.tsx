@@ -17,7 +17,7 @@ import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { PICKER_GRID, pickerCellClass } from "@/shared/lib/pickerGrid";
 
 import { DIFFICULTY_SETTINGS, GAME, getDifficultySettings, POINTS, type Difficulty, type Operation } from "./lib/constants";
-import { EDGE, GAP, HUD_ROW, KEY_GAP, mathAttackLayout } from "./lib/layout";
+import { EDGE, GAP, HUD_COLUMN, HUD_ROW, KEY_GAP, mathAttackLayout } from "./lib/layout";
 import { findMatchingProblem, generateProblem, type Problem } from "./lib/problems";
 import { MATH_ATTACK_AUDIO_ID, playSound, releaseSounds } from "./lib/sounds";
 import { useMathAttackStore, type MathAttackProgress } from "./lib/store";
@@ -273,8 +273,8 @@ export function MathAttackGame() {
   const hud = (
     <div
       data-testid="math-attack-hud"
-      className="flex shrink-0 items-center justify-between gap-2 px-1 text-lg font-bold"
-      style={{ height: HUD_ROW, width: layout.sky.width }}
+      className={`flex shrink-0 items-center gap-2 px-1 text-lg font-bold ${layout.sideways ? "flex-col justify-center" : "justify-between"}`}
+      style={layout.sideways ? { width: HUD_COLUMN } : { height: HUD_ROW, width: layout.sky.width }}
     >
       <span aria-label={`${lives} lives`}>❤️ {lives}</span>
       <span
@@ -284,8 +284,8 @@ export function MathAttackGame() {
       >
         {answer || "?"}
       </span>
-      <span>
-        {score}
+      <span aria-label={`Score ${score}`}>
+        ⭐ {score}
         {combo > 1 && <span className="ml-2 text-yellow-400">🔥x{combo}</span>}
       </span>
     </div>
@@ -345,7 +345,7 @@ export function MathAttackGame() {
       {/* One stable tree on every screen: the sky (with the HUD over it)
           first, the pad second (under it upright, beside it sideways), so
           a turn of the phone never remounts the canvas or the pad. */}
-      <div className="flex shrink-0 flex-col items-center" style={{ gap: GAP }}>
+      <div className={`flex shrink-0 items-center ${layout.sideways ? "flex-row" : "flex-col"}`} style={{ gap: GAP }}>
         {hud}
         {sky}
       </div>

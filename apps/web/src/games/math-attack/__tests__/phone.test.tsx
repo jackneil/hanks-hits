@@ -26,7 +26,7 @@ import { DEFAULT_RESTART_GRACE_MS } from "@/shared/lib/input";
 
 import { MathAttackGame, PAD_LABELS, gameOverText } from "../Game";
 import { GAME } from "../lib/constants";
-import { EDGE, GAP, HUD_ROW, MIN_KEY, mathAttackLayout } from "../lib/layout";
+import { EDGE, GAP, HUD_COLUMN, HUD_ROW, MIN_KEY, mathAttackLayout } from "../lib/layout";
 import { playSound, releaseSounds, type MathAttackSound } from "../lib/sounds";
 import { useMathAttackStore } from "../lib/store";
 import { runClipPhase } from "../lib/useMathAttackClips";
@@ -52,10 +52,11 @@ describe("Math Attack layout", () => {
       expect(layout.key, name).toBeGreaterThanOrEqual(MIN_KEY);
       expect(layout.sky.width / layout.sky.height, name).toBeCloseTo(GAME.width / GAME.height, 1);
       if (layout.sideways) {
-        expect(layout.sky.width + GAP + layout.padSize.width + 2 * EDGE, name).toBeLessThanOrEqual(box.width);
-        expect(layout.sky.height + HUD_ROW + GAP + 2 * EDGE, name).toBeLessThanOrEqual(box.height);
+        expect(HUD_COLUMN + GAP + layout.sky.width + GAP + layout.padSize.width + 2 * EDGE, name).toBeLessThanOrEqual(box.width);
+        expect(layout.sky.height + 2 * EDGE, name).toBeLessThanOrEqual(box.height);
         expect(layout.padSize.height + 2 * EDGE, name).toBeLessThanOrEqual(box.height);
-        expect(layout.sky.height / box.height, name).toBeGreaterThan(0.7);
+        // The HUD is a column beside the sky, so the sky takes the height.
+        expect(layout.sky.height / box.height, name).toBeGreaterThan(0.9);
       } else {
         expect(layout.padSize.width + 2 * EDGE, name).toBeLessThanOrEqual(box.width);
         expect(layout.sky.height + HUD_ROW + GAP + layout.padSize.height + GAP + 2 * EDGE, name).toBeLessThanOrEqual(box.height);
