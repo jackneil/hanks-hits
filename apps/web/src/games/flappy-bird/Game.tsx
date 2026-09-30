@@ -20,6 +20,10 @@ import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { DEFAULT_RESTART_GRACE_MS, usePointerTap, useRestartGrace } from "@/shared/lib/input";
 import { fitCanvas, usePlayBox } from "@/shared/hooks/usePlayBox";
 import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+
+/** The medal of a run, as a picture a kid knows. */
+const MEDAL_EMOJI = { bronze: "🥉", silver: "🥈", gold: "🥇", platinum: "🏅" } as const;
 import { useFlappyClips } from "./lib/useFlappyClips";
 
 /** The result in kid words, read aloud first. */
@@ -192,72 +196,12 @@ export function FlappyBirdGame() {
     [gameState, score]
   );
 
-  const drawGameOver = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      // Darken background
-      ctx.fillStyle = COLORS.GAME_OVER_BG;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.textAlign = "center";
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.strokeStyle = COLORS.SCORE_SHADOW;
-      ctx.lineWidth = 2;
-
-      // Game Over text
-      ctx.font = "bold 40px Arial, sans-serif";
-      ctx.strokeText("Game Over!", CANVAS_WIDTH / 2, 120);
-      ctx.fillText("Game Over!", CANVAS_WIDTH / 2, 120);
-
-      // Score box
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.fillRect(CANVAS_WIDTH / 2 - 100, 150, 200, 140);
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(CANVAS_WIDTH / 2 - 100, 150, 200, 140);
-
-      ctx.fillStyle = "#000";
-      ctx.font = "20px Arial, sans-serif";
-      ctx.fillText("Score", CANVAS_WIDTH / 2, 180);
-      ctx.font = "bold 36px Arial, sans-serif";
-      ctx.fillText(score.toString(), CANVAS_WIDTH / 2, 220);
-
-      ctx.font = "20px Arial, sans-serif";
-      ctx.fillText("Best", CANVAS_WIDTH / 2, 260);
-      ctx.font = "bold 28px Arial, sans-serif";
-      ctx.fillText(progress.highScore.toString(), CANVAS_WIDTH / 2, 290);
-
-      // New high score celebration
-      if (isNewHighScore) {
-        ctx.fillStyle = "#FFD700";
-        ctx.font = "bold 24px Arial, sans-serif";
-        ctx.fillText("NEW HIGH SCORE!", CANVAS_WIDTH / 2, 330);
-      }
-
-      // Medal
-      const medal = getMedal(score);
-      if (medal !== "none") {
-        const medalColors = {
-          bronze: "#CD7F32",
-          silver: "#C0C0C0",
-          gold: "#FFD700",
-          platinum: "#E5E4E2",
-        };
-        ctx.fillStyle = medalColors[medal];
-        ctx.beginPath();
-        ctx.arc(CANVAS_WIDTH / 2 - 60, 235, 25, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = "#000";
-        ctx.font = "12px Arial, sans-serif";
-        ctx.fillText(medal.toUpperCase(), CANVAS_WIDTH / 2 - 60, 270);
-      }
-
-      // Play again is the result chip's button, under the board.
-    },
-    [score, progress.highScore, isNewHighScore]
-  );
+  // The result is DOM text over the board (ResultCard): legible at every
+  // scale and never under the result chip. The canvas only dims the world.
+  const drawGameOver = useCallback((ctx: CanvasRenderingContext2D) => {
+    ctx.fillStyle = COLORS.GAME_OVER_BG;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }, []);
 
   // Main render function
   const render = useCallback(
@@ -379,23 +323,36 @@ export function FlappyBirdGame() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [gameState, handleInput, restart, grace]);
 
+  const medal = getMedal(score);
+
   return (
     <div className="relative flex h-full w-full items-center justify-center bg-sky-500">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      <canvas
-        ref={canvasRef}
-        width={CANVAS_WIDTH}
-        height={CANVAS_HEIGHT}
-        data-testid="flappy-canvas"
-        // One handler for finger and mouse. A React onTouchStart cannot
-        // preventDefault (React attaches it passive), so a tap used to fire
-        // touchstart AND the compatibility click: two flaps per tap.
-        {...canvasTap}
-        className="rounded-lg shadow-2xl cursor-pointer touch-none"
-        style={{ width: fit.width, height: fit.height }}
-      />
+      <div className="relative shrink-0" style={{ width: fit.width, height: fit.height }}>
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_WIDTH}
+          height={CANVAS_HEIGHT}
+          data-testid="flappy-canvas"
+          // One handler for finger and mouse. A React onTouchStart cannot
+          // preventDefault (React attaches it passive), so a tap used to fire
+          // touchstart AND the compatibility click: two flaps per tap.
+          {...canvasTap}
+          className="block rounded-lg shadow-2xl cursor-pointer touch-none"
+          style={{ width: fit.width, height: fit.height }}
+        />
+        {gameState === "gameOver" && (
+          <ResultCard testId="flappy-result-card" title="Game over!">
+            <ResultLine big>
+              🟩 {score} {score === 1 ? "pipe" : "pipes"}
+              {medal !== "none" && <> · {MEDAL_EMOJI[medal]}</>}
+            </ResultLine>
+            <ResultLine>{isNewHighScore ? "🏆 New best!" : `Best ${progress.highScore}`}</ResultLine>
+          </ResultCard>
+        )}
+      </div>
 
       {/* Shared DOM start screen (renders the title once) */}
       {gameState === "ready" && (

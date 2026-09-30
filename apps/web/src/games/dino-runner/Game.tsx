@@ -20,6 +20,7 @@ import { usePlayBox } from "@/shared/hooks/usePlayBox";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
 import {
   THUMB_GUTTER_WIDTH,
   THUMB_ROW_HEIGHT,
@@ -268,8 +269,8 @@ function drawClouds(
 }
 
 /**
- * Draw the score at the right edge of the VISIBLE world. On a phone held
- * upright the world is cropped on the right (see PORTRAIT_VISIBLE_WORLD),
+ * Draw the score at the right edge of the VISIBLE world. On a phone the
+ * world can be cropped on the right (see PHONE_VISIBLE_WORLD),
  * so a score at the canvas edge would be off screen. The font grows when
  * the scale is small, so the digits stay 16 CSS px or taller.
  */
@@ -324,14 +325,15 @@ export const SWIPE_DUCK_PX = 30;
 // ============================================
 
 /**
- * How much of the 800 px world a phone held upright shows. The canvas is
- * scaled to the height of the play box and the world is cropped on the
+ * The least of the 800 px world a phone shows, either way up. The canvas
+ * is scaled to the height of the play box and the world is cropped on the
  * right (the dino runs at x = 50, so the room ahead of it is what a kid
  * needs). 600 px is the width of Chrome's own dino game on a phone. Before
- * this the game was a strip 19 to 21 percent of the screen tall, with a
- * 20 px dino (phone UX audit 2026-09-29).
+ * this the game was a strip 19 to 21 percent of the screen tall upright
+ * with a 20 px dino, and two thirds of the height sideways (phone UX audit
+ * 2026-09-29, phone check 2026-09-30).
  */
-export const PORTRAIT_VISIBLE_WORLD = 600;
+export const PHONE_VISIBLE_WORLD = 600;
 /** A phone held sideways: the JUMP and DUCK buttons sit in gutters beside the picture, under the thumbs. */
 export const GUTTER_WIDTH = THUMB_GUTTER_WIDTH;
 /** A phone held upright: the two buttons share a row under the picture. */
@@ -352,7 +354,7 @@ export function fitDino(box: { width: number; height: number }, coarse: boolean)
     box,
     coarse,
     { width: CANVAS_WIDTH, height: CANVAS_HEIGHT },
-    { minVisibleWorldUpright: PORTRAIT_VISIBLE_WORLD, maxScale: MAX_SCALE },
+    { minVisibleWorld: PHONE_VISIBLE_WORLD, maxScale: MAX_SCALE },
   );
 }
 
@@ -673,9 +675,9 @@ export function DinoRunnerGame() {
       {/* JUMP under the left thumb, DUCK under the right (sideways gutters,
           or one row under the picture upright). */}
       <ThumbPadLayout fit={fit} left={jumpButton} right={duckButton} rowTestId="dino-control-row">
-        {/* The window onto the world. On a phone held upright it crops the
-            world on the right (fitDino), so the picture is as tall as the
-            box allows instead of a strip. */}
+        {/* The window onto the world. On a phone it may crop the world on
+            the right (fitDino), so the picture is as tall as the box allows
+            instead of a strip. */}
         <div
           data-testid="dino-viewport"
           className="relative shrink-0 overflow-hidden rounded-lg border-2 border-gray-300 bg-gray-100 shadow-xl"
@@ -697,18 +699,10 @@ export function DinoRunnerGame() {
               canvas text was 7.7 px on a phone upright). The chip under it
               has the buttons and reads these words out loud. */}
           {gameOver && (
-            <div
-              data-testid="dino-result-card"
-              className="pointer-events-none absolute inset-0 flex items-center justify-center p-2"
-            >
-              <div className="flex max-w-full flex-col items-center gap-0.5 rounded-xl bg-white/90 px-4 py-2 text-center text-gray-800 shadow-md short:flex-row short:gap-3 short:py-1.5">
-                <p className="text-2xl font-bold short:text-xl">Game over!</p>
-                <p className="text-lg font-semibold short:text-base">Score {Math.floor(score)}</p>
-                <p className="text-base short:text-sm">
-                  {lastRunNewBest ? "🏆 New best!" : `Best ${Math.floor(progress.highScore)}`}
-                </p>
-              </div>
-            </div>
+            <ResultCard testId="dino-result-card" title="Game over!">
+              <ResultLine big>Score {Math.floor(score)}</ResultLine>
+              <ResultLine>{lastRunNewBest ? "🏆 New best!" : `Best ${Math.floor(progress.highScore)}`}</ResultLine>
+            </ResultCard>
           )}
         </div>
 

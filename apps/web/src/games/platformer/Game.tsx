@@ -8,6 +8,7 @@ import { usePointerHold, useTouchInput } from "@/shared/hooks/useTouchInput";
 import { DEFAULT_RESTART_GRACE_MS, usePointerTap, useRestartGrace } from "@/shared/lib/input";
 import { usePlayBox } from "@/shared/hooks/usePlayBox";
 import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
 import { RESULT_CHIP_BUTTON } from "@/shared/components/buttonStyles";
 import { ThumbPadLayout, fitThumbPads } from "@/shared/components/ThumbPadLayout";
 import { usePlatformerClips } from "./lib/usePlatformerClips";
@@ -31,13 +32,6 @@ import {
 } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
-/**
- * On a phone held upright the window shows this much of the world's width,
- * around the player (the camera keeps the player in the middle), so the
- * picture is taller. Before this the board was 28 to 32 percent of the
- * screen tall (phone UX audit 2026-09-29).
- */
-export const PORTRAIT_VISIBLE_WORLD = 560;
 /** A phone held sideways: ◀ and ▶ side by side under the left thumb. */
 export const LEFT_GUTTER_WIDTH = 132;
 
@@ -84,7 +78,11 @@ export function PlatformerGame() {
     box,
     isCoarse,
     { width: CANVAS_WIDTH, height: CANVAS_HEIGHT },
-    { minVisibleWorldUpright: PORTRAIT_VISIBLE_WORLD, maxScale: 2, gutterLeft: LEFT_GUTTER_WIDTH },
+    // The whole world, always: the camera is clamped at the start of a
+    // level (the player stands at the left), and the HUD sits at the edges,
+    // so a crop hid both. Upright it is 40 percent of an SE's box (the audit
+    // found a 28 to 32 percent strip).
+    { maxScale: 2, gutterLeft: LEFT_GUTTER_WIDTH },
   );
 
   const store = usePlatformerStore();
@@ -744,8 +742,7 @@ export function PlatformerGame() {
       <IOSInstallPrompt />
 
       <ThumbPadLayout fit={fit} left={arrows} right={jumpButton} rowTestId="platformer-control-row">
-        {/* The window onto the world. Upright it crops the world around the
-            middle, where the camera keeps the player. */}
+        {/* The window onto the whole world. */}
         <div
           data-testid="platformer-viewport"
           className="relative shrink-0 overflow-hidden rounded-lg shadow-xl"
@@ -762,24 +759,17 @@ export function PlatformerGame() {
             style={{
               width: Math.round(CANVAS_WIDTH * fit.scale),
               height: fit.viewHeight,
-              marginLeft: -Math.round(((CANVAS_WIDTH - fit.visibleWorld) / 2) * fit.scale),
             }}
           />
 
           {finished && (
-            <div
-              data-testid="platformer-result-card"
-              className="pointer-events-none absolute inset-0 flex items-center justify-center p-2"
-            >
-              <div className="flex max-w-full flex-col items-center gap-0.5 rounded-xl bg-white/95 px-4 py-2 text-center text-gray-900 shadow-md short:flex-row short:gap-3 short:py-1.5">
-                <p className="text-2xl font-bold short:text-xl">{cleared ? "Level complete!" : "Oops!"}</p>
-                <p className="text-lg font-semibold short:text-base">
-                  {score} points · 🪙 {coinsThisRun} · {"⭐".repeat(starsThisRun)}
-                  {"☆".repeat(Math.max(0, 3 - starsThisRun))}
-                </p>
-                {cleared && isNewHighScore && <p className="text-base font-semibold short:text-sm">⏱️ Best time!</p>}
-              </div>
-            </div>
+            <ResultCard testId="platformer-result-card" title={cleared ? "Level complete!" : "Oops!"}>
+              <ResultLine big>
+                {score} points · 🪙 {coinsThisRun} · {"⭐".repeat(starsThisRun)}
+                {"☆".repeat(Math.max(0, 3 - starsThisRun))}
+              </ResultLine>
+              {cleared && isNewHighScore && <ResultLine>⏱️ Best time!</ResultLine>}
+            </ResultCard>
           )}
         </div>
       </ThumbPadLayout>

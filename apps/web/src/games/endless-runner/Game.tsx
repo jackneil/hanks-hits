@@ -26,16 +26,17 @@ import { usePointerHold, useTouchInput } from "@/shared/hooks/useTouchInput";
 import { usePlayBox } from "@/shared/hooks/usePlayBox";
 import { DEFAULT_RESTART_GRACE_MS, usePointerTap, useRestartGrace } from "@/shared/lib/input";
 import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
 import { ThumbPadLayout, fitThumbPads } from "@/shared/components/ThumbPadLayout";
 import { useEndlessClips } from "./lib/useEndlessClips";
 
 /**
- * On a phone held upright the window shows this much of the world's width,
+ * On a phone the window shows at least this much of the world's width,
  * so the picture is taller (the runner stands at x = 100; 500 px of road
  * ahead is what a kid needs). Before this it was a strip 25 to 29 percent
  * of the screen tall (phone UX audit 2026-09-29).
  */
-export const PORTRAIT_VISIBLE_WORLD = 600;
+export const PHONE_VISIBLE_WORLD = 600;
 
 /** The result in kid words, read aloud first. */
 export function runnerResultText({ distance, coins, best, newBest }: { distance: number; coins: number; best: number; newBest: boolean }): string {
@@ -60,7 +61,7 @@ export function EndlessRunnerGame() {
     box,
     isCoarse,
     { width: CANVAS_WIDTH, height: CANVAS_HEIGHT },
-    { minVisibleWorldUpright: PORTRAIT_VISIBLE_WORLD, maxScale: 2 },
+    { minVisibleWorld: PHONE_VISIBLE_WORLD, maxScale: 2 },
   );
   // The shell holds the game under an overlay (the orientation tip, the
   // restart question, the leaderboard, the install steps) and in a hidden
@@ -365,6 +366,10 @@ export function EndlessRunnerGame() {
     });
   }, [coins]);
 
+  // The right edge of the part of the world on screen: on a phone the
+  // window may crop the world on the right (PHONE_VISIBLE_WORLD), so the
+  // coin counter is drawn at the visible edge, never off screen.
+  const visibleRight = Math.round(fit.scale > 0 ? fit.visibleWorld : CANVAS_WIDTH);
   const drawHUD = useCallback((ctx: CanvasRenderingContext2D) => {
     // Distance counter
     ctx.font = UI.SCORE_FONT;
@@ -377,19 +382,19 @@ export function EndlessRunnerGame() {
     // Coins counter
     ctx.textAlign = "right";
     ctx.fillStyle = COLORS.SCORE_SHADOW;
-    ctx.fillText(`${coinsThisRun}`, CANVAS_WIDTH - 18, 42);
+    ctx.fillText(`${coinsThisRun}`, visibleRight - 18, 42);
     ctx.fillStyle = COIN.COLOR;
-    ctx.fillText(`${coinsThisRun}`, CANVAS_WIDTH - 20, 40);
+    ctx.fillText(`${coinsThisRun}`, visibleRight - 20, 40);
 
     // Coin icon
     ctx.fillStyle = COIN.COLOR;
     ctx.beginPath();
-    ctx.arc(CANVAS_WIDTH - 60, 32, 12, 0, Math.PI * 2);
+    ctx.arc(visibleRight - 60, 32, 12, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = COIN.OUTLINE_COLOR;
     ctx.lineWidth = 2;
     ctx.stroke();
-  }, [score, coinsThisRun]);
+  }, [score, coinsThisRun, visibleRight]);
 
   // The result is DOM text over the picture (legible at every scale; the
   // canvas text was 7.7 px upright). The canvas only dims the world.
@@ -612,20 +617,12 @@ export function EndlessRunnerGame() {
           />
 
           {gameState === "gameOver" && (
-            <div
-              data-testid="runner-result-card"
-              className="pointer-events-none absolute inset-0 flex items-center justify-center p-2"
-            >
-              <div className="flex max-w-full flex-col items-center gap-0.5 rounded-xl bg-white/95 px-4 py-2 text-center text-gray-900 shadow-md short:flex-row short:gap-3 short:py-1.5">
-                <p className="text-2xl font-bold short:text-xl">Game over!</p>
-                <p className="text-lg font-semibold short:text-base">
-                  {score} m · 🪙 +{coinsThisRun}
-                </p>
-                <p className="text-base short:text-sm">
-                  {isNewHighScore ? "🏆 New best!" : `Best ${progress.highScore} m`}
-                </p>
-              </div>
-            </div>
+            <ResultCard testId="runner-result-card" title="Game over!">
+              <ResultLine big>
+                {score} m · 🪙 +{coinsThisRun}
+              </ResultLine>
+              <ResultLine>{isNewHighScore ? "🏆 New best!" : `Best ${progress.highScore} m`}</ResultLine>
+            </ResultCard>
           )}
         </div>
       </ThumbPadLayout>

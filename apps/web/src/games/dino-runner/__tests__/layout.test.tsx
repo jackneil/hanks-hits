@@ -6,7 +6,7 @@ vi.mock("@/shared/hooks/useAuthSync", () => ({
 }));
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({ IOSInstallPrompt: () => null }));
 
-import { CONTROL_ROW_HEIGHT, DinoRunnerGame, fitDino, GUTTER_WIDTH, MAX_SCALE, PORTRAIT_VISIBLE_WORLD } from "../Game";
+import { CONTROL_ROW_HEIGHT, DinoRunnerGame, fitDino, GUTTER_WIDTH, MAX_SCALE, PHONE_VISIBLE_WORLD } from "../Game";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "../lib/constants";
 import { useDinoRunnerStore } from "../lib/store";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
@@ -28,14 +28,16 @@ const BOXES = {
 };
 
 describe("fitDino", () => {
-  it("sideways on a phone: gutters for JUMP and DUCK beside a picture that shows the whole world", () => {
+  it("sideways on a phone: gutters for JUMP and DUCK beside a big picture with the road ahead", () => {
     for (const name of ["667x311", "844x340"] as const) {
       const fit = fitDino(BOXES[name], true);
       expect(fit.layout, name).toBe("sideways");
-      expect(fit.visibleWorld, name).toBe(CANVAS_WIDTH);
+      // The world is wide (800 x 300), so the gutters would cap the picture
+      // at two thirds of the height; it crops to at least 600 px of road.
+      expect(fit.visibleWorld, name).toBeGreaterThanOrEqual(PHONE_VISIBLE_WORLD);
       expect(fit.viewWidth + 2 * GUTTER_WIDTH, name).toBeLessThanOrEqual(BOXES[name].width);
       expect(fit.viewHeight, name).toBeLessThanOrEqual(BOXES[name].height);
-      expect(fit.viewHeight, `${name}: the picture uses the height`).toBeGreaterThanOrEqual(BOXES[name].height * 0.6);
+      expect(fit.viewHeight, `${name}: the picture uses the height`).toBeGreaterThanOrEqual(BOXES[name].height * 0.8);
     }
   });
 
@@ -44,7 +46,7 @@ describe("fitDino", () => {
       const box = BOXES[name];
       const fit = fitDino(box, true);
       expect(fit.layout, name).toBe("upright");
-      expect(fit.visibleWorld, name).toBeCloseTo(PORTRAIT_VISIBLE_WORLD, 3);
+      expect(fit.visibleWorld, name).toBeCloseTo(PHONE_VISIBLE_WORLD, 3);
       expect(fit.viewWidth, name).toBeLessThanOrEqual(box.width);
       expect(fit.viewHeight + CONTROL_ROW_HEIGHT, name).toBeLessThanOrEqual(box.height);
       // Taller than the old width-only strip (129 px at 375, 134 px at 390).
