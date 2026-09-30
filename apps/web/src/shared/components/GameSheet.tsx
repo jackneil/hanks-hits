@@ -181,7 +181,11 @@ export function GameSheet({
       onKeyDown={stopHere}
       className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] z-[60] flex overflow-y-auto overscroll-contain bg-black/75 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:p-3 short:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
-      <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:max-w-4xl short:flex-row short:items-center short:justify-center short:gap-2">
+      {/* short:h-full gives the row a definite height, so the card's
+          max-h-full holds and a long body scrolls inside the card. Without
+          it a tall body (Monster Truck's Garage) grew the card past the
+          screen and centring pushed its top (the tabs) above the screen. */}
+      <div className="m-auto flex max-h-full min-h-0 w-full max-w-md flex-col gap-3 short:h-full short:max-w-4xl short:flex-row short:items-center short:justify-center short:gap-2">
         <div
           data-testid={`${testId}-card`}
           className={`flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-3xl bg-base-100 text-base-content shadow-2xl short:max-w-2xl short:flex-1 short:flex-row ${className}`}
