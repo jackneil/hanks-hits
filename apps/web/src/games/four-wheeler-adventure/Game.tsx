@@ -7,7 +7,14 @@ import { GameStartOverlay } from "@/shared/components";
 interface FourWheelerAdventureGameProps {
   /** Changes whenever the shell confirms a fresh game restart. */
   restartNonce?: number;
+  /** The shell's pause menu or hold: the world stands still and the sound stops. */
+  paused?: boolean;
+  /** The game is on screen and driving (after Play, once the iframe loaded). */
+  onPlayingChange?: (playing: boolean) => void;
 }
+
+/** What the game page offers its host (public/games/four-wheeler-adventure/index.html). */
+type GameWindow = Window & { hhSetPaused?: (paused: boolean) => void };
 
 /**
  * Four-Wheeler Adventure
@@ -37,6 +44,8 @@ interface FourWheelerAdventureGameProps {
  */
 export function FourWheelerAdventureGame({
   restartNonce = 0,
+  paused = false,
+  onPlayingChange,
 }: FourWheelerAdventureGameProps) {
   const [gameHtml, setGameHtml] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -46,6 +55,17 @@ export function FourWheelerAdventureGame({
   const [hasStarted, setHasStarted] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const isReady = loadedRestartNonce === restartNonce;
+  const playing = hasStarted && isReady && gameHtml !== null;
+
+  useEffect(() => {
+    onPlayingChange?.(playing);
+  }, [playing, onPlayingChange]);
+
+  // The game has its own loop in the iframe: tell it to stand still.
+  useEffect(() => {
+    if (!playing) return;
+    (iframeRef.current?.contentWindow as GameWindow | null | undefined)?.hhSetPaused?.(paused);
+  }, [paused, playing]);
 
   // The game document carries its own start panel. Press its button for the
   // kid so one Play press is all it takes. srcDoc iframes are same-origin, so
@@ -60,6 +80,8 @@ export function FourWheelerAdventureGame({
     // document, and without this the parent page keeps focus, so a desktop
     // player has to click the game before any key does anything.
     iframeRef.current?.contentWindow?.focus();
+    // A reload during a pause (a restart from the pause menu) starts running.
+    (iframeRef.current?.contentWindow as GameWindow | null | undefined)?.hhSetPaused?.(false);
   }, [restartNonce]);
 
   useEffect(() => {

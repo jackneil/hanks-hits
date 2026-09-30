@@ -25,7 +25,9 @@ const SRC = path.resolve(__dirname, "..");
 /** A wrapper file mounts GameShell with a literal canPause={false}. */
 const NO_PAUSE_SHELL = /<GameShell\b[\s\S]*?canPause=\{false\}/;
 /** The module runs its own loop. */
-const OWN_LOOP = /\b(?:requestAnimationFrame|setInterval|useFrame)\s*\(/;
+// useGameLoop counts too: the shared fixed-step loop does not read the hold
+// itself, so a game that runs through it still must.
+const OWN_LOOP = /\b(?:requestAnimationFrame|setInterval|useFrame|useGameLoop)\s*\(/;
 /** The module declares an orientation, so the tip can show over it. */
 const ORIENTATION = /\bpreferredOrientation:\s*["'](?:portrait|landscape)["']/;
 /** The module reads the hold. */
