@@ -281,9 +281,13 @@ export function createTouchInput<Tag = string>(
 }
 
 /**
- * React hook form of createTouchInput. The listeners bind once to
- * `ref.current` (and again when `enabled` changes); the newest handlers
- * always run, with no re-binding on render.
+ * React hook form of createTouchInput. The listeners bind to the element
+ * that `ref.current` holds after each commit, and move when it changes: a
+ * surface that mounts late (after the play box is measured) or remounts
+ * (under a new parent when the phone turns) is a new element. Binding
+ * once on mount left such a surface with no listeners: a dead d-pad
+ * (Bomberman, phone check 2026-09-30). The newest handlers always run,
+ * with no re-binding on render.
  *
  * Usage:
  *   useTouchInput(canvasRef, {
@@ -305,16 +309,25 @@ export function useTouchInput<Tag = string>(
     inputRef.current?.configure(configRef.current);
   });
 
+  // After every commit: bind to the element the ref holds now, if it is
+  // not the one already bound. Cheap when nothing changed (one compare).
+  const boundRef = useRef<Element | null>(null);
   useEffect(() => {
-    const element = ref.current;
-    if (!enabled || !element) return;
-    const input = createTouchInput<Tag>(element, configRef.current);
-    inputRef.current = input;
-    return () => {
-      input.detach();
+    const element = enabled ? ref.current : null;
+    if (element === boundRef.current) return;
+    inputRef.current?.detach();
+    inputRef.current = null;
+    boundRef.current = element;
+    if (element) inputRef.current = createTouchInput<Tag>(element, configRef.current);
+  });
+  useEffect(
+    () => () => {
+      inputRef.current?.detach();
       inputRef.current = null;
-    };
-  }, [ref, enabled]);
+      boundRef.current = null;
+    },
+    []
+  );
 
   return useMemo(
     () => ({ active: () => inputRef.current?.active() ?? [] }),

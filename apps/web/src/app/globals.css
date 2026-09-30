@@ -117,8 +117,16 @@
      margins do not show a white band on a dark page.
    - scroll-padding-bottom (on html): focus and scrollIntoView stop above
      the sheet too. */
+/* The root background: the colour of the dark header bar (slate-950).
+   Safari on iOS 26 and later draws the page behind its see-through
+   toolbars, and where no fixed element touches the edge (the bottom of
+   every page, and the top of a page at scroll 0) it paints the root
+   background there. The root was the theme's white, so every page, all of
+   them dark at the edges, had a white band under the bottom toolbar and a
+   white strip under the status bar (real iPhone SE check, 2026-09-30). */
 html {
   scroll-padding-bottom: var(--bottom-sheet-space, 0px);
+  background-color: var(--color-slate-950, #020617);
 }
 
 body {
