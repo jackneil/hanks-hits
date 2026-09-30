@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useFlappyStore } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useShellHold } from "@/shared/hooks/useShellHold";
@@ -17,14 +17,29 @@ import {
   getMedal,
 } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
-import { usePointerTap } from "@/shared/lib/input";
+import { DEFAULT_RESTART_GRACE_MS, usePointerTap, useRestartGrace } from "@/shared/lib/input";
+import { fitCanvas, usePlayBox } from "@/shared/hooks/usePlayBox";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { useFlappyClips } from "./lib/useFlappyClips";
+
+/** The result in kid words, read aloud first. */
+export function flappyResultText({ score, best, newBest }: { score: number; best: number; newBest: boolean }): string {
+  const pipes = score === 1 ? "1 pipe" : `${score} pipes`;
+  const medal = getMedal(score);
+  const medalWords = medal === "none" ? "" : ` You earned a ${medal} medal!`;
+  const bestWords = newBest ? " That is a new best!" : ` Your best is ${best}.`;
+  return `Game over! You flew through ${pipes}.${medalWords}${bestWords}`;
+}
 
 export function FlappyBirdGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const lastTimeRef = useRef<number>(0);
-  const [scale, setScale] = useState(1);
+  // The board fits the play box on both axes, so a phone held sideways
+  // shows the whole board (it was 672 px tall in a 263 px window) and a
+  // phone held upright never scrolls (phone UX audit 2026-09-29).
+  const box = usePlayBox({ fit: true });
+  const fit = fitCanvas(box, CANVAS_WIDTH, CANVAS_HEIGHT);
   // The shell holds the game under an overlay (the orientation tip, the
   // restart question, the leaderboard, the install steps) and in a hidden
   // tab: the loop skips its update while it is true, so the bird hangs in
@@ -62,22 +77,6 @@ export function FlappyBirdGame() {
       forceSync();
     }
   }, [gameState, forceSync]);
-
-  // Responsive scaling
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight;
-      const scaleX = containerWidth / CANVAS_WIDTH;
-      const scaleY = containerHeight / CANVAS_HEIGHT;
-      setScale(Math.min(scaleX, scaleY, 2)); // Cap at 2x
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
 
   // Drawing functions
   const drawBird = useCallback(
@@ -255,10 +254,7 @@ export function FlappyBirdGame() {
         ctx.fillText(medal.toUpperCase(), CANVAS_WIDTH / 2 - 60, 270);
       }
 
-      // Restart instruction
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillText("Tap to Restart", CANVAS_WIDTH / 2, 400);
+      // Play again is the result chip's button, under the board.
     },
     [score, progress.highScore, isNewHighScore]
   );
@@ -342,16 +338,23 @@ export function FlappyBirdGame() {
     };
   }, [gameState, held, update, render]);
 
-  // Input handling
-  // Taps and keys never start the game any more: the shared start overlay
-  // owns that, so a tap on its Play button cannot also flap the bird.
+  // Clips: the canvas, runs and the new-best moment.
+  useFlappyClips(canvasRef, { gameState, score, highScore: progress.highScore });
+
+  // Play again: straight into a new flight, no start card in between.
+  const restart = useCallback(() => {
+    reset();
+    startGame();
+  }, [reset, startGame]);
+  // A thumb still mashing when the bird crashes must not restart at once.
+  const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, gameState);
+
+  // Input handling. Taps and keys never start the game: the shared start
+  // overlay owns that, and the result chip owns Play again, so a tap on
+  // the board only ever flaps.
   const handleInput = useCallback(() => {
-    if (gameState === "playing") {
-      flap();
-    } else if (gameState === "gameOver") {
-      reset();
-    }
-  }, [gameState, flap, reset]);
+    if (gameState === "playing") flap();
+  }, [gameState, flap]);
 
   // One tap = one flap, for a finger, a mouse, or Enter on the focused
   // canvas: the shared pointer tap acts on pointerdown and ignores the
@@ -366,63 +369,58 @@ export function FlappyBirdGame() {
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
       if (gameState === "ready") return;
-      if (e.code === "Space" || e.code === "Enter" || e.code === "ArrowUp") {
-        e.preventDefault();
-        handleInput();
-      }
+      if (e.code !== "Space" && e.code !== "Enter" && e.code !== "ArrowUp") return;
+      e.preventDefault();
+      if (gameState === "playing") handleInput();
+      else if (gameState === "gameOver" && grace.accept(e)) restart();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [gameState, handleInput]);
+  }, [gameState, handleInput, restart, grace]);
 
   return (
-    <div className="min-h-full bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
+    <div className="relative flex h-full w-full items-center justify-center bg-sky-500">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        data-testid="flappy-canvas"
+        // One handler for finger and mouse. A React onTouchStart cannot
+        // preventDefault (React attaches it passive), so a tap used to fire
+        // touchstart AND the compatibility click: two flaps per tap.
+        {...canvasTap}
+        className="rounded-lg shadow-2xl cursor-pointer touch-none"
+        style={{ width: fit.width, height: fit.height }}
+      />
 
-      {/* Game container */}
-      <div
-        ref={containerRef}
-        className="relative w-full max-w-md aspect-[2/3] flex items-center justify-center"
-      >
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          // One handler for finger and mouse. A React onTouchStart cannot
-          // preventDefault (React attaches it passive), so a tap used to fire
-          // touchstart AND the compatibility click: two flaps per tap.
-          {...canvasTap}
-          className="rounded-lg shadow-2xl cursor-pointer touch-manipulation"
-          style={{
-            width: CANVAS_WIDTH * scale,
-            height: CANVAS_HEIGHT * scale,
-          }}
+      {/* Shared DOM start screen (renders the title once) */}
+      {gameState === "ready" && (
+        <GameStartOverlay
+          title="Flappy Bird"
+          emoji="🐦"
+          subtitle="Fly through the pipes!"
+          touchHints={["👆 Tap to flap", "🟩 Fly through the gaps"]}
+          keyboardHints={["⌨️ Space to flap", "🟩 Fly through the gaps"]}
+          onStart={() => startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 Best: {progress.highScore} · Games: {progress.gamesPlayed} · Pipes: {progress.totalPipes}
+          </div>
+        </GameStartOverlay>
+      )}
+
+      {gameState === "gameOver" && (
+        <ResultChip
+          resultText={flappyResultText({ score, best: progress.highScore, newBest: isNewHighScore })}
+          appId="flappy-bird"
+          onRestart={restart}
+          keyboardHint="Space"
         />
-
-        {/* Shared DOM start screen (renders the title once) */}
-        {gameState === "ready" && (
-          <GameStartOverlay
-            title="Flappy Bird"
-            emoji="🐦"
-            subtitle="Fly through the pipes!"
-            touchHints={["👆 Tap to flap", "🟩 Fly through the gaps"]}
-            keyboardHints={["⌨️ Space to flap", "🟩 Fly through the gaps"]}
-            onStart={() => startGame()}
-          >
-            <div className="text-base font-medium opacity-90">
-              🏆 Best: {progress.highScore}
-            </div>
-          </GameStartOverlay>
-        )}
-      </div>
-
-      {/* Stats */}
-      <div className="mt-4 text-center text-white/80 text-sm">
-        <p>Games: {progress.gamesPlayed} | Total Pipes: {progress.totalPipes}</p>
-      </div>
+      )}
 
       {/* Sync status indicator */}
       {isAuthenticated && (
