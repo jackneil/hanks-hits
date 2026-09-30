@@ -14,6 +14,7 @@ import {
 import { createPortal, flushSync } from "react-dom";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
 import { useScrollCue } from "../hooks/useScrollCue";
+import { useShortViewport } from "../hooks/useShortViewport";
 import { unlockGameAudio } from "../lib/audio";
 import { useStartOverlayPresence } from "../lib/startOverlayPresence";
 import { ReadAloudButton } from "./ReadAloudButton";
@@ -178,6 +179,10 @@ export function GameStartOverlay({
 }: GameStartOverlayProps) {
   const isClient = useIsClient();
   const isCoarse = useCoarsePointer();
+  // A phone held sideways: the card gets the whole width, and the break
+  // slot (the install tip) waits for a taller break. Beside the card the
+  // tip took 288 px of a 667 px screen, so one hint wrapped to two lines.
+  const isShort = useShortViewport();
   const startedRef = useRef(false);
   const titleId = useId();
   const startRef = useRef<HTMLButtonElement>(null);
@@ -397,12 +402,13 @@ export function GameStartOverlay({
             </div>
           </div>
 
-          {/* Break slot, outside the card (empty unless a nudge renders into it) */}
-          {breakRoom && (
+          {/* Break slot, outside the card (empty unless a nudge renders into
+              it). Not on a short screen. */}
+          {breakRoom && !isShort && (
             <div
               ref={breakSlotRef}
               data-testid="start-overlay-break-slot"
-              className="w-full shrink-0 empty:hidden short:w-72"
+              className="w-full shrink-0 empty:hidden"
             />
           )}
         </div>

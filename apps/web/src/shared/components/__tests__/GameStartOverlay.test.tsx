@@ -382,6 +382,33 @@ describe("GameStartOverlay layout: the start action is always on screen", () => 
     expect(hints.className).toMatch(/(^|\s)short:order-5(\s|$)/);
   });
 
+  it("gives the card the whole width on a short screen: no break slot beside it", () => {
+    // The install tip beside the card took 288 px of a 667 px screen, so
+    // one hint wrapped to two lines; the tip waits for a taller break.
+    const realMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes("max-height: 480px"),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+    try {
+      render(<GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop a bomb"]} onStart={() => {}} />);
+      expect(screen.queryByTestId("start-overlay-break-slot")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "matchMedia", { writable: true, value: realMatchMedia });
+    }
+    render(<GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop a bomb"]} onStart={() => {}} />);
+    expect(screen.getByTestId("start-overlay-break-slot")).toBeInTheDocument();
+  });
+
   it("uses two hint columns on a short screen only with two or more hints", () => {
     const one = render(
       <GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop a bomb"]} onStart={() => {}} />
