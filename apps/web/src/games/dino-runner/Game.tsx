@@ -321,9 +321,14 @@ export function getRestartLine(isCoarse: boolean): string {
 /** What a finger on the canvas means, once the game knows. */
 type DinoTouchIntent = "pending" | "jump" | "duck" | "other";
 /** A pending finger that moves this far (CSS px) has shown its intent. */
-export const INTENT_MOVE_PX = 10;
-/** A pending finger that stays still this long is a jump. */
-export const JUMP_INTENT_MS = 60;
+export const INTENT_MOVE_PX = 8;
+/**
+ * A pending finger that stays still this long is a jump. Android sends no
+ * touchmove until the finger clears its touch slop (about 8 to 15 px), so
+ * the window leaves a brisk swipe room to arrive; a tap shorter than this
+ * jumps the moment it lifts.
+ */
+export const JUMP_INTENT_MS = 80;
 /** A jumping finger that drags this far down (CSS px) fast-falls. */
 export const SWIPE_DUCK_PX = 30;
 
