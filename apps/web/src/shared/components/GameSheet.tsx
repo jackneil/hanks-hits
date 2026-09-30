@@ -75,8 +75,9 @@ export interface GameSheetProps {
  * The action column on a short screen: each action is 44 px (short:h-11)
  * with 8 px between them (short:gap-2) and 12 px of padding at each end
  * (short:p-3). When one column of that is taller than the room under the
- * header, the actions go two to a row (the read-aloud button spans both),
- * as the shell pause menu does. A game sheet with its own actions plus the
+ * header, the actions go two to a row, as the shell pause menu does. The
+ * read-aloud button and the sheet's main action (its first) keep a full
+ * row each, so the main action stays the biggest and its words fit. A game sheet with its own actions plus the
  * moved header controls (Leaderboard, Sign In) is 7 rows, 404 px, on a
  * 267 px screen.
  */
@@ -207,13 +208,15 @@ export function GameSheet({
             data-testid={`${testId}-actions`}
             data-two-columns={twoColumns ? "" : undefined}
             className={`flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:w-[45%] short:gap-2 short:overflow-y-auto short:p-3 short:[align-self:safe_center] ${
-              twoColumns ? "short:grid short:w-[55%] short:grid-cols-2 short:content-center" : ""
+              twoColumns
+                ? "short:grid short:w-[55%] short:grid-cols-2 short:content-center short:[&_.btn]:text-base short:[&>[data-sheet-actions]>:first-child]:col-span-2"
+                : ""
             }`}
           >
             <ReadAloudButton text={readAloudText} className={`short:min-h-[44px] ${twoColumns ? "short:col-span-2" : ""}`} />
             {/* display: contents keeps the actions in the column; the voice
                 reads only these, not the read-aloud button itself */}
-            <div ref={actionsRef} className="contents">
+            <div ref={actionsRef} data-sheet-actions="" className="contents">
               {actions}
             </div>
             {shellActions && movedHeaderControls && (
