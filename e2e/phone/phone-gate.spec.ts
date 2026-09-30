@@ -48,7 +48,14 @@
  *                       SPACE, arrow keys, WASD, Escape, Click ...) on a
  *                       coarse pointer, at the start card or in play.
  *   button-size         every visible button is at least 44x44 px, at the
- *                       start card and in play.
+ *                       start card and in play. A cell of a game board
+ *                       (inside an element marked data-game-board: a chess
+ *                       or checkers square, a piece on it) is at least
+ *                       24x24 px instead, the WCAG 2.5.8 minimum: the board
+ *                       sets its size (8 squares in the 251 px a phone held
+ *                       sideways leaves are 31 px), and the genre spec
+ *                       (e2e/phone/board.spec.ts) checks that the board
+ *                       fills the play box.
  *   prevent-default     the console logs no "Unable to preventDefault"
  *                       (a preventDefault() inside a passive React
  *                       onTouch* handler, which also doubles the tap).
@@ -190,6 +197,10 @@ const KEYBOARD_COPY_SOURCE = [
 const NOT_KEYBOARD_COPY = ["Press Start 2P"];
 
 const MIN_TARGET = 44;
+/** The smallest cell of a game board ([data-game-board]): WCAG 2.5.8, target size (minimum). */
+const MIN_BOARD_CELL = 24;
+/** How long a probe waits for the page's finite animations to finish before it measures. */
+const SETTLE_MS = 1_000;
 /** The first seconds of play under watch for a fixed element over the play box. */
 const PLAY_WATCH_MS = 5_000;
 const PLAY_SAMPLE_MS = 400;
@@ -353,10 +364,39 @@ interface PageProbe {
   playButtons: number;
 }
 
-/** The page height, the keyboard phrases on screen and the buttons under 44 px. */
+/**
+ * The page height, the keyboard phrases on screen and the buttons under 44 px.
+ *
+ * A button is measured at rest. An entry animation scales its card (the
+ * trophy card pops in from 90%, achievement-pop in globals.css), and a
+ * transformed box is smaller than the button: a 44 px "Yay!" measured
+ * 48x40 in the middle of its pop (G2 gate run, 2026-09-30). So the probe
+ * first waits, up to SETTLE_MS, for the finite animations and transitions
+ * running on the page, and a button still moving after that is left out of
+ * this sample (the next sample in play measures it). A looping animation
+ * never settles: its button is measured as it is.
+ */
 function probePage(page: Page): Promise<PageProbe> {
   return page.evaluate(
-    ({ pattern, notCopy, minTarget }) => {
+    async ({ pattern, notCopy, minTarget, minBoardCell, settleMs }) => {
+      const finite = () =>
+        document.getAnimations().filter((a) => a.playState === "running" && a.effect?.getComputedTiming().iterations !== Infinity);
+      const moving = finite();
+      if (moving.length) {
+        await Promise.race([
+          Promise.all(moving.map((a) => a.finished.catch(() => undefined))),
+          new Promise((resolve) => setTimeout(resolve, settleMs)),
+        ]);
+      }
+      const stillMoving = new Set(
+        finite()
+          .map((a) => (a.effect instanceof KeyframeEffect ? a.effect.target : null))
+          .filter((el): el is Element => el instanceof Element)
+      );
+      const settling = (el: Element) => {
+        for (let node: Element | null = el; node; node = node.parentElement) if (stillMoving.has(node)) return true;
+        return false;
+      };
       const regex = new RegExp(pattern);
       const vw = innerWidth;
       const vh = innerHeight;
@@ -380,9 +420,10 @@ function probePage(page: Page): Promise<PageProbe> {
 
       const smallButtons: string[] = [];
       for (const button of document.querySelectorAll<HTMLElement>('button, [role="button"]')) {
-        if (!visible(button)) continue;
+        if (!visible(button) || settling(button)) continue;
         const r = button.getBoundingClientRect();
-        if (r.width >= minTarget - 0.5 && r.height >= minTarget - 0.5) continue;
+        const min = button.closest("[data-game-board]") ? minBoardCell : minTarget;
+        if (r.width >= min - 0.5 && r.height >= min - 0.5) continue;
         const name = (button.getAttribute("aria-label") ?? button.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 30);
         smallButtons.push(`"${name || button.className.slice(0, 30)}" ${Math.round(r.width)}x${Math.round(r.height)}`);
       }
@@ -398,7 +439,7 @@ function probePage(page: Page): Promise<PageProbe> {
         playButtons,
       };
     },
-    { pattern: KEYBOARD_COPY_SOURCE, notCopy: NOT_KEYBOARD_COPY, minTarget: MIN_TARGET }
+    { pattern: KEYBOARD_COPY_SOURCE, notCopy: NOT_KEYBOARD_COPY, minTarget: MIN_TARGET, minBoardCell: MIN_BOARD_CELL, settleMs: SETTLE_MS }
   );
 }
 
