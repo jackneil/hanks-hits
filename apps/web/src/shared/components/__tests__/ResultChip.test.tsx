@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 import { RESULT_CHIP_BUTTON, RESULT_CHIP_GROUP, SECONDARY_ACTION } from "../buttonStyles";
 import { RESULT_CHIP_LABELS, RESULT_CHIP_Z_INDEX, ResultChip } from "../ResultChip";
 
@@ -501,5 +502,43 @@ describe("ResultChip read aloud", () => {
     render(<ResultChip resultText="Game over!" onRestart={vi.fn()} />);
     expect(screen.queryByTestId("read-aloud-button")).toBeNull();
     expect(screen.getByRole("button", { name: /play again/i })).toBeInTheDocument();
+  });
+});
+
+describe("ResultChip copy for a finger", () => {
+  afterEach(() => {
+    resetPointerMock();
+    removeSpeechMock();
+  });
+
+  it("shows the keyboard hint on a mouse or trackpad only, and never says it", async () => {
+    const synth = installSpeechMock();
+    mockPointer(false);
+    render(<ResultChip resultText="Game over!" onRestart={vi.fn()} keyboardHint="Space" />);
+    const hint = screen.getByTestId("result-chip-keyboard-hint");
+    expect(hint).toHaveTextContent("or press Space");
+    expect(hint).toHaveAttribute("aria-hidden", "true");
+    passGrace();
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+    expect(synth.lastUtterance().text).toBe("Game over! Play again");
+  });
+
+  it("shows no keyboard words on a touch screen", () => {
+    mockPointer(true);
+    render(<ResultChip resultText="Game over!" onRestart={vi.fn()} keyboardHint="Space" />);
+    expect(screen.queryByTestId("result-chip-keyboard-hint")).toBeNull();
+    expect(chip().textContent).not.toMatch(/press|Space/);
+  });
+
+  it("restarts directly: Play again calls the game's restart with no restart question", () => {
+    // 2048, Memory Match and Wordle routed Try Again through the shell's
+    // "Restart game? your game will be lost" question after the game was
+    // already over (main-loop decision 5).
+    const onRestart = vi.fn();
+    render(<ResultChip resultText="Game over!" onRestart={onRestart} />);
+    passGrace();
+    fireEvent.click(screen.getByRole("button", { name: /play again/i }));
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog", { name: /restart game/i })).toBeNull();
   });
 });

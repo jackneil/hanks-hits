@@ -18,6 +18,10 @@ export { RestartConfirmationDialog } from "./RestartConfirmationDialog";
 export { RestartGameButton } from "./RestartGameButton";
 export { GameStartOverlay, GameStartOverlayButton } from "./GameStartOverlay";
 export type { GameStartOverlayProps } from "./GameStartOverlay";
+export { GameSheet, GAME_SHEET_ACTION } from "./GameSheet";
+export type { GameSheetProps } from "./GameSheet";
+export { ResultChip } from "./ResultChip";
+export type { ResultChipProps } from "./ResultChip";
 export { ReadAloudButton } from "./ReadAloudButton";
 
 // Leaderboard components

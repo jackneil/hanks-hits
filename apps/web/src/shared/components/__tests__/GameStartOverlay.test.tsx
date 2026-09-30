@@ -258,6 +258,7 @@ describe("GameStartOverlay layout: the start action is always on screen", () => 
         keyboardHints={["Click the right answer"]}
         onStart={() => {}}
       >
+        <div>How old are you?</div>
         <GameStartOverlayButton onClick={() => {}}>Easy</GameStartOverlayButton>
       </GameStartOverlay>
     );
@@ -343,6 +344,55 @@ describe("GameStartOverlay layout: the start action is always on screen", () => 
       expect(body).toHaveAttribute("data-more-below");
       expect(body).not.toHaveAttribute("data-more-above");
     });
+  });
+
+  it("pins a single picker child into the action row, above Play", () => {
+    // Hill Climb's Garage button sat at the end of the scrolling body,
+    // under the fold at 375x549: a centre tap hit Read it to me (S12).
+    render(
+      <GameStartOverlay title="Hill Climb Racing" keyboardHints={["Tap gas", "Tap brake"]} onStart={() => {}}>
+        <GameStartOverlayButton onClick={() => {}}>🚗 Garage</GameStartOverlayButton>
+      </GameStartOverlay>
+    );
+    const actions = screen.getByTestId("start-card-actions");
+    const body = screen.getByTestId("start-card-body");
+    const garage = screen.getByRole("button", { name: /Garage/ });
+    const play = screen.getByRole("button", { name: /play/i });
+    expect(actions).toContainElement(garage);
+    expect(body).not.toContainElement(garage);
+    expect(garage.compareDocumentPosition(play) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The hints stay in the body.
+    expect(body).toContainElement(screen.getByText("Tap gas"));
+  });
+
+  it("puts the picker before the hints on a short screen, and keeps it after them upright", () => {
+    render(
+      <GameStartOverlay title="Snake" keyboardHints={["Arrows to turn", "Eat the apples"]} onStart={() => {}}>
+        <div>How fast?</div>
+        <GameStartOverlayButton onClick={() => {}}>Slow</GameStartOverlayButton>
+      </GameStartOverlay>
+    );
+    const hints = screen.getByTestId("start-card-hints");
+    const pickers = screen.getByTestId("start-card-pickers").parentElement as HTMLElement;
+    // Upright: DOM order, hints then picker.
+    expect(hints.compareDocumentPosition(pickers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Sideways: the flex order puts the picker (4) before the hints (5).
+    expect(hints.parentElement).toHaveClass("flex", "flex-col");
+    expect(pickers.className).toMatch(/(^|\s)short:order-4(\s|$)/);
+    expect(hints.className).toMatch(/(^|\s)short:order-5(\s|$)/);
+  });
+
+  it("uses two hint columns on a short screen only with two or more hints", () => {
+    const one = render(
+      <GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop a bomb"]} onStart={() => {}} />
+    );
+    expect(screen.getByTestId("start-card-hints").className).not.toMatch(/short:grid-cols-2/);
+    one.unmount();
+
+    render(
+      <GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop", "Hit the ground"]} onStart={() => {}} />
+    );
+    expect(screen.getByTestId("start-card-hints").className).toMatch(/(^|\s)short:grid-cols-2(\s|$)/);
   });
 
   it("pins every choice in the action row when the picker starts the game", () => {

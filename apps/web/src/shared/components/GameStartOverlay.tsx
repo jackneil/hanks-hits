@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  Children,
+  isValidElement,
   useCallback,
   useEffect,
   useId,
@@ -35,9 +37,14 @@ import { useRegisterBreakSlot } from "../lib/gameBreaks";
  *
  * The card has two parts:
  *   - a body (emoji, title, subtitle, hints, and the picker slot when the
- *     built-in start button shows) that scrolls when the screen is short;
+ *     built-in start button shows) that scrolls when the screen is short.
+ *     On a short screen the picker comes BEFORE the hints, so a choice is
+ *     never under the fold while a hint is on screen;
  *   - an action row pinned at the bottom of the card: "Read it to me",
- *     then Play, or the picker slot when the picker starts the game.
+ *     then Play, or the picker slot when the picker starts the game. A
+ *     picker slot with ONE child (Hill Climb's Garage button) is pinned
+ *     into the action row too, above Play, so a centre tap never lands on
+ *     Read it to me instead (phone UX audit 2026-09-29, S12).
  *     On a short screen (a phone held sideways) the action row sits to the
  *     right of the body instead, so the words keep their room.
  * So Play (or every choice) is always on screen, with no scroll.
@@ -282,9 +289,17 @@ export function GameStartOverlay({
       .filter(Boolean)
       .join(". ") + readBreakNotes().map((note) => ` ${note}`).join("");
 
-  const pickers = children ? (
-    <div className="flex flex-col items-stretch gap-3 short:gap-2">{children}</div>
-  ) : null;
+  const pickerNodes = Children.toArray(children).filter(isValidElement);
+  const pickers =
+    pickerNodes.length > 0 ? (
+      <div data-testid="start-card-pickers" className="flex flex-col items-stretch gap-3 short:gap-2">
+        {children}
+      </div>
+    ) : null;
+  // One picker child next to Play (a Garage button): pin it with Play. A
+  // picker with more parts (a heading and a row of choices) stays in the
+  // body, where it can scroll.
+  const pinSinglePicker = showStartButton && pickerNodes.length === 1;
 
   if (!isClient) return null;
 
@@ -316,26 +331,38 @@ export function GameStartOverlay({
               data-testid="start-card-body"
               className="scroll-cue min-h-[4.5rem] shrink overflow-y-auto overscroll-contain px-6 pt-6 short:min-h-0 short:min-w-0 short:flex-1 short:px-3 short:py-3"
             >
-              <div ref={bodyContentRef}>
+              {/* A column with an order on a short screen: the picker
+                  (order 4) comes before the hints (order 5) there. */}
+              <div ref={bodyContentRef} className="flex flex-col">
                 {emoji && (
-                  <div className="mb-2 text-6xl short:mb-0 short:text-3xl" aria-hidden="true">
+                  <div className="mb-2 text-5xl short:order-1 short:mb-0 short:text-3xl" aria-hidden="true">
                     {emoji}
                   </div>
                 )}
 
                 <h1
                   id={titleId}
-                  className="mb-1 break-words text-3xl font-bold md:text-4xl short:mb-0 short:text-2xl"
+                  className="mb-1 break-words text-3xl font-bold md:text-4xl short:order-2 short:mb-0 short:text-2xl"
                 >
                   {title}
                 </h1>
 
                 {subtitle && (
-                  <p className="mb-3 break-words text-base opacity-80 short:mb-1 short:text-sm">{subtitle}</p>
+                  <p className="mb-3 break-words text-base opacity-80 short:order-3 short:mb-1 short:text-sm">
+                    {subtitle}
+                  </p>
                 )}
 
+                {/* Two columns on a short screen only with two or more
+                    hints: one hint in a half-width column wrapped to four
+                    lines. */}
                 {hints.length > 0 && (
-                  <ul className="mb-1 space-y-1 text-base font-medium opacity-90 short:grid short:grid-cols-2 short:gap-x-4 short:space-y-0 short:text-sm">
+                  <ul
+                    data-testid="start-card-hints"
+                    className={`mb-1 space-y-1 text-base font-medium opacity-90 short:order-5 short:text-sm ${
+                      hints.length >= 2 ? "short:grid short:grid-cols-2 short:gap-x-4 short:space-y-0" : ""
+                    }`}
+                  >
                     {hints.map((hint, index) => (
                       <li key={`${index}-${hint}`}>{hint}</li>
                     ))}
@@ -344,8 +371,8 @@ export function GameStartOverlay({
 
                 {/* pb: room for the picker buttons' shadow, which the
                     scroll box would cut off at its bottom edge */}
-                {showStartButton && pickers && (
-                  <div className="mt-3 pb-4 short:mt-2 short:pb-2">{pickers}</div>
+                {showStartButton && pickers && !pinSinglePicker && (
+                  <div className="mt-3 pb-4 short:order-4 short:mt-1 short:mb-2 short:pb-1">{pickers}</div>
                 )}
               </div>
             </div>
@@ -358,9 +385,12 @@ export function GameStartOverlay({
               <ReadAloudButton text={readAloudText} className="short:min-h-[44px]" />
 
               {showStartButton ? (
-                <GameStartOverlayButton ref={startRef} variant="primary" onClick={handleStart}>
-                  {startLabel}
-                </GameStartOverlayButton>
+                <>
+                  {pinSinglePicker && pickers}
+                  <GameStartOverlayButton ref={startRef} variant="primary" onClick={handleStart}>
+                    {startLabel}
+                  </GameStartOverlayButton>
+                </>
               ) : (
                 pickers
               )}

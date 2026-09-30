@@ -258,6 +258,44 @@ no start moment (drawing-app, drum-machine) and a module with its own
 launcher (retro-arcade). Those modules put the same `ReadAloudButton` on
 their first screen instead.
 
+**Start-card pickers.** The picker slot (the children of
+`GameStartOverlay`) has two homes. A slot with ONE child (Hill Climb's
+Garage button) is pinned into the action row, above Play, so a centre tap
+never lands on Read it to me. A slot with more parts (a heading and a row
+of choices) stays in the body, where it can scroll; on a short screen the
+body puts the picker before the hints, so a choice is never under the fold
+while a hint is on screen. The hints use two columns on a short screen
+only with two or more hints.
+
+**The pause menu on a short screen.** On a phone held sideways the menu
+buttons are a 2 x 2 grid of 44 px targets, so Resume, Restart and Go Home
+are on screen with no scroll, and the install tip stays away (no break
+slot). A menu that is still taller than the screen scrolls, with the
+scroll cue at its edges.
+
+**GameSheet.** A game's own screens between runs (game over, level
+complete, settings, a garage, a store) use `GameSheet`
+(`src/shared/components/GameSheet.tsx`), not a `fixed inset-0
+items-center` card of its own. The sheet covers the screen under the
+header, never the header. Its card has a body that scrolls when the
+screen is short and an action column that never scrolls out of view; on
+a short screen the column sits beside the body, so every action is on
+screen at 667x311 with no scroll. Read-aloud is built in. It is a break:
+the install tip renders into its slot (not on a short screen). It is at
+z-60 (the game tier) and portals to `document.body`. Use the sheet OR the
+result chip for one screen, not both.
+
+**ResultChip adoption.** At game over and at level complete a game mounts
+the shared `ResultChip` and stops drawing its result and its buttons into
+the canvas. `onRestart` is the game's own restart (the store's newGame or
+startGame): it is direct, with no restart question, because after the
+game is over there is nothing to lose. The shell's "Restart game?"
+question stays for a restart in the middle of a run (the header, the
+pause menu). The chip's words are for a finger; `keyboardHint` ("Space")
+shows "or press Space" on a mouse or trackpad viewport only. Set GameShell's
+`resultChipReady` only when every other screen between runs opens the
+pause menu (`headerBudget.ts`, step 3).
+
 **Pause, holds and shell overlays.** `useGameShell`
 (`src/shared/hooks/useGameShell.ts`) owns the pause state. Two things stop
 a game. The pause MENU (the pause button, ESC, a hidden tab for a game

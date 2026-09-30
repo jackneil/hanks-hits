@@ -8,3 +8,4 @@ export type { CanvasFit, PlayBoxOptions, PlayBoxSize } from "./usePlayBox";
 export { useReadAloud } from "./useReadAloud";
 export { useScrollCue } from "./useScrollCue";
 export { useScrollToTopOn } from "./useScrollToTopOn";
+export { useShortViewport } from "./useShortViewport";

@@ -198,6 +198,76 @@ describe("PauseMenu layout", () => {
   });
 });
 
+/** matchMedia where (max-height: 480px) matches `short` and (pointer: coarse) matches `coarse`. */
+function mockScreen({ short, coarse = true }: { short: boolean; coarse?: boolean }) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: query.includes("max-height: 480px") ? short : query.includes("pointer: coarse") ? coarse : false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+describe("PauseMenu on a short screen (a phone held sideways)", () => {
+  afterEach(() => {
+    resetPointerMock();
+  });
+
+  it("lays the buttons out as a 2 x 2 grid of 44 px targets, so Resume, Restart and Go Home fit with no scroll", () => {
+    // One 580 px column on a 311 px screen put Go Home at y 312 to 368,
+    // with no scroll cue (phone UX audit 2026-09-29, S3).
+    mockScreen({ short: true });
+    render(
+      <PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} onRestart={vi.fn()} gameName="Snake">
+        <button type="button" className="btn btn-lg">
+          🏆 Leaderboard
+        </button>
+      </PauseMenu>
+    );
+    const buttons = screen.getByTestId("pause-menu-buttons");
+    expect(buttons.className).toMatch(/(^|\s)short:grid(\s|$)/);
+    expect(buttons.className).toMatch(/(^|\s)short:grid-cols-2(\s|$)/);
+    for (const name of [/Resume/, "Restart game", /Go Home/]) {
+      const button = screen.getByRole("button", { name });
+      expect(buttons).toContainElement(button);
+      expect(button.className).toMatch(/(^|\s)short:min-h-11(\s|$)/);
+    }
+    // The child button is a grid cell too (display: contents wrapper).
+    expect(screen.getByRole("button", { name: /Leaderboard/ }).parentElement).toHaveClass("contents");
+    // The heading is smaller, so the grid has room.
+    expect(screen.getByRole("heading", { name: "Paused" }).className).toMatch(/(^|\s)short:text-2xl(\s|$)/);
+  });
+
+  it("drops the install tip: no break slot on a short screen", () => {
+    mockScreen({ short: true });
+    render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
+    expect(screen.queryByTestId("pause-menu-break-slot")).toBeNull();
+    expect(useGameBreaks.getState().slots).toEqual([]);
+  });
+
+  it("keeps the break slot on a tall screen", () => {
+    mockScreen({ short: false });
+    render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
+    expect(screen.getByTestId("pause-menu-break-slot")).toBeInTheDocument();
+  });
+
+  it("shows a scroll cue when the menu is taller than the screen", () => {
+    render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
+    const overlay = screen.getByTestId("pause-menu");
+    expect(overlay.className).toMatch(/(^|\s)scroll-cue(\s|$)/);
+    expect(overlay.className).toMatch(/(^|\s)overflow-y-auto(\s|$)/);
+    // jsdom has no layout: a menu that fits shows no cue.
+    expect(overlay).not.toHaveAttribute("data-more-below");
+  });
+});
+
 describe("PauseMenu break slot", () => {
   it("registers its slot while open and removes it when closed", () => {
     const { rerender } = render(
