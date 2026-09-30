@@ -21,9 +21,10 @@ import { fitCanvas } from "@/shared/hooks/usePlayBox";
  *
  * `fitThumbPads` is pure, so a test can check every screen. The game sizes
  * its window onto the world with `viewWidth` x `viewHeight`, draws the
- * canvas at `scale`, and, on an upright phone, may show only `visibleWorld`
- * of the world's width so the picture is taller (cropped on the right, or
- * around the middle for a game whose camera centers the player).
+ * canvas at `scale`, and, on a phone, may show only `visibleWorld` of the
+ * world's width so the picture is taller (cropped on the right, or around
+ * the middle for a game whose camera centers the player). A mouse screen
+ * always shows the whole world.
  */
 
 /** The width of each side gutter on a phone held sideways, in CSS px. */
@@ -51,10 +52,11 @@ export interface ThumbFit {
 
 export interface ThumbFitOptions {
   /**
-   * On an upright phone, the narrowest part of the world's width the window
-   * may show. Less width means a taller picture. Default: the whole width.
+   * On a phone (either way up), the narrowest part of the world's width the
+   * window may show. Less width means a taller picture. Default: the whole
+   * width.
    */
-  minVisibleWorldUpright?: number;
+  minVisibleWorld?: number;
   /** The largest scale (pixel art looks chunky past it on a big monitor). */
   maxScale?: number;
   /**
@@ -71,7 +73,7 @@ export function fitThumbPads(
   coarse: boolean,
   world: { width: number; height: number },
   {
-    minVisibleWorldUpright = world.width,
+    minVisibleWorld = world.width,
     maxScale = Number.POSITIVE_INFINITY,
     gutterLeft = THUMB_GUTTER_WIDTH,
     gutterRight = THUMB_GUTTER_WIDTH,
@@ -85,7 +87,7 @@ export function fitThumbPads(
       : layout === "upright"
         ? { width: MARGIN, height: THUMB_ROW_HEIGHT + MARGIN }
         : { width: MARGIN, height: MARGIN };
-  const narrowest = box.width < box.height ? Math.min(world.width, minVisibleWorldUpright) : world.width;
+  const narrowest = layout === "desktop" ? world.width : Math.min(world.width, minVisibleWorld);
   const fit = fitCanvas(box, narrowest, world.height, reserved);
   if (fit.scale === 0) {
     return { layout, scale: 0, viewWidth: 0, viewHeight: 0, visibleWorld: world.width, gutterLeft, gutterRight };
@@ -119,6 +121,10 @@ export interface ThumbPadLayoutProps {
 /**
  * Places the window onto the world and the thumb buttons for the layout in
  * `fit`. On a mouse screen only the window shows.
+ *
+ * One element tree for every layout, with the window always the second
+ * child: turning the phone must never remount the game's canvas (its loop
+ * and its touch listeners would stay on the old, detached one).
  */
 export function ThumbPadLayout({ fit, left, right, children, rowTestId }: ThumbPadLayoutProps) {
   const sideways = fit.layout === "sideways";
@@ -126,25 +132,32 @@ export function ThumbPadLayout({ fit, left, right, children, rowTestId }: ThumbP
   return (
     <div
       data-thumb-layout={fit.layout}
-      className={`flex h-full w-full items-center justify-center gap-2 ${sideways ? "flex-row" : "flex-col"}`}
+      className={`flex h-full w-full items-center ${sideways ? "flex-row justify-center gap-2" : "flex-col"}`}
     >
-      {sideways && (
+      {/* Sideways: the left gutter. Otherwise a spacer above the window, so
+          the window sits in the middle of the room above the row. */}
+      {sideways ? (
         <div className="flex shrink-0 items-center justify-center gap-2" style={{ width: fit.gutterLeft }}>
           {left}
         </div>
+      ) : (
+        <div aria-hidden="true" className="min-h-0 w-full flex-1" />
       )}
       {children}
-      {sideways && (
+      {sideways ? (
         <div className="flex shrink-0 items-center justify-center gap-2" style={{ width: fit.gutterRight }}>
           {right}
         </div>
+      ) : (
+        <div aria-hidden="true" className="min-h-0 w-full flex-1" />
       )}
-      {/* The row keeps its place between runs, so the picture never jumps
-          when a run starts or ends. */}
+      {/* Upright: the row at the bottom of the play box, where the thumbs
+          rest (the audit found that zone dead). It keeps its place between
+          runs, so the window never jumps when a run starts or ends. */}
       {upright && (
         <div
           data-testid={rowTestId}
-          className="flex w-full shrink-0 items-center justify-between gap-3 px-3"
+          className="flex w-full shrink-0 items-center justify-between gap-3 px-3 pb-2"
           style={{ height: THUMB_ROW_HEIGHT, maxWidth: Math.max(fit.viewWidth + 24, 280) }}
         >
           <div className="flex flex-1 items-center gap-3">{left}</div>

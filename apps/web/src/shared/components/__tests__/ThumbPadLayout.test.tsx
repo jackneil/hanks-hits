@@ -37,7 +37,7 @@ describe("fitThumbPads", () => {
       expect(whole.layout).toBe("upright");
       expect(whole.viewHeight + THUMB_ROW_HEIGHT).toBeLessThanOrEqual(box.height);
       // Cropping the world's width makes the picture taller.
-      const cropped = fitThumbPads(box, true, RUNNER, { minVisibleWorldUpright: 600 });
+      const cropped = fitThumbPads(box, true, RUNNER, { minVisibleWorld: 600 });
       expect(cropped.viewHeight).toBeGreaterThan(whole.viewHeight);
       expect(cropped.visibleWorld).toBeGreaterThanOrEqual(600);
       expect(cropped.viewWidth).toBeLessThanOrEqual(box.width);
@@ -87,6 +87,29 @@ describe("ThumbPadLayout", () => {
     );
     const row = screen.getByTestId("row");
     expect(row).toHaveTextContent("JUMPDUCK");
+  });
+
+  it("never remounts the window when the phone turns (the canvas keeps its loop and listeners)", () => {
+    const upright = fitThumbPads(BOXES.seUpright, true, RUNNER);
+    const sideways = fitThumbPads(BOXES.seSideways, true, RUNNER);
+    const view = render(
+      <ThumbPadLayout fit={upright} left={<button>JUMP</button>} right={<button>DUCK</button>}>
+        <canvas data-testid="world" />
+      </ThumbPadLayout>,
+    );
+    const before = screen.getByTestId("world");
+    view.rerender(
+      <ThumbPadLayout fit={sideways} left={<button>JUMP</button>} right={<button>DUCK</button>}>
+        <canvas data-testid="world" />
+      </ThumbPadLayout>,
+    );
+    expect(screen.getByTestId("world")).toBe(before);
+    view.rerender(
+      <ThumbPadLayout fit={upright} left={<button>JUMP</button>} right={<button>DUCK</button>}>
+        <canvas data-testid="world" />
+      </ThumbPadLayout>,
+    );
+    expect(screen.getByTestId("world")).toBe(before);
   });
 
   it("shows no buttons on a mouse screen", () => {
