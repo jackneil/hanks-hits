@@ -18,6 +18,7 @@ export {
   type ClipSourceOptions,
 } from "./service/ClipProvider";
 export { ClipSessionWatcher } from "./service/ClipSessionWatcher";
+export { NEW_BEST_MOMENT, useRunClips, type RunClipPhase, type RunClipState } from "./useRunClips";
 // The clip UI loads with a dynamic import (plan 4.1). These give its parts to
 // GameShell and ResultChip once it is on the page, and null before that.
 export {
