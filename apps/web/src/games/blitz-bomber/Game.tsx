@@ -24,6 +24,8 @@ import {
   type DifficultyLevel,
 } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { usePointerTap } from "@/shared/lib/input";
 
 // Difficulty choices shown in the start overlay. Each starts the game
 // immediately at the chosen difficulty (same effect as the old canvas buttons).
@@ -43,6 +45,7 @@ export function BlitzBomberGame() {
   const animationFrameRef = useRef<number | undefined>(undefined);
   const lastTimeRef = useRef<number>(0);
   const [scale, setScale] = useState(1);
+  const isCoarse = useCoarsePointer();
 
   const store = useBlitzBomberStore();
   const {
@@ -362,12 +365,16 @@ export function BlitzBomberGame() {
         ctx.fillText("NEW HIGH SCORE!", CANVAS_WIDTH / 2, 330);
       }
 
-      // Restart instruction
+      // Restart instruction (a phone has no keys)
       ctx.font = UI.SMALL_FONT;
       ctx.fillStyle = "#fff";
-      ctx.fillText("Tap or press any key to restart", CANVAS_WIDTH / 2, 420);
+      ctx.fillText(
+        isCoarse ? "Tap to restart" : "Tap or press any key to restart",
+        CANVAS_WIDTH / 2,
+        420
+      );
     },
-    [score, isNewHighScore]
+    [score, isNewHighScore, isCoarse]
   );
 
   const drawLandedScreen = useCallback(
@@ -401,13 +408,17 @@ export function BlitzBomberGame() {
         ctx.fillText("NEW HIGH SCORE!", CANVAS_WIDTH / 2, 360);
       }
 
-      // Next level instruction
+      // Next level instruction (a phone has no keys; R is keyboard-only)
       ctx.font = UI.SMALL_FONT;
       ctx.fillStyle = "#fff";
-      ctx.fillText("Tap or press SPACE for next level", CANVAS_WIDTH / 2, 430);
-      ctx.fillText("Press R to restart from level 1", CANVAS_WIDTH / 2, 460);
+      if (isCoarse) {
+        ctx.fillText("Tap for the next level", CANVAS_WIDTH / 2, 430);
+      } else {
+        ctx.fillText("Tap or press SPACE for next level", CANVAS_WIDTH / 2, 430);
+        ctx.fillText("Press R to restart from level 1", CANVAS_WIDTH / 2, 460);
+      }
     },
-    [score, level, isNewHighScore]
+    [score, level, isNewHighScore, isCoarse]
   );
 
   // Main render function
@@ -508,25 +519,10 @@ export function BlitzBomberGame() {
     }
   }, [gameState, startGame, dropBomb, reset, nextLevel]);
 
-  // Touch controls. React attaches onTouch* at the root as PASSIVE, so calling
-  // e.preventDefault() inside a React onTouchStart logs "Unable to preventDefault
-  // inside passive event listener" and does nothing. Bind a NON-passive listener
-  // directly on the canvas instead (like arkanoid) so preventDefault actually
-  // works: it stops the page from scrolling/pull-to-refreshing on a tap AND
-  // suppresses the synthetic click, so a tap fires handleInput exactly once
-  // (no double bomb drop from touchstart + click both firing).
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      e.preventDefault();
-      handleInput();
-    };
-
-    canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
-    return () => canvas.removeEventListener("touchstart", handleTouchStart);
-  }, [handleInput]);
+  // One tap = one bomb, for a finger or a mouse: the shared pointer tap acts
+  // on pointerdown and ignores the compatibility click, so no tap can drop
+  // two bombs. The canvas has touch-action none, so the tap never scrolls.
+  const canvasTap = usePointerTap<HTMLCanvasElement>(() => handleInput());
 
   // Keyboard controls
   useEffect(() => {
@@ -576,7 +572,7 @@ export function BlitzBomberGame() {
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
-          onClick={handleInput}
+          {...canvasTap}
           className="rounded-lg shadow-2xl cursor-pointer"
           style={{
             width: CANVAS_WIDTH * scale,
@@ -633,8 +629,13 @@ export function BlitzBomberGame() {
           this copy on the ready screen, so don't show it twice */}
       {gameState !== "ready" && (
         <div className="mt-2 text-center text-white/60 text-xs">
-          <p className="hidden md:block">Press SPACE or any key to drop bombs | R to restart</p>
-          <p className="md:hidden">Tap anywhere to drop bombs</p>
+          {/* Keyed on the pointer, never on a width breakpoint: a phone held
+              sideways is wider than md and still has no keyboard. */}
+          {isCoarse ? (
+            <p>Tap anywhere to drop bombs</p>
+          ) : (
+            <p>Press SPACE or any key to drop bombs | R to restart</p>
+          )}
         </div>
       )}
 

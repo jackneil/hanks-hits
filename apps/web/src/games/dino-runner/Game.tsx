@@ -18,6 +18,8 @@ import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { usePointerHold, useTouchInput } from "@/shared/hooks/useTouchInput";
 
 // ============================================
 // DRAWING FUNCTIONS
@@ -283,7 +285,8 @@ function drawGameOver(
   score: number,
   highScore: number,
   isNewHighScore: boolean,
-  color: string
+  color: string,
+  restartLine: string
 ) {
   // Semi-transparent overlay
   ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
@@ -306,9 +309,23 @@ function drawGameOver(
     ctx.fillStyle = color;
   }
 
-  // Restart instruction
-  ctx.fillText("Press Space or Tap to Restart", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 70);
+  // Restart instruction (branched by pointer type: a phone has no Space)
+  ctx.fillText(restartLine, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 70);
 }
+
+/** The game-over restart line, branched by pointer type. */
+export function getRestartLine(isCoarse: boolean): string {
+  return isCoarse ? "Tap to Restart" : "Press Space or Tap to Restart";
+}
+
+/** What a finger on the canvas means, once the game knows. */
+type DinoTouchIntent = "pending" | "jump" | "duck" | "other";
+/** A pending finger that moves this far (CSS px) has shown its intent. */
+export const INTENT_MOVE_PX = 10;
+/** A pending finger that stays still this long is a jump. */
+export const JUMP_INTENT_MS = 60;
+/** A jumping finger that drags this far down (CSS px) fast-falls. */
+export const SWIPE_DUCK_PX = 30;
 
 // ============================================
 // MAIN GAME COMPONENT
@@ -320,6 +337,7 @@ export function DinoRunnerGame() {
   const lastTimeRef = useRef<number>(0);
   const pterodactylFrameRef = useRef<number>(0);
   const [scale, setScale] = useState(1);
+  const isCoarse = useCoarsePointer();
 
   const store = useDinoRunnerStore();
   const {
@@ -411,7 +429,14 @@ export function DinoRunnerGame() {
         drawScore(ctx, score, progress.highScore, colors.SCORE);
       } else if (gameState === "game-over") {
         drawScore(ctx, score, progress.highScore, colors.SCORE);
-        drawGameOver(ctx, score, progress.highScore, isNewHighScore, colors.GAME_OVER);
+        drawGameOver(
+          ctx,
+          score,
+          progress.highScore,
+          isNewHighScore,
+          colors.GAME_OVER,
+          getRestartLine(isCoarse)
+        );
       }
     },
     [
@@ -428,6 +453,7 @@ export function DinoRunnerGame() {
       milestoneFlash,
       progress.highScore,
       isNewHighScore,
+      isCoarse,
     ]
   );
 
@@ -521,38 +547,102 @@ export function DinoRunnerGame() {
     };
   }, [handleInput, gameState, duck, releaseJump, reset]);
 
-  // Touch controls
-  const touchStartY = useRef<number | null>(null);
-
-  const handleTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      e.preventDefault();
-      touchStartY.current = e.touches[0].clientY;
-      handleInput();
+  // Touch controls through the shared native touch hook: non-passive
+  // listeners, so the tap never scrolls the page and the browser sends no
+  // compatibility click. The canvas used to carry onTouchStart AND onClick,
+  // so one tap ran handleInput twice (at 844x340 a game-over tap restarted
+  // AND pressed the Play button that appeared under the finger). Each finger
+  // is tracked by its own identifier, so a swipe is measured from where that
+  // finger landed.
+  //
+  // In play a finger does not jump the moment it lands: the old handler
+  // did, so "swipe down to duck" hopped the dino into the pterodactyl and
+  // the swipe only became a fast-fall in mid-air. A finger is "pending"
+  // until it moves INTENT_MOVE_PX (down = duck, any other way = jump),
+  // stays still for JUMP_INTENT_MS (jump, and keep holding for height), or
+  // lifts (a quick tap: jump, held for the rest of the window).
+  const intentTimersRef = useRef(new Map<number, number>());
+  const releaseTimersRef = useRef(new Set<number>());
+  const clearIntentTimer = useCallback((id: number) => {
+    const timer = intentTimersRef.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      intentTimersRef.current.delete(id);
+    }
+  }, []);
+  useEffect(() => {
+    const intentTimers = intentTimersRef.current;
+    const releaseTimers = releaseTimersRef.current;
+    return () => {
+      intentTimers.forEach((timer) => window.clearTimeout(timer));
+      intentTimers.clear();
+      releaseTimers.forEach((timer) => window.clearTimeout(timer));
+      releaseTimers.clear();
+    };
+  }, []);
+  useTouchInput<DinoTouchIntent>(canvasRef, {
+    onStart: (touch) => {
+      if (gameState !== "playing") {
+        // Start or restart: act at once.
+        touch.tag = "other";
+        handleInput();
+        return;
+      }
+      touch.tag = "pending";
+      const timer = window.setTimeout(() => {
+        intentTimersRef.current.delete(touch.id);
+        if (touch.tag !== "pending") return;
+        touch.tag = "jump";
+        jump();
+      }, JUMP_INTENT_MS);
+      intentTimersRef.current.set(touch.id, timer);
     },
-    [handleInput]
-  );
-
-  const handleTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      if (touchStartY.current === null) return;
-
-      const currentY = e.touches[0].clientY;
-      const deltaY = currentY - touchStartY.current;
-
-      // Swipe down to duck
-      if (deltaY > 30 && gameState === "playing") {
+    onMove: (touch) => {
+      if (gameState !== "playing") return;
+      const dx = touch.x - touch.startX;
+      const dy = touch.y - touch.startY;
+      if (touch.tag === "pending") {
+        if (Math.hypot(dx, dy) < INTENT_MOVE_PX) return;
+        clearIntentTimer(touch.id);
+        if (dy > 0 && dy >= Math.abs(dx)) {
+          touch.tag = "duck";
+          duck(true);
+        } else {
+          touch.tag = "jump";
+          jump();
+        }
+      } else if (touch.tag === "jump" && dy > SWIPE_DUCK_PX) {
+        // Swipe down in mid-air: fast fall.
         duck(true);
       }
     },
-    [gameState, duck]
-  );
+    onEnd: (touch) => {
+      clearIntentTimer(touch.id);
+      if (touch.tag === "pending") {
+        // A quick tap: the same hop a JUMP_INTENT_MS press gives.
+        jump();
+        const release = window.setTimeout(() => {
+          releaseTimersRef.current.delete(release);
+          releaseJump();
+        }, JUMP_INTENT_MS);
+        releaseTimersRef.current.add(release);
+      } else if (touch.tag === "jump") {
+        releaseJump();
+        duck(false);
+      } else if (touch.tag === "duck") {
+        duck(false);
+      }
+    },
+  });
 
-  const handleTouchEnd = useCallback(() => {
-    touchStartY.current = null;
-    releaseJump();
-    duck(false);
-  }, [releaseJump, duck]);
+  // The DUCK button is a hold: down ducks, up (or a cancel, or a blur)
+  // stands the dino back up. Its old React onTouchStart/onTouchEnd called
+  // preventDefault(), a no-op in React's passive touch listeners that
+  // logged an error on every press.
+  const duckHold = usePointerHold<HTMLButtonElement>(
+    () => duck(true),
+    () => duck(false)
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-100 to-gray-300 flex flex-col items-center justify-center p-4">
@@ -572,9 +662,8 @@ export function DinoRunnerGame() {
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
+          // Mouse only: a finger's touch events are default-prevented by the
+          // hook above, so the browser sends no click for a tap.
           onClick={handleInput}
           className="rounded-lg shadow-xl cursor-pointer touch-manipulation border-2 border-gray-300"
           style={{
@@ -603,22 +692,20 @@ export function DinoRunnerGame() {
         )}
       </div>
 
-      {/* Mobile duck button */}
-      <div className="md:hidden mt-4">
-        <button
-          onTouchStart={(e) => {
-            e.preventDefault();
-            duck(true);
-          }}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            duck(false);
-          }}
-          className="w-24 h-16 bg-gray-600 hover:bg-gray-500 active:bg-gray-700 text-white rounded-xl shadow-lg flex items-center justify-center text-2xl font-bold touch-manipulation"
-        >
-          DUCK
-        </button>
-      </div>
+      {/* Duck button: keyed on the pointer, never on a width breakpoint. A
+          phone held sideways (844 px wide) is past md and still has no
+          keyboard, so md:hidden took the only duck control away. */}
+      {isCoarse && (
+        <div className="mt-4">
+          <button
+            type="button"
+            {...duckHold}
+            className="w-24 h-16 bg-gray-600 hover:bg-gray-500 active:bg-gray-700 text-white rounded-xl shadow-lg flex items-center justify-center text-2xl font-bold touch-none select-none [-webkit-touch-callout:none]"
+          >
+            DUCK
+          </button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="mt-4 text-center text-gray-600 text-sm">
@@ -630,8 +717,8 @@ export function DinoRunnerGame() {
 
       {/* Desktop controls hint — in-play reminder only; the start overlay
           carries this copy on the idle screen */}
-      {gameState !== "idle" && (
-        <div className="hidden md:block mt-2 text-gray-500 text-xs">
+      {gameState !== "idle" && !isCoarse && (
+        <div className="mt-2 text-gray-500 text-xs">
           Space/Up = Jump | Down = Duck | Hold jump for height
         </div>
       )}

@@ -16,6 +16,7 @@ import {
   getMedal,
 } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { usePointerTap } from "@/shared/lib/input";
 
 export function FlappyBirdGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -343,6 +344,11 @@ export function FlappyBirdGame() {
     }
   }, [gameState, flap, reset]);
 
+  // One tap = one flap, for a finger, a mouse, or Enter on the focused
+  // canvas: the shared pointer tap acts on pointerdown and ignores the
+  // browser's compatibility click.
+  const canvasTap = usePointerTap<HTMLCanvasElement>(() => handleInput());
+
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -379,7 +385,7 @@ export function FlappyBirdGame() {
           // One handler for finger and mouse. A React onTouchStart cannot
           // preventDefault (React attaches it passive), so a tap used to fire
           // touchstart AND the compatibility click: two flaps per tap.
-          onPointerDown={handleInput}
+          {...canvasTap}
           className="rounded-lg shadow-2xl cursor-pointer touch-manipulation"
           style={{
             width: CANVAS_WIDTH * scale,

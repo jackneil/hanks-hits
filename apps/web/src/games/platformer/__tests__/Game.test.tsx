@@ -12,6 +12,7 @@ import { usePlatformerStore } from "../lib/store";
 import { LEVELS } from "../lib/constants";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
+import { fingerCancel, fingerDown, fingerTap, fingerUp, liftAllFingers } from "@/__tests__/finger-mock";
 
 // The global setup stubs matchMedia to always return matches:false. Swap in a
 // stub where "(pointer: coarse)" resolves to the requested value so we can
@@ -25,6 +26,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  liftAllFingers();
   resetPointerMock();
 });
 
@@ -108,17 +110,18 @@ describe("Platformer canvas touch zones", () => {
     return canvas;
   }
 
-  it("prevents touchstart's default so the tap's compatibility click can't double-fire jump", () => {
+  // The canvas listens through the shared native touch hook (useTouchInput),
+  // which reads changedTouches by identifier; the finger double sends what a
+  // browser sends, compatibility click included.
+  it("a middle-zone tap jumps ONCE: touchstart is default-prevented, so no compatibility click", () => {
+    const jump = vi.fn();
     act(() => {
-      usePlatformerStore.setState({ gameState: "playing" });
+      usePlatformerStore.setState({ gameState: "playing", jump });
     });
     const { container } = render(<PlatformerGame />);
 
-    // fireEvent returns false when preventDefault was called on the event.
-    const notPrevented = fireEvent.touchStart(getCanvas(container), {
-      touches: [{ clientX: 400, clientY: 200 }],
-    });
-    expect(notPrevented).toBe(false);
+    fingerTap(getCanvas(container), { x: 400, y: 200 });
+    expect(jump).toHaveBeenCalledTimes(1);
   });
 
   it("maps left/right zone touches to movement and releases on touchend", () => {
@@ -128,16 +131,16 @@ describe("Platformer canvas touch zones", () => {
     const { container } = render(<PlatformerGame />);
     const canvas = getCanvas(container);
 
-    fireEvent.touchStart(canvas, { touches: [{ clientX: 100, clientY: 200 }] });
+    fingerDown(canvas, { id: 1, x: 100, y: 200 });
     expect(usePlatformerStore.getState().movingLeft).toBe(true);
 
-    fireEvent.touchEnd(canvas);
+    fingerUp(canvas, { id: 1 });
     expect(usePlatformerStore.getState().movingLeft).toBe(false);
 
-    fireEvent.touchStart(canvas, { touches: [{ clientX: 700, clientY: 200 }] });
+    fingerDown(canvas, { id: 2, x: 700, y: 200 });
     expect(usePlatformerStore.getState().movingRight).toBe(true);
 
-    fireEvent.touchCancel(canvas);
+    fingerCancel(canvas, { id: 2 });
     expect(usePlatformerStore.getState().movingRight).toBe(false);
   });
 
@@ -147,10 +150,9 @@ describe("Platformer canvas touch zones", () => {
     });
     const { container } = render(<PlatformerGame />);
 
-    fireEvent.touchStart(getCanvas(container), {
-      touches: [{ clientX: 400, clientY: 200 }],
-    });
+    fingerDown(getCanvas(container), { x: 400, y: 200 });
     expect(usePlatformerStore.getState().gameState).toBe("ready");
+    fingerUp(getCanvas(container));
   });
 });
 

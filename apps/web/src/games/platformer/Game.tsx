@@ -4,6 +4,8 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { usePlatformerStore, type PlatformerProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { usePointerHold, useTouchInput } from "@/shared/hooks/useTouchInput";
+import { usePointerTap } from "@/shared/lib/input";
 import { OrientationWarning } from "@/shared/components/OrientationWarning";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
@@ -707,56 +709,55 @@ export function PlatformerGame() {
     };
   }, [gameState, jump, handleTap, setMovingLeft, setMovingRight]);
 
-  // Touch controls for mobile, attached natively with { passive: false } so
-  // preventDefault actually works (React's synthetic touch handlers are
-  // passive). Canceling touchstart suppresses the compatibility click that
-  // re-entered handleTap after every tap: a middle-zone tap called jump()
-  // twice, and the airborne second call armed the jump buffer, so a single
-  // tap double-hopped the player on landing.
-  const handleTouchStart = useCallback(
-    (e: TouchEvent) => {
-      e.preventDefault();
-      const touch = e.touches[0];
+  // Touch zones on the canvas through the shared native touch hook:
+  // non-passive listeners (so the tap never scrolls and the browser sends no
+  // compatibility click), and one zone per finger, read from that finger's
+  // own start point. The old handler read e.touches[0], the OLDEST finger:
+  // a tap on the canvas while the ▶ button was held used the ▶ thumb's
+  // coordinates (so it moved LEFT sideways), and any touchend released both
+  // directions even when the ▶ thumb was still down.
+  useTouchInput<"left" | "right" | "jump">(canvasRef, {
+    onStart: (touch) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-
       const rect = canvas.getBoundingClientRect();
-      const x = (touch.clientX - rect.left) / scale;
+      const x = (touch.startX - rect.left) / scale;
 
       if (gameState === "playing") {
         // Left third = move left, right third = move right, middle = jump
         if (x < CANVAS_WIDTH / 3) {
+          touch.tag = "left";
           setMovingLeft(true);
         } else if (x > (CANVAS_WIDTH * 2) / 3) {
+          touch.tag = "right";
           setMovingRight(true);
         } else {
+          touch.tag = "jump";
           jump();
         }
       } else {
         handleTap();
       }
     },
-    [gameState, jump, handleTap, setMovingLeft, setMovingRight, scale]
+    onEnd: (touch) => {
+      if (touch.tag === "left") setMovingLeft(false);
+      if (touch.tag === "right") setMovingRight(false);
+    },
+  });
+
+  // The on-screen pad: ◀ ▶ are holds (pointer capture, release on cancel,
+  // blur and unmount); JUMP is one tap. They used to be React onTouchStart/
+  // onTouchEnd with no touchcancel path, so a system-cancelled touch left a
+  // direction stuck on.
+  const leftHold = usePointerHold<HTMLButtonElement>(
+    () => setMovingLeft(true),
+    () => setMovingLeft(false)
   );
-
-  const handleTouchEnd = useCallback(() => {
-    setMovingLeft(false);
-    setMovingRight(false);
-  }, [setMovingLeft, setMovingRight]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
-    canvas.addEventListener("touchend", handleTouchEnd);
-    canvas.addEventListener("touchcancel", handleTouchEnd);
-    return () => {
-      canvas.removeEventListener("touchstart", handleTouchStart);
-      canvas.removeEventListener("touchend", handleTouchEnd);
-      canvas.removeEventListener("touchcancel", handleTouchEnd);
-    };
-  }, [handleTouchStart, handleTouchEnd]);
+  const rightHold = usePointerHold<HTMLButtonElement>(
+    () => setMovingRight(true),
+    () => setMovingRight(false)
+  );
+  const jumpTap = usePointerTap<HTMLButtonElement>(() => jump());
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
@@ -828,29 +829,27 @@ export function PlatformerGame() {
            reachable while a movement button is held (a centered JUMP is out of
            reach for both thumbs). Safe-area padding keeps the row clear of the
            home indicator on installed-PWA phones. */
-        <div className="fixed bottom-4 left-0 right-0 flex justify-between items-end px-4 pb-[env(safe-area-inset-bottom)] pointer-events-none">
+        <div className="fixed bottom-4 left-0 right-0 flex justify-between items-end px-4 pb-[env(safe-area-inset-bottom)] pointer-events-none select-none [-webkit-touch-callout:none]">
           <div className="flex gap-4 pointer-events-none">
             <button
-              onTouchStart={() => setMovingLeft(true)}
-              onTouchEnd={() => setMovingLeft(false)}
-              style={{ touchAction: "none" }}
-              className="w-20 h-20 bg-black/30 rounded-full flex items-center justify-center text-4xl font-bold text-white [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] shadow-lg active:bg-black/50 pointer-events-auto"
+              type="button"
+              {...leftHold}
+              className="w-20 h-20 bg-black/30 rounded-full flex items-center justify-center text-4xl font-bold text-white [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] shadow-lg active:bg-black/50 pointer-events-auto touch-none select-none"
             >
               ◀
             </button>
             <button
-              onTouchStart={() => setMovingRight(true)}
-              onTouchEnd={() => setMovingRight(false)}
-              style={{ touchAction: "none" }}
-              className="w-20 h-20 bg-black/30 rounded-full flex items-center justify-center text-4xl font-bold text-white [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] shadow-lg active:bg-black/50 pointer-events-auto"
+              type="button"
+              {...rightHold}
+              className="w-20 h-20 bg-black/30 rounded-full flex items-center justify-center text-4xl font-bold text-white [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] shadow-lg active:bg-black/50 pointer-events-auto touch-none select-none"
             >
               ▶
             </button>
           </div>
           <button
-            onTouchStart={() => jump()}
-            style={{ touchAction: "none" }}
-            className="w-24 h-24 bg-green-500/60 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg active:bg-green-500/80 pointer-events-auto"
+            type="button"
+            {...jumpTap}
+            className="w-24 h-24 bg-green-500/60 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg active:bg-green-500/80 pointer-events-auto touch-none select-none"
           >
             JUMP
           </button>

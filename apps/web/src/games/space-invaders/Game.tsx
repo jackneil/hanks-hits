@@ -26,6 +26,112 @@ import {
   type Difficulty,
 } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { usePointerHold } from "@/shared/hooks/useTouchInput";
+import { usePointerTap } from "@/shared/lib/input";
+
+// ============================================
+// Touch pad (module scope)
+// ============================================
+// The pad lives at module scope on purpose. It used to be declared inside
+// SpaceInvadersGame, so every parent render (the parent re-renders each
+// frame) gave React a new component type and the buttons unmounted and
+// remounted about 30 times a second: a held ◀ moved the cannon one step and
+// a 1.5 s FIRE hold fired one bullet. The parent reads the held state from
+// refs in its game loop, exactly like the keyboard.
+type PadProps = {
+  onLeft: (down: boolean) => void;
+  onRight: (down: boolean) => void;
+  onFire: (down: boolean) => void;
+};
+
+function SpaceInvadersPad({ onLeft, onRight, onFire }: PadProps) {
+  const [leftPressed, setLeftPressed] = useState(false);
+  const [rightPressed, setRightPressed] = useState(false);
+  const [firePressed, setFirePressed] = useState(false);
+
+  // Hold controls through the shared pointer hold: pointer capture, a
+  // release on pointercancel, on window blur and on unmount. The old
+  // buttons carried onTouchStart/onTouchEnd (with a no-op preventDefault
+  // that logged an error on every tap) AND onMouseDown/Up/Leave.
+  const leftHold = usePointerHold<HTMLButtonElement>(
+    () => {
+      setLeftPressed(true);
+      onLeft(true);
+    },
+    () => {
+      setLeftPressed(false);
+      onLeft(false);
+    }
+  );
+  const rightHold = usePointerHold<HTMLButtonElement>(
+    () => {
+      setRightPressed(true);
+      onRight(true);
+    },
+    () => {
+      setRightPressed(false);
+      onRight(false);
+    }
+  );
+  const fireHold = usePointerHold<HTMLButtonElement>(
+    () => {
+      setFirePressed(true);
+      onFire(true);
+    },
+    () => {
+      setFirePressed(false);
+      onFire(false);
+    }
+  );
+
+  return (
+    <div
+      data-testid="space-invaders-pad"
+      className="flex justify-between items-center w-full max-w-md mx-auto mt-4 px-4 select-none"
+    >
+      {/* Left button */}
+      <button
+        type="button"
+        className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl touch-none transition-all ${
+          leftPressed ? "bg-green-700 scale-95" : "bg-green-600"
+        }`}
+        {...leftHold}
+        aria-label="Move left"
+      >
+        <svg className="w-10 h-10" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M15 19l-7-7 7-7" stroke="currentColor" strokeWidth="3" fill="none" />
+        </svg>
+      </button>
+
+      {/* Fire button */}
+      <button
+        type="button"
+        className={`w-24 h-24 rounded-full flex items-center justify-center text-white text-xl font-bold touch-none transition-all shadow-lg ${
+          firePressed ? "bg-red-700 scale-95" : "bg-red-600 hover:bg-red-500"
+        }`}
+        {...fireHold}
+        aria-label="Fire"
+      >
+        FIRE
+      </button>
+
+      {/* Right button */}
+      <button
+        type="button"
+        className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl touch-none transition-all ${
+          rightPressed ? "bg-green-700 scale-95" : "bg-green-600"
+        }`}
+        {...rightHold}
+        aria-label="Move right"
+      >
+        <svg className="w-10 h-10" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="3" fill="none" />
+        </svg>
+      </button>
+    </div>
+  );
+}
 
 // ============================================
 // Sound Manager
@@ -238,11 +344,14 @@ export function SpaceInvadersGame() {
   const lastMarchRef = useRef<number>(0);
   const marchStepRef = useRef<number>(0);
   const [scale, setScale] = useState(1);
+  const isCoarse = useCoarsePointer();
 
   // Auto-fire support
   const fireHeldRef = useRef(false);
   const lastAutoFireRef = useRef<number>(0);
   const AUTO_FIRE_COOLDOWN = 150; // ms between auto-fire shots
+  // The pad's ◀ ▶ held state, read by the game loop like keysRef.
+  const touchHeldRef = useRef({ left: false, right: false });
 
   const store = useSpaceInvadersStore();
   const {
@@ -629,12 +738,20 @@ export function SpaceInvadersGame() {
       const delta = time - lastTimeRef.current;
       lastTimeRef.current = time;
 
-      // Handle keyboard input for continuous movement
+      // Handle held input (keys or the touch pad) for continuous movement
       if (gameState === "playing") {
-        if (keysRef.current.has("ArrowLeft") || keysRef.current.has("KeyA")) {
+        if (
+          keysRef.current.has("ArrowLeft") ||
+          keysRef.current.has("KeyA") ||
+          touchHeldRef.current.left
+        ) {
           movePlayer(-1);
         }
-        if (keysRef.current.has("ArrowRight") || keysRef.current.has("KeyD")) {
+        if (
+          keysRef.current.has("ArrowRight") ||
+          keysRef.current.has("KeyD") ||
+          touchHeldRef.current.right
+        ) {
           movePlayer(1);
         }
 
@@ -749,149 +866,36 @@ export function SpaceInvadersGame() {
     };
   }, [gameState, handleInput, handleShoot]);
 
-  // ============================================
-  // Mobile Controls Component
-  // ============================================
-  const MobileControls = () => {
-    const [leftPressed, setLeftPressed] = useState(false);
-    const [rightPressed, setRightPressed] = useState(false);
-    const [firePressed, setFirePressed] = useState(false);
-    const leftIntervalRef = useRef<NodeJS.Timeout | null>(null);
-    const rightIntervalRef = useRef<NodeJS.Timeout | null>(null);
-    const fireIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-    const startMoveLeft = useCallback(() => {
-      if (gameState !== "playing") return;
-      setLeftPressed(true);
-      movePlayer(-1);
-      leftIntervalRef.current = setInterval(() => movePlayer(-1), 50);
-    }, []);
-
-    const stopMoveLeft = useCallback(() => {
-      setLeftPressed(false);
-      if (leftIntervalRef.current) {
-        clearInterval(leftIntervalRef.current);
-        leftIntervalRef.current = null;
-      }
-    }, []);
-
-    const startMoveRight = useCallback(() => {
-      if (gameState !== "playing") return;
-      setRightPressed(true);
-      movePlayer(1);
-      rightIntervalRef.current = setInterval(() => movePlayer(1), 50);
-    }, []);
-
-    const stopMoveRight = useCallback(() => {
-      setRightPressed(false);
-      if (rightIntervalRef.current) {
-        clearInterval(rightIntervalRef.current);
-        rightIntervalRef.current = null;
-      }
-    }, []);
-
-    const startFire = useCallback(() => {
-      if (gameState !== "playing") return;
-      setFirePressed(true);
-      handleShoot(); // Fire immediately
-      fireIntervalRef.current = setInterval(() => {
+  // The touch pad writes the same refs the keyboard writes; the game loop
+  // moves and auto-fires from them every frame.
+  const pressLeft = useCallback((down: boolean) => {
+    touchHeldRef.current.left = down;
+  }, []);
+  const pressRight = useCallback((down: boolean) => {
+    touchHeldRef.current.right = down;
+  }, []);
+  const pressFire = useCallback(
+    (down: boolean) => {
+      if (down) {
+        if (fireHeldRef.current) return;
+        // Fire at once, then the loop auto-fires while held.
+        fireHeldRef.current = true;
         handleShoot();
-      }, 150); // Auto-fire every 150ms
-    }, []);
-
-    const stopFire = useCallback(() => {
-      setFirePressed(false);
-      if (fireIntervalRef.current) {
-        clearInterval(fireIntervalRef.current);
-        fireIntervalRef.current = null;
+        lastAutoFireRef.current = Date.now();
+      } else {
+        fireHeldRef.current = false;
+        lastAutoFireRef.current = 0;
       }
-    }, []);
+    },
+    [handleShoot]
+  );
 
-    useEffect(() => {
-      return () => {
-        if (leftIntervalRef.current) clearInterval(leftIntervalRef.current);
-        if (rightIntervalRef.current) clearInterval(rightIntervalRef.current);
-        if (fireIntervalRef.current) clearInterval(fireIntervalRef.current);
-      };
-    }, []);
-
-    if (gameState !== "playing") return null;
-
-    return (
-      <div className="flex justify-between items-center w-full max-w-md mx-auto mt-4 px-4">
-        {/* Left button */}
-        <button
-          className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl touch-manipulation transition-all ${
-            leftPressed ? "bg-green-700 scale-95" : "bg-green-600"
-          }`}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            startMoveLeft();
-          }}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            stopMoveLeft();
-          }}
-          onMouseDown={startMoveLeft}
-          onMouseUp={stopMoveLeft}
-          onMouseLeave={stopMoveLeft}
-          aria-label="Move left"
-        >
-          <svg className="w-10 h-10" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M15 19l-7-7 7-7" stroke="currentColor" strokeWidth="3" fill="none" />
-          </svg>
-        </button>
-
-        {/* Fire button */}
-        <button
-          className={`w-24 h-24 rounded-full flex items-center justify-center text-white text-xl font-bold touch-manipulation transition-all shadow-lg ${
-            firePressed ? "bg-red-700 scale-95" : "bg-red-600 hover:bg-red-500"
-          }`}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            startFire();
-          }}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            stopFire();
-          }}
-          onTouchCancel={(e) => {
-            e.preventDefault();
-            stopFire();
-          }}
-          onMouseDown={startFire}
-          onMouseUp={stopFire}
-          onMouseLeave={stopFire}
-          aria-label="Fire"
-        >
-          FIRE
-        </button>
-
-        {/* Right button */}
-        <button
-          className={`w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl touch-manipulation transition-all ${
-            rightPressed ? "bg-green-700 scale-95" : "bg-green-600"
-          }`}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            startMoveRight();
-          }}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            stopMoveRight();
-          }}
-          onMouseDown={startMoveRight}
-          onMouseUp={stopMoveRight}
-          onMouseLeave={stopMoveRight}
-          aria-label="Move right"
-        >
-          <svg className="w-10 h-10" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="3" fill="none" />
-          </svg>
-        </button>
-      </div>
-    );
-  };
+  // One tap on the canvas = one action. A finger's tap only acts between
+  // rounds (the FIRE button shoots); a mouse click also shoots in play.
+  const canvasTap = usePointerTap<HTMLCanvasElement>((e) => {
+    if ("pointerType" in e && e.pointerType === "touch" && gameState === "playing") return;
+    handleInput();
+  });
 
   // ============================================
   // Settings Panel
@@ -995,13 +999,7 @@ export function SpaceInvadersGame() {
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
-          onClick={handleInput}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            if (gameState !== "playing") {
-              handleInput();
-            }
-          }}
+          {...canvasTap}
           className="rounded-lg shadow-2xl cursor-pointer touch-manipulation border-2 border-green-800"
           style={{
             width: CANVAS_WIDTH * scale,
@@ -1068,24 +1066,30 @@ export function SpaceInvadersGame() {
         )}
       </div>
 
-      {/* Mobile Controls */}
-      <div className="md:hidden w-full">
-        <MobileControls />
-      </div>
+      {/* Touch pad, keyboard hint and the in-page pause are keyed on the
+          pointer, never on the md: width breakpoint: a large phone held
+          sideways is 844 px wide and still has no keyboard, and md:hidden
+          took away its controls and showed it "A/D or Arrows". */}
+      {isCoarse && gameState === "playing" && (
+        <div className="w-full">
+          <SpaceInvadersPad onLeft={pressLeft} onRight={pressRight} onFire={pressFire} />
+        </div>
+      )}
 
       {/* Desktop keyboard hint — in-play reminder only; the start overlay
           carries this copy on the ready screen */}
-      {gameState !== "ready" && (
-        <div className="hidden md:block text-gray-500 text-sm text-center mt-2">
+      {gameState !== "ready" && !isCoarse && (
+        <div className="text-gray-500 text-sm text-center mt-2">
           A/D or Arrows to move | SPACE or W to shoot (hold to auto-fire) | ESC to pause
         </div>
       )}
 
-      {/* Pause button for mobile */}
-      {gameState === "playing" && (
+      {/* Pause button for touch */}
+      {gameState === "playing" && isCoarse && (
         <button
+          type="button"
           onClick={pauseGame}
-          className="md:hidden mt-4 bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded-lg font-bold"
+          className="mt-4 min-h-11 bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded-lg font-bold"
         >
           PAUSE
         </button>

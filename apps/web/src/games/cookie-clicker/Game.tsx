@@ -13,8 +13,10 @@ import {
   type BuildingId,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { usePointerTap, type TapEvent } from "@/shared/lib/input";
 
 // ============================================================================
 // MAIN GAME COMPONENT
@@ -22,6 +24,7 @@ import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 
 export function CookieClickerGame() {
   const store = useCookieClickerStore();
+  const isCoarse = useCoarsePointer();
   // The bakery is live from mount, so a local gate gives the player a real
   // start moment. Nothing bakes and no golden cookie appears before Play.
   const [hasStarted, setHasStarted] = useState(false);
@@ -135,7 +138,9 @@ export function CookieClickerGame() {
           )}
           {store.clickFrenzyMultiplier > 1 && (
             <div className="text-base text-pink-300 animate-pulse">
-              CLICK FRENZY! x{store.clickFrenzyMultiplier} per click!
+              {isCoarse
+                ? `TAP FRENZY! x${store.clickFrenzyMultiplier} per tap!`
+                : `CLICK FRENZY! x${store.clickFrenzyMultiplier} per click!`}
             </div>
           )}
         </div>
@@ -146,11 +151,14 @@ export function CookieClickerGame() {
         {/* Left side - Cookie clicker area */}
         <div className="flex-1 flex flex-col items-center justify-center min-h-[300px] lg:min-h-0">
           <CookieButton disabled={!hasStarted} />
+          {/* A phone kid taps; the words say so (audit S5). */}
           <div className="mt-4 text-amber-800 text-lg">
-            Click power: {formatNumber(store.cookiesPerClick)} per click
+            {isCoarse
+              ? `Tap power: ${formatNumber(store.cookiesPerClick)} per tap`
+              : `Click power: ${formatNumber(store.cookiesPerClick)} per click`}
           </div>
           <div className="text-amber-600 text-sm">
-            Total clicks: {store.totalClicks.toLocaleString()}
+            {isCoarse ? "Total taps" : "Total clicks"}: {store.totalClicks.toLocaleString()}
           </div>
         </div>
 
@@ -253,24 +261,23 @@ function CookieButton({ disabled = false }: { disabled?: boolean }) {
   const [isPressed, setIsPressed] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  const handleClick = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
+  // Every finger counts: the tap runs on pointerdown, so two thumbs mashing
+  // at once give two taps. The button used to count onClick only, and a
+  // browser sends no click for either finger of a two-finger gesture, so a
+  // two-thumb mash counted nothing.
+  const handleTap = useCallback(
+    (e: TapEvent<HTMLButtonElement>) => {
       // The start overlay covers the cookie; ignore anything that reaches it.
       if (disabled) return;
 
-      // Get click position relative to button for floating text
+      // Get tap position relative to button for floating text
       let x = 50;
       let y = 50;
 
       if (buttonRef.current) {
         const rect = buttonRef.current.getBoundingClientRect();
-        if ("clientX" in e) {
-          x = ((e.clientX - rect.left) / rect.width) * 100;
-          y = ((e.clientY - rect.top) / rect.height) * 100;
-        } else if (e.touches && e.touches[0]) {
-          x = ((e.touches[0].clientX - rect.left) / rect.width) * 100;
-          y = ((e.touches[0].clientY - rect.top) / rect.height) * 100;
-        }
+        x = ((e.clientX - rect.left) / rect.width) * 100;
+        y = ((e.clientY - rect.top) / rect.height) * 100;
       }
 
       store.clickCookie(x, y);
@@ -281,13 +288,17 @@ function CookieButton({ disabled = false }: { disabled?: boolean }) {
     },
     [disabled, store]
   );
+  const cookieTap = usePointerTap<HTMLButtonElement>(handleTap);
 
   return (
     <div className="relative">
+      {/* touch-none: the browser must never turn a second thumb into a
+          pinch or a scroll and cancel the press. */}
       <button
         ref={buttonRef}
-        onClick={handleClick}
+        {...cookieTap}
         className={`
+          touch-none select-none
           w-64 h-64 lg:w-80 lg:h-80
           rounded-full
           bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600

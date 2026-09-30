@@ -20,6 +20,7 @@ import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { usePointerTap, type TapEvent } from "@/shared/lib/input";
 
 // ============================================
 // CANVAS RENDERER
@@ -326,11 +327,12 @@ export function HextrisGame() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [store.status, store.startGame, store.rotateLeft, store.rotateRight]);
 
-  // Touch controls
-  const handleCanvasClick = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
-      e.preventDefault();
-
+  // One tap on the canvas = one action, for a finger or a mouse. The canvas
+  // used to carry onClick AND onTouchStart with the same handler, so a finger
+  // tap ran it twice (touchstart, then the compatibility click): the hexagon
+  // spun 120 degrees for one tap, and a tap to resume also spun it 60.
+  const handleCanvasTap = useCallback(
+    (e: TapEvent<HTMLCanvasElement>) => {
       // The start overlay covers the canvas while idle, so a tap here can only
       // mean "play again" from the game-over screen.
       if (store.status === "idle") return;
@@ -345,18 +347,11 @@ export function HextrisGame() {
         return;
       }
 
-      // Get click position relative to canvas
+      // Get tap position relative to canvas
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      let clientX: number;
-      if ("touches" in e) {
-        clientX = e.touches[0]?.clientX ?? rect.left + rect.width / 2;
-      } else {
-        clientX = e.clientX;
-      }
-
-      const relativeX = clientX - rect.left;
+      const relativeX = e.clientX - rect.left;
       const halfWidth = rect.width / 2;
 
       if (relativeX < halfWidth) {
@@ -367,6 +362,7 @@ export function HextrisGame() {
     },
     [store]
   );
+  const canvasTap = usePointerTap<HTMLCanvasElement>(handleCanvasTap);
 
   const toggleSound = () => {
     const current = store.progress.soundEnabled;
@@ -425,8 +421,7 @@ export function HextrisGame() {
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
-          onClick={handleCanvasClick}
-          onTouchStart={handleCanvasClick}
+          {...canvasTap}
           className="rounded-lg shadow-xl cursor-pointer"
           style={{
             width: CANVAS_WIDTH * scale,
@@ -441,19 +436,19 @@ export function HextrisGame() {
         <div className="flex gap-4 mt-4">
           <button
             onClick={() => store.rotateLeft()}
-            className="w-20 h-16 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-2xl font-bold rounded-xl shadow-lg"
+            className="w-20 h-16 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-2xl font-bold rounded-xl shadow-lg touch-manipulation select-none"
           >
             {"<"}
           </button>
           <button
             onClick={() => store.pauseGame()}
-            className="w-16 h-16 bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800 text-white text-lg font-bold rounded-xl shadow-lg"
+            className="w-16 h-16 bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800 text-white text-lg font-bold rounded-xl shadow-lg touch-manipulation select-none"
           >
             II
           </button>
           <button
             onClick={() => store.rotateRight()}
-            className="w-20 h-16 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-2xl font-bold rounded-xl shadow-lg"
+            className="w-20 h-16 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-2xl font-bold rounded-xl shadow-lg touch-manipulation select-none"
           >
             {">"}
           </button>
