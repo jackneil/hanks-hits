@@ -78,7 +78,7 @@ For each game: load it, then actually play — not just look:
 - [ ] The start card passes the committed check: run `pnpm e2e:start-cards <base-url>` from the repo root against a running build (see `e2e/start-cards/`). It tests every route on the home page at 320x568, 375x667, 390x844, 844x390 and 1280x800. Play (or every choice) and "Read it to me" must be in the card and on screen with no scroll, and the iOS install tip must never be in the card
 - [ ] Every core action is doable by tap / drag / on-screen controls — zero keyboard-only actions
 - [ ] Nothing is hover-gated (menus, buttons, tooltips that only appear on hover)
-- [ ] Touch targets are ≥ 44px (kid fingers; CLAUDE.md rule)
+- [ ] Touch targets are ≥ 44px (kid fingers; CLAUDE.md rule). One exception: the cells of a game board (chess and checkers squares), which the board sizes. Mark the board `data-game-board`; its cells must be ≥ 24px, and the whole board must fit the play box both ways up
 - [ ] No horizontal scroll; canvas/board fits and is not clipped at 390x844
 - [ ] Start, restart, pause (if present), and exit are all reachable by touch
 - [ ] Instructions shown on a touch viewport never say "press SPACE / use arrow keys" (use `useCoarsePointer` from `@/shared/hooks` to branch the copy)

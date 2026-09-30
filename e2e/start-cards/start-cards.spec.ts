@@ -454,11 +454,20 @@ for (const screen of SCREENS) {
           if (await overlay.count()) problems.push("a start card shows, but the module does not mount GameStartOverlay");
           summary = "no start card (the module has none)";
         }
+      } catch (error) {
+        problems.push(`error: ${String(error instanceof Error ? error.message : error).split("\n")[0].slice(0, 200)}`);
+      }
+      // The screenshot is evidence for a person, not part of the verdict (the
+      // checks above measured the page). A heavy WebGL page on a busy machine
+      // can take more than 30 s to capture (four-wheeler-3d at a load average
+      // of 20 failed its row on this alone, and passed alone a minute later),
+      // so a failed capture is written in the row, never counted as a fault.
+      try {
         await capture(page, {
           path: testInfo.outputPath(`${route.replace(/^\//, "").replace(/\//g, "_")}.png`),
         });
       } catch (error) {
-        problems.push(`error: ${String(error instanceof Error ? error.message : error).split("\n")[0].slice(0, 200)}`);
+        summary += `; no screenshot (${String(error instanceof Error ? error.message : error).split("\n")[0].slice(0, 80)})`;
       }
       const info = errors.length ? ` | page errors: ${errors.join(" ; ")}` : "";
       const row = `${problems.length ? "FAIL" : "PASS"} | ${screen.name} | ${route} | ${summary}${
