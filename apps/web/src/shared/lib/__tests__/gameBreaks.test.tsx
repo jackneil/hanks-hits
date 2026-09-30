@@ -91,7 +91,7 @@ function Probe({ kind = "tip" }: { kind?: NoteKind }) {
   const mounted = useGameShellMounted();
   return (
     <output data-testid="probe">
-      {slot ? slot.getAttribute("data-testid") : "none"}:{String(mounted)}
+      {slot ? slot.el.getAttribute("data-testid") : "none"}:{String(mounted)}
     </output>
   );
 }
@@ -99,7 +99,7 @@ function Probe({ kind = "tip" }: { kind?: NoteKind }) {
 describe("useRegisterBreakSlot", () => {
   it("adds the slot while mounted, holding every note by default, and removes it on unmount", () => {
     const { getByTestId, unmount } = render(<Surface />);
-    expect(useGameBreaks.getState().slots).toEqual([{ el: getByTestId("slot"), holds: ALL_NOTES }]);
+    expect(useGameBreaks.getState().slots).toEqual([{ el: getByTestId("slot"), holds: ALL_NOTES, inline: false }]);
 
     unmount();
     expect(useGameBreaks.getState().slots).toEqual([]);

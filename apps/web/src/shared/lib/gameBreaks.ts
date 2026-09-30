@@ -36,14 +36,21 @@ export type NoteKind = "tip" | "celebration";
 
 export const ALL_NOTES: readonly NoteKind[] = ["tip", "celebration"];
 
-export type BreakSlot = { el: HTMLElement; holds: readonly NoteKind[] };
+/**
+ * A place a nudge can render into. A break slot belongs to a break surface
+ * (the start card, the pause menu, the result chip): while it is up, play
+ * is stopped. An inline slot is a row in an app's own layout (AppNotesSlot):
+ * a nudge renders there instead of floating over the app's controls, and
+ * the app is not at a break, so the install pill still shows.
+ */
+export type BreakSlot = { el: HTMLElement; holds: readonly NoteKind[]; inline?: boolean };
 
 type GameBreaks = {
   shells: number;
   slots: BreakSlot[];
   enterShell: () => void;
   leaveShell: () => void;
-  addSlot: (el: HTMLElement, holds?: readonly NoteKind[]) => void;
+  addSlot: (el: HTMLElement, holds?: readonly NoteKind[], inline?: boolean) => void;
   removeSlot: (el: HTMLElement) => void;
 };
 
@@ -52,9 +59,9 @@ export const useGameBreaks = create<GameBreaks>((set) => ({
   slots: [],
   enterShell: () => set((s) => ({ shells: s.shells + 1 })),
   leaveShell: () => set((s) => ({ shells: Math.max(0, s.shells - 1) })),
-  addSlot: (el, holds = ALL_NOTES) =>
+  addSlot: (el, holds = ALL_NOTES, inline = false) =>
     set((s) =>
-      s.slots.some((slot) => slot.el === el) ? s : { slots: [...s.slots, { el, holds }] }
+      s.slots.some((slot) => slot.el === el) ? s : { slots: [...s.slots, { el, holds, inline }] }
     ),
   removeSlot: (el) =>
     set((s) =>
@@ -79,19 +86,19 @@ export function useGameShellMounted(): boolean {
   return useGameBreaks((s) => s.shells > 0);
 }
 
-/** The newest break slot on screen that holds `kind`, or null during play. */
-export function useBreakSlot(kind: NoteKind): HTMLElement | null {
+/** The newest slot on screen that holds `kind`, or null during play. */
+export function useBreakSlot(kind: NoteKind): BreakSlot | null {
   return useGameBreaks((s) => {
     for (let i = s.slots.length - 1; i >= 0; i--) {
-      if (s.slots[i].holds.includes(kind)) return s.slots[i].el;
+      if (s.slots[i].holds.includes(kind)) return s.slots[i];
     }
     return null;
   });
 }
 
-/** True while any break slot is on screen (a break surface is up). */
+/** True while a break surface is up (an inline app slot is not a break). */
 export function useAtBreak(): boolean {
-  return useGameBreaks((s) => s.slots.length > 0);
+  return useGameBreaks((s) => s.slots.some((slot) => !slot.inline));
 }
 
 /** The data-read-aloud words of the notes inside a container, in DOM order. */
@@ -108,7 +115,10 @@ export function readAloudNotesIn(container: HTMLElement | null): string[] {
  * into it with `readNotes()` (for its read-aloud text). `holds` says which
  * notes the slot takes; the default is every note.
  */
-export function useRegisterBreakSlot(holds: readonly NoteKind[] = ALL_NOTES): {
+export function useRegisterBreakSlot(
+  holds: readonly NoteKind[] = ALL_NOTES,
+  options: { inline?: boolean } = {}
+): {
   slotRef: (el: HTMLElement | null) => (() => void) | undefined;
   readNotes: () => string[];
 } {
@@ -117,12 +127,13 @@ export function useRegisterBreakSlot(holds: readonly NoteKind[] = ALL_NOTES): {
   const slotEl = useRef<HTMLElement | null>(null);
   // The list is read at mount time: a surface does not change what it holds.
   const holdsRef = useRef(holds);
+  const inlineRef = useRef(options.inline ?? false);
 
   const slotRef = useCallback(
     (el: HTMLElement | null) => {
       slotEl.current = el;
       if (!el) return undefined;
-      addSlot(el, holdsRef.current);
+      addSlot(el, holdsRef.current, inlineRef.current);
       return () => {
         slotEl.current = null;
         removeSlot(el);
@@ -149,7 +160,7 @@ export function useRegisterBreakSlot(holds: readonly NoteKind[] = ALL_NOTES): {
  *   the drawing app). Render the page form: a thin strip or a 44 px pill.
  */
 export type NudgePlacement =
-  | { kind: "slot"; slot: HTMLElement }
+  | { kind: "slot"; slot: HTMLElement; inline: boolean }
   | { kind: "wait" }
   | { kind: "page" };
 
@@ -176,7 +187,7 @@ export function useNudgePlacement(kind: NoteKind): NudgePlacement {
   const startCardShowing = useStartOverlayPresence((s) => s.count > 0);
   const leftOn = useStartOverlayPresence((s) => s.leftOn);
 
-  if (slot) return { kind: "slot", slot };
+  if (slot) return { kind: "slot", slot: slot.el, inline: slot.inline ?? false };
   // A break surface is up, but it does not hold this note (the result chip
   // and the install tip): the note waits for the next break.
   if (atBreak) return WAIT;
