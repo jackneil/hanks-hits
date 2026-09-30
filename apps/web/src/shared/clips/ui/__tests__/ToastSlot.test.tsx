@@ -52,11 +52,10 @@ describe("ToastSlot placement and tap rules (plan 11.3, 11.4)", () => {
     expect(slot().parentElement).toBe(document.body);
     expect(slot().className).toContain("z-[1050]");
     expect(slot().className).toContain("fixed");
-    // Under the header: 48 px, and 40 px on a short screen (a phone held
-    // sideways). Never keyed on the width (md:), an 844 px wide phone
+    // Under the header: --shell-header-h (48 px, and 44 px on a short
+    // screen). Never keyed on the width (md:), an 844 px wide phone
     // sideways is not a tablet.
-    expect(slot().className).toMatch(/(^|\s)top-12(\s|$)/);
-    expect(slot().className).toMatch(/(^|\s)short:top-10(\s|$)/);
+    expect(slot().className.split(/\s+/)).toContain("top-[var(--shell-header-h)]");
     expect(slot().className).not.toMatch(/md:top-14/);
     expect(slot().className).toContain("pointer-events-none");
   });

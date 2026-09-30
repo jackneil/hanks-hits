@@ -72,8 +72,7 @@ describe("GameSheet", () => {
     expect(GAME_SHEET_Z_INDEX).toBe(60);
     expect(sheet.className).toContain("z-[60]");
     expect(sheet.className).toMatch(/(^|\s)fixed(\s|$)/);
-    expect(sheet.className).toMatch(/(^|\s)top-12(\s|$)/);
-    expect(sheet.className).toMatch(/(^|\s)short:top-10(\s|$)/);
+    expect(sheet.className.split(/\s+/)).toContain("top-[var(--shell-header-h)]");
     expect(sheet.className).not.toMatch(/inset-0|items-center/);
     expect(sheet.className).toMatch(/(^|\s)overflow-y-auto(\s|$)/);
     expect(sheet.parentElement).toBe(document.body);

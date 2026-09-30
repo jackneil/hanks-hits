@@ -181,7 +181,7 @@ export function OrientationWarning({ preferred, gameId }: OrientationWarningProp
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-x-0 bottom-0 top-12 z-[100] flex bg-black/70 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:top-10 short:p-2"
+      className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] z-[100] flex bg-black/70 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] short:p-2"
     >
       <div className="m-auto w-full max-w-sm rounded-3xl bg-base-100 p-5 text-center text-base-content shadow-2xl short:flex short:max-w-xl short:flex-row short:items-center short:gap-4 short:p-3 short:text-left">
         <div className="short:min-w-0 short:flex-1">

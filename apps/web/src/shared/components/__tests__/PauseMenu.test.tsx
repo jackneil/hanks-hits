@@ -189,7 +189,7 @@ describe("PauseMenu layout", () => {
     // justify-center on a scroll container clips the top of a column that
     // is taller than the screen ("Paused" included), where no scroll can
     // reach it. Auto margins center it only when it fits.
-    expect(overlay).toHaveClass("fixed", "inset-x-0", "bottom-0", "top-12", "flex", "overflow-y-auto");
+    expect(overlay).toHaveClass("fixed", "inset-x-0", "bottom-0", "top-[var(--shell-header-h)]", "flex", "overflow-y-auto");
     expect(overlay.className).not.toMatch(/justify-center|items-center/);
     expect(content.parentElement).toBe(overlay);
     expect(content).toHaveClass("m-auto");
@@ -342,7 +342,7 @@ describe("PauseMenu on a short screen (a phone held sideways)", () => {
     // ghosted pause button invited a tap that did nothing.
     render(<PauseMenu isOpen onResume={vi.fn()} onHome={vi.fn()} gameName="Snake" />);
     const overlay = screen.getByTestId("pause-menu");
-    expect(overlay).toHaveClass("fixed", "inset-x-0", "bottom-0", "top-12", "short:top-10");
+    expect(overlay).toHaveClass("fixed", "inset-x-0", "bottom-0", "top-[var(--shell-header-h)]");
     expect(overlay).not.toHaveClass("inset-0");
   });
 

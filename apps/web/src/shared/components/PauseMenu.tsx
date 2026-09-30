@@ -39,8 +39,8 @@ const MENU_BUTTON =
   "btn btn-lg text-xl gap-3 shadow-lg hover:scale-105 transition-transform short:h-11 short:min-h-11 short:text-lg";
 
 /**
- * The pause menu. It covers the screen UNDER the header (top-12, and
- * top-10 on a short screen), like the start card, the orientation tip and
+ * The pause menu. It covers the screen UNDER the header (top:
+ * --shell-header-h, 44 px on a short screen), like the start card, the orientation tip and
  * a game sheet: the header stays in view and in use (Home, Restart, and
  * the pause button, which resumes). Before this it covered the whole
  * screen, and "Paused" sat over the ghost of the header on a phone.
@@ -182,7 +182,7 @@ function OpenPauseMenu({
     <div
       ref={overlayRef}
       data-testid="pause-menu"
-      className="scroll-cue fixed inset-x-0 bottom-0 top-12 z-[2000] flex overflow-y-auto overscroll-contain bg-black/90 short:top-10"
+      className="scroll-cue fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] z-[2000] flex overflow-y-auto overscroll-contain bg-black/90"
     >
       {/* m-auto (not justify-center on the parent) centers the column when
           it fits, and lets a taller column (a long menu on a phone held

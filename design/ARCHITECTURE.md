@@ -283,8 +283,8 @@ the scroll cue). A desktop with a mouse reads how to play, then the
 choices. The hints use two columns on a short screen only with two or
 more hints.
 
-**The pause menu.** The menu covers the screen under the header (`top-12
-short:top-10`), like the start card and the orientation tip: the header
+**The pause menu.** The menu covers the screen under the header
+(`top-[var(--shell-header-h)]`), like the start card and the orientation tip: the header
 stays in view and in use, and "Paused" never sits over its ghost. The
 menu has two break slots under its buttons: one for a trophy celebration,
 on every screen, and one for the install tip, on a tall screen only and
@@ -477,9 +477,12 @@ shared components and the profile pages use solid colors, not
 decorative gradients. `src/__tests__/no-design-tells.test.ts` enforces
 both rules.
 
-**The play box (layout under the shell):** the header is 48 px, and
-40 px on a short screen (`h-12 short:h-10`, the `short:` variant is
-`max-height: 480px`, a phone held sideways). The header height is never
+**The play box (layout under the shell):** the header height is the CSS
+variable `--shell-header-h` in `globals.css`: 48 px, and 44 px on a short
+screen (the `short:` variant is `max-height: 480px`, a phone held
+sideways). 44 px is the smallest size of a header button, so a button
+never hangs off the top of the screen. Every layer under the header reads
+the variable; nothing repeats the number. The header height is never
 keyed on the width: a phone held sideways is 844 px wide and is not a
 tablet. Under the header, GameShell renders one play box
 (`[data-play-box]`, `PLAY_BOX_CLASSES` in `GameShell.tsx`). The box is
@@ -510,8 +513,8 @@ selection. A game must not read `window.innerHeight` or use `100vh`,
   canvas on a phone held sideways). Nine canvas games scaled by width
   only, so a phone held sideways put the paddle below the screen.
 - A game root uses `h-full` or `min-h-full`, never `min-h-screen`. A
-  layer under the header keys its offset on `short:` (`top-12
-  short:top-10`), never on `md:`. A page with no shell (the home page,
+  layer under the header uses `top-[var(--shell-header-h)]`, never a
+  fixed number and never `md:`. A page with no shell (the home page,
   the profile) uses `min-h-dvh`. `src/__tests__/play-box-roots.test.ts`
   reads every game, app, route and shared component and fails on a
   screen-height class or an `md:top-14` offset.

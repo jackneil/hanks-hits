@@ -43,7 +43,7 @@ export function MobileControls({ setNitro }: MobileControlsProps) {
   );
 
   return (
-    <div data-testid="hill-climb-touch" className="fixed inset-x-0 bottom-0 top-12 short:top-10 pointer-events-none z-30">
+    <div data-testid="hill-climb-touch" className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] pointer-events-none z-30">
       {/* Left corner: brake */}
       <div
         data-testid="hill-climb-brake-chip"

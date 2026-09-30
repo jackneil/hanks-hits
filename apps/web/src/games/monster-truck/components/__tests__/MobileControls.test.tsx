@@ -35,7 +35,7 @@ describe("Monster Truck MobileControls", () => {
 
     // The old layer was fixed inset-0 with TILT at top-4: inside the
     // 48 px header box, under the header.
-    expect(layer).toHaveClass("fixed", "inset-x-0", "bottom-0", "top-12", "short:top-10");
+    expect(layer).toHaveClass("fixed", "inset-x-0", "bottom-0", "top-[var(--shell-header-h)]");
     expect(layer).not.toHaveClass("inset-0");
   });
 

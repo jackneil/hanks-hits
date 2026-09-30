@@ -18,7 +18,7 @@ interface FourWheelerAdventureGameProps {
  * asset and shown full-screen in an iframe rather than ported to React,
  * to preserve exact behavior with zero risk of gameplay regressions.
  *
- * Layout note: GameShell renders a fixed header (h-12 short:h-10) above
+ * Layout note: GameShell renders a fixed header (--shell-header-h) above
  * all game content. Hank's game draws its own HUD (score/speed badges) at
  * a fixed `top: 14px` *inside its own document*, so if this iframe covered
  * the full viewport, the shell header would sit on top of and obscure that

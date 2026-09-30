@@ -36,10 +36,10 @@ export function GameUI({ fuel, maxFuel, nitro, maxNitro, nitroActive, distance, 
   const isNitroLow = nitroPercent < 20;
 
   return (
-    // Anchored BELOW the GameShell header (fixed, h-12 short:h-10, z-[1000]):
+    // Anchored BELOW the GameShell header (fixed, --shell-header-h, z-[1000]):
     // a plain inset-0 layer put the pause button and stat boxes underneath
     // it, which made pause unreachable by touch or mouse.
-    <div data-testid="hill-climb-hud" className="fixed inset-x-0 bottom-0 top-12 short:top-10 pointer-events-none z-40">
+    <div data-testid="hill-climb-hud" className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] pointer-events-none z-40">
       <div className="absolute inset-x-2 top-2 flex items-start justify-between gap-2 short:top-1.5">
         {/* Left: distance, then the coins of this run and the total */}
         <div className="flex min-w-0 flex-col gap-1.5 short:flex-row short:items-start short:gap-1.5">

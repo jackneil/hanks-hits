@@ -53,6 +53,7 @@ export function PauseSheet({ onGoToGarage }: PauseSheetProps) {
       title={PAUSE_SHEET_LABELS.title}
       emoji="⏸️"
       testId="hill-climb-pause"
+      shellActions
       spokenText={`Paused. Hill Climb Racing. Keep driving. Garage. Go Home. Lean speed ${leanSensitivity.toFixed(1)}. Sound ${soundEnabled ? 'on' : 'off'}.`}
       actions={
         <>

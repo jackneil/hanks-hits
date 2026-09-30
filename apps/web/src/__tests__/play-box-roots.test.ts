@@ -9,9 +9,12 @@ import { describe, expect, it } from "vitest";
 // every route and a drag on the game panned the page. A root uses h-full
 // or min-h-full: the play box has the height, in dvh.
 //
-// The header is 48 px, and 40 px on a short screen (h-12 short:h-10). It
-// is never 56 px: a class keyed on md: for the old md:h-14 header (md:top-14,
-// md:pt-14, md:h-14) is stale and puts a layer 8 px low on a desktop.
+// The header height is one CSS variable, --shell-header-h in globals.css:
+// 48 px, and 44 px on a short screen. A layer under the header uses
+// top-[var(--shell-header-h)]; a literal number drifts (the short header was
+// once 40 px with 44 px buttons, so each button hung 2 px off the screen).
+// A class keyed on md: for the old md:h-14 header (md:top-14, md:pt-14,
+// md:h-14) is stale and puts a layer 8 px low on a desktop.
 //
 // This test reads the source, because jsdom applies no CSS.
 
@@ -32,6 +35,17 @@ const SCREEN_HEIGHT = [
 
 /** Offsets for the old 56 px desktop header. */
 const OLD_HEADER = /\bmd:(?:top|pt|h|min-h)-14\b/;
+
+/**
+ * A header height written as a number: the old short header (short:top-10,
+ * short:pt-10, short:h-10), a fixed layer at top-12, or play box math with
+ * 3rem. Each must read --shell-header-h instead.
+ */
+const LITERAL_HEADER = [
+  /\bshort:(?:top|pt|h)-10\b/,
+  /\bfixed\b[^"'`]*\btop-12\b/,
+  /100dvh-(?:3|2\.5)rem/,
+];
 
 /**
  * Files with a screen-height rule that is not a root in the play box.
@@ -111,8 +125,22 @@ describe("game and app roots fill the play box", () => {
     const hits = scan([OLD_HEADER]);
     expect(
       hits,
-      `The header is h-12 short:h-10, never md:h-14. Key the offset on short: (top-12 short:top-10), or fill the play box:\n${report(hits)}`
+      `The header is --shell-header-h, never md:h-14. Use top-[var(--shell-header-h)], or fill the play box:\n${report(hits)}`
     ).toEqual([]);
+  });
+
+  it("no layer writes the header height as a number (it reads --shell-header-h)", () => {
+    const hits = scan(LITERAL_HEADER);
+    expect(
+      hits,
+      `Use top-[var(--shell-header-h)] (or pt-/h- with the variable) for a layer under the header:\n${report(hits)}`
+    ).toEqual([]);
+  });
+
+  it("the header variable is 48 px, and 44 px (a whole button) on a short screen", () => {
+    const css = readFileSync(path.join(SRC, "app", "globals.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toMatch(/:root\s*\{[^}]*--shell-header-h:\s*3rem/);
+    expect(css).toMatch(/@media\s*\(max-height:\s*480px\)\s*\{\s*:root\s*\{[^}]*--shell-header-h:\s*2\.75rem/);
   });
 
   it("every exemption still has a screen-height rule (a stale entry hides a new root)", () => {
@@ -135,11 +163,18 @@ describe("game and app roots fill the play box", () => {
     for (const good of [
       'className="min-h-full bg-black p-4"',
       'className="flex h-full w-full flex-col"',
-      'className="fixed inset-x-0 bottom-0 top-12 short:top-10"',
+      'className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)]"',
       "transform: translateY(100vh) rotate(720deg);",
       'className="w-full max-w-2xl md:max-w-[min(42rem,calc(100vh_-_27rem))]"',
     ]) {
-      expect([...SCREEN_HEIGHT, OLD_HEADER].some((p) => p.test(good)), good).toBe(false);
+      expect([...SCREEN_HEIGHT, OLD_HEADER, ...LITERAL_HEADER].some((p) => p.test(good)), good).toBe(false);
+    }
+    for (const bad of [
+      'className="fixed inset-x-0 bottom-0 top-12 short:top-10"',
+      'className="relative w-full h-[calc(100dvh-3rem-var(--bottom-sheet-space,0px))]"',
+      'className="pt-12 short:pt-10"',
+    ]) {
+      expect(LITERAL_HEADER.some((p) => p.test(bad)), bad).toBe(true);
     }
   });
 });

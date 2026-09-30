@@ -29,9 +29,8 @@ describe("GameShell play box", () => {
     const root = shellRoot();
     expect(root.className).toContain("min-h-[calc(100dvh-var(--bottom-sheet-space,0px))]");
     expect(root.className).not.toMatch(/min-h-screen|100vh/);
-    // The header room: 48 px, 40 px on a short screen (a phone sideways).
-    expect(root.className).toMatch(/(^|\s)pt-12(\s|$)/);
-    expect(root.className).toMatch(/(^|\s)short:pt-10(\s|$)/);
+    // The header room: --shell-header-h (48 px, 44 px on a short screen).
+    expect(root.className.split(/\s+/)).toContain("pt-[var(--shell-header-h)]");
     expect(root.className).not.toMatch(/md:pt-14/);
   });
 
@@ -62,8 +61,7 @@ describe("GameShell play box", () => {
     expect(box).toHaveAttribute(PLAY_BOX_ATTR);
     expect(within(box).getByTestId("game")).toBeInTheDocument();
     expect(box.className).toBe(PLAY_BOX_CLASSES);
-    expect(box.className).toContain("h-[calc(100dvh-3rem-var(--bottom-sheet-space,0px))]");
-    expect(box.className).toContain("short:h-[calc(100dvh-2.5rem-var(--bottom-sheet-space,0px))]");
+    expect(box.className).toContain("h-[calc(100dvh-var(--shell-header-h)-var(--bottom-sheet-space,0px))]");
     expect(box.className).not.toMatch(/md:h-|100vh|h-full/);
     expect(box.className).toMatch(/(^|\s)overflow-y-auto(\s|$)/);
     expect(box.className).toMatch(/(^|\s)overscroll-contain(\s|$)/);
@@ -126,16 +124,15 @@ describe("GameShell play box", () => {
 });
 
 describe("GameShell header height", () => {
-  it("is 48 px, and 40 px on a short screen, never keyed on the width", () => {
+  it("is --shell-header-h (48 px, and 44 px on a short screen), never keyed on the width", () => {
     render(
       <GameShell gameName="Snake">
         <div>game</div>
       </GameShell>
     );
     const header = screen.getByTestId("game-shell-header");
-    expect(HEADER_HEIGHT_CLASSES).toBe("h-12 short:h-10");
-    expect(header.className).toMatch(/(^|\s)h-12(\s|$)/);
-    expect(header.className).toMatch(/(^|\s)short:h-10(\s|$)/);
+    expect(HEADER_HEIGHT_CLASSES).toBe("h-[var(--shell-header-h)]");
+    expect(header.className.split(/\s+/)).toContain("h-[var(--shell-header-h)]");
     // An 844 px wide phone held sideways is not a tablet: the md: (768 px)
     // key made the header 56 px there.
     expect(header.className).not.toMatch(/md:h-14/);
