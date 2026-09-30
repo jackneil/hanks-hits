@@ -4,7 +4,6 @@ import {
   type Player,
   type Position,
   type Wall,
-  type WallOrientation,
   type GameStatus,
   BOARD_SIZE,
   getGoalRow,
