@@ -7,6 +7,7 @@ import * as THREE from "three";
 import type { AdventureProgress, PlotBuilding } from "../lib/adventureTypes";
 import { useFourWheeler3dStore } from "../lib/store";
 import { useAdventureSession } from "../lib/adventureSession";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { LAND_PLOTS } from "../lib/landmarks";
 import { BUILD_PRICES, LAND_UPGRADE_PRICES } from "../lib/catalog";
 import { heightAt } from "../lib/terrain";
@@ -390,6 +391,9 @@ export function Properties() {
   const adventure = useFourWheeler3dStore((s) => s.progress.adventure),
     mode = useFourWheeler3dStore((s) => s.mode);
   const position = useAdventureSession((s) => s.playerSnapshot);
+  // The land signs name the control: a phone has no E key.
+  const isCoarse = useCoarsePointer();
+  const useWord = isCoarse ? "Tap Use" : "Press E";
   useEffect(
     () =>
       useAdventureSession.subscribe((s, previous) => {
@@ -522,7 +526,7 @@ export function Properties() {
               <group position={[plot.x, heightAt(plot.x, plot.z), plot.z]}>
                 <Sign
                   label={`LAND ${plot.id.split("-")[1]} FOR SALE`}
-                  detail="$6,000 · Walk up and press E"
+                  detail={`$6,000 · Walk up. ${useWord}`}
                 />
               </group>
             ) : (
@@ -539,7 +543,7 @@ export function Properties() {
                     detail={
                       p.sizeLevel === 4
                         ? `${Math.round(size)} m across`
-                        : `$${LAND_UPGRADE_PRICES[p.sizeLevel].toLocaleString("en-US")} · Press E`
+                        : `$${LAND_UPGRADE_PRICES[p.sizeLevel].toLocaleString("en-US")} · ${useWord}`
                     }
                     color="#7e6643"
                   />

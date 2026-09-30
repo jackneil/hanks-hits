@@ -15,15 +15,41 @@ import {
 } from "./lib/constants";
 import { getLevel, getTotalLevels } from "./lib/levels";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { useTouchInput } from "@/shared/hooks/useTouchInput";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+
+/**
+ * A finger that moves less than this (CSS px) before it lifts is a tap; more
+ * is a drag that steers the paddle and must not launch the ball.
+ */
+export const TAP_SLOP_PX = 12;
+
+/** The canvas overlay lines, branched by pointer type: a phone has no Space. */
+export function getCanvasCopy(isCoarse: boolean) {
+  return isCoarse
+    ? {
+        launch: "Tap to Launch!",
+        resume: "Tap to Resume",
+        playAgain: "Tap to Play Again!",
+        nextLevel: "Tap for Next Level!",
+      }
+    : {
+        launch: "Tap or Press Space to Launch!",
+        resume: "Tap or Press Space to Resume",
+        playAgain: "Tap or Press Space to Play Again!",
+        nextLevel: "Tap or Press Space for Next Level!",
+      };
+}
 
 // ============================================
 // CANVAS RENDERER
 // ============================================
 function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   const store = useBreakoutStore();
+  const isCoarse = useCoarsePointer();
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -33,6 +59,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
     if (!ctx) return;
 
     const { paddle, balls, bricks, powerUps, particles, score, lives, level, status, activePowerUps } = store;
+    const copy = getCanvasCopy(isCoarse);
 
     // Clear canvas
     ctx.fillStyle = COLORS.BACKGROUND;
@@ -178,7 +205,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
       ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
       ctx.font = "16px Arial";
       ctx.textAlign = "center";
-      ctx.fillText("Tap or Press Space to Launch!", CANVAS_WIDTH / 2, CANVAS_HEIGHT - 80);
+      ctx.fillText(copy.launch, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 80);
     }
 
     // Draw overlays for game states
@@ -192,7 +219,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
       ctx.fillText("PAUSED", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
 
       ctx.font = "18px Arial";
-      ctx.fillText("Tap or Press Space to Resume", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+      ctx.fillText(copy.resume, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
     }
 
     if (status === "game-over") {
@@ -213,7 +240,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
 
       ctx.fillStyle = "#22c55e";
       ctx.font = "bold 20px Arial";
-      ctx.fillText("Tap or Press Space to Play Again!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
+      ctx.fillText(copy.playAgain, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
     }
 
     if (status === "level-complete") {
@@ -231,15 +258,15 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
       if (level < getTotalLevels()) {
         ctx.fillStyle = "#fbbf24";
         ctx.font = "bold 20px Arial";
-        ctx.fillText("Tap or Press Space for Next Level!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
+        ctx.fillText(copy.nextLevel, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
       } else {
         ctx.fillStyle = "#fbbf24";
         ctx.font = "bold 20px Arial";
         ctx.fillText("You Beat All Levels! Amazing!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
-        ctx.fillText("Tap or Press Space to Play Again!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
+        ctx.fillText(copy.playAgain, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 90);
       }
     }
-  }, [canvasRef, store]);
+  }, [canvasRef, store, isCoarse]);
 
   return render;
 }
@@ -331,30 +358,6 @@ function GameCanvas() {
     return () => window.removeEventListener("pointermove", handleWindowPointerMove);
   }, [movePaddle, scale]);
 
-  // Touch drag for mobile. React attaches its synthetic onTouchMove as a
-  // PASSIVE listener, so calling preventDefault there logs
-  // "Unable to preventDefault inside passive event listener" every frame and
-  // does nothing - the page scrolls / pull-to-refreshes mid-drag on a real
-  // phone. Attaching our own non-passive listener (like arkanoid does) lets
-  // preventDefault actually stop the scroll.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const handleTouchMove = (e: TouchEvent) => {
-      e.preventDefault();
-      // Nothing moves while the start overlay is up.
-      if (useBreakoutStore.getState().status !== "playing") return;
-      const touch = e.touches[0];
-      if (!touch) return;
-      const rect = canvas.getBoundingClientRect();
-      movePaddle(touchXToCanvasX(touch.clientX, rect.left, scale));
-    };
-
-    canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
-    return () => canvas.removeEventListener("touchmove", handleTouchMove);
-  }, [movePaddle, scale]);
-
   // Handle clicks/taps
   // "idle" is the start state and the shared start overlay owns it, so a tap
   // on the overlay's Play button can never also launch the ball.
@@ -376,6 +379,30 @@ function GameCanvas() {
       }
     }
   }, [status, store.balls, store.level, startGame, launchBall, resumeGame, nextLevel]);
+
+  // Finger input through the shared native touch hook (non-passive, so the
+  // page never scrolls or pull-to-refreshes under a drag, and the browser
+  // sends no compatibility click). A drag steers the paddle; only a finger
+  // that lifts where it landed is a tap. The canvas used to carry onClick AND
+  // onTouchStart with the same handler, so the first touch launched the ball
+  // at once (before the kid could place the paddle) and again on the click:
+  // a game-over tap restarted AND launched the new ball.
+  useTouchInput(canvasRef, {
+    onMove: (touch) => {
+      // Nothing moves while the start overlay is up.
+      if (useBreakoutStore.getState().status !== "playing") return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      movePaddle(touchXToCanvasX(touch.x, rect.left, scale));
+    },
+    onEnd: (touch, event) => {
+      // A cancel (event null) is never a tap.
+      if (!event) return;
+      const moved = Math.hypot(touch.x - touch.startX, touch.y - touch.startY);
+      if (moved <= TAP_SLOP_PX) handleClick();
+    },
+  });
 
   // Keyboard controls
   useEffect(() => {
@@ -433,8 +460,9 @@ function GameCanvas() {
           width: CANVAS_WIDTH * scale,
           height: CANVAS_HEIGHT * scale,
         }}
+        // Mouse only: a finger's touchend is default-prevented above, so the
+        // browser sends no click for it.
         onClick={handleClick}
-        onTouchStart={handleClick}
       />
 
       {/* Shared DOM start screen (renders the title once) */}
@@ -544,6 +572,7 @@ function SettingsPanel() {
 export function BreakoutGame() {
   const store = useBreakoutStore();
   const { status, progress } = store;
+  const isCoarse = useCoarsePointer();
 
   // Sync with auth system
   const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
@@ -571,9 +600,14 @@ export function BreakoutGame() {
       <GameCanvas />
 
       {/* Controls hint */}
+      {/* Keyed on the pointer, never on a width breakpoint: a phone held
+          sideways is wider than md and still has no keyboard. */}
       <div className="text-center text-purple-200 text-sm">
-        <span className="hidden md:inline">Slide mouse left/right to steer | Arrow keys work too | Space to launch | ESC to pause</span>
-        <span className="md:hidden">Drag to move paddle | Tap to launch</span>
+        {isCoarse ? (
+          <span>Drag to move paddle | Tap to launch</span>
+        ) : (
+          <span>Slide mouse left/right to steer | Arrow keys work too | Space to launch | ESC to pause</span>
+        )}
       </div>
 
       {/* Settings */}

@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { useTouchInput } from "@/shared/hooks/useTouchInput";
+import { usePointerTap } from "@/shared/lib/input";
 import { useArkanoidStore, type Ball } from "./lib/store";
 import { BALL_CONFIG, PHYSICS, PADDLE, WALLS, GAME, GRID, getSpawnedBallType } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
@@ -49,33 +52,39 @@ export function ArkanoidGame() {
     }
   }, [gameState, forceSync]);
 
-  // Mouse/touch handlers for paddle
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const isCoarse = useCoarsePointer();
 
-    const handleMove = (clientX: number) => {
+  // The paddle follows the pointer's x across the canvas.
+  const movePaddleTo = useCallback(
+    (clientX: number) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const x = ((clientX - rect.left) / rect.width) * 2 - 1;
       setPaddleX(x);
-    };
+    },
+    [setPaddleX]
+  );
 
-    const handleMouseMove = (e: MouseEvent) => handleMove(e.clientX);
-    const handleTouchMove = (e: TouchEvent) => {
-      e.preventDefault();
-      if (e.touches.length > 0) {
-        handleMove(e.touches[0].clientX);
-      }
-    };
-
+  // Mouse: a plain mousemove on the canvas.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handleMouseMove = (e: MouseEvent) => movePaddleTo(e.clientX);
     canvas.addEventListener("mousemove", handleMouseMove);
-    canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
+    return () => canvas.removeEventListener("mousemove", handleMouseMove);
+  }, [movePaddleTo]);
 
-    return () => {
-      canvas.removeEventListener("mousemove", handleMouseMove);
-      canvas.removeEventListener("touchmove", handleTouchMove);
-    };
-  }, [setPaddleX]);
+  // Finger: the shared native touch hook (non-passive, so the page never
+  // scrolls under a drag) follows each finger by its own identifier.
+  useTouchInput(canvasRef, {
+    onMove: (touch) => movePaddleTo(touch.x),
+  });
+
+  // One tap = one launch, for a finger or a mouse. The canvas used to carry
+  // onClick AND onTouchStart, so a finger tap launched on touchstart and
+  // again on the compatibility click.
+  const launchTap = usePointerTap<HTMLCanvasElement>(() => launchBall());
 
   // Keyboard controls: Space launches the resting balls, arrows nudge the
   // paddle. Pause / ESC is owned by the GameShell, so we don't handle it here
@@ -421,15 +430,14 @@ export function ArkanoidGame() {
           ref={canvasRef}
           className="h-full w-full cursor-none"
           style={{ touchAction: "none" }}
-          onClick={() => launchBall()}
-          onTouchStart={() => launchBall()}
+          {...launchTap}
         />
 
         {/* Launch hint - shown while the balls rest on the paddle */}
         {waitingToLaunch && (
           <div className="pointer-events-none absolute inset-x-0 bottom-28 flex justify-center px-4">
             <div className="animate-pulse rounded-full bg-slate-800/90 px-5 py-2 text-center text-base font-bold text-white shadow-lg md:text-lg">
-              👆 Click or press Space to launch!
+              {isCoarse ? "👆 Tap to launch!" : "👆 Click or press Space to launch!"}
             </div>
           </div>
         )}

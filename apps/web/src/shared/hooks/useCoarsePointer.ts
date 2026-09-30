@@ -5,6 +5,19 @@ import { useEffect, useState } from "react";
 const COARSE_QUERY = "(pointer: coarse)";
 
 /**
+ * The same answer as useCoarsePointer, read once, for code that runs
+ * outside a React render (a store action, a game loop, a hint set from a
+ * runtime module). False on the server. Prefer the hook in a component: it
+ * re-renders when the pointer changes.
+ */
+export function isCoarsePointer(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  return window.matchMedia(COARSE_QUERY).matches;
+}
+
+/**
  * True when the PRIMARY pointer is coarse (finger on a touchscreen),
  * false for mouse/trackpad viewports. Live-updates if the primary
  * pointer changes (e.g. a convertible laptop flipping to tablet mode).

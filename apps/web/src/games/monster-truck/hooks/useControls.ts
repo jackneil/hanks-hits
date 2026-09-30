@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { usePointerHolds } from "@/shared/hooks/useTouchInput";
 
 // ============================================================================
 // TYPES
@@ -189,6 +190,8 @@ const initialTouchControlState: TouchControlState = {
   horn: false,
 };
 
+const TOUCH_CONTROLS = ['gas', 'brake', 'left', 'right', 'nos', 'horn'] as const;
+
 export function useTouchControls() {
   const stateRef = useRef<TouchControlState>({ ...initialTouchControlState });
   const [state, setState] = useState<TouchControlState>(initialTouchControlState);
@@ -198,20 +201,20 @@ export function useTouchControls() {
     setState({ ...stateRef.current });
   }, []);
 
-  const createHandlers = useCallback((control: keyof TouchControlState) => ({
-    onTouchStart: (e: React.TouchEvent) => {
-      e.preventDefault();
-      updateState({ [control]: true });
-    },
-    onTouchEnd: (e: React.TouchEvent) => {
-      e.preventDefault();
-      updateState({ [control]: false });
-    },
-    onTouchCancel: () => updateState({ [control]: false }),
-    onMouseDown: () => updateState({ [control]: true }),
-    onMouseUp: () => updateState({ [control]: false }),
-    onMouseLeave: () => updateState({ [control]: false }),
-  }), [updateState]);
+  // Pointer events through the shared pointer hold (the four-wheeler-3d
+  // pattern): one press per button however many fingers, pointer capture so
+  // a thumb that slides off still releases, a release on pointercancel and
+  // on unmount. The old handlers were React onTouchStart/onTouchEnd with a
+  // preventDefault() that React's passive listeners ignored (an error on
+  // every press) plus onMouseDown/Up/Leave on the same button, so a tap
+  // also fired the compatibility mouse events: a double set and unset.
+  // The shared pad hook also lets go of every pedal when the page loses
+  // focus (a call, the app switcher) and when the controls unmount.
+  const pad = usePointerHolds<keyof TouchControlState, HTMLButtonElement>(
+    TOUCH_CONTROLS,
+    (control, down) => updateState({ [control]: down })
+  );
+  const handlers = pad.handlers;
 
   const getControlValues = useCallback((): ControlValues => {
     const s = stateRef.current;
@@ -227,14 +230,7 @@ export function useTouchControls() {
   return {
     state,
     getControlValues,
-    handlers: {
-      gas: createHandlers('gas'),
-      brake: createHandlers('brake'),
-      left: createHandlers('left'),
-      right: createHandlers('right'),
-      nos: createHandlers('nos'),
-      horn: createHandlers('horn'),
-    },
+    handlers,
   };
 }
 

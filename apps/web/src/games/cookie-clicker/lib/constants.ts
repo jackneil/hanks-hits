@@ -411,21 +411,21 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: "clicker",
     name: "Clicker",
-    description: "Click the cookie 100 times",
+    description: "Tap the cookie 100 times",
     condition: "clicks",
     threshold: 100,
   },
   {
     id: "double-click",
     name: "Double Click",
-    description: "Click the cookie 500 times",
+    description: "Tap the cookie 500 times",
     condition: "clicks",
     threshold: 500,
   },
   {
     id: "mouse-destroyer",
     name: "Mouse Destroyer",
-    description: "Click the cookie 1,000 times",
+    description: "Tap the cookie 1,000 times",
     condition: "clicks",
     threshold: 1000,
     cpsBonus: 1,
@@ -433,7 +433,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: "carpal-tunnel-syndrome",
     name: "Carpal Tunnel Pro",
-    description: "Click the cookie 5,000 times",
+    description: "Tap the cookie 5,000 times",
     condition: "clicks",
     threshold: 5000,
     cpsBonus: 1,
@@ -441,7 +441,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: "finger-of-steel",
     name: "Finger of Steel",
-    description: "Click the cookie 10,000 times",
+    description: "Tap the cookie 10,000 times",
     condition: "clicks",
     threshold: 10000,
     cpsBonus: 2,

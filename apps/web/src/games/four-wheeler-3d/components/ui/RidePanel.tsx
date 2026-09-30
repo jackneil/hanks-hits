@@ -5,13 +5,22 @@ import { isWaterVehicle, isAirVehicle, OFFERS } from "../../lib/catalog";
 import { canSwitchRide } from "../../lib/rideTransitions";
 import { canWalkDeck } from "../../lib/transport";
 import { tuningFor } from "../../lib/vehicles";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 export function RidePanel() {
   const p = useFourWheeler3dStore((s) => s.progress),
     mode = useFourWheeler3dStore((s) => s.mode),
     session = useAdventureSession();
+  const isCoarse = useCoarsePointer();
   const v = p.adventure.fleet[p.adventure.activeVehicleId ?? ""];
-  if (!v) return <p>Walk up to a ride and press E to get started.</p>;
+  if (!v)
+    return (
+      <p>
+        {isCoarse
+          ? "Walk up to a ride and tap Use to get started."
+          : "Walk up to a ride and press E to get started."}
+      </p>
+    );
   if (!["vehicle", "boat", "aircraft", "deck"].includes(mode))
     return (
       <div>

@@ -20,6 +20,8 @@ import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { getInstructionLines } from "./lib/instructions";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { useTouchInput } from "@/shared/hooks/useTouchInput";
 
 export function EndlessRunnerGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,6 +29,7 @@ export function EndlessRunnerGame() {
   const animationFrameRef = useRef<number | undefined>(undefined);
   const lastTimeRef = useRef<number>(0);
   const [scale, setScale] = useState(1);
+  const isCoarse = useCoarsePointer();
 
   const store = useEndlessRunnerStore();
 
@@ -537,29 +540,32 @@ export function EndlessRunnerGame() {
     };
   }, [handleTap, gameState, startDuck, stopDuck]);
 
-  // Touch controls for mobile
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // Touch controls through the shared native touch hook: non-passive
+  // listeners (the old React onTouchStart/onTouchEnd called preventDefault,
+  // a no-op in React's passive listeners that logged an error on every tap),
+  // and one zone per finger. A thumb holding the duck zone stays ducked
+  // while the other thumb taps to jump; only the duck finger lifting stands
+  // the runner up.
+  useTouchInput<"duck" | "jump">(canvasRef, {
+    onStart: (touch) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const canvasY = (touch.startY - rect.top) / scale;
 
-    const rect = canvas.getBoundingClientRect();
-    const y = touch.clientY - rect.top;
-    const canvasY = y / scale;
-
-    // Bottom third of screen = duck, rest = jump
-    if (canvasY > CANVAS_HEIGHT * 0.7 && gameState === "playing") {
-      startDuck();
-    } else {
-      handleTap();
-    }
-  }, [handleTap, gameState, startDuck, scale]);
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    e.preventDefault();
-    stopDuck();
-  }, [stopDuck]);
+      // Bottom third of screen = duck, rest = jump
+      if (canvasY > CANVAS_HEIGHT * 0.7 && gameState === "playing") {
+        touch.tag = "duck";
+        startDuck();
+      } else {
+        touch.tag = "jump";
+        handleTap();
+      }
+    },
+    onEnd: (touch) => {
+      if (touch.tag === "duck") stopDuck();
+    },
+  });
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
@@ -577,9 +583,9 @@ export function EndlessRunnerGame() {
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
+          // Mouse only: a finger's touch events are default-prevented by the
+          // hook above, so the browser sends no click for a tap.
           onClick={handleTap}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
           className="rounded-lg shadow-2xl cursor-pointer touch-none"
           style={{
             width: CANVAS_WIDTH * scale,
@@ -614,10 +620,12 @@ export function EndlessRunnerGame() {
         <p>Games: {progress.gamesPlayed} | Total Distance: {Math.floor(progress.totalDistance)}m</p>
       </div>
 
-      {/* Mobile controls hint */}
-      <div className="mt-2 text-center text-white/60 text-xs md:hidden">
-        <p>Tap top to jump, tap bottom to duck</p>
-      </div>
+      {/* Touch hint: keyed on the pointer, never on a width breakpoint */}
+      {isCoarse && (
+        <div className="mt-2 text-center text-white/60 text-xs">
+          <p>Tap top to jump, tap bottom to duck</p>
+        </div>
+      )}
     </div>
   );
 }

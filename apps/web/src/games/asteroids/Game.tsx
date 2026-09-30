@@ -10,7 +10,7 @@ import {
   COLORS,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { useCoarsePointer } from "@/shared/hooks";
+import { useCoarsePointer, usePointerHold } from "@/shared/hooks";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
@@ -427,45 +427,29 @@ export function AsteroidsGame() {
     };
   }, [store.status, store, grace]);
 
-  // Touch handlers for mobile buttons.
-  // No e.preventDefault() here: React attaches these synthetic touch listeners
-  // as PASSIVE, so preventDefault() logs "Unable to preventDefault inside
-  // passive event listener" and does nothing. Instead each button carries
-  // style={{ touchAction: 'none' }} to stop the page scrolling/pull-to-refresh
-  // (monster-truck MobileControls pattern).
-  const handleTouchStart = (action: string) => () => {
-    switch (action) {
-      case "left":
-        store.setInput({ rotatingLeft: true });
-        break;
-      case "right":
-        store.setInput({ rotatingRight: true });
-        break;
-      case "thrust":
-        store.setInput({ thrusting: true });
-        break;
-      case "fire":
-        store.setInput({ shooting: true });
-        break;
-    }
-  };
-
-  const handleTouchEnd = (action: string) => () => {
-    switch (action) {
-      case "left":
-        store.setInput({ rotatingLeft: false });
-        break;
-      case "right":
-        store.setInput({ rotatingRight: false });
-        break;
-      case "thrust":
-        store.setInput({ thrusting: false });
-        break;
-      case "fire":
-        store.setInput({ shooting: false });
-        break;
-    }
-  };
+  // The pad buttons are hold controls through the shared pointer hold: one
+  // press per button however many fingers, pointer capture so a thumb that
+  // slides off still releases, and a release on pointercancel, on window
+  // blur and on unmount. The buttons used to carry onTouchStart/onTouchEnd
+  // AND onMouseDown/Up/Leave with no touchcancel, so a system-cancelled
+  // touch (an edge swipe, the notification pull) left the thrust stuck on.
+  const setInput = store.setInput;
+  const leftHold = usePointerHold<HTMLButtonElement>(
+    () => setInput({ rotatingLeft: true }),
+    () => setInput({ rotatingLeft: false })
+  );
+  const thrustHold = usePointerHold<HTMLButtonElement>(
+    () => setInput({ thrusting: true }),
+    () => setInput({ thrusting: false })
+  );
+  const fireHold = usePointerHold<HTMLButtonElement>(
+    () => setInput({ shooting: true }),
+    () => setInput({ shooting: false })
+  );
+  const rightHold = usePointerHold<HTMLButtonElement>(
+    () => setInput({ rotatingRight: true }),
+    () => setInput({ rotatingRight: false })
+  );
 
   // Game over restarts only from the result chip's Play again (or Space): a
   // tap that was meant for a control at the moment of the last death must
@@ -557,46 +541,30 @@ export function AsteroidsGame() {
         inert={store.status !== "playing"}
       >
         <button
-          onTouchStart={handleTouchStart("left")}
-          onTouchEnd={handleTouchEnd("left")}
-          onMouseDown={() => store.setInput({ rotatingLeft: true })}
-          onMouseUp={() => store.setInput({ rotatingLeft: false })}
-          onMouseLeave={() => store.setInput({ rotatingLeft: false })}
-          style={{ touchAction: "none" }}
-          className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl"
+          type="button"
+          {...leftHold}
+          className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl touch-none select-none"
         >
           ↺
         </button>
         <button
-          onTouchStart={handleTouchStart("thrust")}
-          onTouchEnd={handleTouchEnd("thrust")}
-          onMouseDown={() => store.setInput({ thrusting: true })}
-          onMouseUp={() => store.setInput({ thrusting: false })}
-          onMouseLeave={() => store.setInput({ thrusting: false })}
-          style={{ touchAction: "none" }}
-          className="w-16 h-16 bg-orange-600 active:bg-orange-500 text-white text-2xl font-bold rounded-xl"
+          type="button"
+          {...thrustHold}
+          className="w-16 h-16 bg-orange-600 active:bg-orange-500 text-white text-2xl font-bold rounded-xl touch-none select-none"
         >
           🔥
         </button>
         <button
-          onTouchStart={handleTouchStart("fire")}
-          onTouchEnd={handleTouchEnd("fire")}
-          onMouseDown={() => store.setInput({ shooting: true })}
-          onMouseUp={() => store.setInput({ shooting: false })}
-          onMouseLeave={() => store.setInput({ shooting: false })}
-          style={{ touchAction: "none" }}
-          className="w-16 h-16 bg-yellow-600 active:bg-yellow-500 text-white text-2xl font-bold rounded-xl"
+          type="button"
+          {...fireHold}
+          className="w-16 h-16 bg-yellow-600 active:bg-yellow-500 text-white text-2xl font-bold rounded-xl touch-none select-none"
         >
           ●
         </button>
         <button
-          onTouchStart={handleTouchStart("right")}
-          onTouchEnd={handleTouchEnd("right")}
-          onMouseDown={() => store.setInput({ rotatingRight: true })}
-          onMouseUp={() => store.setInput({ rotatingRight: false })}
-          onMouseLeave={() => store.setInput({ rotatingRight: false })}
-          style={{ touchAction: "none" }}
-          className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl"
+          type="button"
+          {...rightHold}
+          className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl touch-none select-none"
         >
           ↻
         </button>

@@ -5,6 +5,7 @@ import { useFourWheeler3dStore } from "../../lib/store";
 import { useAdventureSession } from "../../lib/adventureSession";
 import { ANIMAL_TYPES, canAim, killValue } from "../../lib/hunting";
 import { OFFERS } from "../../lib/catalog";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 const names = Object.fromEntries(
   OFFERS.filter((o) => ["gear", "saddle"].includes(o.kind)).map((o) => [
@@ -165,6 +166,7 @@ export function HuntingScope() {
   const bow = useFourWheeler3dStore((s) => s.progress.adventure.hunting.useBow);
   const [pointer, setPointer] = useState({ x: 0.5, y: 0.5 });
   const aim = useRef(pointer);
+  const isCoarse = useCoarsePointer();
   const fire = () =>
     useAdventureSession
       .getState()
@@ -237,7 +239,11 @@ export function HuntingScope() {
   if (!scope || paused) return null;
   return (
     <div
-      aria-label="Hunting scope. Arrow keys aim, Enter tags, Escape lowers scope."
+      aria-label={
+        isCoarse
+          ? "Hunting scope. Drag to aim. Tap the field or the Tag button to tag. Tap Lower scope to lower it."
+          : "Hunting scope. Arrow keys aim, Enter tags, Escape lowers scope."
+      }
       className="fixed inset-0 z-40"
       style={{ touchAction: "none", cursor: "crosshair" }}
       onPointerMove={(event) => {
@@ -298,7 +304,7 @@ export function HuntingScope() {
         </button>
       </div>
       <p className="pointer-events-none absolute bottom-24 left-1/2 -translate-x-1/2 rounded bg-black/60 px-3 py-1 text-sm text-white">
-        Aim at the body. Tap or press Enter to tag.
+        {isCoarse ? "Aim at the body. Tap to tag." : "Aim at the body. Tap or press Enter to tag."}
       </p>
       <svg
         aria-hidden="true"

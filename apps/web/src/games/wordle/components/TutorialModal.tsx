@@ -2,6 +2,7 @@
 
 import { useWordleStore } from "../lib/store";
 import { LETTER_COLORS } from "../lib/constants";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 // Example tiles for demonstration
 const ExampleTile = ({
@@ -25,6 +26,7 @@ const ExampleTile = ({
 
 export function TutorialModal() {
   const { showTutorial, closeTutorial } = useWordleStore();
+  const isCoarse = useCoarsePointer();
 
   if (!showTutorial) return null;
 
@@ -102,8 +104,8 @@ export function TutorialModal() {
           </h3>
           <p className="text-slate-300">
             If the row <span className="font-bold text-red-400">shakes</span>{" "}
-            after you press Enter, it means that word isn&apos;t recognized. Try
-            a different real word!
+            {isCoarse ? "after you tap ENTER" : "after you press Enter"}, it
+            means that word isn&apos;t recognized. Try a different real word!
           </p>
         </div>
 

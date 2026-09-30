@@ -150,14 +150,15 @@ export function MobileControls({
           </div>
         </button>
 
-        {/* Horn button */}
+        {/* Horn button: the hold handlers plus one honk per press (it used
+            to honk on touchstart AND on the compatibility click). */}
         <button
+          type="button"
           {...handlers.horn}
-          onTouchStart={(e) => {
-            handlers.horn.onTouchStart(e);
+          onPointerDown={(e) => {
+            handlers.horn.onPointerDown(e);
             onHorn();
           }}
-          onClick={onHorn}
           className={`
             w-20 h-20 rounded-full
             flex flex-col items-center justify-center

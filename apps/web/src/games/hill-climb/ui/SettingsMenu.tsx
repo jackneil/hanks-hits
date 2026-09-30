@@ -6,6 +6,7 @@
  * Controls for lean sensitivity, sound, and music.
  */
 
+import { useCoarsePointer } from '@/shared/hooks';
 import { useHillClimbStore } from '../lib/store';
 
 interface SettingsMenuProps {
@@ -13,6 +14,7 @@ interface SettingsMenuProps {
 }
 
 export function SettingsMenu({ onBack }: SettingsMenuProps) {
+  const isCoarsePointer = useCoarsePointer();
   const {
     leanSensitivity,
     setLeanSensitivity,
@@ -112,7 +114,7 @@ export function SettingsMenu({ onBack }: SettingsMenuProps) {
 
         {/* Hint */}
         <div className="text-center mt-4 text-base-content/50 text-sm">
-          Press Escape to go back
+          {isCoarsePointer ? 'Tap Back to go back' : 'Press Escape to go back'}
         </div>
       </div>
     </div>

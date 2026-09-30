@@ -7,6 +7,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHillClimbStore } from '../lib/store';
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { createTouchInput } from "@/shared/hooks/useTouchInput";
+
+/**
+ * A touch that lands on one of these is a press on that control, never a
+ * gas or brake press: the header buttons, the NITRO button, the pause
+ * button, a form control, the shell's restart dialog, a menu and the
+ * rotate prompt. (The zones used to classify every touch on the window by
+ * clientX alone, so a finger resting on the "Restart game?" dialog drove
+ * the truck.)
+ */
+export const ZONE_IGNORE_SELECTOR =
+  'button, a, input, select, textarea, label, [role=button], [role=dialog], [role=menu], [role=menuitem], [data-testid=orientation-warning]';
 
 // =============================================================================
 // TYPES
@@ -191,68 +203,50 @@ export function useTouchControls(enabled = true): ControlState & { setNitro: (ac
     }));
   }, []);
 
-  const handleTouchStart = useCallback((e: TouchEvent) => {
-    const touches = e.changedTouches;
-    const screenWidth = window.innerWidth;
-
-    for (let i = 0; i < touches.length; i++) {
-      const touch = touches[i];
-      const isLeftZone = touch.clientX < screenWidth / 2;
-
-      touchZonesRef.current.set(touch.identifier, {
-        id: isLeftZone ? 'left' : 'right',
-        active: true,
-        startY: touch.clientY,
-        currentY: touch.clientY,
-      });
-    }
-
-    updateControlsFromTouches();
-  }, []);
-
-  const handleTouchMove = useCallback((e: TouchEvent) => {
-    const touches = e.changedTouches;
-
-    for (let i = 0; i < touches.length; i++) {
-      const touch = touches[i];
-      const zone = touchZonesRef.current.get(touch.identifier);
-
-      if (zone) {
-        zone.currentY = touch.clientY;
-      }
-    }
-
-    updateControlsFromTouches();
-  }, []);
-
-  const handleTouchEnd = useCallback((e: TouchEvent) => {
-    const touches = e.changedTouches;
-
-    for (let i = 0; i < touches.length; i++) {
-      touchZonesRef.current.delete(touches[i].identifier);
-    }
-
-    updateControlsFromTouches();
-  }, []);
+  // The zones live on the window through the shared native touch input:
+  // non-passive listeners, so a drag in a zone never scrolls the page and a
+  // tap in a zone sends no compatibility click (the old listeners were
+  // passive, and a swipe on the play field scrolled the page 48 px). Each
+  // finger is tracked by its own identifier. A finger that lands on a
+  // control (ZONE_IGNORE_SELECTOR) is never a zone press. The zones are off
+  // while the game is paused, so the pause sheet scrolls and a finger on it
+  // never drives the truck.
+  const isPaused = useHillClimbStore((state) => state.isPaused);
+  const zonesActive = enabled && !isPaused;
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!zonesActive) return;
     const touchZones = touchZonesRef.current;
-    window.addEventListener('touchstart', handleTouchStart, { passive: true });
-    window.addEventListener('touchmove', handleTouchMove, { passive: true });
-    window.addEventListener('touchend', handleTouchEnd, { passive: true });
-    window.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+    const input = createTouchInput<TouchZone['id']>(window, {
+      ignore: ZONE_IGNORE_SELECTOR,
+      onStart: (touch) => {
+        touch.tag = touch.startX < window.innerWidth / 2 ? 'left' : 'right';
+        touchZones.set(touch.id, {
+          id: touch.tag,
+          active: true,
+          startY: touch.startY,
+          currentY: touch.y,
+        });
+        updateControlsFromTouches();
+      },
+      onMove: (touch) => {
+        const zone = touchZones.get(touch.id);
+        if (zone) zone.currentY = touch.y;
+        updateControlsFromTouches();
+      },
+      onEnd: (touch) => {
+        touchZones.delete(touch.id);
+        updateControlsFromTouches();
+      },
+    });
 
     return () => {
-      window.removeEventListener('touchstart', handleTouchStart);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-      window.removeEventListener('touchcancel', handleTouchEnd);
+      input.detach();
       // Drop any finger still down: it must not drive the next run.
       touchZones.clear();
       setControls(IDLE_CONTROLS);
     };
-  }, [enabled, handleTouchStart, handleTouchMove, handleTouchEnd]);
+  }, [zonesActive, updateControlsFromTouches]);
 
   return { ...(enabled ? controls : IDLE_CONTROLS), setNitro };
 }

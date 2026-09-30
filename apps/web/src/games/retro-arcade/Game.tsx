@@ -10,6 +10,7 @@ import {
   type SystemInfo,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
 import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
@@ -78,6 +79,7 @@ function RomUploader({
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const store = useRetroArcadeStore();
+  const isCoarse = useCoarsePointer();
 
   const handleFile = useCallback(
     (file: File) => {
@@ -153,7 +155,9 @@ function RomUploader({
           Upload {system.name} ROM
         </h3>
         <p className="text-white/60 mb-4">
-          Drag & drop or click to select a ROM file
+          {isCoarse
+            ? "Tap Choose File to pick a game file"
+            : "Drag & drop or click to select a ROM file"}
         </p>
         <p className="text-white/40 text-sm mb-4">
           Supported: {system.extensions.join(", ")}

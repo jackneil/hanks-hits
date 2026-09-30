@@ -275,6 +275,7 @@ export function QuoridorGame() {
         {/* Expanded touch target - invisible hitbox */}
         {store.wallMode && (
           <div
+            data-testid={`groove-horizontal-${row}-${col}`}
             className="absolute cursor-pointer"
             style={{
               top: "-6px",
@@ -283,11 +284,16 @@ export function QuoridorGame() {
               right: "0",
               zIndex: Z_INDEX.TOUCH_TARGETS,
             }}
+            // One input path: the tap places the wall. The hover preview is a
+            // mouse affordance (a finger's preview was set on touchstart and
+            // cleared on touchend, before anyone could see it).
             onClick={() => handleGrooveClick(row, col, "horizontal")}
-            onTouchStart={() => handleGrooveHover(row, col, "horizontal")}
-            onMouseEnter={() => handleGrooveHover(row, col, "horizontal")}
-            onMouseLeave={() => store.setWallPreview(null)}
-            onTouchEnd={() => store.setWallPreview(null)}
+            onPointerEnter={(e) => {
+              if (e.pointerType === "mouse") handleGrooveHover(row, col, "horizontal");
+            }}
+            onPointerLeave={(e) => {
+              if (e.pointerType === "mouse") store.setWallPreview(null);
+            }}
           />
         )}
 
@@ -353,6 +359,7 @@ export function QuoridorGame() {
         {/* Expanded touch target - invisible hitbox */}
         {store.wallMode && (
           <div
+            data-testid={`groove-vertical-${row}-${col}`}
             className="absolute cursor-pointer"
             style={{
               top: "0",
@@ -361,11 +368,14 @@ export function QuoridorGame() {
               right: "-6px",
               zIndex: Z_INDEX.TOUCH_TARGETS,
             }}
+            // One input path: see the horizontal groove above.
             onClick={() => handleGrooveClick(row, col, "vertical")}
-            onTouchStart={() => handleGrooveHover(row, col, "vertical")}
-            onMouseEnter={() => handleGrooveHover(row, col, "vertical")}
-            onMouseLeave={() => store.setWallPreview(null)}
-            onTouchEnd={() => store.setWallPreview(null)}
+            onPointerEnter={(e) => {
+              if (e.pointerType === "mouse") handleGrooveHover(row, col, "vertical");
+            }}
+            onPointerLeave={(e) => {
+              if (e.pointerType === "mouse") store.setWallPreview(null);
+            }}
           />
         )}
 

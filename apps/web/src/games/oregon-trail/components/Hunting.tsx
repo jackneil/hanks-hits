@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useOregonTrailStore } from "../lib/store";
 import { useHuntPauseStore } from "../lib/huntPause";
 import { HUNTING_TIME, MAX_CARRY_WEIGHT } from "../lib/constants";
+import { usePointerTap, type TapEvent } from "@/shared/lib/input";
 
 // Animal configurations
 const ANIMAL_CONFIG = {
@@ -148,8 +149,8 @@ export function Hunting() {
     return () => clearInterval(spawn);
   }, [time, paused]);
 
-  // Update cursor position
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // The crosshair follows the pointer: one handler for a mouse and a finger.
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect) {
       setCursorPos({
@@ -159,35 +160,21 @@ export function Hunting() {
     }
   }, []);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (rect && e.touches[0]) {
-      setCursorPos({
-        x: e.touches[0].clientX - rect.left,
-        y: e.touches[0].clientY - rect.top,
-      });
-    }
-  }, []);
-
-  // Shooting logic
-  const shoot = useCallback((e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+  // Shooting logic. One tap = one shot: the field used to carry onClick AND
+  // onTouchStart, so a finger tap fired on touchstart and again on the
+  // compatibility click and spent two bullets.
+  const shoot = useCallback((e: TapEvent<HTMLDivElement>) => {
     if (time <= 0) return;
     if (supplies.ammunition - ammo <= 0) return;
 
-    // Get click position
+    // Get tap position
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    let clickX: number, clickY: number;
-    if ("touches" in e && e.touches[0]) {
-      clickX = e.touches[0].clientX - rect.left;
-      clickY = e.touches[0].clientY - rect.top;
-    } else if ("clientX" in e) {
-      clickX = e.clientX - rect.left;
-      clickY = e.clientY - rect.top;
-    } else {
-      return;
-    }
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    // A tap also places the crosshair (it used to sit at 0,0 until a drag).
+    setCursorPos({ x: clickX, y: clickY });
 
     // Trigger recoil animation
     setRecoil(true);
@@ -246,6 +233,9 @@ export function Hunting() {
       ]);
     }
   }, [time, supplies.ammunition, ammo, food]);
+
+  // One shot per tap for a finger, a mouse, or Enter on the focused field.
+  const shootTap = usePointerTap<HTMLDivElement>(shoot);
 
   // Animation loop
   useEffect(() => {
@@ -535,12 +525,11 @@ export function Hunting() {
   return (
     <div
       ref={containerRef}
-      className="min-h-screen bg-green-900 relative select-none overflow-hidden"
+      data-testid="hunt-field"
+      className="min-h-screen bg-green-900 relative select-none overflow-hidden touch-none"
       style={{ cursor: "none" }}
-      onMouseMove={handleMouseMove}
-      onTouchMove={handleTouchMove}
-      onClick={shoot}
-      onTouchStart={shoot}
+      onPointerMove={handlePointerMove}
+      {...shootTap}
     >
       {/* Game canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
@@ -565,7 +554,10 @@ export function Hunting() {
         <div className="bg-black/50 backdrop-blur rounded-lg px-4 py-2 text-white text-right">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">🎯</span>
-            <span className={`font-bold ${supplies.ammunition - ammo <= 10 ? "text-red-400" : ""}`}>
+            <span
+              data-testid="hunt-ammo"
+              className={`font-bold ${supplies.ammunition - ammo <= 10 ? "text-red-400" : ""}`}
+            >
               {supplies.ammunition - ammo}
             </span>
           </div>

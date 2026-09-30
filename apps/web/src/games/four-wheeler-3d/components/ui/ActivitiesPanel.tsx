@@ -4,6 +4,7 @@ import { useFourWheeler3dStore } from "../../lib/store";
 import { useActivitiesSession } from "../../lib/activitiesSession";
 import { PLAY_LOCATIONS, NOZZLE, cutGrassCount } from "../../lib/activities";
 import { LANDMARKS } from "../../lib/landmarks";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 const request = (name: string, payload?: string) =>
   useAdventureSession.getState().requestAction(`activity:${name}`, payload);
 export function ActivitiesPanel() {
@@ -12,6 +13,8 @@ export function ActivitiesPanel() {
     pos = useAdventureSession((s) => s.playerSnapshot),
     live = useActivitiesSession((s) => s.liveActivities),
     nozzle = useActivitiesSession((s) => s.nozzle);
+  // The T key hint is for a keyboard; a finger taps the button.
+  const keyHint = useCoarsePointer() ? "" : " (T)";
   const act = live ?? a.activities,
     car = a.fleet[a.activeVehicleId ?? ""];
   const near = (p: { x: number; z: number }, r = 10) =>
@@ -24,7 +27,7 @@ export function ActivitiesPanel() {
       </p>
       <div className="fw-build-list">
         <button disabled={mode !== "vehicle"} onClick={() => request("hitch")}>
-          {car?.hitch ? "Detach trailer (T)" : "Hitch nearby equipment (T)"}
+          {car?.hitch ? `Detach trailer${keyHint}` : `Hitch nearby equipment${keyHint}`}
         </button>
         <button onClick={() => request("load")}>
           {["vehicle", "boat"].includes(mode)

@@ -17,6 +17,11 @@ import {
   GameStartOverlayButton,
 } from "@/shared/components/GameStartOverlay";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { useTouchInput } from "@/shared/hooks/useTouchInput";
+
+/** A swipe turns the snake once its finger has moved this far (CSS px). */
+export const SWIPE_TURN_PX = 24;
 
 // ============================================
 // GAME BOARD COMPONENT
@@ -149,7 +154,7 @@ function GameBoard() {
 // ============================================
 function MobileControls() {
   const { setDirection, status, progress } = useSnakeStore();
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const swipeLayerRef = useRef<HTMLDivElement>(null);
 
   const handleDirection = useCallback(
     (dir: Direction) => {
@@ -160,35 +165,26 @@ function MobileControls() {
     [setDirection, status]
   );
 
-  // Swipe detection
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }, []);
-
-  const handleTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
-      if (!touchStartRef.current || progress.controlMode !== "swipe") return;
-
-      const touch = e.changedTouches[0];
-      const dx = touch.clientX - touchStartRef.current.x;
-      const dy = touch.clientY - touchStartRef.current.y;
-      const minSwipe = 30;
-
+  // Swipe detection through the shared native touch hook. The turn happens
+  // on touchmove, as soon as the finger has travelled SWIPE_TURN_PX, once per
+  // gesture (the tag marks a finger that already turned). It used to wait
+  // for touchend with a 30 px threshold, so every turn landed one tick late
+  // (up to 200 ms on Slow). Each finger is measured from its own start.
+  const swipeActive = status === "playing" && progress.controlMode === "swipe";
+  useTouchInput<"turned">(swipeLayerRef, {
+    onMove: (touch) => {
+      if (touch.tag === "turned") return;
+      const dx = touch.x - touch.startX;
+      const dy = touch.y - touch.startY;
+      if (Math.abs(dx) < SWIPE_TURN_PX && Math.abs(dy) < SWIPE_TURN_PX) return;
+      touch.tag = "turned";
       if (Math.abs(dx) > Math.abs(dy)) {
-        if (Math.abs(dx) > minSwipe) {
-          handleDirection(dx > 0 ? "right" : "left");
-        }
+        handleDirection(dx > 0 ? "right" : "left");
       } else {
-        if (Math.abs(dy) > minSwipe) {
-          handleDirection(dy > 0 ? "down" : "up");
-        }
+        handleDirection(dy > 0 ? "down" : "up");
       }
-
-      touchStartRef.current = null;
     },
-    [handleDirection, progress.controlMode]
-  );
+  }, { enabled: swipeActive });
 
   if (progress.controlMode === "swipe") {
     return (
@@ -198,9 +194,9 @@ function MobileControls() {
             the start overlay and swallow taps meant for the start card. */}
         {status === "playing" && (
           <div
+            ref={swipeLayerRef}
+            data-testid="snake-swipe-layer"
             className="fixed inset-0 z-10 pointer-events-auto"
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
             style={{ touchAction: "none" }}
           />
         )}
@@ -456,6 +452,8 @@ export function SnakeGame() {
   const { status, progress, tick, setDirection } = store;
   const gameLoopRef = useRef<NodeJS.Timeout | null>(null);
 
+  const isCoarse = useCoarsePointer();
+
   // Sync with auth system
   const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
     appId: "snake",
@@ -614,15 +612,17 @@ export function SnakeGame() {
       {/* Game UI (score, buttons) */}
       <GameUI />
 
-      {/* Mobile Controls */}
-      <div className="md:hidden">
+      {/* Touch controls and the keyboard hint are keyed on the pointer,
+          never on the md: width breakpoint: a large phone held sideways is
+          844 px wide and still has no keyboard, and md:hidden took away its
+          d-pad, its swipe layer, and showed it "Use WASD". */}
+      {isCoarse ? (
         <MobileControls />
-      </div>
-
-      {/* Desktop keyboard hint */}
-      <div className="hidden md:block text-green-300 text-sm text-center">
-        Use WASD or Arrow Keys to move | ESC to pause | R to restart
-      </div>
+      ) : (
+        <div className="text-green-300 text-sm text-center">
+          Use WASD or Arrow Keys to move | ESC to pause | R to restart
+        </div>
+      )}
 
       {/* Settings */}
       <SettingsPanel />

@@ -15,7 +15,9 @@ import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { usePointerHold } from "@/shared/hooks/useTouchInput";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { usePointerTap } from "@/shared/lib/input";
 
 const CANVAS_WIDTH = GRID_WIDTH * TILE_SIZE;
 const CANVAS_HEIGHT = GRID_HEIGHT * TILE_SIZE;
@@ -26,6 +28,11 @@ export function BombermanGame() {
   const animationRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const keysRef = useRef<Set<string>>(new Set());
+  // The d-pad key a thumb holds right now. The game loop reads it like
+  // keysRef, so a held button keeps moving at the key repeat rate.
+  const heldDirectionRef = useRef<Direction | null>(null);
+  // Set to Infinity by a d-pad press so the next frame moves at once.
+  const moveTimerRef = useRef(0);
 
   const store = useBombermanStore();
   const isCoarse = useCoarsePointer();
@@ -103,6 +110,7 @@ export function BombermanGame() {
     else if (keys.has("s") || keys.has("arrowdown")) direction = "DOWN";
     else if (keys.has("a") || keys.has("arrowleft")) direction = "LEFT";
     else if (keys.has("d") || keys.has("arrowright")) direction = "RIGHT";
+    else direction = heldDirectionRef.current;
 
     if (direction) {
       store.movePlayer(direction);
@@ -286,7 +294,6 @@ export function BombermanGame() {
 
   // Game loop
   useEffect(() => {
-    let moveTimer = 0;
     const MOVE_RATE = 120; // ms between moves
 
     const gameLoop = (timestamp: number) => {
@@ -297,11 +304,11 @@ export function BombermanGame() {
         // Update game state
         store.update(deltaTime);
 
-        // Handle keyboard movement with rate limiting
-        moveTimer += deltaTime;
-        if (moveTimer >= MOVE_RATE / store.player.speed) {
+        // Handle held movement (keys or d-pad) with rate limiting
+        moveTimerRef.current += deltaTime;
+        if (moveTimerRef.current >= MOVE_RATE / store.player.speed) {
           moveFromKeys();
-          moveTimer = 0;
+          moveTimerRef.current = 0;
         }
       }
 
@@ -317,19 +324,41 @@ export function BombermanGame() {
     };
   }, [store, draw, moveFromKeys]);
 
-  // Touch D-pad
-  const handleDpadPress = (direction: Direction) => {
-    if (store.gameState === "playing") {
-      store.movePlayer(direction);
-    }
-  };
+  // Touch D-pad: a held button moves the player at the key repeat rate (the
+  // loop consumes heldDirectionRef the same way it consumes keysRef). Each
+  // button used to move exactly one tile per touchstart, so crossing the
+  // arena took about twenty taps. The first move happens on the next frame.
+  const pressDirection = useCallback((direction: Direction) => {
+    heldDirectionRef.current = direction;
+    moveTimerRef.current = Number.POSITIVE_INFINITY;
+  }, []);
+  const releaseDirection = useCallback((direction: Direction) => {
+    if (heldDirectionRef.current === direction) heldDirectionRef.current = null;
+  }, []);
+  const upHold = usePointerHold<HTMLButtonElement>(
+    () => pressDirection("UP"),
+    () => releaseDirection("UP")
+  );
+  const downHold = usePointerHold<HTMLButtonElement>(
+    () => pressDirection("DOWN"),
+    () => releaseDirection("DOWN")
+  );
+  const leftHold = usePointerHold<HTMLButtonElement>(
+    () => pressDirection("LEFT"),
+    () => releaseDirection("LEFT")
+  );
+  const rightHold = usePointerHold<HTMLButtonElement>(
+    () => pressDirection("RIGHT"),
+    () => releaseDirection("RIGHT")
+  );
 
-  // Touch bomb button
-  const handleBombPress = () => {
+  // Touch bomb button: one tap = one bomb. The button used to carry
+  // onTouchStart AND onClick, so a finger tap called placeBomb twice.
+  const bombTap = usePointerTap<HTMLButtonElement>(() => {
     if (store.gameState === "playing") {
       store.placeBomb();
     }
-  };
+  });
 
   const toggleSound = () => {
     store.setProgress({
@@ -468,29 +497,33 @@ export function BombermanGame() {
           <div className="relative w-36 h-36">
             {/* Up */}
             <button
-              onTouchStart={() => handleDpadPress("UP")}
-              className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl"
+              type="button"
+              {...upHold}
+              className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none"
             >
               ▲
             </button>
             {/* Down */}
             <button
-              onTouchStart={() => handleDpadPress("DOWN")}
-              className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl"
+              type="button"
+              {...downHold}
+              className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none"
             >
               ▼
             </button>
             {/* Left */}
             <button
-              onTouchStart={() => handleDpadPress("LEFT")}
-              className="absolute left-0 top-1/2 -translate-y-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl"
+              type="button"
+              {...leftHold}
+              className="absolute left-0 top-1/2 -translate-y-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none"
             >
               ◀
             </button>
             {/* Right */}
             <button
-              onTouchStart={() => handleDpadPress("RIGHT")}
-              className="absolute right-0 top-1/2 -translate-y-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl"
+              type="button"
+              {...rightHold}
+              className="absolute right-0 top-1/2 -translate-y-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none"
             >
               ▶
             </button>
@@ -498,9 +531,9 @@ export function BombermanGame() {
 
           {/* Bomb button */}
           <button
-            onTouchStart={handleBombPress}
-            onClick={handleBombPress}
-            className="w-24 h-24 bg-red-600 hover:bg-red-500 active:bg-red-400 rounded-full text-5xl shadow-lg"
+            type="button"
+            {...bombTap}
+            className="w-24 h-24 bg-red-600 hover:bg-red-500 active:bg-red-400 rounded-full text-5xl shadow-lg touch-manipulation select-none"
           >
             💣
           </button>

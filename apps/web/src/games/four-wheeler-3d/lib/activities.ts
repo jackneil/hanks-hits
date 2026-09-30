@@ -4,6 +4,7 @@ import type {
   FleetVehicle,
 } from "./adventureTypes";
 import { isLandVehicle, isWaterVehicle, isTrailer } from "./catalog";
+import { isCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { LANDMARKS, WONDERLAND } from "./landmarks";
 import { tuningFor } from "./vehicles";
 
@@ -184,7 +185,9 @@ export function toggleHitch(
         [trailer.id]: { ...trailer, position, heading: car.heading },
       },
     },
-    message: "Trailer hitched. Press T to detach.",
+    message: isCoarsePointer()
+      ? "Trailer hitched. Open Activities to detach."
+      : "Trailer hitched. Press T to detach.",
   };
 }
 export function loadOrUnload(

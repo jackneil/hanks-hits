@@ -7,7 +7,8 @@
  * Includes nitro button above gas pedal.
  */
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
+import { usePointerHold } from '@/shared/hooks/useTouchInput';
 
 interface MobileControlsProps {
   setNitro: (active: boolean) => void;
@@ -16,19 +17,23 @@ interface MobileControlsProps {
 export function MobileControls({ setNitro }: MobileControlsProps) {
   const [nitroPressed, setNitroPressed] = useState(false);
 
-  const handleNitroStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setNitroPressed(true);
-    setNitro(true);
-  }, [setNitro]);
-
-  const handleNitroEnd = useCallback((e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setNitroPressed(false);
-    setNitro(false);
-  }, [setNitro]);
+  // NITRO is a hold through the shared pointer hold: pointer capture, a
+  // release on pointercancel, on window blur and on unmount. The old React
+  // onTouchStart/onTouchEnd called preventDefault(), a no-op in React's
+  // passive touch listeners that logged an error on every press, and the
+  // button also carried onMouseDown/Up/Leave. The gas/brake zone hook
+  // (useControls) skips touches that land on a button, so a NITRO press is
+  // never also a gas press.
+  const nitroHold = usePointerHold<HTMLButtonElement>(
+    () => {
+      setNitroPressed(true);
+      setNitro(true);
+    },
+    () => {
+      setNitroPressed(false);
+      setNitro(false);
+    }
+  );
 
   return (
     <div className="fixed inset-0 pointer-events-none z-30">
@@ -64,13 +69,10 @@ export function MobileControls({ setNitro }: MobileControlsProps) {
           under the translucent gauges when the HUD moved below the header) */}
       <div className="absolute right-56 top-32 pointer-events-auto">
         <button
-          onTouchStart={handleNitroStart}
-          onTouchEnd={handleNitroEnd}
-          onTouchCancel={handleNitroEnd}
-          onMouseDown={handleNitroStart}
-          onMouseUp={handleNitroEnd}
-          onMouseLeave={handleNitroEnd}
-          className={`w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-100 ${
+          type="button"
+          aria-label="Nitro"
+          {...nitroHold}
+          className={`w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-100 touch-none select-none ${
             nitroPressed
               ? 'bg-cyan-500 border-cyan-300 scale-95'
               : 'bg-cyan-600/80 border-cyan-400/50'

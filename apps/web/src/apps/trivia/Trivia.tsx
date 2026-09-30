@@ -84,7 +84,8 @@ export function Trivia() {
     const rawQuestions = getQuestions(diff.questionsPerRound, diff.difficulty);
 
     if (rawQuestions.length === 0) {
-      setError("😕 The questions did not load. Press Play to try again.");
+      // Names the real button (it says "Start Quiz!", not "Play").
+      setError("😕 The questions did not load. Tap Start Quiz! to try again.");
       return [];
     }
 

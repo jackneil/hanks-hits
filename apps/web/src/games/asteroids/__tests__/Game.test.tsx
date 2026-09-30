@@ -71,6 +71,13 @@ describe("AsteroidsGame touch controls", () => {
     });
   });
 
+  // The pad is pointer events now (shared usePointerHold): a press is a
+  // pointerdown, a release is the pointerup of that same pointer.
+  const press = (button: HTMLElement, pointerId = 1) =>
+    fireEvent.pointerDown(button, { pointerId, pointerType: "touch", button: 0 });
+  const release = (button: HTMLElement, pointerId = 1) =>
+    fireEvent.pointerUp(button, { pointerId, pointerType: "touch", button: 0 });
+
   it("press-and-hold sets the control active, release clears it", () => {
     render(<AsteroidsGame />);
 
@@ -79,33 +86,33 @@ describe("AsteroidsGame touch controls", () => {
     const fire = screen.getByRole("button", { name: "●" });
     const rotateRight = screen.getByRole("button", { name: "↻" });
 
-    fireEvent.touchStart(rotateLeft);
+    press(rotateLeft);
     expect(useAsteroidsStore.getState().rotatingLeft).toBe(true);
-    fireEvent.touchEnd(rotateLeft);
+    release(rotateLeft);
     expect(useAsteroidsStore.getState().rotatingLeft).toBe(false);
 
-    fireEvent.touchStart(thrust);
+    press(thrust);
     expect(useAsteroidsStore.getState().thrusting).toBe(true);
-    fireEvent.touchEnd(thrust);
+    release(thrust);
     expect(useAsteroidsStore.getState().thrusting).toBe(false);
 
-    fireEvent.touchStart(fire);
+    press(fire);
     expect(useAsteroidsStore.getState().shooting).toBe(true);
-    fireEvent.touchEnd(fire);
+    release(fire);
     expect(useAsteroidsStore.getState().shooting).toBe(false);
 
-    fireEvent.touchStart(rotateRight);
+    press(rotateRight);
     expect(useAsteroidsStore.getState().rotatingRight).toBe(true);
-    fireEvent.touchEnd(rotateRight);
+    release(rotateRight);
     expect(useAsteroidsStore.getState().rotatingRight).toBe(false);
   });
 
-  it("marks every touch control with touchAction:none so the page can't scroll mid-game", () => {
+  it("marks every touch control touch-none so the browser never takes the press for a scroll", () => {
     render(<AsteroidsGame />);
 
     for (const label of ["↺", "🔥", "●", "↻"]) {
       const button = screen.getByRole("button", { name: label });
-      expect(button.style.touchAction).toBe("none");
+      expect(button.className).toMatch(/\btouch-none\b/);
     }
   });
 });
