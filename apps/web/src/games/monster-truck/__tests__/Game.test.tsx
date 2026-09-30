@@ -195,14 +195,15 @@ describe('monster-truck pause menu read aloud', () => {
 
     render(<PauseMenu onResume={() => {}} onGarage={() => {}} onQuit={() => {}} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /read it to me/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /read it to me/i }));
 
     const spoken = speech.lastUtterance().text;
     expect(spoken).toContain('Paused');
     expect(spoken).toContain('Monster Truck');
-    expect(spoken).toContain('Resume');
+    expect(spoken).toContain('Keep driving');
     expect(spoken).toContain('Garage');
-    expect(spoken).toContain('Quit to Menu');
+    expect(spoken).toContain('Go Home');
+    expect(spoken).toContain('Sound on');
     removeSpeechMock();
   });
 });
