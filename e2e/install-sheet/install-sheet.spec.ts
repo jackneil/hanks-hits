@@ -1,10 +1,18 @@
 /**
- * Install-sheet check: the iOS install sheet on real phone screens.
+ * Install-sheet check: the iOS install pill and sheet on real phone screens.
  *
- * On an app page (under /apps/) an iPhone shows the "Play full screen"
- * sheet, fixed to the bottom of the screen (IOSInstallPrompt.tsx). This
- * check opens every app page that shows it (read from the source), with an
- * iPhone user agent, and measures the sheet:
+ * On an app page (under /apps/) with no play, an iPhone shows the
+ * "Play full screen" pill: one 44 px row in the flow of the page
+ * (IOSInstallPrompt.tsx). A tap on the pill opens the steps as a sheet,
+ * fixed to the bottom of the screen. An app whose start card has left
+ * (Trivia) is in use: it shows no pill and no sheet. This check opens
+ * every app page that mounts the prompt (read from the source), with an
+ * iPhone user agent, and measures:
+ *   0. The pill: in the flow (not fixed), at least 44 px tall, both of its
+ *      buttons at least 44x44 px, on screen, and a tap at their centers
+ *      hits them. On an app with a start card, Start leaves no pill and
+ *      no sheet behind. Close ends the pill for the session: a reload
+ *      shows no pill.
  *   1. Sideways (844x390, 667x375, 568x320, 932x430): the sheet is one
  *      short row (the 📲 icon, the two steps, Read it to me, Don't show
  *      this again, Close), no taller than a quarter of the screen. Before
@@ -51,6 +59,10 @@ const SCREENS_DIR = path.join(process.env.E2E_OUT ?? path.join(tmpdir(), "hh-ins
 /** IOS_INSTALL_SHEET_SPOKEN in IOSInstallPrompt.tsx (a jsdom test pins that constant). */
 const SHEET_SPOKEN =
   "Play full screen! Tap the Share button. Then tap Add to Home Screen. Tap the X to close it. To hide this tip for good, tap Don't show this again.";
+/** IOS_INSTALL_PILL_LABEL in IOSInstallPrompt.tsx: the button on the pill that opens the steps. */
+const PILL_LABEL = "Play full screen! Show me how";
+/** SESSION_KEY in IOSInstallPrompt.tsx: set once the pill showed or was closed. */
+const SESSION_KEY = "ios-install-prompt-shown";
 
 /** A sideways sheet may use at most this part of the screen height. */
 const MAX_SIDEWAYS_SHARE = 0.25;
@@ -156,22 +168,88 @@ async function settleSheet(page: Page): Promise<void> {
   }
 }
 
+interface PillProbe {
+  fixed: boolean;
+  box: Box;
+  buttons: Part[];
+}
+
+/** Measures the pill: its position in the flow, its size and its buttons. */
+function probePill(page: Page): Promise<PillProbe> {
+  return page.evaluate(() => {
+    const pill = document.querySelector<HTMLElement>('[data-testid="ios-install-pill"]')!;
+    const boxOf = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };
+    };
+    let fixed = false;
+    for (let node: HTMLElement | null = pill; node; node = node.parentElement) {
+      const position = getComputedStyle(node).position;
+      if (position === "fixed" || position === "sticky") fixed = true;
+    }
+    const part = (el: HTMLElement | null, name: string) => {
+      if (!el) return { name, box: null, shown: false, hit: false, cutOff: false };
+      const box = boxOf(el);
+      const hitEl = document.elementFromPoint((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+      return {
+        name,
+        box,
+        shown: box.width > 0 && box.height > 0,
+        hit: !!hitEl && (hitEl === el || el.contains(hitEl)),
+        cutOff: false,
+      };
+    };
+    const buttons = [...pill.querySelectorAll<HTMLElement>("button")];
+    const label = (b: HTMLElement) => (b.getAttribute("aria-label") ?? b.textContent ?? "").replace(/\s+/g, " ").trim();
+    return {
+      fixed,
+      box: boxOf(pill),
+      buttons: buttons.map((b) => part(b, label(b))),
+    };
+  });
+}
+
+/** Everything wrong with the pill, in words. */
+function pillProblems(probe: PillProbe, viewport: { width: number; height: number }): string[] {
+  const problems: string[] = [];
+  if (probe.fixed) problems.push("the pill is fixed or sticky: it must sit in the flow of the page");
+  if (probe.box.height < MIN_TARGET - 0.5) problems.push(`the pill is ${round(probe.box.height)} px tall, under ${MIN_TARGET} px`);
+  if (probe.buttons.length !== 2) problems.push(`the pill has ${probe.buttons.length} buttons, not 2`);
+  for (const button of probe.buttons) {
+    if (!button.box || !button.shown) {
+      problems.push(`${button.name}: not on screen`);
+      continue;
+    }
+    const inScreen =
+      button.box.left >= -EDGE &&
+      button.box.top >= -EDGE &&
+      button.box.right <= viewport.width + EDGE &&
+      button.box.bottom <= viewport.height + EDGE;
+    if (!inScreen) problems.push(`${button.name}: outside the screen`);
+    if (button.box.width < MIN_TARGET - 0.5 || button.box.height < MIN_TARGET - 0.5) {
+      problems.push(`${button.name}: ${round(button.box.width)}x${round(button.box.height)} px, under ${MIN_TARGET} px`);
+    }
+    if (!button.hit) problems.push(`${button.name}: a tap at its center hits something else`);
+  }
+  return problems;
+}
+
 /**
- * Opens the page and waits for the sheet. An app with a start card holds
- * the tip inside the start screen (the start-card check covers that), and
- * the sheet comes after the start: so tap the start button of the card
- * first.
+ * Opens the page and waits for the prompt. An app with a start card holds
+ * the tip inside the start screen (the start-card check covers that);
+ * after Start the app is in use, and no pill and no sheet may show. An
+ * app with no start card shows the pill.
  */
-async function openSheet(page: Page, route: string): Promise<void> {
+async function openPrompt(page: Page, route: string): Promise<"pill" | "in-play"> {
   await page.goto(route, { waitUntil: "load" });
-  const sheet = page.getByTestId("ios-install-sheet");
+  const pill = page.getByTestId("ios-install-pill");
   const card = page.getByTestId("start-card");
-  await expect(sheet.or(card).first()).toBeVisible();
+  await expect(pill.or(card).first()).toBeVisible();
   // A start card can mount a moment after the first paint: wait until
   // what is on screen stops changing.
   let last = "";
   for (let i = 0, same = 0; i < 30 && same < 3; i++) {
-    const now = `${await sheet.isVisible()},${await card.isVisible()}`;
+    const now = `${await pill.isVisible()},${await card.isVisible()}`;
     same = now === last ? same + 1 : 0;
     last = now;
     await page.waitForTimeout(200);
@@ -184,8 +262,21 @@ async function openSheet(page: Page, route: string): Promise<void> {
       .first();
     await start.tap();
     await expect(card).toBeHidden();
+    // The kid is in the app now (a quiz with a timer): nothing may show.
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId("ios-install-sheet")).toHaveCount(0);
+    await expect(pill).toHaveCount(0);
+    return "in-play";
   }
-  await expect(sheet).toBeVisible();
+  await expect(pill).toBeVisible();
+  return "pill";
+}
+
+/** Taps the pill's words: the steps open as the sheet. */
+async function openSheetFromPill(page: Page): Promise<void> {
+  await page.getByTestId("ios-install-pill").getByRole("button", { name: PILL_LABEL }).tap();
+  await expect(page.getByTestId("ios-install-sheet")).toBeVisible();
+  await expect(page.getByTestId("ios-install-pill")).toHaveCount(0);
   await settleSheet(page);
 }
 
@@ -475,14 +566,29 @@ for (const screen of SCREENS) {
       await captureSpeech(context);
       const page = await context.newPage();
       try {
-        await openSheet(page, route);
+        const shot = `${slug(route)}-${screen.width}x${screen.height}`;
+        const opened = await openPrompt(page, route);
+        if (opened === "in-play") {
+          await page.screenshot({ path: path.join(SCREENS_DIR, `${shot}-in-play.png`) });
+          rows.push(`PASS ${screen.name} ${route}: in use after Start, no pill and no sheet`);
+          continue;
+        }
+        await dismissCelebrations(page);
+        // The pill sits where the app mounts it: at the top of the page, or
+        // in a control row at the bottom (the drum machine, the virtual
+        // pet). A finger scrolls the page to it.
+        await page.getByTestId("ios-install-pill").scrollIntoViewIfNeeded();
+        await page.waitForTimeout(300);
+        const problems = pillProblems(await probePill(page), { width: screen.width, height: screen.height });
+        await page.screenshot({ path: path.join(SCREENS_DIR, `${shot}-pill.png`) });
+
+        await openSheetFromPill(page);
         await dismissCelebrations(page);
         await settleSheet(page);
         const probe = await probeSheet(page);
-        const shot = `${slug(route)}-${screen.width}x${screen.height}`;
         await page.screenshot({ path: path.join(SCREENS_DIR, `${shot}-top.png`) });
 
-        const problems = sheetProblems(probe, screen);
+        problems.push(...sheetProblems(probe, screen));
 
         // Read it to me reads the words of the sheet.
         const readAloud = page.getByTestId("ios-install-sheet").getByRole("button", { name: "Read it to me" });
@@ -503,6 +609,10 @@ for (const screen of SCREENS) {
         await page.getByTestId("ios-install-sheet").getByRole("button", { name: "Close" }).tap();
         await expect(page.getByTestId("ios-install-sheet")).toHaveCount(0);
         await settleSheet(page);
+        // Close ends the pill for the session: not now, and not on a reload.
+        if ((await page.getByTestId("ios-install-pill").count()) > 0) problems.push("the pill is back after Close");
+        const remembered = await page.evaluate((key) => sessionStorage.getItem(key), SESSION_KEY);
+        if (remembered !== "true") problems.push(`sessionStorage ${SESSION_KEY} is ${JSON.stringify(remembered)} after Close`);
         const withoutSheet = await reachControls(page);
         if (withSheet.length === 0) problems.push("the page has no control to check");
         if (withSheet.length !== withoutSheet.length) {
@@ -516,6 +626,12 @@ for (const screen of SCREENS) {
             }
           });
         }
+
+        // The next visit in this session shows no pill.
+        await page.reload({ waitUntil: "load" });
+        await page.waitForTimeout(700);
+        if ((await page.getByTestId("ios-install-pill").count()) > 0) problems.push("the pill is back on a second visit in the same session");
+        if ((await page.getByTestId("ios-install-sheet").count()) > 0) problems.push("the sheet is back on a second visit in the same session");
 
         const summary = `sheet ${round(probe.sheet.height)} px (${Math.round((probe.sheet.height / probe.viewport.height) * 100)}%), space ${probe.space || "none"}`;
         if (problems.length === 0) {
@@ -546,7 +662,8 @@ test("install sheet: turning the phone changes the layout, and the space follows
   await captureSpeech(context);
   const page = await context.newPage();
   try {
-    await openSheet(page, TOY_FINDER);
+    expect(await openPrompt(page, TOY_FINDER)).toBe("pill");
+    await openSheetFromPill(page);
     await dismissCelebrations(page);
     await settleSheet(page);
     const first = await probeSheet(page);
@@ -573,7 +690,8 @@ test("install sheet: Close removes the sheet and the space, sideways too", async
   const context = await browser.newContext({ ...IPHONE, viewport: { width: 568, height: 320 } });
   const page = await context.newPage();
   try {
-    await openSheet(page, TOY_FINDER);
+    expect(await openPrompt(page, TOY_FINDER)).toBe("pill");
+    await openSheetFromPill(page);
     await page.getByTestId("ios-install-sheet").getByRole("button", { name: "Close" }).tap();
     await expect(page.getByTestId("ios-install-sheet")).toHaveCount(0);
     const after = await page.evaluate(() => ({
