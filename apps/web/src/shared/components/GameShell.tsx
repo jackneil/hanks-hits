@@ -27,6 +27,7 @@ import {
   type HeaderLogin,
 } from "../lib/headerBudget";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { useSecondFingerClick } from "../lib/input";
 
 export type RestartConfirmationPolicy = "always" | "never";
 
@@ -323,6 +324,9 @@ function GameShellFrame({
   const viewportHeight = useViewportHeight();
   const isCoarse = useCoarsePointer();
   const routeId = useRouteId();
+  // Pause works for a tap by the other thumb while one thumb holds a pedal
+  // or FIRE (a browser makes no click for a second finger).
+  const pauseTap = useSecondFingerClick<HTMLButtonElement>(togglePause);
 
   // Tell sheets and nudges that a game is on screen (gameBreaks.ts). A
   // layout effect runs before paint, so a nudge rendered in the same
@@ -519,7 +523,8 @@ function GameShellFrame({
             {hasPauseSlot &&
               (canPause ? (
                 <button
-                  onClick={togglePause}
+                  type="button"
+                  {...pauseTap}
                   className={HEADER_BUTTON}
                   aria-label={isPaused ? "Resume game" : "Pause game"}
                   title="Pause (ESC)"
