@@ -16,10 +16,18 @@ import {
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useShellHold } from "@/shared/hooks/useShellHold";
 import { useGameLoop } from "@/shared/hooks/useGameLoop";
-import { fitCanvas, usePlayBox } from "@/shared/hooks/usePlayBox";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { ResultChip } from "@/shared/components/ResultChip";
+import {
+  THUMB_GUTTER_WIDTH,
+  THUMB_ROW_HEIGHT,
+  ThumbPadLayout,
+  fitThumbPads,
+  type ThumbFit,
+  type ThumbLayout,
+} from "@/shared/components/ThumbPadLayout";
 import { metadata } from "./metadata";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
@@ -325,53 +333,27 @@ export const SWIPE_DUCK_PX = 30;
  */
 export const PORTRAIT_VISIBLE_WORLD = 600;
 /** A phone held sideways: the JUMP and DUCK buttons sit in gutters beside the picture, under the thumbs. */
-export const GUTTER_WIDTH = 88;
+export const GUTTER_WIDTH = THUMB_GUTTER_WIDTH;
 /** A phone held upright: the two buttons share a row under the picture. */
-export const CONTROL_ROW_HEIGHT = 96;
-/** Room around the picture on every layout. */
-const MARGIN = 16;
+export const CONTROL_ROW_HEIGHT = THUMB_ROW_HEIGHT;
 /** Pixel art past this scale looks chunky on a big monitor (the old cap). */
 export const MAX_SCALE = 1.5;
 
-export type DinoLayout = "sideways" | "upright" | "desktop";
-
-export interface DinoFit {
-  layout: DinoLayout;
-  /** One world px on screen, in CSS px. */
-  scale: number;
-  /** The size of the window onto the world, in CSS px. */
-  viewWidth: number;
-  viewHeight: number;
-  /** How many world px the window shows (800 when nothing is cropped). */
-  visibleWorld: number;
-}
+export type DinoLayout = ThumbLayout;
+export type DinoFit = ThumbFit;
 
 /**
- * The picture and the controls for a play box: the layout, the scale, and
- * the size of the window onto the world. Pure, so a test can check it.
+ * The picture and the controls for a play box (the shared thumb-pad fit):
+ * the layout, the scale, and the window onto the world. Pure, so a test
+ * can check it.
  */
 export function fitDino(box: { width: number; height: number }, coarse: boolean): DinoFit {
-  const sideways = box.width > box.height;
-  const layout: DinoLayout = coarse ? (sideways ? "sideways" : "upright") : "desktop";
-  const reserved =
-    layout === "sideways"
-      ? { width: 2 * GUTTER_WIDTH + MARGIN, height: MARGIN }
-      : layout === "upright"
-        ? { width: MARGIN, height: CONTROL_ROW_HEIGHT + MARGIN }
-        : { width: MARGIN, height: MARGIN };
-  const minVisibleWorld = box.width < box.height ? PORTRAIT_VISIBLE_WORLD : CANVAS_WIDTH;
-  const fit = fitCanvas(box, minVisibleWorld, CANVAS_HEIGHT, reserved);
-  if (fit.scale === 0) return { layout, scale: 0, viewWidth: 0, viewHeight: 0, visibleWorld: CANVAS_WIDTH };
-  const scale = Math.min(fit.scale, MAX_SCALE);
-  const roomWidth = Math.max(0, box.width - reserved.width);
-  const viewWidth = Math.min(roomWidth, Math.round(CANVAS_WIDTH * scale));
-  return {
-    layout,
-    scale,
-    viewWidth,
-    viewHeight: Math.max(1, Math.round(CANVAS_HEIGHT * scale)),
-    visibleWorld: Math.min(CANVAS_WIDTH, viewWidth / scale),
-  };
+  return fitThumbPads(
+    box,
+    coarse,
+    { width: CANVAS_WIDTH, height: CANVAS_HEIGHT },
+    { minVisibleWorldUpright: PORTRAIT_VISIBLE_WORLD, maxScale: MAX_SCALE },
+  );
 }
 
 const HOLD_BUTTON =
@@ -646,7 +628,6 @@ export function DinoRunnerGame() {
   );
 
   const sideways = fit.layout === "sideways";
-  const upright = fit.layout === "upright";
   const controlsShown = playing;
 
   const jumpButton = (
@@ -689,16 +670,9 @@ export function DinoRunnerGame() {
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      <div
-        className={`flex h-full w-full items-center justify-center gap-2 ${sideways ? "flex-row" : "flex-col"}`}
-      >
-        {/* A phone held sideways: JUMP under the left thumb. */}
-        {sideways && (
-          <div className="flex shrink-0 items-center justify-center" style={{ width: GUTTER_WIDTH }}>
-            {jumpButton}
-          </div>
-        )}
-
+      {/* JUMP under the left thumb, DUCK under the right (sideways gutters,
+          or one row under the picture upright). */}
+      <ThumbPadLayout fit={fit} left={jumpButton} right={duckButton} rowTestId="dino-control-row">
         {/* The window onto the world. On a phone held upright it crops the
             world on the right (fitDino), so the picture is as tall as the
             box allows instead of a strip. */}
@@ -738,27 +712,7 @@ export function DinoRunnerGame() {
           )}
         </div>
 
-        {/* A phone held sideways: DUCK under the right thumb. */}
-        {sideways && (
-          <div className="flex shrink-0 items-center justify-center" style={{ width: GUTTER_WIDTH }}>
-            {duckButton}
-          </div>
-        )}
-
-        {/* A phone held upright: both buttons in a row under the picture,
-            where the thumbs rest. The row keeps its place between runs, so
-            the picture never jumps when a run starts or ends. */}
-        {upright && (
-          <div
-            data-testid="dino-control-row"
-            className="flex w-full shrink-0 items-center gap-3 px-3"
-            style={{ height: CONTROL_ROW_HEIGHT, maxWidth: Math.max(fit.viewWidth + 24, 280) }}
-          >
-            {jumpButton}
-            {duckButton}
-          </div>
-        )}
-      </div>
+      </ThumbPadLayout>
 
       {gameState === "idle" && (
         <GameStartOverlay
