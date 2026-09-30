@@ -1,25 +1,44 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
-import { useWordleStore, type WordleProgress } from "./lib/store";
-import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useCallback, useEffect } from "react";
+
+import { GameStartOverlay, GameStartOverlayButton } from "@/shared/components/GameStartOverlay";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
-import {
-  GameStartOverlay,
-  GameStartOverlayButton,
-} from "@/shared/components/GameStartOverlay";
-import { TutorialModal } from "./components/TutorialModal";
-import {
-  DIFFICULTY_SETTINGS,
-  getDifficultySettings,
-  LETTER_COLORS,
-  KEYBOARD_ROWS,
-  type Difficulty,
-} from "./lib/constants";
-import { getKeyboardStatus, type LetterStatus } from "./lib/utils";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { usePointerTap, useRestartGrace } from "@/shared/lib/input";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { PICKER_GRID, pickerCellClass } from "@/shared/lib/pickerGrid";
+
+import { TutorialModal } from "./components/TutorialModal";
+import { DIFFICULTY_SETTINGS, getDifficultySettings, KEYBOARD_ROWS, LETTER_COLORS, type Difficulty } from "./lib/constants";
+import { EDGE, GAP, HINT_ROW, KEY_GAP, RESULT_CARD_ROOM, TILE_GAP, wordleLayout } from "./lib/layout";
+import { useWordleStore, type WordleProgress } from "./lib/store";
+import { getKeyboardStatus, type LetterStatus } from "./lib/utils";
+
+/** The spoken names of the two action keys. */
+export const KEY_LABELS = { delete: "Delete", enter: "Enter" } as const;
+
+/** The result chip's words, read out loud first. */
+export function resultText({
+  won,
+  word,
+  guesses,
+  streak,
+}: {
+  won: boolean;
+  word: string;
+  guesses: number;
+  streak: number;
+}): string {
+  if (won) {
+    const tries = guesses === 1 ? "1 guess" : `${guesses} guesses`;
+    return `You won! You found ${word} in ${tries}. Your streak is ${streak}.`;
+  }
+  return `Good try! The word was ${word}.`;
+}
 
 export function WordleGame() {
   const store = useWordleStore();
@@ -46,13 +65,6 @@ export function WordleGame() {
     setDifficulty,
     openTutorial,
   } = store;
-  const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
-  const restartTriggerRef = useRef<HTMLButtonElement>(null);
-  const requestReset = useCallback(() => setIsRestartConfirmationOpen(true), []);
-  const confirmReset = useCallback(() => {
-    setIsRestartConfirmationOpen(false);
-    reset();
-  }, [reset]);
 
   // Auth sync
   const { forceSync } = useAuthSync({
@@ -65,75 +77,157 @@ export function WordleGame() {
 
   // Force save immediately on game end (won or lost)
   useEffect(() => {
-    if (gameState === "won" || gameState === "lost") {
-      forceSync();
-    }
+    if (gameState === "won" || gameState === "lost") forceSync();
   }, [gameState, forceSync]);
 
   const diffSettings = getDifficultySettings(settings.difficulty);
   const maxGuesses = diffSettings.maxGuesses;
   const keyboardStatus = getKeyboardStatus(guesses, results);
+  const playing = gameState === "playing";
+  const over = gameState === "won" || gameState === "lost";
 
-  // Keyboard input
+  // The play box, fitted: the grid takes the height the keyboard leaves.
+  const box = usePlayBox({ fit: true });
+  const layout = wordleLayout(box, { rows: maxGuesses, cols: targetWord.length || diffSettings.wordLength }, over);
+
+  const playAgain = useCallback(() => {
+    reset();
+    startGame();
+  }, [reset, startGame]);
+
+  // Enter at a result plays again after the chip's short grace (the Enter
+  // that sent the last guess must not skip the result), and a held key's
+  // repeats never count.
+  const grace = useRestartGrace(undefined, gameState);
+
+  // A physical keyboard types too.
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-    // A focused button or link owns its own Space and Enter: never swallow them.
-    if (keyBelongsToTarget(e)) return;
-      if (gameState !== "playing") return;
-
-      if (e.key === "Enter") {
-        submitGuess();
-      } else if (e.key === "Backspace") {
-        removeLetter();
-      } else if (/^[a-zA-Z]$/.test(e.key)) {
-        addLetter(e.key);
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      if (gameState === "won" || gameState === "lost") {
+        if (e.key === "Enter" && grace.accept(e)) {
+          e.preventDefault();
+          playAgain();
+        }
+        return;
       }
+      if (gameState !== "playing") return;
+      if (e.key === "Enter") submitGuess();
+      else if (e.key === "Backspace") removeLetter();
+      else if (/^[a-zA-Z]$/.test(e.key)) addLetter(e.key);
     },
-    [gameState, submitGuess, removeLetter, addLetter]
+    [gameState, grace, playAgain, submitGuess, removeLetter, addLetter]
   );
-
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  // Get tile status
+  // The on-screen keys: one handler on the keyboard, on pointerdown, so two
+  // thumbs can type fast (a second finger's tap makes no click) and one tap
+  // is one letter.
+  const keyboardTap = usePointerTap<HTMLDivElement>((event) => {
+    const key = (event.target as Element | null)?.closest?.("[data-key]")?.getAttribute("data-key");
+    if (!key || useWordleStore.getState().gameState !== "playing") return;
+    if (key === "ENTER") submitGuess();
+    else if (key === "⌫") removeLetter();
+    else addLetter(key);
+  });
+
   const getTileStatus = (row: number, col: number): LetterStatus => {
-    if (row < guesses.length) {
-      return results[row]?.[col] || "empty";
-    }
-    if (row === currentRow && col < currentGuess.length) {
-      return "tbd";
-    }
+    if (row < guesses.length) return results[row]?.[col] || "empty";
+    if (row === currentRow && col < currentGuess.length) return "tbd";
     return "empty";
   };
-
-  // Get tile letter
   const getTileLetter = (row: number, col: number): string => {
-    if (row < guesses.length) {
-      return guesses[row]?.[col] || "";
-    }
-    if (row === currentRow) {
-      return currentGuess[col] || "";
-    }
+    if (row < guesses.length) return guesses[row]?.[col] || "";
+    if (row === currentRow) return currentGuess[col] || "";
     return "";
   };
 
-  // Handle keyboard button click
-  const handleKeyClick = (key: string) => {
-    if (gameState !== "playing") return;
+  const grid = (
+    <div data-testid="wordle-grid" className="flex shrink-0 flex-col items-center" style={{ gap: TILE_GAP }}>
+      {Array.from({ length: maxGuesses }).map((_, row) => (
+        <div key={row} className={`flex ${row === currentRow && invalidGuess ? "animate-shake" : ""}`} style={{ gap: TILE_GAP }}>
+          {Array.from({ length: targetWord.length }).map((_, col) => {
+            const status = getTileStatus(row, col);
+            const isHinted = revealedHint === col && row === currentRow;
+            return (
+              <div
+                key={col}
+                className={`flex items-center justify-center rounded border-2 font-bold uppercase transition-colors ${LETTER_COLORS[status]} ${
+                  isHinted ? "ring-2 ring-yellow-400" : ""
+                }`}
+                style={{ width: layout.tile, height: layout.tile, fontSize: Math.round(layout.tile * 0.55) }}
+              >
+                {getTileLetter(row, col)}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
 
-    if (key === "ENTER") {
-      submitGuess();
-    } else if (key === "⌫") {
-      removeLetter();
-    } else {
-      addLetter(key);
-    }
-  };
+  const hintRow = (
+    <div className="flex shrink-0 items-center justify-center" style={{ height: HINT_ROW, width: layout.keyboard.width }}>
+      {revealedHint === null ? (
+        <button
+          type="button"
+          onClick={useHint}
+          className="btn min-h-11 h-11 border-2 border-yellow-400 bg-transparent px-4 text-base text-yellow-300 hover:bg-yellow-400 hover:text-black"
+        >
+          💡 Use my hint
+        </button>
+      ) : (
+        <div className="text-center text-base font-bold text-yellow-300">
+          💡 Letter {revealedHint + 1} is &quot;{targetWord[revealedHint]}&quot;
+        </div>
+      )}
+    </div>
+  );
+
+  const keyboard = (
+    <div
+      data-testid="wordle-keyboard"
+      {...keyboardTap}
+      className="grid shrink-0 touch-none select-none [-webkit-touch-callout:none]"
+      style={{
+        gridTemplateColumns: `repeat(${layout.cols}, ${layout.key}px)`,
+        gridAutoRows: `${layout.key}px`,
+        gap: KEY_GAP,
+      }}
+    >
+      {KEYBOARD_ROWS.flat().map((key) => {
+        const status = keyboardStatus.get(key);
+        const label = key === "ENTER" ? KEY_LABELS.enter : key === "⌫" ? KEY_LABELS.delete : key;
+        return (
+          <button
+            key={key}
+            type="button"
+            data-key={key}
+            aria-label={label}
+            className={`flex items-center justify-center rounded-lg text-xl font-bold uppercase ${
+              key === "ENTER" ? "bg-green-600 text-white" : status ? LETTER_COLORS[status] : "bg-slate-600 text-white"
+            }`}
+          >
+            <span aria-hidden="true">{key === "ENTER" ? "↵" : key}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
-    <div className="relative min-h-full bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div
+      data-testid="wordle-root"
+      data-layout={layout.sideways ? "sideways" : "upright"}
+      className={`relative flex h-full w-full items-center justify-center bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white ${
+        layout.sideways && !over ? "flex-row" : "flex-col"
+      } ${over ? "justify-start" : ""}`}
+      style={{ padding: EDGE, gap: GAP, paddingTop: over ? EDGE + RESULT_CARD_ROOM : EDGE }}
+    >
       <IOSInstallPrompt />
       <TutorialModal />
 
@@ -147,30 +241,19 @@ export function WordleGame() {
           title="Wordle"
           emoji="📝"
           subtitle="Guess the secret word!"
-          touchHints={[
-            "🔤 Tap the letters to spell a word",
-            "✅ Tap ENTER to send your guess",
-            "🟩 Green means the letter is right",
-          ]}
-          keyboardHints={[
-            "🔤 Type letters to spell a word",
-            "↩️ Press Enter to send your guess",
-            "🟩 Green means the letter is right",
-          ]}
+          touchHints={["🔤 Tap the letters to spell a word", "↵ Tap the green key to send your guess", "🟩 Green means the letter is right"]}
+          keyboardHints={["🔤 Type letters to spell a word", "↩️ Press Enter to send your guess", "🟩 Green means the letter is right"]}
           startLabel="🎮 Start Game!"
           // Built from the same list the buttons render, so the voice can
           // never name a choice the card does not show.
-          spokenChoices={`Pick how old you are: ${(
-            Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
-          )
+          spokenChoices={`Pick how old you are: ${(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[])
             .map((diff) => DIFFICULTY_SETTINGS[diff].label)
             .join(", ")}. Tap How to Play to learn the rules.`}
           onStart={() => startGame()}
         >
           {gamesPlayed > 0 && (
             <div className="text-base font-medium opacity-90">
-              🔥 Streak: {currentStreak} · 🏆 Best Streak: {maxStreak} · 🎯{" "}
-              {Math.round((gamesWon / gamesPlayed) * 100)}% won
+              🔥 Streak: {currentStreak} · 🏆 Best Streak: {maxStreak} · 🎯 {Math.round((gamesWon / gamesPlayed) * 100)}% won
             </div>
           )}
           <div className="text-sm font-bold opacity-80">How old are you?</div>
@@ -192,158 +275,44 @@ export function WordleGame() {
           <div className="text-xs opacity-70">
             {diffSettings.wordLength} letters, {maxGuesses} guesses
           </div>
-          <GameStartOverlayButton onClick={() => openTutorial()}>
-            ❓ How to Play
-          </GameStartOverlayButton>
+          <GameStartOverlayButton onClick={() => openTutorial()}>❓ How to Play</GameStartOverlayButton>
         </GameStartOverlay>
       )}
 
-      <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
-        {/* Quit button (shown during gameplay) */}
-        {gameState !== "ready" && (
-          <div className="w-full flex justify-start items-center mb-4">
-            <button
-              ref={restartTriggerRef}
-              onClick={requestReset}
-              className="btn btn-ghost btn-sm text-slate-400"
-            >
-              ← Quit
-            </button>
-          </div>
-        )}
+      {gameState !== "ready" && grid}
 
-        {/* Playing / Won / Lost */}
-        {gameState !== "ready" && (
-          <div className="w-full space-y-4">
-            {/* Hint */}
-            {revealedHint !== null && gameState === "playing" && (
-              <div className="text-center text-yellow-400 font-bold">
-                💡 Hint: Letter {revealedHint + 1} is &quot;{targetWord[revealedHint]}&quot;
-              </div>
-            )}
+      {playing && (
+        <div className="flex shrink-0 flex-col items-center" style={{ gap: GAP }}>
+          {hintRow}
+          {keyboard}
+        </div>
+      )}
 
-            {/* Grid */}
-            <div className="flex flex-col items-center gap-1">
-              {Array.from({ length: maxGuesses }).map((_, row) => (
-                <div
-                  key={row}
-                  className={`flex gap-1 ${
-                    row === currentRow && invalidGuess ? "animate-shake" : ""
-                  }`}
-                >
-                  {Array.from({ length: targetWord.length }).map((_, col) => {
-                    const status = getTileStatus(row, col);
-                    const letter = getTileLetter(row, col);
-                    const isHinted = revealedHint === col && row === currentRow;
+      {gameState === "won" && (
+        <ResultCard testId="wordle-result-card" title="🎉 You won!">
+          <ResultLine big>
+            {targetWord} in {guesses.length} {guesses.length === 1 ? "guess" : "guesses"}
+          </ResultLine>
+          <ResultLine>🔥 Streak {currentStreak}</ResultLine>
+        </ResultCard>
+      )}
+      {gameState === "lost" && (
+        <ResultCard testId="wordle-result-card" title="Good try!">
+          <ResultLine big>The word was {targetWord}</ResultLine>
+        </ResultCard>
+      )}
 
-                    return (
-                      <div
-                        key={col}
-                        className={`
-                          ${diffSettings.tileSize} ${diffSettings.fontSize}
-                          flex items-center justify-center font-bold uppercase
-                          border-2 rounded transition-all
-                          ${LETTER_COLORS[status]}
-                          ${isHinted ? "ring-2 ring-yellow-400" : ""}
-                          ${status === "tbd" ? "scale-105" : ""}
-                        `}
-                      >
-                        {letter}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-
-            {/* Result Message */}
-            {gameState === "won" && (
-              <div className="text-center space-y-4">
-                <div className="text-3xl font-bold text-green-400 animate-bounce">
-                  🎉 You Won!
-                </div>
-                <div className="text-slate-300">
-                  Solved in {guesses.length} {guesses.length === 1 ? "guess" : "guesses"}!
-                </div>
-                <div className="text-yellow-400">🔥 Streak: {currentStreak}</div>
-                <button
-                  onClick={requestReset}
-                  className="btn btn-primary btn-lg text-xl px-8 rounded-full"
-                >
-                  🔄 Play Again
-                </button>
-              </div>
-            )}
-
-            {gameState === "lost" && (
-              <div className="text-center space-y-4">
-                <div className="text-3xl font-bold text-red-400">
-                  😔 Game Over
-                </div>
-                <div className="text-slate-300">
-                  The word was: <span className="font-bold text-white">{targetWord}</span>
-                </div>
-                <button
-                  onClick={requestReset}
-                  className="btn btn-primary btn-lg text-xl px-8 rounded-full"
-                >
-                  🔄 Try Again
-                </button>
-              </div>
-            )}
-
-            {/* Keyboard */}
-            {gameState === "playing" && (
-              <div className="space-y-1 mt-4">
-                {KEYBOARD_ROWS.map((row, i) => (
-                  <div key={i} className="flex justify-center gap-1">
-                    {row.map((key) => {
-                      const status = keyboardStatus.get(key);
-                      const isWide = key === "ENTER" || key === "⌫";
-
-                      return (
-                        <button
-                          key={key}
-                          onClick={() => handleKeyClick(key)}
-                          className={`
-                            ${diffSettings.keyboardSize}
-                            ${isWide ? "px-3" : "px-2"}
-                            rounded font-bold uppercase transition-all
-                            ${status ? LETTER_COLORS[status] : "bg-slate-600 hover:bg-slate-500"}
-                          `}
-                        >
-                          {key}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
-
-                {/* Hint Button */}
-                {revealedHint === null && (
-                  <div className="text-center mt-4">
-                    <button
-                      onClick={useHint}
-                      className="btn btn-outline btn-sm text-yellow-400 border-yellow-400 hover:bg-yellow-400 hover:text-black"
-                    >
-                      💡 Use Hint (1 per game)
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <RestartConfirmationDialog
-        isOpen={isRestartConfirmationOpen}
-        gameName="Wordle"
-        message="Start a new Wordle game? Your current game will be lost."
-        triggerRef={restartTriggerRef}
-        onCancel={() => setIsRestartConfirmationOpen(false)}
-        onConfirm={confirmReset}
-      />
+      {/* The result chip: read it to me, Play again (a new word at the same
+          age, with no start card), the leaderboard. Mounted only at a
+          result, so its grace starts then. */}
+      {over && (
+        <ResultChip
+          resultText={resultText({ won: gameState === "won", word: targetWord, guesses: guesses.length, streak: currentStreak })}
+          appId="wordle"
+          onRestart={playAgain}
+          keyboardHint="Enter"
+        />
+      )}
 
       {/* Shake animation */}
       <style>{`

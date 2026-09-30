@@ -168,7 +168,7 @@ export const useWordleStore = create<WordleState>()(
       },
 
       useHint: () => {
-        const { gameState, targetWord, guesses, results, revealedHint } = get();
+        const { gameState, targetWord, results, revealedHint } = get();
         if (gameState !== "playing") return;
         if (revealedHint !== null) return; // Only one hint per game
 
