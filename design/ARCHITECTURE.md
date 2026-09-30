@@ -326,9 +326,38 @@ shared components and the profile pages use solid colors, not
 decorative gradients. `src/__tests__/no-design-tells.test.ts` enforces
 both rules.
 
-**Layout under the shell:** content is offset by the header
-(`pt-12 md:pt-14`); full-height modules size against
-`calc(100vh - 3rem)` / `md:calc(100vh - 3.5rem)`, never `100vh`.
+**The play box (layout under the shell):** the header is 48 px, and
+40 px on a short screen (`h-12 short:h-10`, the `short:` variant is
+`max-height: 480px`, a phone held sideways). The header height is never
+keyed on the width: a phone held sideways is 844 px wide and is not a
+tablet. Under the header, GameShell renders one play box
+(`[data-play-box]`, `PLAY_BOX_CLASSES` in `GameShell.tsx`). The box is
+the rest of the screen, in `dvh`: `calc(100dvh - 3rem)` and
+`short:calc(100dvh - 2.5rem)`. On an iPhone, `100vh` is the height with
+the Safari toolbars hidden, so a page in `vh` was taller than the screen
+and every route scrolled. The page is exactly one screen tall; when a
+module is taller, the box scrolls, not the page. Nothing in the box can
+be selected or long-pressed into the iOS callout; a text field keeps its
+selection. A game must not read `window.innerHeight` or use `100vh`,
+`min-h-screen` or `calc(100vh - 3rem)`. It sizes to the box:
+
+- `usePlayBox()` (`src/shared/hooks/usePlayBox.ts`) gives the size of the
+  box, live: before the first paint, then on each change of the box, the
+  window or the visual viewport (the on-screen keyboard). `visibleHeight`
+  is the part of the box above the keyboard.
+- `usePlayBox({ fit: true })` makes the box fitted while the game fills
+  it: the box does not scroll, and a touch on it goes to the game
+  (`touch-action: none`), not to the browser.
+- `fitCanvas(box, canvasWidth, canvasHeight, reserved)` gives the largest
+  size of a canvas or a board that fits the box on both axes with one
+  scale. `reserved` keeps room for the controls: a number keeps height (a
+  control row), an object keeps width and height (gutters beside the
+  canvas on a phone held sideways). Nine canvas games scaled by width
+  only, so a phone held sideways put the paddle below the screen.
+- A game root uses `h-full` or `min-h-full`, never `min-h-screen`.
+
+Every button on the site has `touch-action: manipulation` (globals.css),
+so a fast double tap on a game button never zooms the page.
 
 ---
 

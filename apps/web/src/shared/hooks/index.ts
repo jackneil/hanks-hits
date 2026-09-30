@@ -3,5 +3,7 @@ export type { default as UseAuthSyncReturn } from "./useAuthSync";
 export { useCoarsePointer } from "./useCoarsePointer";
 export { useFullscreen } from "./useFullscreen";
 export { useGameShell } from "./useGameShell";
+export { fitCanvas, usePlayBox } from "./usePlayBox";
+export type { CanvasFit, PlayBoxOptions, PlayBoxSize } from "./usePlayBox";
 export { useReadAloud } from "./useReadAloud";
 export { useScrollCue } from "./useScrollCue";

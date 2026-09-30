@@ -110,7 +110,12 @@ html {
 
 body {
   font-family: 'Nunito', 'Comic Sans MS', cursive, sans-serif;
+  /* dvh, not vh: on an iPhone 100vh is the height with the Safari toolbars
+     hidden, so a 100vh body was taller than the screen while the toolbars
+     showed, and every page scrolled. The vh line stays as the value for a
+     browser without dvh. */
   min-height: 100vh;
+  min-height: 100dvh;
   padding-bottom: var(--bottom-sheet-space, 0px);
   background-image: linear-gradient(
     to top,
@@ -131,6 +136,28 @@ html, body {
   .btn {
     min-height: 44px;
     min-width: 44px;
+  }
+}
+
+/* Touch defaults (phone UX audit 2026-09-29, S11).
+   - Every button: touch-action manipulation, so a fast double tap on a
+     game button (the cookie, a d-pad key, a board square) never zooms the
+     page. Only DaisyUI's .btn had it. A utility such as touch-none on a
+     hold control still wins (components layer).
+   - Inside the play box (GameShell) nothing is selectable and a long
+     press opens no iOS callout, but a text field keeps its selection so
+     the kid can still type and fix an answer. */
+@layer components {
+  button,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
+  [data-play-box] input,
+  [data-play-box] textarea,
+  [data-play-box] [contenteditable] {
+    user-select: text;
+    -webkit-user-select: text;
   }
 }
 

@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useSession } from "next-auth/react";
 import { useGameShell } from "../hooks/useGameShell";
 import { useFullscreen } from "../hooks/useFullscreen";
+import { PlayBoxContext } from "../hooks/usePlayBox";
 import { PauseMenu } from "./PauseMenu";
 import { LeaderboardButton } from "./LeaderboardButton";
 import { ClipShellScope, useClipHeaderSlot, useClipShellUi } from "@/shared/clips";
@@ -103,8 +104,29 @@ function useRouteId(): string | null {
   );
 }
 
+// touch-manipulation: a double tap on a header button must never zoom the
+// page (only DaisyUI's .btn had touch-action before; these are plain buttons).
 const HEADER_BUTTON =
-  "min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl hover:scale-110 transition-transform active:scale-95";
+  "min-w-[44px] min-h-[44px] flex items-center justify-center text-2xl hover:scale-110 transition-transform active:scale-95 touch-manipulation";
+
+/**
+ * The header bar: 48 px, and 40 px on a short screen (a phone held
+ * sideways, the short: variant in globals.css). Never keyed on the width:
+ * an 844 px wide phone held sideways is not a tablet.
+ */
+export const HEADER_HEIGHT_CLASSES = "h-12 short:h-10";
+
+/**
+ * The play box: the screen under the header, in dvh, so it is the real
+ * screen with the iOS toolbars in or out (usePlayBox.ts). It scrolls when
+ * a game is taller than the screen; the page itself never scrolls. While
+ * a game fits itself to the box (usePlayBox({ fit: true })), the box does
+ * not scroll and a touch on it goes to the game, not to the browser. No
+ * text in it can be selected or long-pressed into the iOS callout. When a
+ * bottom sheet shows (bottomSheetSpace.ts), the box ends above it.
+ */
+export const PLAY_BOX_CLASSES =
+  "relative w-full h-[calc(100dvh-3rem-var(--bottom-sheet-space,0px))] short:h-[calc(100dvh-2.5rem-var(--bottom-sheet-space,0px))] overflow-y-auto overscroll-contain select-none [-webkit-touch-callout:none] data-[fitted]:overflow-hidden data-[fitted]:touch-none";
 
 export function GameShell({
   children,
@@ -216,6 +238,7 @@ function GameShellFrame({
   setIsRestartConfirmationOpen,
 }: GameShellFrameProps) {
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
+  const playBoxRef = useRef<HTMLDivElement>(null);
   // The clip UI parts, or null: no clip-enabled game, clips off, or not loaded yet.
   const clip = useClipShellUi();
   const clipButtonShown = useClipHeaderSlot();
@@ -275,14 +298,17 @@ function GameShellFrame({
   });
 
   return (
-    <div className="relative w-full h-full min-h-screen">
+    // min-h-dvh, not min-h-screen: 100vh is taller than an iPhone screen
+    // with the Safari toolbars shown, so the page scrolled on every route.
+    // The header room (pt) plus the play box is exactly one screen.
+    <div className="relative w-full min-h-dvh pt-12 short:pt-10">
       {/* Header bar. A solid background: the old backdrop-blur was a
           glassmorphism tell, and a backdrop-filter also becomes the
           containing block for position: fixed children, which trapped
           sheets opened from header buttons inside the 48 px bar. */}
       <div
         data-testid="game-shell-header"
-        className={`fixed top-0 left-0 right-0 h-12 md:h-14 bg-slate-950 border-b border-white/10 z-[1000] flex items-center justify-between px-3 md:px-4 ${headerClassName}`}
+        className={`fixed top-0 left-0 right-0 ${HEADER_HEIGHT_CLASSES} bg-slate-950 border-b border-white/10 z-[1000] flex items-center justify-between px-3 md:px-4 ${headerClassName}`}
       >
         {/* Home button (spacer keeps the title balanced when hidden) */}
         {showHomeButton ? (
@@ -417,8 +443,12 @@ function GameShellFrame({
             overlapping the then-absolutely-centered title — found by /qa). */}
       </div>
 
-      {/* Game content - offset by header height */}
-      <div className="pt-12 md:pt-14 w-full h-full">{children}</div>
+      {/* The play box: the screen under the header (PLAY_BOX_CLASSES). */}
+      <PlayBoxContext.Provider value={playBoxRef}>
+        <div ref={playBoxRef} data-play-box="" data-testid="game-shell-play-box" className={PLAY_BOX_CLASSES}>
+          {children}
+        </div>
+      </PlayBoxContext.Provider>
 
       {/* The in-play toast slot (plan 11.4): the new-clip chip, the Record
           pill and tap replies, directly under the header. It portals to
