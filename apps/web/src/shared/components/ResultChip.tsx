@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { useClipShellUi } from "@/shared/clips";
 import { useCoarsePointer } from "../hooks/useCoarsePointer";
+import { useShortViewport } from "../hooks/useShortViewport";
 import { useRegisterBreakSlot } from "../lib/gameBreaks";
 import { getGameMetadata } from "../lib/gameMetadata.generated";
 import { spokenLabelsIn } from "../lib/spokenLabels";
@@ -85,7 +86,12 @@ import { ReadAloudButton } from "./ReadAloudButton";
  * - Size: every button is 56 px high, and 44 px on a short screen (a phone
  *   held sideways), like the read-aloud button on the start card. Below
  *   480 px wide the buttons sit in two columns, 44 px or more, so the chip
- *   leaves the game's result card in view (buttonStyles.ts).
+ *   leaves the game's result card in view (buttonStyles.ts). On a short
+ *   screen the chip is one compact row: the read-aloud button is its 44 px
+ *   icon form, the labels are smaller and closer, so the row is about 60
+ *   px of a 271 px play box and the game's own GAME OVER and score, drawn
+ *   at the centre of the canvas, stay in view (the two-row chip with the
+ *   labelled read-aloud button covered them at 667x311).
  * - Clips (plan 11.4, decision D1): in a clip-enabled game with clips on,
  *   the bar also shows the clip buttons after the children. A run of 30
  *   seconds or less gets "Watch the whole run (m:ss)"; a longer run gets
@@ -152,7 +158,8 @@ function stopAtChip(event: React.SyntheticEvent): void {
 /** 56 px buttons, 44 px on a short screen, like the start card's read-aloud button. */
 const BUTTON_SIZE = RESULT_CHIP_BUTTON;
 
-const ACTION_BUTTON = `btn gap-2 px-4 text-lg ${BUTTON_SIZE} active:scale-[0.97] touch-manipulation`;
+/** On a short screen the labels are smaller and closer, so the row stays one row. */
+const ACTION_BUTTON = `btn gap-2 px-4 text-lg ${BUTTON_SIZE} active:scale-[0.97] touch-manipulation short:gap-1.5 short:px-3 short:text-base`;
 
 export function ResultChip({
   resultText,
@@ -167,6 +174,8 @@ export function ResultChip({
   const clip = useClipShellUi();
   // Keyboard words are for a mouse or trackpad viewport only.
   const isCoarse = useCoarsePointer();
+  // A phone held sideways: one compact row, with the icon read-aloud button.
+  const isShort = useShortViewport();
   const clipActionsRef = useRef<HTMLDivElement>(null);
   // The server has no document.body to portal into. The server snapshot is
   // false, so the server and the first client render agree.
@@ -287,7 +296,7 @@ export function ResultChip({
   return createPortal(
     <div
       data-testid="result-chip"
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[1200] flex flex-col items-center gap-2 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[1200] flex flex-col items-center gap-2 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] short:gap-1 short:pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
       {/* Break slot (empty unless a celebration renders into it). A tap
           on a note here bubbles through the note's own React tree (the
@@ -317,18 +326,23 @@ export function ResultChip({
         onClick={stopAtChip}
         onDoubleClick={stopAtChip}
         onContextMenu={stopAtChip}
-        className={`pointer-events-auto ${RESULT_CHIP_GROUP} rounded-2xl border border-base-300 bg-base-100 p-2 text-base-content shadow-lg transition-[opacity,translate] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] starting:opacity-0 motion-safe:starting:translate-y-2`}
+        className={`pointer-events-auto ${RESULT_CHIP_GROUP} rounded-2xl border border-base-300 bg-base-100 p-2 text-base-content shadow-lg transition-[opacity,translate] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] starting:opacity-0 motion-safe:starting:translate-y-2 short:gap-1.5 short:p-1.5`}
       >
         <p id={resultId} className="sr-only">
           {resultText}
         </p>
 
         {/* The full button is w-full for a column; in this row it takes
-            only the width of its label. */}
-        <ReadAloudButton
-          text={spokenText}
-          className={`w-auto! shrink-0 px-4 max-[480px]:w-full! max-[480px]:px-1.5! ${BUTTON_SIZE}`}
-        />
+            only the width of its label. On a short screen it is the 44 px
+            icon, so the row stays one row. */}
+        {isShort ? (
+          <ReadAloudButton text={spokenText} variant="icon" className="shrink-0" />
+        ) : (
+          <ReadAloudButton
+            text={spokenText}
+            className={`w-auto! shrink-0 px-4 max-[480px]:w-full! max-[480px]:px-1.5! ${BUTTON_SIZE}`}
+          />
+        )}
 
         {onRestart && (
           <button

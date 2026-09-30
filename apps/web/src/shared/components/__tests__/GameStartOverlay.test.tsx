@@ -6,6 +6,7 @@ import {
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
 import { installAudioMock, removeAudioMock } from "@/__tests__/audio-mock";
+import { useGameBreaks } from "../../lib/gameBreaks";
 
 import { GameStartOverlay, GameStartOverlayButton } from "../GameStartOverlay";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
@@ -606,5 +607,61 @@ describe("GameStartOverlay read aloud", () => {
 
     fireEvent.click(await screen.findByTestId("read-aloud-button"));
     expect(onStart).not.toHaveBeenCalled();
+  });
+});
+
+describe("GameStartOverlay celebration slot on a short screen", () => {
+  const realMatchMedia = window.matchMedia;
+  afterEach(() => {
+    Object.defineProperty(window, "matchMedia", { writable: true, value: realMatchMedia });
+    useGameBreaks.setState({ shells: 0, slots: [] });
+  });
+
+  function mockShort(short: boolean) {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes("max-height: 480px") ? short : false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  }
+
+  it("holds a trophy (one row) at the top of the action column, and no tip", () => {
+    // On a short screen the slot beside the card is gone, so a trophy
+    // earned sideways had no break in any game but Asteroids and showed
+    // only on the home page strip.
+    mockShort(true);
+    render(<GameStartOverlay title="Snake" onStart={() => {}} />);
+    expect(screen.queryByTestId("start-overlay-break-slot")).toBeNull();
+    const slot = screen.getByTestId("start-overlay-short-slot");
+    expect(screen.getByTestId("start-card-actions")).toContainElement(slot);
+    expect(screen.getByTestId("start-card-actions").firstElementChild).toBe(slot);
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["celebration"] }]);
+  });
+
+  it("reads a trophy in that slot with the card's own words", async () => {
+    mockShort(true);
+    const synth = installSpeechMock();
+    render(<GameStartOverlay title="Snake" onStart={() => {}} />);
+    const note = document.createElement("div");
+    note.setAttribute("data-read-aloud", "New trophy! First Play!");
+    screen.getByTestId("start-overlay-short-slot").appendChild(note);
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+    expect(synth.lastUtterance().text).toContain("New trophy! First Play!");
+  });
+
+  it("has no short slot on a tall screen: the slot beside the card holds every note", () => {
+    mockShort(false);
+    render(<GameStartOverlay title="Snake" onStart={() => {}} />);
+    expect(screen.queryByTestId("start-overlay-short-slot")).toBeNull();
+    const slot = screen.getByTestId("start-overlay-break-slot");
+    expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["tip", "celebration"] }]);
   });
 });

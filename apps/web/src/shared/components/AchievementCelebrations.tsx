@@ -43,8 +43,9 @@ const CONFETTI = [
  *   kid taps Yay! to close it, or the break ends. A card that was in view
  *   for SEEN_MS or longer counts as seen when the break ends; a card the
  *   kid never scrolled to comes back at the next break. On a short
- *   screen the card is one row, so the start card's slot can hold it
- *   under the install tip.
+ *   screen (a phone held sideways) the card is one row, so the start
+ *   card's action column and the pause menu's grid have room for it
+ *   under their buttons (the install tip has no slot there).
  * - During play: nothing. The unlock waits in the queue for the next
  *   break. The queue is persisted (achievements/store.ts), so a kid who
  *   closes the tab mid-run gets the card on the next visit. Before this, a
@@ -224,9 +225,10 @@ export function AchievementCelebrations() {
             {words.emoji}
           </span>
           {/* On a short screen (a phone held sideways) the card is one
-              truncated row, like the strip: the start card's slot stacks
-              this card under the install tip, and a two-line card ran to
-              the bottom edge of a 311 px screen. */}
+              truncated row, like the strip: it sits at the top of the
+              start card's action column or under the pause menu's grid,
+              and a two-line card ran to the bottom edge of a 311 px
+              screen. */}
           <div className="min-w-0 flex-1 text-yellow-950 short:truncate">
             <span className="block font-bold text-lg short:inline short:text-base">{words.title}</span>
             <span className="block text-sm short:ml-1 short:inline">{words.description}</span>

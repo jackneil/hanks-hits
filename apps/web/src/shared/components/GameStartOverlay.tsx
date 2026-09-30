@@ -7,6 +7,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -222,20 +223,29 @@ export function GameStartOverlay({
   }, [onStart]);
 
   // The start screen is a break: a nudge such as the iOS install tip
-  // renders into this slot, next to the card (gameBreaks.ts).
+  // renders into this slot, next to the card (gameBreaks.ts). On a short
+  // screen the slot beside the card is gone (the tip took 288 px of a 667
+  // px screen); a trophy celebration, one row there, gets a slot at the
+  // top of the action column instead. Both slots share breakSlotElRef, so
+  // the room check below watches whichever one is on screen.
   const { slotRef: registerBreakSlot, readNotes: readBreakNotes } = useRegisterBreakSlot();
-  const breakSlotRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      breakSlotElRef.current = el;
-      if (!el) return undefined;
-      const unregister = registerBreakSlot(el);
-      return () => {
-        breakSlotElRef.current = null;
-        unregister?.();
-      };
-    },
-    [registerBreakSlot]
+  const { slotRef: registerShortSlot, readNotes: readShortNotes } = useRegisterBreakSlot(["celebration"]);
+  const watchSlot = useCallback(
+    (register: (el: HTMLElement | null) => (() => void) | undefined) =>
+      (el: HTMLDivElement | null) => {
+        breakSlotElRef.current = el;
+        if (!el) return undefined;
+        const unregister = register(el);
+        return () => {
+          breakSlotElRef.current = null;
+          unregister?.();
+        };
+      },
+    []
   );
+  const breakSlotRef = useMemo(() => watchSlot(registerBreakSlot), [watchSlot, registerBreakSlot]);
+  const shortSlotRef = useMemo(() => watchSlot(registerShortSlot), [watchSlot, registerShortSlot]);
+  const readNotes = () => [...readBreakNotes(), ...readShortNotes()];
 
   // The slot stays only while the card fits with the note next to it.
   // When the body (or the whole card) must scroll, the
@@ -290,11 +300,11 @@ export function GameStartOverlay({
   const startInstruction = showStartButton
     ? `Then tap ${startLabel} to start.`
     : "Then tap one of the choices to start.";
-  // Built at tap time, so a note in the break slot is spoken last.
+  // Built at tap time, so a note in a break slot is spoken last.
   const readAloudText = () =>
     [title, subtitle, ...hints, spokenChoices, startInstruction]
       .filter(Boolean)
-      .join(". ") + readBreakNotes().map((note) => ` ${note}`).join("");
+      .join(". ") + readNotes().map((note) => ` ${note}`).join("");
 
   const pickerNodes = Children.toArray(children).filter(isValidElement);
   const pickers =
@@ -406,6 +416,11 @@ export function GameStartOverlay({
               data-testid="start-card-actions"
               className="flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:w-[45%] short:gap-2 short:p-3 short:[align-self:safe_center]"
             >
+              {/* Short screen: the celebration slot (one row) at the top
+                  of the column; it goes away when the card would not fit. */}
+              {breakRoom && isShort && (
+                <div ref={shortSlotRef} data-testid="start-overlay-short-slot" className="w-full shrink-0 empty:hidden" />
+              )}
               <ReadAloudButton text={readAloudText} className="short:min-h-[44px]" />
 
               {showStartButton ? (

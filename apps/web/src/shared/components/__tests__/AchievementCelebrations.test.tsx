@@ -362,19 +362,40 @@ describe("AchievementCelebrations at a break", () => {
     expect(queue()).toEqual([]);
   });
 
-  it("is one truncated row on a short screen, so the start card's slot holds it under the install tip", () => {
-    // Live at 667x311 the start card's slot stacked the two-line card
-    // under the 150 px install tip, and the card ran to the bottom edge
-    // of the screen.
-    resetAchievements(["first-play:snake"]);
-    renderGame();
-    pause();
-    const card = screen.getByTestId("achievement-card");
-    expect(card).toHaveClass("short:py-1");
-    const words = within(card).getByText(/First Play!/).parentElement!;
-    expect(words).toHaveClass("short:truncate");
-    expect(within(card).getByText(/First Play!/)).toHaveClass("block", "short:inline");
-    expect(within(card).getByText(/You tried Snake!/)).toHaveClass("block", "short:inline");
+  it("is one truncated row on a short screen, in the pause menu's slot under the grid", () => {
+    // On a phone held sideways the start card, the pause menu and the
+    // game sheet dropped their break slot, so a trophy earned sideways had
+    // no break in any game but Asteroids (the result chip) and showed only
+    // on the home page strip. The pause menu keeps a celebration-only slot
+    // under its 2 x 2 grid on a short screen, and the card is one row there.
+    const realMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes("max-height: 480px"),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+    try {
+      resetAchievements(["first-play:snake"]);
+      renderGame();
+      pause();
+      const slot = screen.getByTestId("pause-menu-break-slot");
+      const card = within(slot).getByTestId("achievement-card");
+      expect(card).toHaveClass("short:py-1");
+      const words = within(card).getByText(/First Play!/).parentElement!;
+      expect(words).toHaveClass("short:truncate");
+      expect(within(card).getByText(/First Play!/)).toHaveClass("block", "short:inline");
+      expect(within(card).getByText(/You tried Snake!/)).toHaveClass("block", "short:inline");
+    } finally {
+      Object.defineProperty(window, "matchMedia", { writable: true, value: realMatchMedia });
+    }
   });
 
   describe("seen means in view (IntersectionObserver)", () => {

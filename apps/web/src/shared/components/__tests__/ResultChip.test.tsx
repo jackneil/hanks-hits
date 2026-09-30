@@ -577,3 +577,56 @@ describe("ResultChip break slot", () => {
     expect(useGameBreaks.getState().slots).toEqual([]);
   });
 });
+
+describe("ResultChip on a short screen (a phone held sideways)", () => {
+  const realMatchMedia = window.matchMedia;
+  afterEach(() => {
+    Object.defineProperty(window, "matchMedia", { writable: true, value: realMatchMedia });
+  });
+
+  /** matchMedia where (max-height: 480px) matches `short`. */
+  function mockShort(short: boolean) {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes("max-height: 480px") ? short : false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  }
+
+  it("is one compact row: the icon read-aloud button and smaller, closer labels", () => {
+    // At 667x311 the two-row chip with the labelled read-aloud button and
+    // a trophy card covered Asteroids' GAME OVER and score, drawn at the
+    // centre of a 271 px play box (the reward, at the moment it matters).
+    installSpeechMock();
+    mockShort(true);
+    render(<ResultChip resultText="Game over! 12 points." appId="asteroids" onRestart={vi.fn()} />);
+    const readAloud = screen.getByTestId("read-aloud-button");
+    expect(readAloud).toHaveClass("btn-circle", "h-11", "w-11");
+    expect(readAloud).toHaveAttribute("aria-label", "Read it to me");
+    expect(readAloud).not.toHaveTextContent("Read it to me");
+    for (const name of [RESULT_CHIP_LABELS.playAgain, RESULT_CHIP_LABELS.leaderboard]) {
+      const button = screen.getByRole("button", { name: new RegExp(name) });
+      expect(button.className.split(/\s+/)).toEqual(
+        expect.arrayContaining(["short:min-h-11", "short:text-base", "short:px-3", "short:gap-1.5"])
+      );
+    }
+    const group = screen.getByRole("group");
+    expect(group.className.split(/\s+/)).toEqual(expect.arrayContaining(["short:p-1.5", "short:gap-1.5"]));
+    expect(chip().className.split(/\s+/)).toContain("short:gap-1");
+  });
+
+  it("keeps the big labelled read-aloud button on a tall screen", () => {
+    installSpeechMock();
+    mockShort(false);
+    render(<ResultChip resultText="Game over! 12 points." onRestart={vi.fn()} />);
+    expect(screen.getByTestId("read-aloud-button")).toHaveTextContent("Read it to me");
+  });
+});
