@@ -91,15 +91,7 @@ export const COLORS = {
   BLACK_PIECE: "#2c3e50",
   BLACK_PIECE_DARK: "#1a252f",
   SELECTED: "#ffd700",
-  VALID_MOVE: "#00ff00",
   LAST_MOVE: "#87ceeb",
-  CAPTURE_HINT: "#ff6347",
-} as const;
-
-export const SIZES = {
-  MIN_PIECE_SIZE: 50,
-  MIN_SQUARE_SIZE: 40,
-  MIN_BUTTON_SIZE: 48,
 } as const;
 
 export const AI_CONFIG = {
