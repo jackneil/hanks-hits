@@ -150,23 +150,25 @@ export function OrientationWarning({ preferred, gameId }: OrientationWarningProp
   }
   const due = laidOut && isCoarse && !startCardShowing && mismatch;
 
-  useEffect(() => {
-    if (state !== "waiting" || !due) return;
-    if (wasShown(gameId)) {
-      setState("done");
-      return;
-    }
-    markShown(gameId);
-    setState("shown");
-  }, [due, state, gameId]);
-
-  // The kid turned the phone: the tip has done its job.
-  useEffect(() => {
-    if (state === "shown" && !mismatch) setState("done");
-  }, [state, mismatch]);
+  // The two moves of the tip are decided while rendering (React's "adjust
+  // state while rendering" pattern, not an effect): the first moment the
+  // tip is due, it shows unless this session saw it; and when the kid
+  // turns the phone, it is done. React renders again at once, before
+  // paint, so no frame shows the old state.
+  if (state === "waiting" && due) {
+    setState(wasShown(gameId) ? "done" : "shown");
+  }
+  if (state === "shown" && !mismatch) {
+    setState("done");
+  }
 
   const visible = state === "shown";
   useShellOverlay(visible);
+
+  // Remember it for the session, once it is on screen.
+  useEffect(() => {
+    if (visible) markShown(gameId);
+  }, [visible, gameId]);
 
   if (!visible) return null;
 

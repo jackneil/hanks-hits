@@ -61,6 +61,16 @@ export function findPlayBox(): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[${PLAY_BOX_ATTR}]`);
 }
 
+/**
+ * The play box for a hook: the shell's element from the context, else
+ * the one on the page. A child's layout effect runs before React attaches
+ * the parent's ref, so on the first pass the context ref can still be
+ * null; the box is in the DOM by then, so the page lookup finds it.
+ */
+export function resolvePlayBox(ref: RefObject<HTMLElement | null> | null): HTMLElement | null {
+  return ref?.current ?? findPlayBox();
+}
+
 const ZERO: PlayBoxSize = { width: 0, height: 0, visibleHeight: 0 };
 
 /** The size of the box, or of the window when there is no box. */
@@ -104,10 +114,7 @@ export function usePlayBox(options: PlayBoxOptions = {}): PlayBoxSize {
   const [size, setSize] = useState<PlayBoxSize>(ZERO);
 
   useLayoutEffect(() => {
-    // A child's layout effect runs before React attaches the parent's ref,
-    // so on the first pass the context ref can still be null. The box is
-    // in the DOM by then, so the page lookup finds it.
-    const box = boxRef?.current ?? findPlayBox();
+    const box = resolvePlayBox(boxRef);
     const update = () => {
       const next = measurePlayBox(box);
       setSize((prev) => (sameSize(prev, next) ? prev : next));
@@ -130,7 +137,7 @@ export function usePlayBox(options: PlayBoxOptions = {}): PlayBoxSize {
 
   useLayoutEffect(() => {
     if (!fit) return;
-    const box = boxRef?.current ?? findPlayBox();
+    const box = resolvePlayBox(boxRef);
     if (!box) return;
     fitHolds.set(box, (fitHolds.get(box) ?? 0) + 1);
     box.setAttribute(PLAY_BOX_FITTED_ATTR, "");

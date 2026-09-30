@@ -2,7 +2,7 @@
 
 import { useContext, useLayoutEffect } from "react";
 
-import { PlayBoxContext, findPlayBox } from "./usePlayBox";
+import { PlayBoxContext, resolvePlayBox } from "./usePlayBox";
 
 /**
  * Scrolls the play box (and the page) back to the top each time `key`
@@ -21,7 +21,7 @@ import { PlayBoxContext, findPlayBox } from "./usePlayBox";
 export function useScrollToTopOn(key: unknown): void {
   const boxRef = useContext(PlayBoxContext);
   useLayoutEffect(() => {
-    const box = boxRef?.current ?? findPlayBox();
+    const box = resolvePlayBox(boxRef);
     if (box) box.scrollTop = 0;
     if (typeof document !== "undefined") {
       document.documentElement.scrollTop = 0;
