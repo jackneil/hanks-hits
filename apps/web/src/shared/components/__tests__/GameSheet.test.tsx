@@ -230,6 +230,9 @@ describe("GameSheet action column on a short screen", () => {
     expect(actions).toHaveAttribute("data-two-columns");
     expect(actions.className).toMatch(/(^|\s)short:grid-cols-2(\s|$)/);
     expect((await within(actions).findByTestId("read-aloud-button")).className).toMatch(/(^|\s)short:col-span-2(\s|$)/);
+    // The main action (the first) keeps a full row, so its words fit.
+    expect(actions.className).toContain("short:[&>[data-sheet-actions]>:first-child]:col-span-2");
+    expect(within(actions).getByText("Action 1").parentElement).toHaveAttribute("data-sheet-actions");
   });
 
   it("stays one column when it fits, and on a tall screen", () => {
