@@ -19,12 +19,12 @@
  *   (runBest.noteCloudBest).
  *
  * With clips off, every call here does nothing: useAttachedGame gives null.
+ * The run logic is the shared useRunClips; this maps the game's phase.
  */
 
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import type { RefObject } from "react";
 
-import { useAttachedGame, useClipSource } from "@/shared/clips";
-import { startRun, type RunBest } from "@/shared/lib/runBest";
+import { useRunClips, type RunClipPhase } from "@/shared/clips";
 
 /** What the game is doing, for the clip service. */
 export type HillClimbClipPhase = "start" | "garage" | "playing" | "paused" | "gameOver";
@@ -38,70 +38,18 @@ export interface HillClimbClipState {
 }
 
 /** The words and picture of the new-best moment (the viewer's filmstrip star). */
-export const NEW_BEST_MOMENT = { kind: "new-best", label: "New best!", emoji: "🏆", priority: "featured" } as const;
+export { NEW_BEST_MOMENT } from "@/shared/clips";
 
 export function useHillClimbClips(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   { phase, distance, bestDistance }: HillClimbClipState,
 ): void {
-  const game = useAttachedGame();
-  const run = useRef<{ best: RunBest; marked: boolean } | null>(null);
-  const before = useRef<{ phase: HillClimbClipPhase; game: typeof game }>({ phase, game: null });
-  const gameRef = useRef(game);
-  useLayoutEffect(() => {
-    gameRef.current = game;
-  });
+  useRunClips(canvasRef, { phase: runClipPhase(phase), score: distance, best: bestDistance });
+}
 
-  const bestRef = useRef(bestDistance);
-  useEffect(() => {
-    bestRef.current = bestDistance;
-    // During a run the best rises only through cloud sync (the store raises
-    // it at the end of the run), so a higher best here is a record from
-    // another device. noteCloudBest never lowers the distance to beat.
-    run.current?.best.noteCloudBest(bestDistance);
-  }, [bestDistance]);
-
-  // Run phases. This effect runs before useClipSource's break signal below,
-  // so at game over the service hears "end" first and keeps the result in
-  // the ring (its post-roll), then the break.
-  useEffect(() => {
-    const prev = before.current;
-    before.current = { phase, game };
-    if (!game) return;
-    const gameArrived = prev.game !== game;
-    // Driving after any break but a pause: a new run. A game that arrives
-    // while the truck already drives (a restart remount, or a clip service
-    // that loads mid-run) starts the run then.
-    const drivingStarted = phase === "playing" && prev.phase !== "playing" && prev.phase !== "paused";
-    if (drivingStarted || (gameArrived && phase === "playing")) {
-      if (run.current && !gameArrived) game.runPhase("end");
-      run.current = { best: startRun(bestRef.current), marked: false };
-      game.runPhase("start");
-    } else if (phase !== "playing" && phase !== "paused" && run.current) {
-      // The result, or a run torn down for the Garage: the run is over.
-      run.current = null;
-      game.runPhase("end");
-    }
-  }, [phase, game]);
-
-  // The game unmounts with a run open (the header restart remounts it): end
-  // that run, so the next mount's run stands on its own.
-  useEffect(
-    () => () => {
-      if (run.current && gameRef.current) gameRef.current.runPhase("end");
-      run.current = null;
-    },
-    [],
-  );
-
-  // The new best: once per run, the moment the distance passes the old record.
-  useEffect(() => {
-    const current = run.current;
-    if (!game || !current || current.marked || phase !== "playing") return;
-    if (!current.best.brokeRecord(distance)) return;
-    current.marked = true;
-    game.markMoment({ ...NEW_BEST_MOMENT });
-  }, [game, distance, phase]);
-
-  useClipSource(canvasRef, { isPlaying: phase === "playing" });
+/** The truck drives; the pause sheet keeps the run; everything else has no run. */
+export function runClipPhase(phase: HillClimbClipPhase): RunClipPhase {
+  if (phase === "playing") return "playing";
+  if (phase === "paused") return "hold";
+  return "idle";
 }
