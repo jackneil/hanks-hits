@@ -415,13 +415,16 @@ function probeFixedOverPlay(page: Page): Promise<string[]> {
     const header = document.querySelector('[data-testid="game-shell-header"]');
     const tip = document.querySelector('[data-testid="orientation-tip"]');
     // The result chip is the break surface after a run: it and what waits
-    // in it (a celebration) cover no play.
+    // in it (a celebration) cover no play. The result card (the run's words,
+    // over the top of the picture) comes with it.
     const chip = document.querySelector('[data-testid="result-chip"]');
+    const cards = [...document.querySelectorAll("[data-result-card]")];
     const out: string[] = [];
     for (const el of document.querySelectorAll<HTMLElement>("body *")) {
       if (el === header || el === box) continue;
       if (header?.contains(el) || box.contains(el) || tip?.contains(el) || el === tip) continue;
       if (chip?.contains(el) || el === chip) continue;
+      if (cards.some((card) => card.contains(el))) continue;
       const style = getComputedStyle(el);
       if (style.position !== "fixed") continue;
       if (style.visibility === "hidden" || Number(style.opacity) < 0.01) continue;
