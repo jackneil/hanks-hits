@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { useShortViewport } from "../hooks/useShortViewport";
@@ -71,6 +71,26 @@ export interface GameSheetProps {
   shellActions?: boolean;
 }
 
+/**
+ * The action column on a short screen: each action is 44 px (short:h-11)
+ * with 8 px between them (short:gap-2) and 12 px of padding at each end
+ * (short:p-3). When one column of that is taller than the room under the
+ * header, the actions go two to a row (the read-aloud button spans both),
+ * as the shell pause menu does. A game sheet with its own actions plus the
+ * moved header controls (Leaderboard, Sign In) is 7 rows, 404 px, on a
+ * 267 px screen.
+ */
+const SHORT_ACTION_PX = 44;
+const SHORT_ACTION_GAP_PX = 8;
+const SHORT_COLUMN_PAD_PX = 24;
+const ACTION_SELECTOR = "button, a[href]";
+
+/** One column of `count` actions, in px, on a short screen. */
+export function shortActionColumnPx(count: number): number {
+  if (count <= 0) return SHORT_COLUMN_PAD_PX;
+  return count * SHORT_ACTION_PX + (count - 1) * SHORT_ACTION_GAP_PX + SHORT_COLUMN_PAD_PX;
+}
+
 function subscribeToNothing(): () => void {
   return () => {};
 }
@@ -91,6 +111,9 @@ export function GameSheet({
 }: GameSheetProps) {
   const isClient = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const isShort = useShortViewport();
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const actionColumnRef = useRef<HTMLDivElement>(null);
+  const [twoColumns, setTwoColumns] = useState(false);
   const titleId = useId();
   const wordsRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -111,10 +134,38 @@ export function GameSheet({
     return joinSpoken([own, ...spokenLabelsIn(shellActionsRef.current), ...readBreakNotes()]);
   };
 
+  // Measured before paint, so the column never shows one frame too tall.
+  useLayoutEffect(() => {
+    const overlay = overlayRef.current;
+    const column = actionColumnRef.current;
+    if (!isShort || !overlay || !column) {
+      setTwoColumns(false);
+      return;
+    }
+    const measure = () => {
+      // No layout (a test DOM): keep one column.
+      if (overlay.clientHeight === 0) {
+        setTwoColumns(false);
+        return;
+      }
+      const style = getComputedStyle(overlay);
+      const room = overlay.clientHeight - parseFloat(style.paddingTop || "0") - parseFloat(style.paddingBottom || "0");
+      const count = column.querySelectorAll(ACTION_SELECTOR).length;
+      setTwoColumns(shortActionColumnPx(count) > room);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(overlay);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [isShort, isClient, actions, shellActions, movedHeaderControls]);
+
   if (!isClient) return null;
 
   return createPortal(
     <div
+      ref={overlayRef}
       data-testid={testId}
       role="dialog"
       aria-modal="true"
@@ -152,10 +203,14 @@ export function GameSheet({
 
           {/* Actions: pinned, never scroll out of view; beside the body when short */}
           <div
+            ref={actionColumnRef}
             data-testid={`${testId}-actions`}
-            className="flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:w-[45%] short:gap-2 short:p-3 short:[align-self:safe_center]"
+            data-two-columns={twoColumns ? "" : undefined}
+            className={`flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:w-[45%] short:gap-2 short:overflow-y-auto short:p-3 short:[align-self:safe_center] ${
+              twoColumns ? "short:grid short:w-[55%] short:grid-cols-2 short:content-center" : ""
+            }`}
           >
-            <ReadAloudButton text={readAloudText} className="short:min-h-[44px]" />
+            <ReadAloudButton text={readAloudText} className={`short:min-h-[44px] ${twoColumns ? "short:col-span-2" : ""}`} />
             {/* display: contents keeps the actions in the column; the voice
                 reads only these, not the read-aloud button itself */}
             <div ref={actionsRef} className="contents">
