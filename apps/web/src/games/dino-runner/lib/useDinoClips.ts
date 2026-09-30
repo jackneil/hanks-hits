@@ -14,12 +14,12 @@
  *   sync brings during the run raises the score to beat.
  *
  * With clips off, every call here does nothing: useAttachedGame gives null.
+ * The run logic is the shared useRunClips; this maps the game's state.
  */
 
-import { useEffect, useRef, type RefObject } from "react";
+import type { RefObject } from "react";
 
-import { useAttachedGame, useClipSource } from "@/shared/clips";
-import { startRun, type RunBest } from "@/shared/lib/runBest";
+import { useRunClips, type RunClipPhase } from "@/shared/clips";
 
 import type { GameState } from "./constants";
 
@@ -33,49 +33,16 @@ export interface DinoClipState {
 }
 
 /** The words and picture of the new-best moment (the viewer's filmstrip star). */
-export const NEW_BEST_MOMENT = { kind: "new-best", label: "New best!", emoji: "🏆", priority: "featured" } as const;
+export { NEW_BEST_MOMENT } from "@/shared/clips";
 
 export function useDinoClips(
   canvasRef: RefObject<HTMLCanvasElement | null>,
   { gameState, score, highScore, runId }: DinoClipState
 ): void {
-  const game = useAttachedGame();
-  const run = useRef<{ best: RunBest; marked: boolean } | null>(null);
-  const before = useRef<{ gameState: GameState; game: typeof game; runId: number }>({ gameState, game: null, runId });
+  useRunClips(canvasRef, { phase: runClipPhase(gameState), runId, score: Math.floor(score), best: highScore });
+}
 
-  const highScoreRef = useRef(highScore);
-  useEffect(() => {
-    highScoreRef.current = highScore;
-    run.current?.best.noteCloudBest(highScore);
-  }, [highScore]);
-
-  // Run phases. This effect runs before useClipSource's break signal below,
-  // so at game over the service hears "end" first and keeps the result in
-  // the ring (its post-roll), then the break.
-  useEffect(() => {
-    const prev = before.current;
-    before.current = { gameState, game, runId };
-    if (!game) return;
-    const gameArrived = prev.game !== game;
-    const runStarted = gameState === "playing" && (prev.runId !== runId || prev.gameState !== "playing");
-    if (runStarted || (gameArrived && gameState === "playing" && run.current === null)) {
-      if (run.current && !gameArrived) game.runPhase("end");
-      run.current = { best: startRun(highScoreRef.current), marked: false };
-      game.runPhase("start");
-    } else if (gameState === "game-over" && prev.gameState !== "game-over" && run.current) {
-      run.current = null;
-      game.runPhase("end");
-    }
-  }, [gameState, game, runId]);
-
-  // The new best: once per run, the moment the score passes the old record.
-  useEffect(() => {
-    const current = run.current;
-    if (!game || !current || current.marked || gameState !== "playing") return;
-    if (!current.best.brokeRecord(Math.floor(score))) return;
-    current.marked = true;
-    game.markMoment({ ...NEW_BEST_MOMENT });
-  }, [game, score, gameState]);
-
-  useClipSource(canvasRef, { isPlaying: gameState === "playing" });
+/** A run plays; the start card and the result have no run. */
+export function runClipPhase(gameState: GameState): RunClipPhase {
+  return gameState === "playing" ? "playing" : "idle";
 }
