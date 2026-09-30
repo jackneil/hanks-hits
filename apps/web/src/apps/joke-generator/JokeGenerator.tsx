@@ -147,7 +147,11 @@ export function JokeGenerator() {
   const isFav = store.currentJoke ? store.isFavorite(store.currentJoke.id) : false;
 
   return (
-    <div className="h-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-orange-400 p-3 md:p-4 flex flex-col overflow-hidden">
+    // min-h-full, not h-full: the root fills the GameShell play box and
+    // grows past it when the box is squeezed (the install sheet at the
+    // bottom of the screen), so the box scrolls and the joke buttons stay
+    // reachable instead of being clipped by overflow-hidden.
+    <div className="min-h-full bg-gradient-to-b from-yellow-300 via-yellow-400 to-orange-400 p-3 md:p-4 flex flex-col overflow-hidden">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 

@@ -48,9 +48,13 @@ describe("DrawingApp", () => {
   it("fills the game shell content area instead of escaping under the shared header", () => {
     render(<DrawingApp />);
 
-    // The root fills the GameShell play box (h-full), never the screen.
-    expect(screen.getByTestId("drawing-app-root")).toHaveClass("h-full");
-    expect(screen.getByTestId("drawing-app-root").className).not.toMatch(/100vh|h-screen/);
+    // The root fills the GameShell play box (min-h-full), never the
+    // screen, and grows past the box when the install sheet squeezes it,
+    // so the box scrolls and the bottom toolbar stays reachable (an h-full
+    // root with overflow-hidden clipped it; e2e/install-sheet).
+    const root = screen.getByTestId("drawing-app-root");
+    expect(root).toHaveClass("min-h-full");
+    expect(root.className).not.toMatch(/100vh|h-screen|(^|\s)h-full(\s|$)/);
     expect(screen.queryByRole("link", { name: "Back to home" })).not.toBeInTheDocument();
     // The shared GameShell owns the centered app name now - no in-app title.
     expect(

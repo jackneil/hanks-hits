@@ -111,9 +111,15 @@ export function DrawingApp() {
   }, []);
 
   return (
+    // min-h-full, not h-full: the root fills the GameShell play box, and
+    // grows past it when the box is squeezed (the install sheet takes the
+    // bottom of the screen, bottomSheetSpace.ts) so the box scrolls and
+    // the bottom toolbar stays reachable. An h-full root with
+    // overflow-hidden clipped the colors and the actions under the sheet
+    // on a phone held sideways.
     <div
       data-testid="drawing-app-root"
-      className="h-full bg-gradient-to-b from-blue-400 via-purple-400 to-pink-400 flex flex-col overflow-hidden"
+      className="min-h-full bg-gradient-to-b from-blue-400 via-purple-400 to-pink-400 flex flex-col overflow-hidden"
     >
       {/* iOS install prompt */}
       <IOSInstallPrompt />
