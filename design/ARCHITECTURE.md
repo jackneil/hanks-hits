@@ -424,7 +424,11 @@ the rest of the screen, in `dvh`: `calc(100dvh - 3rem)` and
 `short:calc(100dvh - 2.5rem)`. On an iPhone, `100vh` is the height with
 the Safari toolbars hidden, so a page in `vh` was taller than the screen
 and every route scrolled. The page is exactly one screen tall; when a
-module is taller, the box scrolls, not the page. Nothing in the box can
+module is taller, the box scrolls, not the page. While a bottom sheet
+shows (the install tip on an app page, `bottomSheetSpace.ts`), the body's
+padding gives the sheet its room and the shell root leaves that much out
+(`min-h-[calc(100dvh-var(--bottom-sheet-space,0px))]`), so the page is
+still one screen and the box ends above the sheet. Nothing in the box can
 be selected or long-pressed into the iOS callout; a text field keeps its
 selection. A game must not read `window.innerHeight` or use `100vh`,
 `min-h-screen` or `calc(100vh - 3rem)`. It sizes to the box:

@@ -27,12 +27,29 @@ describe("GameShell play box", () => {
       </GameShell>
     );
     const root = shellRoot();
-    expect(root.className).toMatch(/(^|\s)min-h-dvh(\s|$)/);
+    expect(root.className).toContain("min-h-[calc(100dvh-var(--bottom-sheet-space,0px))]");
     expect(root.className).not.toMatch(/min-h-screen|100vh/);
     // The header room: 48 px, 40 px on a short screen (a phone sideways).
     expect(root.className).toMatch(/(^|\s)pt-12(\s|$)/);
     expect(root.className).toMatch(/(^|\s)short:pt-10(\s|$)/);
     expect(root.className).not.toMatch(/md:pt-14/);
+  });
+
+  it("leaves a bottom sheet its room, so the page is still one screen with a sheet up", () => {
+    // globals.css gives the body padding-bottom: var(--bottom-sheet-space)
+    // while a sheet fixed to the bottom shows (the install tip on an app
+    // page). A root of a full 100dvh plus that padding made the page 232
+    // px taller than an iPhone screen, so every app route scrolled and the
+    // play box slid under the header. The root gives the sheet its room;
+    // the root and the padding together are one screen.
+    render(
+      <GameShell gameName="Weather Buddy" canPause={false}>
+        <div>app</div>
+      </GameShell>
+    );
+    const root = shellRoot();
+    expect(root.className).toContain("min-h-[calc(100dvh-var(--bottom-sheet-space,0px))]");
+    expect(root.className).not.toMatch(/(^|\s)min-h-dvh(\s|$)/);
   });
 
   it("puts the game in a box that is the screen under the header, in dvh, and scrolls inside it", () => {

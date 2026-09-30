@@ -369,10 +369,14 @@ function GameShellFrame({
   });
 
   return (
-    // min-h-dvh, not min-h-screen: 100vh is taller than an iPhone screen
-    // with the Safari toolbars shown, so the page scrolled on every route.
-    // The header room (pt) plus the play box is exactly one screen.
-    <div className="relative w-full min-h-dvh pt-12 short:pt-10">
+    // dvh, not min-h-screen: 100vh is taller than an iPhone screen with the
+    // Safari toolbars shown, so the page scrolled on every route. The header
+    // room (pt) plus the play box is exactly one screen. A bottom sheet (the
+    // install tip on an app page, bottomSheetSpace.ts) gets its room from
+    // the body's padding-bottom, so the root leaves that much out: a full
+    // 100dvh root plus the padding made every app route 232 px taller than
+    // the screen, and the play box slid under the header.
+    <div className="relative w-full min-h-[calc(100dvh-var(--bottom-sheet-space,0px))] pt-12 short:pt-10">
       {/* Header bar. A solid background: the old backdrop-blur was a
           glassmorphism tell, and a backdrop-filter also becomes the
           containing block for position: fixed children, which trapped
