@@ -3,7 +3,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { PADDLE, BALL_CONFIG } from "./constants";
+import { PADDLE, BALL_CONFIG, LIVES, PADDLE_LIMIT, SPARKS_PER_TOUCH } from "./constants";
 
 export type BallType = "blue" | "orange" | "yellow-dot";
 
@@ -20,6 +20,9 @@ export type Ball = {
   // Horizontal offset from the paddle center while stuck (keeps the resting
   // balls spread out and following the paddle so the player can aim).
   offsetX?: number;
+  // The splits this ball may still cause (SPARKS_PER_TOUCH after the paddle
+  // touches it). None when absent.
+  sparks?: number;
 };
 
 export type GameState = "menu" | "playing" | "paused" | "gameOver";
@@ -39,6 +42,10 @@ type State = {
   multiplier: number;
   balls: Ball[];
   wasNewHighScore: boolean;
+  /** Tries left in this run (a lost life puts new balls on the paddle). */
+  lives: number;
+  /** Goes up at every start: a new value while playing is a new run. */
+  runId: number;
 
   // Paddle
   paddleX: number; // -1 to 1 (normalized)
@@ -57,11 +64,12 @@ type Actions = {
   pauseGame: () => void;
   resumeGame: () => void;
   endGame: () => void;
+  /** Every ball fell: lose a life and put new balls on the paddle, or end the run. */
+  loseLife: () => void;
 
   // Gameplay
   setPaddleX: (x: number) => void;
   addBall: (ball: Omit<Ball, "id">) => void;
-  removeBall: (id: string) => void;
   updateBalls: (balls: Ball[]) => void;
   addScore: (points: number) => void;
   updateMultiplier: (ballCount: number) => void;
@@ -73,6 +81,21 @@ type Actions = {
   getProgress: () => ArkanoidProgress;
   setProgress: (data: ArkanoidProgress) => void;
 };
+
+/** Three balls resting on the paddle, waiting for a launch. */
+function restingBalls(paddleX: number): Ball[] {
+  const restY = PADDLE.y + PADDLE.height / 2 + BALL_CONFIG.blue.radius;
+  return [-0.08, 0, 0.08].map((offsetX, i) => ({
+    id: `rest-${Date.now()}-${i}`,
+    type: "blue" as const,
+    x: paddleX + offsetX,
+    y: restY,
+    vx: 0,
+    vy: 0,
+    stuck: true,
+    offsetX,
+  }));
+}
 
 const defaultProgress: ArkanoidProgress = {
   highScore: 0,
@@ -91,32 +114,37 @@ export const useArkanoidStore = create<State & Actions>()(
       multiplier: 1,
       balls: [],
       wasNewHighScore: false,
+      lives: LIVES,
+      runId: 0,
       paddleX: 0,
       soundEnabled: true,
       progress: defaultProgress,
 
       // Game flow
       startGame: () => {
-        // Balls rest on the paddle (stuck) until the player launches them, so a
-        // new game never auto-launches and burns through the balls with no input.
-        const restY = PADDLE.y + PADDLE.height / 2 + BALL_CONFIG.blue.radius;
         set({
           gameState: "playing",
           score: 0,
           multiplier: 1,
           wasNewHighScore: false,
+          lives: LIVES,
+          runId: get().runId + 1,
           paddleX: 0,
-          balls: [
-            // Start with 3 blue balls resting on the paddle, spread out.
-            { id: "initial-1", type: "blue", x: -0.06, y: restY, vx: 0, vy: 0, stuck: true, offsetX: -0.06 },
-            { id: "initial-2", type: "blue", x: 0, y: restY, vx: 0, vy: 0, stuck: true, offsetX: 0 },
-            { id: "initial-3", type: "blue", x: 0.06, y: restY, vx: 0, vy: 0, stuck: true, offsetX: 0.06 },
-          ],
+          balls: restingBalls(0),
         });
       },
 
-      // Release the resting balls upward off the paddle, with a slight outward
-      // spread. Positive vy = moving UP toward the walls/maze.
+      loseLife: () => {
+        const state = get();
+        if (state.gameState !== "playing") return;
+        if (state.lives <= 1) {
+          set({ lives: 0, balls: [] });
+          get().endGame();
+          return;
+        }
+        set({ lives: state.lives - 1, multiplier: 1, balls: restingBalls(state.paddleX) });
+      },
+
       launchBall: () => {
         const state = get();
         if (state.gameState !== "playing") return;
@@ -130,6 +158,7 @@ export const useArkanoidStore = create<State & Actions>()(
             stuck: false,
             vx: offset * 8, // outward spread from the paddle center
             vy: 1.4, // launch upward
+            sparks: SPARKS_PER_TOUCH, // a launch is a paddle touch
           };
         });
         set({ balls: launched });
@@ -172,8 +201,7 @@ export const useArkanoidStore = create<State & Actions>()(
 
       // Gameplay
       setPaddleX: (x: number) => {
-        // Clamp to -1 to 1
-        const clamped = Math.max(-1, Math.min(1, x));
+        const clamped = Math.max(-PADDLE_LIMIT, Math.min(PADDLE_LIMIT, x));
         set({ paddleX: clamped });
       },
 
@@ -190,18 +218,6 @@ export const useArkanoidStore = create<State & Actions>()(
             lastModified: Date.now(),
           },
         });
-      },
-
-      removeBall: (id: string) => {
-        const state = get();
-        const newBalls = state.balls.filter((b) => b.id !== id);
-
-        // Game over if no balls left
-        if (newBalls.length === 0) {
-          get().endGame();
-        } else {
-          set({ balls: newBalls });
-        }
       },
 
       updateBalls: (balls: Ball[]) => {
