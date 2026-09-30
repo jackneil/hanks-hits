@@ -823,9 +823,8 @@ export function PlatformerGame() {
             <button
               type="button"
               data-testid="platformer-next"
-              onClick={() => {
-                if (grace.accept()) goNext();
-              }}
+              // The chip holds every button in its bar through the grace.
+              onClick={goNext}
               className={`btn btn-primary ${RESULT_CHIP_BUTTON}`}
             >
               {lastLevel ? "🗺️ Pick a level" : "▶ Next level"}
