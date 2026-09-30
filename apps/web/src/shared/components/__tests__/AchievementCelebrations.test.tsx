@@ -15,6 +15,8 @@ import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { AchievementCelebrations, SEEN_MS } from "../AchievementCelebrations";
 import { GameShell } from "../GameShell";
 import { ResultChip } from "../ResultChip";
+import { AppNotesSlot } from "../AppNotesSlot";
+import { useAtBreak, useNudgePlacement } from "@/shared/lib/gameBreaks";
 import { useAchievementsStore } from "@/shared/lib/achievements";
 import { useGameBreaks } from "@/shared/lib/gameBreaks";
 import { useStartOverlayPresence } from "@/shared/lib/startOverlayPresence";
@@ -42,6 +44,48 @@ afterEach(() => {
   vi.restoreAllMocks();
   removeSpeechMock();
   window.history.pushState({}, "", "/");
+});
+
+describe("AchievementCelebrations in an app's own notes row (AppNotesSlot)", () => {
+  // An app with no start card (the joke generator, the virtual pet) got the
+  // fixed strip over its bottom buttons for 4 s. With an AppNotesSlot the
+  // card is part of the app's layout and covers nothing.
+  function Placement() {
+    const tip = useNudgePlacement("tip");
+    const atBreak = useAtBreak();
+    return <output data-testid="placement">{`${tip.kind}:${atBreak}`}</output>;
+  }
+
+  it("shows the card inside the app's row, not as the fixed strip, and it goes after its window", () => {
+    window.history.pushState({}, "", "/apps/joke-generator");
+    resetAchievements(["first-play:joke-generator"]);
+    render(
+      <>
+        <AppNotesSlot />
+        <AchievementCelebrations />
+      </>
+    );
+    const slot = screen.getByTestId("app-notes-slot");
+    const card = within(slot).getByTestId("achievement-celebration");
+    expect(card).toHaveAttribute("data-placement", "break");
+    expect(card.className).not.toMatch(/\bfixed\b/);
+    act(() => {
+      vi.advanceTimersByTime(4100);
+    });
+    expect(screen.queryByTestId("achievement-celebration")).toBeNull();
+    expect(queue()).toEqual([]);
+  });
+
+  it("is not a break: the install tip keeps its place on the page", () => {
+    window.history.pushState({}, "", "/apps/joke-generator");
+    render(
+      <>
+        <AppNotesSlot />
+        <Placement />
+      </>
+    );
+    expect(screen.getByTestId("placement")).toHaveTextContent("page:false");
+  });
 });
 
 describe("AchievementCelebrations on a page with no play (the strip)", () => {

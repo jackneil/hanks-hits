@@ -142,7 +142,10 @@ export function AchievementCelebrations() {
   // can't double-shift and swallow the next card. A summary clears the
   // whole batch when its window ends. The timer runs only while the strip
   // is on screen: a celebration that waits for a break keeps its turn.
-  const inStrip = currentId !== null && placement.kind === "page";
+  // An inline app slot (AppNotesSlot) is the strip's place in the app's
+  // own layout: the same show window.
+  const inStrip =
+    currentId !== null && (placement.kind === "page" || (placement.kind === "slot" && placement.inline));
   useEffect(() => {
     if (!inStrip || currentId === null) return;
     const timer = setTimeout(() => {
