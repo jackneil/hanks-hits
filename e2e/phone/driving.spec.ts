@@ -343,7 +343,15 @@ test("driving: Four-Wheeler Adventure on four iPhone screens", async ({ browser 
           await finger.tap(frame.locator("#moreSheet .moreList button", { hasText: label }).first());
         };
         const value = (expr: string) => game.evaluate(expr);
-        await expect.poll(() => value("Math.abs(atv.speed) < 0.5"), { timeout: 15_000 }).toBe(true);
+        // Get out and walk. Next to a parked ride the same button says
+        // "Get in the ..." and swaps rides, so drive on until it says Get Out.
+        for (let tries = 0; tries < 4; tries++) {
+          const label = await frame.locator("#switchBtn").textContent();
+          if (label?.includes("Get Out")) break;
+          await finger.holdWith(frame.locator("#btnGas"), 1200, async () => undefined);
+          await page.waitForTimeout(300);
+        }
+        await expect(frame.locator("#switchBtn")).toContainText("Get Out");
         await hud("switchBtn");
         await expect.poll(() => value("mode"), { timeout: 5_000 }).toBe("foot");
         await value("feedersToPlace = 1; standsToPlace = 1; cornBags = 1; true"); // bought at the stores
