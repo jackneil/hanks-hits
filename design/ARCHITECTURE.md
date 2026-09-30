@@ -262,10 +262,14 @@ their first screen instead.
 `GameStartOverlay`) has two homes. A slot with ONE child (Hill Climb's
 Garage button) is pinned into the action row, above Play, so a centre tap
 never lands on Read it to me. A slot with more parts (a heading and a row
-of choices) stays in the body, where it can scroll; on a short screen the
-body puts the picker before the hints, so a choice is never under the fold
-while a hint is on screen. The hints use two columns on a short screen
-only with two or more hints.
+of choices) stays in the body, where it can scroll. On a touch screen (a
+phone upright too) and on a short screen the body puts the picker before
+the hints, so a choice is never under the fold while a hint is on screen,
+and the emoji is smaller (a phone upright at 375x549 has room for the
+heading and two rows of choices above the fold; the rest scrolls, with
+the scroll cue). A desktop with a mouse reads how to play, then the
+choices. The hints use two columns on a short screen only with two or
+more hints.
 
 **The pause menu on a short screen.** On a phone held sideways the menu
 buttons are a 2 x 2 grid of 44 px targets, so Resume, Restart and Go Home

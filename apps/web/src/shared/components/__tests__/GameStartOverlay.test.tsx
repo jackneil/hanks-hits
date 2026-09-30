@@ -365,21 +365,89 @@ describe("GameStartOverlay layout: the start action is always on screen", () => 
     expect(body).toContainElement(screen.getByText("Tap gas"));
   });
 
-  it("puts the picker before the hints on a short screen, and keeps it after them upright", () => {
-    render(
-      <GameStartOverlay title="Snake" keyboardHints={["Arrows to turn", "Eat the apples"]} onStart={() => {}}>
-        <div>How fast?</div>
-        <GameStartOverlayButton onClick={() => {}}>Slow</GameStartOverlayButton>
-      </GameStartOverlay>
-    );
-    const hints = screen.getByTestId("start-card-hints");
-    const pickers = screen.getByTestId("start-card-pickers").parentElement as HTMLElement;
-    // Upright: DOM order, hints then picker.
-    expect(hints.compareDocumentPosition(pickers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Sideways: the flex order puts the picker (4) before the hints (5).
-    expect(hints.parentElement).toHaveClass("flex", "flex-col");
-    expect(pickers.className).toMatch(/(^|\s)short:order-4(\s|$)/);
-    expect(hints.className).toMatch(/(^|\s)short:order-5(\s|$)/);
+  describe("the picker's place in the body", () => {
+    // A phone upright (375x549) put the age picker under the hints, so
+    // Wordle showed "How old are you?" with the choices under the fold and
+    // Math Attack showed the heading and no choice at all (phone UX audit
+    // 2026-09-29, S12). On a touch screen, and on any short screen, the
+    // choices come before the hints: a choice is never under the fold
+    // while a hint is on screen. A desktop with a mouse keeps the reading
+    // order: how to play, then the choices.
+    const realMatchMedia = window.matchMedia;
+    function mockMedia({ coarse, short }: { coarse: boolean; short: boolean }) {
+      Object.defineProperty(window, "matchMedia", {
+        writable: true,
+        value: (query: string) => ({
+          matches: query.includes("pointer: coarse") ? coarse : query.includes("max-height: 480px") ? short : false,
+          media: query,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false,
+        }),
+      });
+    }
+    afterEach(() => {
+      Object.defineProperty(window, "matchMedia", { writable: true, value: realMatchMedia });
+    });
+
+    function renderSnake() {
+      render(
+        <GameStartOverlay
+          title="Snake"
+          emoji="🐍"
+          touchHints={["Swipe to turn", "Eat the apples"]}
+          keyboardHints={["Arrows to turn", "Eat the apples"]}
+          onStart={() => {}}
+        >
+          <div>How fast?</div>
+          <GameStartOverlayButton onClick={() => {}}>Slow</GameStartOverlayButton>
+        </GameStartOverlay>
+      );
+      const hints = screen.getByTestId("start-card-hints");
+      const pickers = screen.getByTestId("start-card-pickers");
+      const pickerBeforeHints = !!(pickers.compareDocumentPosition(hints) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return { hints, pickers, pickerBeforeHints, body: screen.getByTestId("start-card-body") };
+    }
+
+    it("keeps the hints before the picker on a desktop with a mouse", () => {
+      mockMedia({ coarse: false, short: false });
+      const { pickerBeforeHints, body, pickers, hints } = renderSnake();
+      expect(pickerBeforeHints).toBe(false);
+      expect(body).toContainElement(pickers);
+      expect(body).toContainElement(hints);
+    });
+
+    it("puts the picker before the hints on a touch screen, upright too", () => {
+      mockMedia({ coarse: true, short: false });
+      const { pickerBeforeHints, body, pickers } = renderSnake();
+      expect(pickerBeforeHints).toBe(true);
+      expect(body).toContainElement(pickers);
+      // Still in the body, above the pinned action row.
+      expect(screen.getByTestId("start-card-actions")).not.toContainElement(pickers);
+    });
+
+    it("puts the picker before the hints on a short screen (a phone held sideways)", () => {
+      mockMedia({ coarse: false, short: true });
+      const { pickerBeforeHints } = renderSnake();
+      expect(pickerBeforeHints).toBe(true);
+    });
+
+    it("draws a smaller emoji on a touch screen, so one more row of choices fits", () => {
+      mockMedia({ coarse: true, short: false });
+      renderSnake();
+      const emoji = screen.getByText("🐍");
+      expect(emoji.className).toMatch(/(^|\s)text-4xl(\s|$)/);
+      expect(emoji.className).not.toMatch(/(^|\s)text-5xl(\s|$)/);
+    });
+
+    it("keeps the big emoji on a desktop with a mouse", () => {
+      mockMedia({ coarse: false, short: false });
+      renderSnake();
+      expect(screen.getByText("🐍").className).toMatch(/(^|\s)text-5xl(\s|$)/);
+    });
   });
 
   it("gives the card the whole width on a short screen: no break slot beside it", () => {

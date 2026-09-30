@@ -39,8 +39,10 @@ import { useRegisterBreakSlot } from "../lib/gameBreaks";
  * The card has two parts:
  *   - a body (emoji, title, subtitle, hints, and the picker slot when the
  *     built-in start button shows) that scrolls when the screen is short.
- *     On a short screen the picker comes BEFORE the hints, so a choice is
- *     never under the fold while a hint is on screen;
+ *     On a touch screen (a phone upright too) and on a short screen the
+ *     picker comes BEFORE the hints, so a choice is never under the fold
+ *     while a hint is on screen, and the emoji is smaller on a touch
+ *     screen; a desktop with a mouse reads how to play, then the choices;
  *   - an action row pinned at the bottom of the card: "Read it to me",
  *     then Play, or the picker slot when the picker starts the game. A
  *     picker slot with ONE child (Hill Climb's Garage button) is pinned
@@ -305,6 +307,19 @@ export function GameStartOverlay({
   // picker with more parts (a heading and a row of choices) stays in the
   // body, where it can scroll.
   const pinSinglePicker = showStartButton && pickerNodes.length === 1;
+  // The picker in the body comes BEFORE the hints on a touch screen (a
+  // phone upright too) and on a short screen: a choice is never under the
+  // fold while a hint is on screen. Wordle showed "How old are you?" with
+  // the choices under the fold at 375x549; Math Attack showed the heading
+  // and no choice. A desktop with a mouse keeps the reading order: how to
+  // play, then the choices.
+  const pickerFirst = isCoarse || isShort;
+  // pb: room for the picker buttons' shadow, which the scroll box would
+  // cut off at its bottom edge.
+  const bodyPickers =
+    showStartButton && pickers && !pinSinglePicker ? (
+      <div className="mt-3 pb-4 short:mt-1 short:mb-2 short:pb-1">{pickers}</div>
+    ) : null;
 
   if (!isClient) return null;
 
@@ -336,27 +351,35 @@ export function GameStartOverlay({
               data-testid="start-card-body"
               className="scroll-cue min-h-[4.5rem] shrink overflow-y-auto overscroll-contain px-6 pt-6 short:min-h-0 short:min-w-0 short:flex-1 short:px-3 short:py-3"
             >
-              {/* A column with an order on a short screen: the picker
-                  (order 4) comes before the hints (order 5) there. */}
+              {/* The picker comes before the hints on a touch screen or a
+                  short screen (pickerFirst), in DOM order, so the screen
+                  and the tab order agree. */}
               <div ref={bodyContentRef} className="flex flex-col">
+                {/* A smaller emoji on a touch screen: the 48 px one cost a
+                    row of choices on a phone upright. */}
                 {emoji && (
-                  <div className="mb-2 text-5xl short:order-1 short:mb-0 short:text-3xl" aria-hidden="true">
+                  <div
+                    className={`mb-2 short:mb-0 short:text-3xl ${isCoarse ? "text-4xl" : "text-5xl"}`}
+                    aria-hidden="true"
+                  >
                     {emoji}
                   </div>
                 )}
 
                 <h1
                   id={titleId}
-                  className="mb-1 break-words text-3xl font-bold md:text-4xl short:order-2 short:mb-0 short:text-2xl"
+                  className="mb-1 break-words text-3xl font-bold md:text-4xl short:mb-0 short:text-2xl"
                 >
                   {title}
                 </h1>
 
                 {subtitle && (
-                  <p className="mb-3 break-words text-base opacity-80 short:order-3 short:mb-1 short:text-sm">
+                  <p className="mb-3 break-words text-base opacity-80 short:mb-1 short:text-sm">
                     {subtitle}
                   </p>
                 )}
+
+                {pickerFirst && bodyPickers}
 
                 {/* Two columns on a short screen only with two or more
                     hints: one hint in a half-width column wrapped to four
@@ -364,7 +387,7 @@ export function GameStartOverlay({
                 {hints.length > 0 && (
                   <ul
                     data-testid="start-card-hints"
-                    className={`mb-1 space-y-1 text-base font-medium opacity-90 short:order-5 short:text-sm ${
+                    className={`mb-1 space-y-1 text-base font-medium opacity-90 short:text-sm ${
                       hints.length >= 2 ? "short:grid short:grid-cols-2 short:gap-x-4 short:space-y-0" : ""
                     }`}
                   >
@@ -374,11 +397,7 @@ export function GameStartOverlay({
                   </ul>
                 )}
 
-                {/* pb: room for the picker buttons' shadow, which the
-                    scroll box would cut off at its bottom edge */}
-                {showStartButton && pickers && !pinSinglePicker && (
-                  <div className="mt-3 pb-4 short:order-4 short:mt-1 short:mb-2 short:pb-1">{pickers}</div>
-                )}
+                {!pickerFirst && bodyPickers}
               </div>
             </div>
 
