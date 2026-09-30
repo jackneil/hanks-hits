@@ -1,5 +1,5 @@
 // Oregon Trail - Constants and Game Data
-import type { Occupation, Landmark, Pace, Weather, Animal } from '../types';
+import type { Occupation } from '../types';
 
 export const TOTAL_DISTANCE = 2000; // Miles from Independence to Oregon
 export const MAX_CARRY_WEIGHT = 200; // Max lbs of meat from hunting

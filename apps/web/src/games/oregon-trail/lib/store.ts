@@ -1,8 +1,8 @@
 // Oregon Trail - Zustand Store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { GameState, GamePhase, PaceType, OccupationType, Month, OregonTrailProgress, GameEvent, Supplies } from '../types';
-import { createInitialState, calculateDailyTravel, calculateFoodConsumption, getRandomWeather, updatePartyHealth, applyEventEffect, checkLandmarkReached, checkGameOver, calculateScore, getRiverDepth, attemptRiverCrossing } from './gameLogic';
+import type { GameState, GamePhase, PaceType, OccupationType, Month, GameEvent, Supplies } from '../types';
+import { createInitialState, calculateDailyTravel, calculateFoodConsumption, getRandomWeather, updatePartyHealth, applyEventEffect, checkLandmarkReached, checkGameOver, getRiverDepth, attemptRiverCrossing } from './gameLogic';
 import { getRandomEvent } from './events';
 import { LANDMARKS, STORE_PRICES } from './constants';
 
@@ -48,6 +48,8 @@ interface OregonTrailStore extends GameState {
   setPhase: (phase: GamePhase) => void;
   startGame: (name: string, occ: OccupationType, partyNames: string[], month: Month) => void;
   buySupply: (type: string, amount: number) => void;
+  /** Takes back a buy (the store screen only allows what was bought on this visit), at the same price. */
+  sellSupply: (type: string, amount: number) => void;
   leaveStore: () => void;
   travel: () => void;
   setPace: (pace: PaceType) => void;
@@ -57,6 +59,8 @@ interface OregonTrailStore extends GameState {
   crossRiver: (method: string) => void;
   continueFromLandmark: () => void;
   resetGame: () => void;
+  /** A new journey from its first setup step, with the last journey's names, job and month filled in. */
+  newJourney: () => void;
 
   // Cloud sync
   getProgress: () => OregonTrailSyncData;
@@ -74,7 +78,7 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
     const s = get().supplies; const price = STORE_PRICES[type as keyof typeof STORE_PRICES] || 0;
     const cost = price * amount;
     if (s.money >= cost) {
-      const ns = { ...s, money: s.money - cost };
+      const ns = { ...s, money: Math.round((s.money - cost) * 100) / 100 };
       if (type === "food") ns.food += amount;
       else if (type === "oxen") ns.oxen += amount;
       else if (type === "clothing") ns.clothing += amount;
@@ -84,6 +88,23 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
       else if (type === "tongue") ns.spareParts = { ...ns.spareParts, tongues: ns.spareParts.tongues + amount };
       set({ supplies: ns });
     }
+  },
+  sellSupply: (type, amount) => {
+    const s = get().supplies;
+    const price = STORE_PRICES[type as keyof typeof STORE_PRICES] || 0;
+    const ns = { ...s, spareParts: { ...s.spareParts } };
+    const take = (have: number) => Math.min(have, amount);
+    let taken = 0;
+    if (type === "food") { taken = take(ns.food); ns.food -= taken; }
+    else if (type === "oxen") { taken = take(ns.oxen); ns.oxen -= taken; }
+    else if (type === "clothing") { taken = take(ns.clothing); ns.clothing -= taken; }
+    else if (type === "ammunition") { taken = take(ns.ammunition); ns.ammunition -= taken; }
+    else if (type === "wheel") { taken = take(ns.spareParts.wheels); ns.spareParts.wheels -= taken; }
+    else if (type === "axle") { taken = take(ns.spareParts.axles); ns.spareParts.axles -= taken; }
+    else if (type === "tongue") { taken = take(ns.spareParts.tongues); ns.spareParts.tongues -= taken; }
+    // Round to cents: 50 lbs of food at $0.20 is $10, never $9.999999.
+    ns.money = Math.round((ns.money + price * taken) * 100) / 100;
+    set({ supplies: ns });
   },
   leaveStore: () => set({ gamePhase: "travel" }),
   travel: () => {
@@ -145,6 +166,10 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
     set({ gamePhase: lm.hasStore ? "store" : "travel" });
   },
   resetGame: () => set(defaultState),
+  newJourney: () => {
+    const { leaderName, occupation, party, departureMonth } = get();
+    set({ ...defaultState, leaderName, occupation, party, departureMonth, gamePhase: "setup_name" });
+  },
 
   // Cloud sync
   getProgress: () => {
