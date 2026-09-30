@@ -74,13 +74,14 @@ function GameCard({
 }) {
   return (
     <div
+      data-testid="catalog-game"
       className={`
         relative bg-gradient-to-br ${getGenreColor(game.genre)}
         rounded-xl shadow-lg
         hover:scale-105 active:scale-95
         transition-all duration-150 cursor-pointer
         border-2 border-white/20 hover:border-white/40
-        min-h-[120px] sm:min-h-[130px]
+        min-h-[120px] sm:min-h-[130px] short:min-h-[96px]
         touch-manipulation
       `}
     >
@@ -106,7 +107,7 @@ function GameCard({
         disabled={isLoading}
         className="
           h-full min-h-[120px] w-full rounded-xl p-4
-          flex flex-col items-center text-center
+          flex flex-col items-center text-center short:min-h-[96px] short:p-2
           disabled:opacity-50 disabled:cursor-wait
         "
       >
@@ -114,16 +115,16 @@ function GameCard({
         {isLoading ? (
           <div className="text-3xl mb-2 animate-spin">⏳</div>
         ) : (
-          <div className="text-3xl mb-2">🎮</div>
+          <div className="text-3xl mb-2 short:mb-1 short:text-2xl">🎮</div>
         )}
 
         {/* Game name */}
-        <h3 className="text-xs sm:text-sm font-bold text-white leading-tight line-clamp-2">
+        <h3 className="text-sm font-bold text-white leading-tight line-clamp-2">
           {game.displayName}
         </h3>
 
         {/* Genre badge */}
-        <span className="mt-auto pt-1 text-[10px] sm:text-xs text-white/60 capitalize">
+        <span className="mt-auto pt-1 text-sm text-white/80 capitalize">
           {getGenreLabel(game.genre)}
         </span>
       </button>
@@ -200,15 +201,19 @@ export function GameBrowser({
 
   return (
     <div className="w-full max-w-6xl mx-auto px-2 sm:px-4">
-      {/* Search bar - BIG for kids */}
-      <div className="mb-4 sm:mb-6">
+      {/* The search (big for kids) and the genres stay at the top while the
+          games scroll under them. On a short screen (a phone held sideways)
+          they share one row, so the first games show on the first screen
+          (they started at y=456 of 311). */}
+      <div className="sticky top-0 z-10 -mx-2 mb-3 flex flex-col gap-2 bg-black/40 px-2 pb-2 pt-1 sm:-mx-4 sm:px-4 short:mb-2 short:flex-row short:items-center short:pb-1">
+      <div className="short:w-2/5 short:shrink-0">
         <input
           type="text"
           placeholder={`Search ${systemName} games...`}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="
-            w-full px-4 py-3 text-lg rounded-xl
+            w-full px-4 py-3 text-lg rounded-xl short:py-2
             bg-white/10 border-2 border-white/20
             text-white placeholder-white/50
             focus:border-white/40 focus:outline-none
@@ -216,14 +221,13 @@ export function GameBrowser({
           "
         />
       </div>
-
-      {/* Genre filter - scrollable on mobile */}
-      <div className="mb-4 sm:mb-6 overflow-x-auto pb-2 -mx-2 px-2">
+      {/* Genre filter - one row that scrolls sideways */}
+      <div className="min-w-0 overflow-x-auto pb-1 short:flex-1">
         <div className="flex gap-2 min-w-max">
           <button
             onClick={() => setSelectedGenre("all")}
             className={`
-              px-3 sm:px-4 py-2 rounded-lg font-bold text-sm sm:text-base
+              min-h-11 px-3 sm:px-4 py-2 rounded-lg font-bold text-base
               transition-colors whitespace-nowrap
               ${
                 selectedGenre === "all"
@@ -237,7 +241,7 @@ export function GameBrowser({
           <button
             onClick={() => setSelectedGenre("favorites")}
             className={`
-              px-3 sm:px-4 py-2 rounded-lg font-bold text-sm sm:text-base
+              min-h-11 px-3 sm:px-4 py-2 rounded-lg font-bold text-base
               transition-colors whitespace-nowrap
               ${
                 selectedGenre === "favorites"
@@ -255,7 +259,7 @@ export function GameBrowser({
                 key={genre}
                 onClick={() => setSelectedGenre(genre)}
                 className={`
-                  px-3 sm:px-4 py-2 rounded-lg font-bold text-sm sm:text-base
+                  min-h-11 px-3 sm:px-4 py-2 rounded-lg font-bold text-base
                   transition-colors whitespace-nowrap
                   ${
                     selectedGenre === genre
@@ -270,24 +274,10 @@ export function GameBrowser({
           })}
         </div>
       </div>
-
-      {/* Upload your own button */}
-      <button
-        onClick={onUploadClick}
-        className="
-          mb-4 sm:mb-6 w-full p-3 sm:p-4
-          border-2 border-dashed border-white/30
-          rounded-xl text-white/70
-          hover:border-white/50 hover:text-white
-          transition-colors flex items-center justify-center gap-2
-        "
-      >
-        <span className="text-xl sm:text-2xl">+</span>
-        <span className="text-sm sm:text-base">Upload Your Own ROM</span>
-      </button>
+      </div>
 
       {/* Games grid - responsive columns (2 on tiny screens for bigger touch targets) */}
-      <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 sm:gap-4">
+      <div data-testid="catalog-grid" className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 sm:gap-4">
         {filteredGames.map((game) => (
           <GameCard
             key={game.id}
@@ -310,15 +300,26 @@ export function GameBrowser({
               setSearchQuery("");
               setSelectedGenre("all");
             }}
-            className="mt-4 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white"
+            className="mt-4 min-h-11 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white"
           >
             Clear filters
           </button>
         </div>
       )}
 
+      {/* Your own game file: a small link under the games (the games come first). */}
+      <div className="mt-4 flex justify-center">
+        <button
+          type="button"
+          onClick={onUploadClick}
+          className="min-h-11 rounded-xl border-2 border-dashed border-white/40 px-4 py-2 text-base text-white/90 transition-colors hover:border-white/60"
+        >
+          📁 Play your own game file
+        </button>
+      </div>
+
       {/* Game count */}
-      <div className="mt-6 text-center text-white/40 text-sm">
+      <div className="mt-3 text-center text-white/70 text-sm">
         {filteredGames.length} of {catalog.length} games
       </div>
     </div>

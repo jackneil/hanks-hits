@@ -11,6 +11,7 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { useScrollToTopOn } from "@/shared/hooks/useScrollToTopOn";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
 import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
@@ -44,25 +45,63 @@ const CATALOG_NAMES: CatalogNamesBySystem = {
   atari2600: new Set(ATARI_2600_CATALOG.map((game) => game.displayName)),
 };
 
+/** How many games each console's catalog has (none: a kid brings a file). */
+export const CATALOG_COUNTS: Partial<Record<SystemType, number>> = {
+  snes: SNES_CATALOG.length,
+  atari2600: ATARI_2600_CATALOG.length,
+};
+
+/**
+ * The consoles in picker order: the ones with games first, then the ones
+ * that need a file. The picker used to follow SYSTEM_IDS (NES first), so
+ * five of the first seven cards opened "Upload your own ROM", a dead end on
+ * a phone, and Atari 2600, with 741 games, was last and under the fold.
+ */
+export const PICKER_ORDER: SystemType[] = [
+  ...SYSTEM_IDS.filter((id) => CATALOG_COUNTS[id]),
+  ...SYSTEM_IDS.filter((id) => !CATALOG_COUNTS[id]),
+];
+
+/**
+ * A game's name for the bar over the emulator: "bucket.smc" is "Bucket",
+ * "super_mario_world.sfc" is "Super Mario World". A catalog name
+ * ("Super Boss Gaiden") stays as it is.
+ */
+export function prettyRomName(name: string): string {
+  const bare = name.replace(/\.[A-Za-z0-9]{1,4}$/, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!bare) return name;
+  if (bare !== bare.toLowerCase()) return bare;
+  return bare.replace(/(^|[\s-])([a-z])/g, (_m, sep: string, c: string) => sep + c.toUpperCase());
+}
+
 // Console selection card: one flat, solid color per console (SystemInfo.cardColor),
 // white text, no gradient and no colored border. A press scales the card down a
 // little; a mouse hover makes it a little brighter.
 function ConsoleCard({
   system,
+  games,
   onClick,
 }: {
   system: SystemInfo;
+  /** The number of games in its catalog, if it has one. */
+  games?: number;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`${system.cardColor} min-w-[140px] cursor-pointer touch-manipulation rounded-2xl p-6 text-white shadow-lg transition-[transform,filter] duration-150 ease-out hover:brightness-110 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white active:scale-[0.97] motion-reduce:transition-none`}
+      data-testid={`console-${system.id}`}
+      className={`${system.cardColor} relative min-w-0 cursor-pointer touch-manipulation rounded-2xl p-4 text-white shadow-lg transition-[transform,filter] duration-150 ease-out hover:brightness-110 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white active:scale-[0.97] motion-reduce:transition-none short:p-2`}
     >
-      <div className="mb-2 text-5xl" aria-hidden="true">{system.icon}</div>
-      <h3 className="text-xl font-bold">{system.name}</h3>
-      <p className="text-sm font-medium">{system.fullName}</p>
+      <div className="mb-1 text-5xl short:text-3xl" aria-hidden="true">{system.icon}</div>
+      <h3 className="text-xl font-bold short:text-lg">{system.name}</h3>
+      <p className="text-sm font-medium short:hidden">{system.fullName}</p>
+      {games ? (
+        <p className="mt-1 inline-block rounded-full bg-black/30 px-2 py-0.5 text-sm font-bold">🎮 {games} games</p>
+      ) : (
+        <p className="mt-1 text-sm font-medium">📁 Your own file</p>
+      )}
     </button>
   );
 }
@@ -136,7 +175,7 @@ function RomUploader({
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`border-4 border-dashed rounded-2xl p-8 text-center transition-colors ${
+        className={`border-4 border-dashed rounded-2xl p-5 text-center transition-colors short:p-3 ${
           dragOver
             ? "border-blue-400 bg-blue-900/30"
             : "border-white/30 hover:border-white/50"
@@ -150,25 +189,23 @@ function RomUploader({
           className="hidden"
         />
 
-        <div className="text-6xl mb-4">{system.icon}</div>
-        <h3 className="text-xl font-bold text-white mb-2">
-          Upload {system.name} ROM
-        </h3>
-        <p className="text-white/60 mb-4">
-          {isCoarse
-            ? "Tap Choose File to pick a game file"
-            : "Drag & drop or click to select a ROM file"}
-        </p>
-        <p className="text-white/40 text-sm mb-4">
-          Supported: {system.extensions.join(", ")}
-        </p>
-
+        {/* The button first: on a phone it is the one thing to do here (it
+            was under a big icon and two paragraphs, below the fold). */}
         <button
+          type="button"
           onClick={() => inputRef.current?.click()}
-          className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-lg transition-colors"
+          className="min-h-12 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-lg transition-colors"
         >
-          Choose File
+          📁 Choose File
         </button>
+        <p className="mt-3 text-base text-white/80">
+          {isCoarse
+            ? `Tap Choose File to pick a ${system.name} game file`
+            : "Or drag a game file here"}
+        </p>
+        <p className="mt-1 text-sm text-white/70">
+          Files: {system.extensions.join(", ")}
+        </p>
       </div>
 
       {error && (
@@ -191,7 +228,7 @@ function RomUploader({
                   }
                 }}
                 disabled={!rom.file}
-                className="w-full p-3 bg-white/10 hover:bg-white/20 rounded-lg text-left text-white flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full min-h-11 p-3 bg-white/10 hover:bg-white/20 rounded-lg text-left text-white flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="truncate">{rom.name}</span>
                 <span className="text-white/40 text-sm">
@@ -484,9 +521,15 @@ function EmulatorView({
           disabled={exiting}
           className="min-h-[44px] shrink-0 rounded-lg bg-red-600 px-4 font-bold text-white transition-transform hover:bg-red-500 active:scale-95 disabled:opacity-80"
         >
-          {exiting ? "Saving..." : "← Back to Games"}
+          {exiting ? (
+            "Saving..."
+          ) : (
+            <span aria-label="Back to Games">
+              ← Back<span className="short:hidden">{" "}to Games</span>
+            </span>
+          )}
         </button>
-        <span className="min-w-0 flex-1 truncate font-semibold text-white">{romName}</span>
+        <span className="min-w-0 flex-1 truncate font-semibold text-white">{prettyRomName(romName)}</span>
         <span className="hidden shrink-0 text-sm text-white/60 sm:inline">{SYSTEMS[system].name}</span>
         <RestartGameButton
           ref={restartTriggerRef}
@@ -512,7 +555,6 @@ function EmulatorView({
           title={`${romName} on the ${SYSTEMS[system].name}`}
           className="h-full w-full border-0"
           allow="autoplay; fullscreen; gamepad"
-          allowFullScreen
         />
 
         <SaveNotice notice={notice} onDismiss={dismiss} className="absolute inset-x-0 top-2 z-20" />
@@ -537,6 +579,12 @@ function EmulatorView({
 export function RetroArcadeGame() {
   const store = useRetroArcadeStore();
   const [showUploader, setShowUploader] = useState(false);
+  const isCoarse = useCoarsePointer();
+  // The consoles that need a game file stay folded on a phone.
+  const [showFileConsoles, setShowFileConsoles] = useState(false);
+  // Every screen starts at its top: the catalog opened 355 px down (569
+  // sideways), past its title and search, and the uploaders 233-257 px down.
+  useScrollToTopOn(`${store.currentSystem ?? ""}|${showUploader}|${store.isPlaying}`);
   const saveOwner = useSaveOwner();
   // A save problem that happened while the kid left a game. It shows on the
   // next screen, so it is never silent.
@@ -647,30 +695,27 @@ export function RetroArcadeGame() {
     if (catalogInfo && !showUploader) {
       return (
         <div
-          className={`min-h-full bg-gradient-to-b ${system.bgGradient} p-4 sm:p-6 flex flex-col`}
+          data-testid="retro-catalog"
+          className={`flex h-full flex-col bg-gradient-to-b ${system.bgGradient} p-3 sm:p-6 short:p-2`}
         >
           {exitNoticeView}
-          <header className="mb-4 sm:mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <button
-                onClick={handleBack}
-                className="px-3 py-2 bg-white/20 hover:bg-white/30 text-white font-bold rounded-lg transition-colors text-sm sm:text-base"
-              >
-                Back
-              </button>
-              <div className="text-white/60 text-sm">
-                {catalogInfo.catalog.length} games
-              </div>
-            </div>
-            <h1 className="text-2xl sm:text-4xl font-bold text-white text-center">
-              {system.fullName}
+          {/* One row: Back, the console and its count. The games scroll
+              under it (the search stays at their top). */}
+          <header className="mb-2 flex shrink-0 items-center gap-2 sm:mb-4 short:mb-1">
+            <button
+              type="button"
+              onClick={handleBack}
+              className="min-h-11 shrink-0 rounded-lg bg-white/20 px-3 font-bold text-white transition-colors hover:bg-white/30"
+            >
+              ← Back
+            </button>
+            <h1 className="min-w-0 flex-1 truncate text-center text-xl font-bold text-white sm:text-3xl">
+              {system.icon} {system.fullName}
             </h1>
-            <p className="text-white/70 text-center mt-1 text-sm sm:text-base">
-              Pick a game to play!
-            </p>
+            <div className="shrink-0 text-sm text-white/80">{catalogInfo.catalog.length} games</div>
           </header>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <GameBrowser
               catalog={catalogInfo.catalog}
               getRomUrl={catalogInfo.getRomUrl}
@@ -702,11 +747,13 @@ export function RetroArcadeGame() {
     // Other systems (or catalog systems with uploader) show ROM uploader
     return (
       <div
-        className={`min-h-full bg-gradient-to-b ${system.bgGradient} p-6 flex flex-col`}
+        data-testid="retro-uploader"
+        className={`min-h-full bg-gradient-to-b ${system.bgGradient} p-3 sm:p-6 flex flex-col`}
       >
         {exitNoticeView}
-        <header className="mb-8">
+        <header className="mb-3 flex items-center gap-2">
           <button
+            type="button"
             onClick={() => {
               if (hasCatalog && showUploader) {
                 setShowUploader(false);
@@ -714,19 +761,16 @@ export function RetroArcadeGame() {
                 handleBack();
               }
             }}
-            className="mb-4 px-4 py-2 bg-white/20 hover:bg-white/30 text-white font-bold rounded-lg transition-colors"
+            className="min-h-11 shrink-0 rounded-lg bg-white/20 px-3 font-bold text-white transition-colors hover:bg-white/30"
           >
-            {hasCatalog && showUploader ? "Back to Library" : "Back to Consoles"}
+            ← {hasCatalog && showUploader ? "Games" : "Consoles"}
           </button>
-          <h1 className="text-4xl font-bold text-white text-center">
-            {system.fullName}
+          <h1 className="min-w-0 flex-1 truncate text-center text-xl font-bold text-white sm:text-3xl">
+            {system.icon} {system.fullName}
           </h1>
-          <p className="text-white/70 text-center mt-2">
-            Upload your own ROM file to play
-          </p>
         </header>
 
-        <div className="flex-1 flex items-center justify-center">
+        <div className="flex-1 flex items-start justify-center sm:items-center">
           <RomUploader system={system} onRomLoaded={handleRomLoaded} />
         </div>
 
@@ -746,37 +790,50 @@ export function RetroArcadeGame() {
 
   // Show console selection
   const recentGames = recentGamesToShow(store.recentlyPlayed, CATALOG_NAMES, store.customRoms);
+  // A phone cannot drop a file, and a kid rarely has one: the consoles with
+  // games show first, and the ones that need a file wait under a fold.
+  const withGames = PICKER_ORDER.filter((id) => CATALOG_COUNTS[id]);
+  const needFile = PICKER_ORDER.filter((id) => !CATALOG_COUNTS[id]);
+  const showNeedFile = !isCoarse || showFileConsoles;
   return (
-    <div className="min-h-full bg-gradient-to-b from-gray-900 to-gray-800 p-6 flex flex-col">
+    <div data-testid="retro-picker" className="min-h-full bg-gradient-to-b from-gray-900 to-gray-800 p-3 sm:p-6 flex flex-col">
       {exitNoticeView}
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Read it to me — first screen only, never over the emulator, so a
-          player who cannot read still knows what to tap. */}
-      <div className="w-full max-w-md mx-auto mb-4">
-        <ReadAloudButton
-          text={RETRO_ARCADE_INSTRUCTIONS}
-        />
+      {/* The title, and Read it to me beside it (first screen only, never
+          over the emulator): a round button, so a first tap meant for a
+          console never starts the voice. */}
+      <div className="mx-auto mb-3 flex w-full max-w-4xl items-center gap-2">
+        <h1 className="min-w-0 flex-1 text-2xl font-bold text-white short:text-xl">🕹️ Pick a console</h1>
+        <ReadAloudButton text={RETRO_ARCADE_INSTRUCTIONS} variant="icon" />
       </div>
 
       {/* Console grid */}
-      <div className="flex-1 flex items-center justify-center">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl">
-          {SYSTEM_IDS.map((id) => (
-            <ConsoleCard
-              key={id}
-              system={SYSTEMS[id]}
-              onClick={() => handleConsoleSelect(id)}
-            />
+      <div className="flex flex-1 flex-col items-center justify-center gap-3">
+        <div className="grid w-full max-w-4xl grid-cols-2 gap-3 short:grid-cols-4 md:grid-cols-3">
+          {withGames.map((id) => (
+            <ConsoleCard key={id} system={SYSTEMS[id]} games={CATALOG_COUNTS[id]} onClick={() => handleConsoleSelect(id)} />
           ))}
+          {showNeedFile &&
+            needFile.map((id) => <ConsoleCard key={id} system={SYSTEMS[id]} onClick={() => handleConsoleSelect(id)} />)}
         </div>
+        {!showNeedFile && (
+          <button
+            type="button"
+            data-testid="show-file-consoles"
+            onClick={() => setShowFileConsoles(true)}
+            className="min-h-11 rounded-xl border-2 border-dashed border-white/40 px-4 py-2 text-base text-white/90"
+          >
+            📁 Have your own game file? More consoles
+          </button>
+        )}
       </div>
 
       {/* Recently played */}
       {recentGames.length > 0 && (
-        <div className="mt-8 max-w-4xl mx-auto w-full">
-          <h2 className="text-xl font-bold text-white mb-4">Recently Played</h2>
+        <div className="mt-6 max-w-4xl mx-auto w-full">
+          <h2 className="text-xl font-bold text-white mb-3">Recently Played</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {recentGames.slice(0, 6).map((game) => (
               <div

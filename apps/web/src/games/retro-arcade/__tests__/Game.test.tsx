@@ -5,7 +5,8 @@ import {
   installSpeechMock,
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
-import { RetroArcadeGame } from "../Game";
+import { CATALOG_COUNTS, PICKER_ORDER, RetroArcadeGame, prettyRomName } from "../Game";
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 import { SYSTEMS, SYSTEM_IDS } from "../lib/constants";
 import { useRetroArcadeStore } from "../lib/store";
 import { RETRO_ARCADE_INSTRUCTIONS } from "../lib/readAloud";
@@ -113,9 +114,7 @@ describe("retro arcade console cards", () => {
     });
   });
 
-  const card = (id: (typeof SYSTEM_IDS)[number]) =>
-    // The icon is decorative (aria-hidden), so the name starts with the console name.
-    screen.getByRole("button", { name: new RegExp(`^${SYSTEMS[id].name} ${SYSTEMS[id].fullName.replace(/[/]/g, "\\/")}$`) });
+  const card = (id: (typeof SYSTEM_IDS)[number]) => screen.getByTestId(`console-${id}`);
 
   it("draws each card flat: its own solid color, no gradient, no heavy colored border", () => {
     render(<RetroArcadeGame />);
@@ -138,5 +137,37 @@ describe("retro arcade console cards", () => {
     render(<RetroArcadeGame />);
     fireEvent.click(card("n64"));
     expect(useRetroArcadeStore.getState().currentSystem).toBe("n64");
+  });
+
+  it("names each card by the console, with its game count or the file it needs", () => {
+    render(<RetroArcadeGame />);
+    expect(card("snes")).toHaveAccessibleName(new RegExp(`^${SYSTEMS.snes.name} .*🎮 ${CATALOG_COUNTS.snes} games$`));
+    expect(card("n64")).toHaveAccessibleName(/📁 Your own file$/);
+  });
+
+  it("puts the consoles with games first (Atari was last, under the fold)", () => {
+    expect(PICKER_ORDER.slice(0, 2).sort()).toEqual(["atari2600", "snes"]);
+    expect(new Set(PICKER_ORDER)).toEqual(new Set(SYSTEM_IDS));
+  });
+
+  it("on a phone, folds the consoles that need a game file until the kid asks", () => {
+    mockPointer(true);
+    render(<RetroArcadeGame />);
+    expect(card("snes")).toBeInTheDocument();
+    expect(card("atari2600")).toBeInTheDocument();
+    expect(screen.queryByTestId("console-nes")).toBeNull();
+    fireEvent.click(screen.getByTestId("show-file-consoles"));
+    expect(card("nes")).toBeInTheDocument();
+    expect(screen.queryByTestId("show-file-consoles")).toBeNull();
+    resetPointerMock();
+  });
+});
+
+describe("retro arcade game names", () => {
+  it("shows a file's name as a title, and a catalog name as it is", () => {
+    expect(prettyRomName("bucket.smc")).toBe("Bucket");
+    expect(prettyRomName("super_mario_world.sfc")).toBe("Super Mario World");
+    expect(prettyRomName("Mandelbrot.n64")).toBe("Mandelbrot");
+    expect(prettyRomName("Super Boss Gaiden")).toBe("Super Boss Gaiden");
   });
 });
