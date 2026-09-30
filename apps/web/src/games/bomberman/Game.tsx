@@ -26,7 +26,7 @@ export function BombermanGame() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
-  const lastTimeRef = useRef<number>(0);
+  const lastTimeRef = useRef<number | null>(null);
   const keysRef = useRef<Set<string>>(new Set());
   // The d-pad key a thumb holds right now. The game loop reads it like
   // keysRef, so a held button keeps moving at the key repeat rate.
@@ -297,6 +297,10 @@ export function BombermanGame() {
     const MOVE_RATE = 120; // ms between moves
 
     const gameLoop = (timestamp: number) => {
+      // The first frame only sets the clock. Seeding it from
+      // performance.now() mixed two clocks, so the first delta was wrong
+      // (negative in a browser, huge under a test clock).
+      if (lastTimeRef.current === null) lastTimeRef.current = timestamp;
       const deltaTime = timestamp - lastTimeRef.current;
       lastTimeRef.current = timestamp;
 
@@ -316,7 +320,8 @@ export function BombermanGame() {
       animationRef.current = requestAnimationFrame(gameLoop);
     };
 
-    lastTimeRef.current = performance.now();
+    // lastTimeRef keeps the last frame's timestamp across restarts of this
+    // effect (it restarts when the store changes), so no frame loses time.
     animationRef.current = requestAnimationFrame(gameLoop);
 
     return () => {

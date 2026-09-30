@@ -67,6 +67,22 @@ describe("Bomberman touch input", () => {
     expect(movePlayer.mock.calls.length).toBe(afterRelease);
   });
 
+  it("moves at the key repeat rate even when the real clock is far ahead of the frame clock", () => {
+    // Under machine load, performance.now() can run far ahead of the frame
+    // timestamps. The loop used to seed its clock from performance.now(), so
+    // the first delta was hugely negative and a held button barely moved.
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000_000);
+    const movePlayer = vi.fn();
+    act(() => {
+      useBombermanStore.setState({ movePlayer });
+    });
+    render(<BombermanGame />);
+    fingerDown(screen.getByRole("button", { name: "▶" }));
+    raf.runFor(1000, 60, act);
+    expect(movePlayer.mock.calls.length).toBeGreaterThanOrEqual(5);
+    now.mockRestore();
+  });
+
   it("a cancelled touch on the d-pad stops the movement", () => {
     const movePlayer = vi.fn();
     act(() => {
