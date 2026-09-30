@@ -3,8 +3,14 @@
 /**
  * Hill Climb Racing - Mobile Controls
  *
- * Split-screen touch zones for gas/brake and lean.
- * Includes nitro button above gas pedal.
+ * The touch ZONES are the two halves of the play field (useControls):
+ * the left half brakes, the right half drives, a drag up leans. This
+ * layer only shows where they are: a chip in each bottom corner, where
+ * the thumbs rest, plus the NITRO button above the GAS chip, so the right
+ * thumb reaches it. The chips take no touch (pointer-events-none); the
+ * zones under them do. The old layer drew two 160 px pads in the middle
+ * of each half, over the truck and under the gauges (phone UX audit
+ * 2026-09-29).
  */
 
 import { useState } from 'react';
@@ -14,16 +20,17 @@ interface MobileControlsProps {
   setNitro: (active: boolean) => void;
 }
 
+/** A zone chip: a big arrow and a word, 64 px tall, 48 on a short screen. */
+const CHIP =
+  'flex items-center gap-2 rounded-2xl border-2 px-4 py-2 text-white/95 [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] short:px-3 short:py-1.5';
+
 export function MobileControls({ setNitro }: MobileControlsProps) {
   const [nitroPressed, setNitroPressed] = useState(false);
 
   // NITRO is a hold through the shared pointer hold: pointer capture, a
-  // release on pointercancel, on window blur and on unmount. The old React
-  // onTouchStart/onTouchEnd called preventDefault(), a no-op in React's
-  // passive touch listeners that logged an error on every press, and the
-  // button also carried onMouseDown/Up/Leave. The gas/brake zone hook
-  // (useControls) skips touches that land on a button, so a NITRO press is
-  // never also a gas press.
+  // release on pointercancel, on window blur and on unmount. The gas/brake
+  // zone hook (useControls) skips touches that land on a button, so a
+  // NITRO press is never also a gas press.
   const nitroHold = usePointerHold<HTMLButtonElement>(
     () => {
       setNitroPressed(true);
@@ -36,55 +43,49 @@ export function MobileControls({ setNitro }: MobileControlsProps) {
   );
 
   return (
-    <div className="fixed inset-0 pointer-events-none z-30">
-      {/* Zone indicators sit in the LOWER portion of each half so they stay
-          clear of the HUD (fuel/nitro gauges top-right, coins top-left) on a
-          390px-tall landscape phone. The touch ZONES themselves are still the
-          full half-screen (see useControls) - only the visual hint moved. */}
-      {/* Left zone indicator (brake/lean back) */}
-      <div className="absolute left-0 top-0 bottom-0 w-1/2 flex items-end justify-center pb-[max(1.5rem,env(safe-area-inset-bottom))] pointer-events-none">
-        <div className="bg-red-500/50 rounded-3xl p-6 border-2 border-red-500/50">
-          <div className="text-center text-white/90 [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)]">
-            <div className="text-4xl mb-2">◀</div>
-            <div className="text-sm font-bold">BRAKE</div>
-            <div className="text-xs mt-1">Drag ↑ to lean back</div>
-          </div>
-        </div>
+    <div data-testid="hill-climb-touch" className="fixed inset-x-0 bottom-0 top-12 short:top-10 pointer-events-none z-30">
+      {/* Left corner: brake */}
+      <div
+        data-testid="hill-climb-brake-chip"
+        className={`${CHIP} absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 border-red-400/60 bg-red-500/45`}
+      >
+        <span className="text-3xl leading-none short:text-2xl" aria-hidden="true">◀</span>
+        <span className="flex flex-col leading-tight">
+          <span className="text-lg font-bold short:text-base">BRAKE</span>
+          <span className="text-sm short:hidden">Drag up to lean</span>
+        </span>
       </div>
 
-      {/* Right zone indicator (gas/lean forward) */}
-      <div className="absolute right-0 top-0 bottom-0 w-1/2 flex items-end justify-center pb-[max(1.5rem,env(safe-area-inset-bottom))] pointer-events-none">
-        <div className="bg-green-500/50 rounded-3xl p-6 border-2 border-green-500/50">
-          <div className="text-center text-white/90 [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)]">
-            <div className="text-4xl mb-2">▶</div>
-            <div className="text-sm font-bold">GAS</div>
-            <div className="text-xs mt-1">Drag ↑ to lean forward</div>
-          </div>
-        </div>
+      {/* Right corner: gas */}
+      <div
+        data-testid="hill-climb-gas-chip"
+        className={`${CHIP} absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 flex-row-reverse border-green-400/60 bg-green-500/45`}
+      >
+        <span className="text-3xl leading-none short:text-2xl" aria-hidden="true">▶</span>
+        <span className="flex flex-col text-right leading-tight">
+          <span className="text-lg font-bold short:text-base">GAS</span>
+          <span className="text-sm short:hidden">Drag up to lean</span>
+        </span>
       </div>
 
-      {/* Nitro button - above the gas zone, LEFT of the HUD's fuel/nitro/
-          speed column (which owns the right-4 lane from the header down to
-          ~y290 on a 390px-tall phone; sharing that lane buried this button
-          under the translucent gauges when the HUD moved below the header) */}
-      <div className="absolute right-56 top-32 pointer-events-auto">
+      {/* NITRO: above the GAS chip, in reach of the right thumb */}
+      <div className="absolute bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5rem)] right-3 flex flex-col items-center short:bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.75rem)]">
         <button
           type="button"
           aria-label="Nitro"
+          data-testid="hill-climb-nitro"
           {...nitroHold}
-          className={`w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-100 touch-none select-none ${
-            nitroPressed
-              ? 'bg-cyan-500 border-cyan-300 scale-95'
-              : 'bg-cyan-600/80 border-cyan-400/50'
+          className={`pointer-events-auto flex h-20 w-20 items-center justify-center rounded-full border-4 transition-all duration-100 touch-none select-none [-webkit-touch-callout:none] short:h-16 short:w-16 ${
+            nitroPressed ? 'scale-95 border-cyan-300 bg-cyan-500' : 'border-cyan-400/60 bg-cyan-600/85'
           }`}
         >
-          <span className="text-3xl">🚀</span>
+          <span className="text-3xl short:text-2xl" aria-hidden="true">🚀</span>
         </button>
-        <div className="text-center text-white/60 text-xs mt-1 font-bold">NITRO</div>
+        <span className="mt-1 text-sm font-bold text-white/80 [text-shadow:_0_1px_3px_rgb(0_0_0_/_70%)] short:hidden">NITRO</span>
       </div>
 
-      {/* Divider line */}
-      <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/10" />
+      {/* The line between the two zones */}
+      <div className="absolute bottom-0 left-1/2 top-0 w-0.5 bg-white/10" />
     </div>
   );
 }

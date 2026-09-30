@@ -12,9 +12,11 @@ import { VEHICLES, UPGRADES, STAGES, type UpgradeType } from '../lib/constants';
 
 interface GarageProps {
   onStartGame: () => void;
+  /** Back to the start card without a run. */
+  onBack: () => void;
 }
 
-export function Garage({ onStartGame }: GarageProps) {
+export function Garage({ onStartGame, onBack }: GarageProps) {
   const [tab, setTab] = useState<'vehicles' | 'upgrades' | 'stages'>('vehicles');
 
   const {
@@ -41,11 +43,26 @@ export function Garage({ onStartGame }: GarageProps) {
   };
 
   return (
-    <div className="min-h-full bg-gradient-to-b from-base-200 to-base-300 p-4">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-full bg-base-200 pb-4">
+      {/* The way out, always on screen: the play box scrolls under this bar,
+          so Play Now is one tap away at the top too. It used to sit only at
+          the end of the page, three swipes down on a phone held sideways
+          (phone UX audit 2026-09-29). */}
+      <div
+        data-testid="hill-climb-garage-bar"
+        className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-base-300 bg-base-200/95 px-3 py-2"
+      >
+        <button type="button" onClick={onBack} className="btn btn-ghost min-h-11 h-11 gap-1 text-base">
+          ← Back
+        </button>
+        <span className="min-w-0 truncate text-lg font-bold text-primary">🔧 Garage</span>
+        <button type="button" onClick={onStartGame} className="btn btn-primary min-h-11 h-11 gap-1 text-lg">
+          🎮 Play Now
+        </button>
+      </div>
+      <div className="max-w-4xl mx-auto px-4 pt-4">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary mb-2">🏔️ Hill Climb Racing</h1>
+        <div className="text-center mb-6">
           <div className="flex justify-center gap-4 text-lg">
             <span className="badge badge-lg badge-warning gap-2">
               💰 {coins.toLocaleString()} coins
@@ -59,19 +76,19 @@ export function Garage({ onStartGame }: GarageProps) {
         {/* Tabs */}
         <div className="tabs tabs-boxed justify-center mb-6">
           <button
-            className={`tab tab-lg ${tab === 'vehicles' ? 'tab-active' : ''}`}
+            className={`tab tab-lg min-h-11 ${tab === 'vehicles' ? 'tab-active' : ''}`}
             onClick={() => setTab('vehicles')}
           >
             🚗 Vehicles
           </button>
           <button
-            className={`tab tab-lg ${tab === 'upgrades' ? 'tab-active' : ''}`}
+            className={`tab tab-lg min-h-11 ${tab === 'upgrades' ? 'tab-active' : ''}`}
             onClick={() => setTab('upgrades')}
           >
             ⬆️ Upgrades
           </button>
           <button
-            className={`tab tab-lg ${tab === 'stages' ? 'tab-active' : ''}`}
+            className={`tab tab-lg min-h-11 ${tab === 'stages' ? 'tab-active' : ''}`}
             onClick={() => setTab('stages')}
           >
             🌍 Stages
@@ -115,7 +132,7 @@ export function Garage({ onStartGame }: GarageProps) {
         <div className="text-center">
           <button
             onClick={onStartGame}
-            className="btn btn-primary btn-lg text-2xl px-12 gap-2"
+            className="btn btn-primary btn-lg min-h-11 text-2xl px-12 gap-2"
           >
             🎮 Play Now
           </button>
@@ -156,10 +173,19 @@ function VehiclesTab({
         return (
           <div
             key={vehicle.id}
-            className={`card bg-base-200 cursor-pointer transition-all hover:scale-105 ${
+            role="button"
+            tabIndex={0}
+            aria-pressed={isSelected}
+            className={`card min-h-11 cursor-pointer bg-base-200 transition-colors ${
               isSelected ? 'ring-4 ring-primary' : ''
             } ${!isUnlocked ? 'opacity-70' : ''}`}
             onClick={() => isUnlocked && onSelect(vehicle.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (isUnlocked) onSelect(vehicle.id);
+              }
+            }}
           >
             <div className="card-body items-center text-center p-4">
               <span className="text-4xl mb-2">
@@ -177,7 +203,8 @@ function VehiclesTab({
 
               {!isUnlocked ? (
                 <button
-                  className={`btn btn-sm mt-2 ${canAfford ? 'btn-warning' : 'btn-disabled'}`}
+                  type="button"
+                  className={`btn btn-sm mt-2 min-h-11 ${canAfford ? 'btn-warning' : 'btn-disabled'}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (canAfford) onUnlock(vehicle.id);
@@ -274,7 +301,8 @@ function UpgradesTab({ currentVehicle, currentUpgrades, coins, onPurchase }: Upg
                 <span className="badge badge-success">MAX</span>
               ) : (
                 <button
-                  className={`btn btn-sm ${canAfford ? 'btn-warning' : 'btn-disabled'}`}
+                  type="button"
+                  className={`btn btn-sm min-h-11 ${canAfford ? 'btn-warning' : 'btn-disabled'}`}
                   onClick={() => onPurchase(type)}
                 >
                   ⬆️ Upgrade - {nextCost.toLocaleString()} coins
@@ -316,11 +344,20 @@ function StagesTab({
         return (
           <div
             key={stage.id}
-            className={`card cursor-pointer transition-all hover:scale-105 ${
+            role="button"
+            tabIndex={0}
+            aria-pressed={isSelected}
+            className={`card min-h-11 cursor-pointer transition-colors ${
               isSelected ? 'ring-4 ring-primary' : ''
             } ${!isUnlocked ? 'opacity-50' : ''}`}
             style={{ backgroundColor: stage.skyColor }}
             onClick={() => isUnlocked && onSelect(stage.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (isUnlocked) onSelect(stage.id);
+              }
+            }}
           >
             <div className="card-body items-center text-center text-white">
               <span className="text-4xl">

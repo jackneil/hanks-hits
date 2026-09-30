@@ -319,15 +319,7 @@ export function usePauseKeyboard(): void {
       if (e.code !== 'Escape') return;
 
       // Get fresh state to avoid stale closure issues
-      const {
-        isPlaying,
-        isGameOver,
-        isPaused,
-        pauseScreen,
-        pauseGame,
-        resumeGame,
-        setPauseScreen,
-      } = useHillClimbStore.getState();
+      const { isPlaying, isGameOver, isPaused, pauseGame, resumeGame } = useHillClimbStore.getState();
 
       // Ignore during game over - that screen has its own controls
       if (isGameOver) return;
@@ -338,15 +330,8 @@ export function usePauseKeyboard(): void {
       e.preventDefault();
 
       if (isPaused) {
-        // If in settings submenu, go back to pause menu
-        if (pauseScreen === 'settings') {
-          setPauseScreen('menu');
-        } else {
-          // Otherwise resume game
-          resumeGame();
-        }
+        resumeGame();
       } else {
-        // Pause the game
         pauseGame();
       }
     };

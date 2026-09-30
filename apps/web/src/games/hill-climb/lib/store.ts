@@ -48,7 +48,6 @@ export interface GameState {
   isPlaying: boolean;
   isGameOver: boolean;
   isPaused: boolean;
-  pauseScreen: 'menu' | 'settings';
   gameOverReason: 'head' | 'fuel' | null;
   distance: number;
   fuel: number;
@@ -90,7 +89,6 @@ export interface GameActions {
   // Pause actions
   pauseGame: () => void;
   resumeGame: () => void;
-  setPauseScreen: (screen: 'menu' | 'settings') => void;
 
   // Fuel actions
   consumeFuel: (amount: number) => void;
@@ -147,7 +145,6 @@ const initialState: GameState = {
   isPlaying: false,
   isGameOver: false,
   isPaused: false,
-  pauseScreen: 'menu',
   gameOverReason: null,
   distance: 0,
   fuel: FUEL.INITIAL_FUEL,
@@ -264,15 +261,11 @@ export const useHillClimbStore = create<GameState & GameActions>()(
       // =========================================================================
 
       pauseGame: () => {
-        set({ isPaused: true, pauseScreen: 'menu' });
+        set({ isPaused: true });
       },
 
       resumeGame: () => {
-        set({ isPaused: false, pauseScreen: 'menu' });
-      },
-
-      setPauseScreen: (screen) => {
-        set({ pauseScreen: screen });
+        set({ isPaused: false });
       },
 
       // =========================================================================

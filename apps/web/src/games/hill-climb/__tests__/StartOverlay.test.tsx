@@ -30,7 +30,6 @@ beforeEach(() => {
     isPlaying: false,
     isPaused: false,
     isGameOver: false,
-    pauseScreen: "menu",
   });
 });
 

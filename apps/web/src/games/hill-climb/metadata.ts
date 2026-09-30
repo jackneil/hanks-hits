@@ -6,4 +6,5 @@ export const metadata: GameMetadata = {
   emoji: "🏔️",
   category: "racing",
   description: "Physics-based hill climbing",
+  clips: true,
 };

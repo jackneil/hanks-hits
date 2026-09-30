@@ -10,7 +10,6 @@ function resetStore() {
     isPlaying: false,
     isGameOver: false,
     isPaused: false,
-    pauseScreen: 'menu',
     gameOverReason: null,
     distance: 0,
     fuel: FUEL.INITIAL_FUEL,
