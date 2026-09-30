@@ -355,6 +355,8 @@ interface PageProbe {
   innerHeight: number;
   keyboardCopy: string[];
   smallButtons: string[];
+  /** Visible buttons inside the play box: the game's own controls. */
+  playButtons: number;
 }
 
 /** The page height, the keyboard phrases on screen and the buttons under 44 px. */
@@ -391,11 +393,15 @@ function probePage(page: Page): Promise<PageProbe> {
         smallButtons.push(`"${name || button.className.slice(0, 30)}" ${Math.round(r.width)}x${Math.round(r.height)}`);
       }
 
+      const box = document.querySelector("[data-play-box]");
+      const playButtons = box ? [...box.querySelectorAll('button, [role="button"]')].filter(visible).length : 0;
+
       return {
         scrollHeight: document.scrollingElement?.scrollHeight ?? document.documentElement.scrollHeight,
         innerHeight: vh,
         keyboardCopy: [...new Set(keyboardCopy)],
         smallButtons: [...new Set(smallButtons)],
+        playButtons,
       };
     },
     { pattern: KEYBOARD_COPY_SOURCE, notCopy: NOT_KEYBOARD_COPY, minTarget: MIN_TARGET }
@@ -523,10 +529,25 @@ interface RouteResult {
   problems: Partial<Record<Check, string>>;
   summary: string;
   errors: string[];
+  /** Checks that measured nothing (no control of the game ever showed in play). */
+  inconclusive: Check[];
 }
 
+/**
+ * How long a second look waits for the game's own controls to show in play.
+ * A 3D route under software rendering can take this long to mount its HUD.
+ */
+const PLAY_UI_WAIT_MS = 15_000;
+
 /** Opens one route on one screen, plays its first seconds by touch, and judges every check. */
-async function checkRoute(browser: Browser, screen: (typeof SCREENS)[number], route: string, shotPath: string): Promise<RouteResult> {
+async function checkRoute(
+  browser: Browser,
+  screen: (typeof SCREENS)[number],
+  route: string,
+  shotPath: string,
+  { waitForPlayUi = false }: { waitForPlayUi?: boolean } = {}
+): Promise<RouteResult> {
+  const inconclusive: Check[] = [];
   const context = await browser.newContext(screen.options);
   const page = await context.newPage();
   const problems: Partial<Record<Check, string>> = {};
@@ -575,6 +596,14 @@ async function checkRoute(browser: Browser, screen: (typeof SCREENS)[number], ro
       }
     } else {
       startControl = await probeOwnStart(page);
+      // A second look waits for a slow launcher too (a 3D route under
+      // software rendering can draw its start screen seconds late; with no
+      // start control found the gate measured the loading screen).
+      const waitUntil = Date.now() + PLAY_UI_WAIT_MS;
+      while (waitForPlayUi && !startControl && Date.now() < waitUntil) {
+        await page.waitForTimeout(PLAY_SAMPLE_MS);
+        startControl = await probeOwnStart(page);
+      }
       if (startControl && (!startControl.onScreen || !startControl.hit)) {
         problems["start-visible"] = `"${startControl.name}" ${!startControl.onScreen ? "off screen" : "covered at its centre"}`;
       }
@@ -606,6 +635,12 @@ async function checkRoute(browser: Browser, screen: (typeof SCREENS)[number], ro
     }
 
     // The first seconds of play, under watch.
+    const smallInPlay = new Set<string>();
+    let maxPlayButtons = 0;
+    const noteButtons = (play: PageProbe) => {
+      for (const b of play.smallButtons) smallInPlay.add(b);
+      maxPlayButtons = Math.max(maxPlayButtons, play.playButtons);
+    };
     const t0 = Date.now();
     let probedInPlay = false;
     let tipPassed = false;
@@ -631,20 +666,40 @@ async function checkRoute(browser: Browser, screen: (typeof SCREENS)[number], ro
         notes[notes.length - 1] += `; running: ${(running * 100).toFixed(1)}%)`;
       }
       for (const name of await probeFixedOverPlay(page)) fixedSeen.add(name);
-      if (!probedInPlay && Date.now() - t0 >= PLAY_PROBE_AT_MS) {
-        probedInPlay = true;
+      if (Date.now() - t0 >= PLAY_PROBE_AT_MS) {
+        // The page height and the words once; the buttons on every sample
+        // from here on, so a HUD that mounts late is still measured.
         const play = await probePage(page);
-        if (play.scrollHeight > play.innerHeight + 1) {
-          problems["page-height-play"] = `page ${play.scrollHeight} px tall on a ${play.innerHeight} px screen in play`;
-        }
-        if (play.keyboardCopy.length) {
-          problems["keyboard-copy"] = [problems["keyboard-copy"], `in play: ${play.keyboardCopy.map((s) => `"${s}"`).join(", ")}`].filter(Boolean).join("; ");
-        }
-        if (play.smallButtons.length) {
-          problems["button-size"] = [problems["button-size"], `in play: ${play.smallButtons.join(", ")}`].filter(Boolean).join("; ");
+        noteButtons(play);
+        if (!probedInPlay) {
+          probedInPlay = true;
+          if (play.scrollHeight > play.innerHeight + 1) {
+            problems["page-height-play"] = `page ${play.scrollHeight} px tall on a ${play.innerHeight} px screen in play`;
+          }
+          if (play.keyboardCopy.length) {
+            problems["keyboard-copy"] = [problems["keyboard-copy"], `in play: ${play.keyboardCopy.map((s) => `"${s}"`).join(", ")}`].filter(Boolean).join("; ");
+          }
         }
       }
       await page.waitForTimeout(PLAY_SAMPLE_MS);
+    }
+    // A second look waits for the game's own controls: a heavy route can
+    // mount its HUD after the watch window, and a measurement of no button
+    // is no evidence that the buttons were fixed.
+    if (waitForPlayUi && maxPlayButtons === 0) {
+      const waitUntil = Date.now() + PLAY_UI_WAIT_MS;
+      while (Date.now() < waitUntil && maxPlayButtons === 0) {
+        await page.waitForTimeout(PLAY_SAMPLE_MS);
+        noteButtons(await probePage(page));
+      }
+      for (let i = 0; i < 5 && maxPlayButtons > 0; i++) {
+        await page.waitForTimeout(PLAY_SAMPLE_MS);
+        noteButtons(await probePage(page));
+      }
+      if (maxPlayButtons === 0) inconclusive.push("button-size");
+    }
+    if (smallInPlay.size) {
+      problems["button-size"] = [problems["button-size"], `in play: ${[...smallInPlay].join(", ")}`].filter(Boolean).join("; ");
     }
     if (fixedSeen.size) problems["fixed-over-play"] = [...fixedSeen].join(", ");
     if (preventDefault.length) problems["prevent-default"] = `${preventDefault.length} console message(s): ${preventDefault[0]}`;
@@ -655,7 +710,7 @@ async function checkRoute(browser: Browser, screen: (typeof SCREENS)[number], ro
     await capture(page, shotPath);
   }
   await context.close();
-  return { route, screen: screen.name, problems, summary: notes.join("; "), errors };
+  return { route, screen: screen.name, problems, summary: notes.join("; "), errors, inconclusive };
 }
 
 /** Runs `items` through `work`, `limit` at a time, in order of start. */
@@ -733,12 +788,43 @@ test("phone gate: every listed route on four iPhone screens", async ({ browser }
       if (!known.has(key)) failures.push(`${row.screen} ${row.route} ${check}: ${row.problems[check]}`);
     }
   }
-  const stale = KNOWN_FAILURES.flatMap((k) =>
-    routes.includes(k.route)
-      ? k.screens
-          .filter((screen) => !seenFailing.has(knownKey(k.route, k.check, screen)))
-          .map((screen) => `${k.route} ${k.check} (${k.fixedBy}) passes at ${screen}: delete that screen (or the line) from KNOWN_FAILURES`)
-      : []
+  // A listed screen that passed is measured once more, alone, before it
+  // counts as stale. Under the load of the full run a heavy route (the 3D
+  // games) can be measured before its HUD or its own start screen has
+  // drawn: no button to be too small, so it "passes" (G4 run, 2026-09-30:
+  // three Four-Wheeler 3D screens passed in the full run and failed alone,
+  // twice). A real fix passes the second look too.
+  const staleCandidates = () =>
+    KNOWN_FAILURES.flatMap((k) =>
+      routes.includes(k.route)
+        ? k.screens.filter((screen) => !seenFailing.has(knownKey(k.route, k.check, screen))).map((screen) => ({ k, screen }))
+        : []
+    );
+  const recheck = new Map<string, { route: string; screen: (typeof SCREENS)[number] }>();
+  for (const { k, screen } of staleCandidates()) {
+    const found = SCREENS.find((s) => s.name === screen);
+    if (found) recheck.set(`${k.route}|${screen}`, { route: k.route, screen: found });
+  }
+  for (const { route, screen } of recheck.values()) {
+    const shot = testInfo.outputPath(`recheck_${screen.name}_${route.replace(/^\//, "").replace(/\//g, "_")}.png`);
+    const again = await checkRoute(browser, screen, route, shot, { waitForPlayUi: true });
+    for (const check of Object.keys(again.problems) as Check[]) {
+      const key = knownKey(route, check, screen.name);
+      if (!seenFailing.has(key) && known.has(key)) {
+        seenFailing.add(key);
+        console.log(`TIMING | ${screen.name} | ${route} | ${check} passed in the full run and failed alone: a slow load, not a fix`);
+      }
+    }
+    for (const check of again.inconclusive) {
+      const key = knownKey(route, check, screen.name);
+      if (!seenFailing.has(key) && known.has(key)) {
+        seenFailing.add(key);
+        console.log(`INCONCLUSIVE | ${screen.name} | ${route} | ${check}: no control of the game showed in play in ${PLAY_UI_WAIT_MS / 1000} s; kept as known`);
+      }
+    }
+  }
+  const stale = staleCandidates().map(
+    ({ k, screen }) => `${k.route} ${k.check} (${k.fixedBy}) passes at ${screen}: delete that screen (or the line) from KNOWN_FAILURES`
   );
 
   const counts = { PASS: 0, KNOWN: 0, FAIL: 0 };
