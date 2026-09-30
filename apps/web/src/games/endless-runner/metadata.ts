@@ -6,4 +6,5 @@ export const metadata: GameMetadata = {
   emoji: "🏃‍♂️",
   category: "action",
   description: "Run forever, dodge obstacles",
+  preferredOrientation: "landscape",
 };

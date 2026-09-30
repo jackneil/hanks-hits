@@ -22,6 +22,14 @@ export interface GameMetadata {
    * like madeByKid, or the scan does not see it.
    */
   clips?: boolean;
+  /**
+   * The orientation the game plays best in on a phone. GameShell then
+   * shows the orientation tip ("Turn your phone sideways" or "upright")
+   * once per session when the phone is held the other way. Leave it out,
+   * or set "any", for a game that plays well both ways (most games). A
+   * plain string literal only, like every field here.
+   */
+  preferredOrientation?: "portrait" | "landscape" | "any";
 }
 
 // Category definitions
@@ -234,6 +242,7 @@ export function parseMetadata(
       description: fields.description,
       madeByKid: fields.madeByKid ?? false,
       clips: fields.clips ?? false,
+      preferredOrientation: fields.preferredOrientation,
     };
   } catch {
     return null;

@@ -218,6 +218,13 @@ the game/app name (rendered exactly once as chrome), leaderboard button
 button (ESC + pause-on-blur via `useGameShell`). Modules must NOT render
 their own home/back buttons, title bars, page `<h1>`s naming themselves, or
 floating fullscreen buttons — that chrome comes from the shell or not at all.
+`src/shared/lib/headerBudget.ts` decides which controls the header shows at
+each width. On a phone with a touch screen (the short side of the screen
+is 480 px or less, in both orientations), during play (`canPause` is true,
+so the pause menu is one tap away), Sign In and Leaderboard leave the
+header: the pause menu holds both, and the result chip holds Leaderboard
+at game over. Between runs (the start card, game over) both stay in the
+header. The signed-in avatar stays in the header (it is 44 px).
 
 **Games own the play area and overlay content.** Start screens are DOM, not
 canvas. Every game and every playable app uses **GameStartOverlay**
@@ -251,6 +258,90 @@ no start moment (drawing-app, drum-machine) and a module with its own
 launcher (retro-arcade). Those modules put the same `ReadAloudButton` on
 their first screen instead.
 
+**Start-card pickers.** The picker slot (the children of
+`GameStartOverlay`) has two homes. A slot with ONE child (Hill Climb's
+Garage button) is pinned into the action row, above Play, so a centre tap
+never lands on Read it to me. A slot with more parts (a heading and a row
+of choices) stays in the body, where it can scroll. On a touch screen (a
+phone upright too) and on a short screen the body puts the picker before
+the hints, so a choice is never under the fold while a hint is on screen,
+and the emoji is smaller (a phone upright at 375x549 has room for the
+heading and two rows of choices above the fold; the rest scrolls, with
+the scroll cue). A desktop with a mouse reads how to play, then the
+choices. The hints use two columns on a short screen only with two or
+more hints.
+
+**The pause menu on a short screen.** On a phone held sideways the menu
+buttons are a 2 x 2 grid of 44 px targets, so Resume, Restart and Go Home
+are on screen with no scroll, and the install tip stays away (no break
+slot). A menu that is still taller than the screen scrolls, with the
+scroll cue at its edges.
+
+**GameSheet.** A game's own screens between runs (game over, level
+complete, settings, a garage, a store) use `GameSheet`
+(`src/shared/components/GameSheet.tsx`), not a `fixed inset-0
+items-center` card of its own. The sheet covers the screen under the
+header, never the header. Its card has a body that scrolls when the
+screen is short and an action column that never scrolls out of view; on
+a short screen the column sits beside the body, so every action is on
+screen at 667x311 with no scroll. Read-aloud is built in. It is a break:
+the install tip renders into its slot (not on a short screen). It is at
+z-60 (the game tier) and portals to `document.body`. Use the sheet OR the
+result chip for one screen, not both.
+
+**ResultChip adoption.** At game over and at level complete a game mounts
+the shared `ResultChip` and stops drawing its result and its buttons into
+the canvas. `onRestart` is the game's own restart (the store's newGame or
+startGame): it is direct, with no restart question, because after the
+game is over there is nothing to lose. The shell's "Restart game?"
+question stays for a restart in the middle of a run (the header, the
+pause menu). The chip's words are for a finger; `keyboardHint` ("Space")
+shows "or press Space" on a mouse or trackpad viewport only. Set GameShell's
+`resultChipReady` only when every other screen between runs opens the
+pause menu (`headerBudget.ts`, step 3).
+
+**Pause, holds and shell overlays.** `useGameShell`
+(`src/shared/hooks/useGameShell.ts`) owns the pause state. Two things stop
+a game. The pause MENU (the pause button, ESC, a hidden tab for a game
+that can pause) shows the PauseMenu. A HOLD shows no menu: a shell
+overlay is open, or the tab is hidden for a game that cannot pause. The
+shell overlays are the restart question (`RestartConfirmationDialog`),
+the leaderboard (`LeaderboardModal`), the install steps that the 📲 button
+opens (`IOSInstallPrompt requested`), the clip sheets (`clips/ui/Sheet`)
+and the orientation tip. Each one counts itself in
+`src/shared/lib/shellOverlays.ts` (`useShellOverlay(isOpen)`) while it is
+open. A new shell overlay must do the same. GameShell holds the game while
+the count is above 0. The game hears about the menu and a hold the same
+way, once each: `onPause` when it becomes stopped and it can pause,
+`onResume` when the last reason goes away. A game that runs its own loop
+and has no pause menu (`canPause={false}`) gets `onShellOverlayOpen` at the
+first hold and `onShellOverlayClose` at the last release. It must freeze
+its loop between them, so no game time passes under an overlay or while
+the kid is in another app. A restart from the question lets the old run
+go first, then restarts; no resume reaches the new run. Before this, a
+game kept running and took touches under "Restart game?", and only a game
+with `canPause` stopped on a hidden tab.
+
+**The orientation tip.** A game declares the orientation it plays best in
+with the metadata literal `preferredOrientation: "portrait"` or
+`"landscape"`. GameShell then renders `OrientationWarning` once, above the
+game, from `gameMetadata.generated.ts`. A game must not mount it. The tip
+is a suggestion, not a gate: it shows at most once per session for each
+game (`sessionStorage`), never over the start card, and it never blocks
+the header. It shows only on a phone with a touch screen (the short side
+of the screen is 480 px or less, in both orientations), when the phone is
+held the other way. The game is held while it shows (a shell overlay). It
+goes away when the kid turns the phone or taps Keep playing. A game that
+plays well both ways (Hill Climb, Monster Truck, Four-Wheeler 3D, and
+every game that a phone PR makes work both ways) declares nothing, and
+never shows it.
+
+**Scroll reset.** A module that swaps screens by state on one route (the
+Retro Arcade catalog, the Oregon Trail store, a board's New Game) calls
+`useScrollToTopOn(screenKey)` (`src/shared/hooks/useScrollToTopOn.ts`).
+It scrolls the play box and the page to the top, before paint, each time
+the key changes.
+
 **Read-aloud.** Kids aged 6 to 8 often cannot read yet. The shared chrome
 reads itself out loud: `useReadAloud` (`src/shared/hooks/useReadAloud.ts`)
 wraps the browser speech API (`window.speechSynthesis`), and
@@ -267,7 +358,8 @@ same button, in the same place: under the words, above the action buttons.
 - 90: GameStartOverlay, and the own start screen of a module with its own
   launcher (four-wheeler). It covers the viewport, so it must be above
   every game layer.
-- 100: OrientationWarning (phone-width portrait only).
+- 100: OrientationWarning, the orientation tip (a phone held the other way
+  than the game's preferredOrientation). It starts under the header.
 - 200: the install sheet that shows by itself on a page with no play.
 - 1000: the GameShell header. The clip confirmation (`InPlayConfirm`) lies
   in the title region of the header, at the same level.
@@ -326,9 +418,42 @@ shared components and the profile pages use solid colors, not
 decorative gradients. `src/__tests__/no-design-tells.test.ts` enforces
 both rules.
 
-**Layout under the shell:** content is offset by the header
-(`pt-12 md:pt-14`); full-height modules size against
-`calc(100vh - 3rem)` / `md:calc(100vh - 3.5rem)`, never `100vh`.
+**The play box (layout under the shell):** the header is 48 px, and
+40 px on a short screen (`h-12 short:h-10`, the `short:` variant is
+`max-height: 480px`, a phone held sideways). The header height is never
+keyed on the width: a phone held sideways is 844 px wide and is not a
+tablet. Under the header, GameShell renders one play box
+(`[data-play-box]`, `PLAY_BOX_CLASSES` in `GameShell.tsx`). The box is
+the rest of the screen, in `dvh`: `calc(100dvh - 3rem)` and
+`short:calc(100dvh - 2.5rem)`. On an iPhone, `100vh` is the height with
+the Safari toolbars hidden, so a page in `vh` was taller than the screen
+and every route scrolled. The page is exactly one screen tall; when a
+module is taller, the box scrolls, not the page. While a bottom sheet
+shows (the install tip on an app page, `bottomSheetSpace.ts`), the body's
+padding gives the sheet its room and the shell root leaves that much out
+(`min-h-[calc(100dvh-var(--bottom-sheet-space,0px))]`), so the page is
+still one screen and the box ends above the sheet. Nothing in the box can
+be selected or long-pressed into the iOS callout; a text field keeps its
+selection. A game must not read `window.innerHeight` or use `100vh`,
+`min-h-screen` or `calc(100vh - 3rem)`. It sizes to the box:
+
+- `usePlayBox()` (`src/shared/hooks/usePlayBox.ts`) gives the size of the
+  box, live: before the first paint, then on each change of the box, the
+  window or the visual viewport (the on-screen keyboard). `visibleHeight`
+  is the part of the box above the keyboard.
+- `usePlayBox({ fit: true })` makes the box fitted while the game fills
+  it: the box does not scroll, and a touch on it goes to the game
+  (`touch-action: none`), not to the browser.
+- `fitCanvas(box, canvasWidth, canvasHeight, reserved)` gives the largest
+  size of a canvas or a board that fits the box on both axes with one
+  scale. `reserved` keeps room for the controls: a number keeps height (a
+  control row), an object keeps width and height (gutters beside the
+  canvas on a phone held sideways). Nine canvas games scaled by width
+  only, so a phone held sideways put the paddle below the screen.
+- A game root uses `h-full` or `min-h-full`, never `min-h-screen`.
+
+Every button on the site has `touch-action: manipulation` (globals.css),
+so a fast double tap on a game button never zooms the page.
 
 ---
 

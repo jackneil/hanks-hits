@@ -258,6 +258,7 @@ describe("GameStartOverlay layout: the start action is always on screen", () => 
         keyboardHints={["Click the right answer"]}
         onStart={() => {}}
       >
+        <div>How old are you?</div>
         <GameStartOverlayButton onClick={() => {}}>Easy</GameStartOverlayButton>
       </GameStartOverlay>
     );
@@ -343,6 +344,150 @@ describe("GameStartOverlay layout: the start action is always on screen", () => 
       expect(body).toHaveAttribute("data-more-below");
       expect(body).not.toHaveAttribute("data-more-above");
     });
+  });
+
+  it("pins a single picker child into the action row, above Play", () => {
+    // Hill Climb's Garage button sat at the end of the scrolling body,
+    // under the fold at 375x549: a centre tap hit Read it to me (S12).
+    render(
+      <GameStartOverlay title="Hill Climb Racing" keyboardHints={["Tap gas", "Tap brake"]} onStart={() => {}}>
+        <GameStartOverlayButton onClick={() => {}}>🚗 Garage</GameStartOverlayButton>
+      </GameStartOverlay>
+    );
+    const actions = screen.getByTestId("start-card-actions");
+    const body = screen.getByTestId("start-card-body");
+    const garage = screen.getByRole("button", { name: /Garage/ });
+    const play = screen.getByRole("button", { name: /play/i });
+    expect(actions).toContainElement(garage);
+    expect(body).not.toContainElement(garage);
+    expect(garage.compareDocumentPosition(play) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The hints stay in the body.
+    expect(body).toContainElement(screen.getByText("Tap gas"));
+  });
+
+  describe("the picker's place in the body", () => {
+    // A phone upright (375x549) put the age picker under the hints, so
+    // Wordle showed "How old are you?" with the choices under the fold and
+    // Math Attack showed the heading and no choice at all (phone UX audit
+    // 2026-09-29, S12). On a touch screen, and on any short screen, the
+    // choices come before the hints: a choice is never under the fold
+    // while a hint is on screen. A desktop with a mouse keeps the reading
+    // order: how to play, then the choices.
+    const realMatchMedia = window.matchMedia;
+    function mockMedia({ coarse, short }: { coarse: boolean; short: boolean }) {
+      Object.defineProperty(window, "matchMedia", {
+        writable: true,
+        value: (query: string) => ({
+          matches: query.includes("pointer: coarse") ? coarse : query.includes("max-height: 480px") ? short : false,
+          media: query,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false,
+        }),
+      });
+    }
+    afterEach(() => {
+      Object.defineProperty(window, "matchMedia", { writable: true, value: realMatchMedia });
+    });
+
+    function renderSnake() {
+      render(
+        <GameStartOverlay
+          title="Snake"
+          emoji="🐍"
+          touchHints={["Swipe to turn", "Eat the apples"]}
+          keyboardHints={["Arrows to turn", "Eat the apples"]}
+          onStart={() => {}}
+        >
+          <div>How fast?</div>
+          <GameStartOverlayButton onClick={() => {}}>Slow</GameStartOverlayButton>
+        </GameStartOverlay>
+      );
+      const hints = screen.getByTestId("start-card-hints");
+      const pickers = screen.getByTestId("start-card-pickers");
+      const pickerBeforeHints = !!(pickers.compareDocumentPosition(hints) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return { hints, pickers, pickerBeforeHints, body: screen.getByTestId("start-card-body") };
+    }
+
+    it("keeps the hints before the picker on a desktop with a mouse", () => {
+      mockMedia({ coarse: false, short: false });
+      const { pickerBeforeHints, body, pickers, hints } = renderSnake();
+      expect(pickerBeforeHints).toBe(false);
+      expect(body).toContainElement(pickers);
+      expect(body).toContainElement(hints);
+    });
+
+    it("puts the picker before the hints on a touch screen, upright too", () => {
+      mockMedia({ coarse: true, short: false });
+      const { pickerBeforeHints, body, pickers } = renderSnake();
+      expect(pickerBeforeHints).toBe(true);
+      expect(body).toContainElement(pickers);
+      // Still in the body, above the pinned action row.
+      expect(screen.getByTestId("start-card-actions")).not.toContainElement(pickers);
+    });
+
+    it("puts the picker before the hints on a short screen (a phone held sideways)", () => {
+      mockMedia({ coarse: false, short: true });
+      const { pickerBeforeHints } = renderSnake();
+      expect(pickerBeforeHints).toBe(true);
+    });
+
+    it("draws a smaller emoji on a touch screen, so one more row of choices fits", () => {
+      mockMedia({ coarse: true, short: false });
+      renderSnake();
+      const emoji = screen.getByText("🐍");
+      expect(emoji.className).toMatch(/(^|\s)text-4xl(\s|$)/);
+      expect(emoji.className).not.toMatch(/(^|\s)text-5xl(\s|$)/);
+    });
+
+    it("keeps the big emoji on a desktop with a mouse", () => {
+      mockMedia({ coarse: false, short: false });
+      renderSnake();
+      expect(screen.getByText("🐍").className).toMatch(/(^|\s)text-5xl(\s|$)/);
+    });
+  });
+
+  it("gives the card the whole width on a short screen: no break slot beside it", () => {
+    // The install tip beside the card took 288 px of a 667 px screen, so
+    // one hint wrapped to two lines; the tip waits for a taller break.
+    const realMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes("max-height: 480px"),
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+    try {
+      render(<GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop a bomb"]} onStart={() => {}} />);
+      expect(screen.queryByTestId("start-overlay-break-slot")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "matchMedia", { writable: true, value: realMatchMedia });
+    }
+    render(<GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop a bomb"]} onStart={() => {}} />);
+    expect(screen.getByTestId("start-overlay-break-slot")).toBeInTheDocument();
+  });
+
+  it("uses two hint columns on a short screen only with two or more hints", () => {
+    const one = render(
+      <GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop a bomb"]} onStart={() => {}} />
+    );
+    expect(screen.getByTestId("start-card-hints").className).not.toMatch(/short:grid-cols-2/);
+    one.unmount();
+
+    render(
+      <GameStartOverlay title="Blitz Bomber" keyboardHints={["Space to drop", "Hit the ground"]} onStart={() => {}} />
+    );
+    expect(screen.getByTestId("start-card-hints").className).toMatch(/(^|\s)short:grid-cols-2(\s|$)/);
   });
 
   it("pins every choice in the action row when the picker starts the game", () => {

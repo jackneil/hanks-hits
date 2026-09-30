@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { OrientationWarning, PauseMenu, WebGLGate } from "@/shared/components";
+import { PauseMenu, WebGLGate } from "@/shared/components";
 
 import { World } from "./components/World";
 import { ChunkCounter } from "./components/hud/ChunkCounter";
@@ -109,8 +109,6 @@ export function FourWheeler3dGame() {
 
   return (
     <div className="fixed inset-0 bg-black">
-      <OrientationWarning />
-
       <WebGLGate gameName="Four-Wheeler Adventure 3D">
         <GameContextProvider value={gameContext}>
           <Canvas

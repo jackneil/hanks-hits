@@ -22,10 +22,6 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
 
-vi.mock("@/shared/components/OrientationWarning", () => ({
-  OrientationWarning: () => null,
-}));
-
 beforeEach(() => {
   // The canvas render loop is irrelevant to the start screen.
   vi.stubGlobal("requestAnimationFrame", () => 0);

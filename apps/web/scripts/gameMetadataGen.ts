@@ -20,6 +20,8 @@ export interface ParsedMetadata {
   description?: string;
   madeByKid: boolean;
   clips: boolean;
+  /** The orientation the game plays best in on a phone (metadata literal), if it declares one. */
+  preferredOrientation?: "portrait" | "landscape";
 }
 
 /** Reads one metadata.ts text. Null when a required field (name, emoji, category) is missing. */
@@ -37,6 +39,7 @@ export function parseMetadataContent(content: string, dirName: string): ParsedMe
     description: fields.description,
     madeByKid: fields.madeByKid ?? false,
     clips: fields.clips ?? false,
+    preferredOrientation: fields.preferredOrientation,
   };
 }
 
@@ -80,6 +83,9 @@ export function generateOutput(items: ParsedMetadata[]): string {
   const entries = items
     .map((item) => {
       const color = CATEGORY_COLORS[item.category] || "gray";
+      const orientation = item.preferredOrientation
+        ? `\n    preferredOrientation: "${item.preferredOrientation}",`
+        : "";
       return `  "${item.id}": {
     name: "${item.name}",
     icon: "${item.emoji}",
@@ -87,7 +93,7 @@ export function generateOutput(items: ParsedMetadata[]): string {
     description: "${item.description || ""}",
     category: "${item.category}",
     madeByKid: ${item.madeByKid},
-    clips: ${item.clips},
+    clips: ${item.clips},${orientation}
   }`;
     })
     .join(",\n");
@@ -113,6 +119,12 @@ export interface GameMetadata {
    * (a test) can leave it out, which means false.
    */
   clips?: boolean;
+  /**
+   * The orientation the game plays best in on a phone (metadata literal
+   * preferredOrientation). GameShell shows the orientation tip from it.
+   * Absent for a game that plays well both ways.
+   */
+  preferredOrientation?: "portrait" | "landscape";
 }
 
 export const GAME_METADATA: Record<string, GameMetadata> = {

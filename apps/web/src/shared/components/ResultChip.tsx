@@ -6,7 +6,9 @@ import { createPortal } from "react-dom";
 
 import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
 import { useClipShellUi } from "@/shared/clips";
+import { useCoarsePointer } from "../hooks/useCoarsePointer";
 import { getGameMetadata } from "../lib/gameMetadata.generated";
+import { spokenLabelsIn } from "../lib/spokenLabels";
 import { RESULT_CHIP_BUTTON, RESULT_CHIP_GROUP, SECONDARY_ACTION } from "./buttonStyles";
 import { createPressOwnership } from "../lib/input/pressOwnership";
 import {
@@ -53,6 +55,28 @@ import { ReadAloudButton } from "./ReadAloudButton";
  * - Mount it CONDITIONALLY on the result state
  *   (`{state === "gameOver" && <ResultChip ... />}`). The grace starts at
  *   mount, and Play again fires only once for each mount.
+ * - Play again is DIRECT: `onRestart` is the game's own restart (the
+ *   store's newGame / startGame), not the shell's onRestart. The shell's
+ *   "Restart game? your game will be lost" question is for a restart in
+ *   the middle of a run (the header, the pause menu). After the game is
+ *   over there is nothing to lose, so the chip never asks (main-loop
+ *   decision 5; 2048, Memory Match and Wordle asked).
+ * - Copy: the chip's words are for a finger. A result drawn into the
+ *   canvas said "Press Space"; a phone has no Space. `keyboardHint` shows
+ *   a small line ("or press Space") on a mouse or trackpad viewport only,
+ *   never on a touch screen, and the voice never says it.
+ *
+ * Adoption path for a game (the genre PRs):
+ *   1. Stop drawing the result and its buttons into the canvas. Keep the
+ *      game's picture (the final board, the crash) under the chip.
+ *   2. Mount `<ResultChip resultText=... appId=... onRestart={store.newGame} />`
+ *      when the store says the run is over (game over, level complete
+ *      with a Next level action in `children`).
+ *   3. Set GameShell's `resultChipReady` only when every other screen
+ *      between runs (the start card, a level card) opens the pause menu
+ *      (headerBudget.ts, step 3).
+ *   4. Route a mid-run restart (the header, the pause menu) through the
+ *      shell's onRestart as before; the chip's Play again stays direct.
  * - Read-aloud: the big labelled "Read it to me" button, the same one as
  *   on the start card and the pause menu. The voice says the result, then
  *   the name of every button in screen order. Name the buttons in the
@@ -100,6 +124,12 @@ export interface ResultChipProps {
   spokenExtras?: string[];
   /** The lockout after the bar appears, in ms. Default 600. */
   graceMs?: number;
+  /**
+   * A key that also restarts, for example "Space" or "Enter". Shown as
+   * "or press Space" on a mouse or trackpad viewport only. A touch screen
+   * never sees keyboard words.
+   */
+  keyboardHint?: string;
 }
 
 /** Nothing on the page can change "are we in the browser", so no subscription. */
@@ -110,28 +140,6 @@ function subscribeToNothing(): () => void {
 /** Keeps a tap on the bar from reaching the game under it. */
 function stopAtChip(event: React.SyntheticEvent): void {
   event.stopPropagation();
-}
-
-const INTERACTIVE = 'button, a[href], [role="button"], [role="link"]';
-// Emoji are pictures for kids who cannot read. The voice says the word.
-const PICTOGRAPHS = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{20E3}]/gu;
-
-/**
- * The spoken labels of the visible controls inside a container, in DOM
- * order. A control's data-spoken words win over its visible label (a clip
- * length is "16 seconds" for the voice, "0:16" on the screen).
- */
-function spokenLabelsIn(container: HTMLElement | null): string[] {
-  if (!container) return [];
-  return Array.from(container.querySelectorAll(INTERACTIVE))
-    .filter((el) => !el.closest('[aria-hidden="true"], [hidden]'))
-    .map((el) => {
-      const spoken = el.getAttribute("data-spoken")?.trim();
-      if (spoken) return spoken;
-      const visible = (el.textContent ?? "").replace(PICTOGRAPHS, " ").replace(/\s+/g, " ").trim();
-      return visible || el.getAttribute("aria-label")?.trim() || "";
-    })
-    .filter((label) => label.length > 0);
 }
 
 /** 56 px buttons, 44 px on a short screen, like the start card's read-aloud button. */
@@ -146,9 +154,12 @@ export function ResultChip({
   children,
   spokenExtras = [],
   graceMs = DEFAULT_RESTART_GRACE_MS,
+  keyboardHint,
 }: ResultChipProps) {
   // The clip UI parts of a clip-enabled game with clips on, or null.
   const clip = useClipShellUi();
+  // Keyboard words are for a mouse or trackpad viewport only.
+  const isCoarse = useCoarsePointer();
   const clipActionsRef = useRef<HTMLDivElement>(null);
   // The server has no document.body to portal into. The server snapshot is
   // false, so the server and the first client render agree.
@@ -328,6 +339,16 @@ export function ResultChip({
           <div ref={clipActionsRef} data-testid="result-chip-clip-actions" className="contents">
             <clip.ResultChipClipActions />
           </div>
+        )}
+
+        {keyboardHint && !isCoarse && onRestart && (
+          <span
+            data-testid="result-chip-keyboard-hint"
+            aria-hidden="true"
+            className="w-full text-center text-sm opacity-70 min-[480px]:w-auto"
+          >
+            or press {keyboardHint}
+          </span>
         )}
 
         {leaderboardAppId && leaderboardInfo && (

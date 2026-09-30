@@ -9,6 +9,15 @@
  * without the clip slot) is testable without a browser.
  *
  * The steps apply in this order (design/clips plan, section 11.2):
+ *   0. On a phone with a touch screen, during play (a run is live, so the
+ *      pause menu is one tap away), Leaderboard and Sign In leave the
+ *      header: the pause menu holds both, and the result chip holds
+ *      Leaderboard at game over. A kid in the middle of a run does not
+ *      sign in, and Sign In (96 px) was the largest control in the header
+ *      (phone UX audit 2026-09-29, S14; main-loop decision 3). "Phone"
+ *      means the short side of the screen is 480 px or less, so a phone
+ *      held sideways (844 x 390) is a phone too. Between runs (the start
+ *      card, game over) both stay in the header.
  *   1. Below 480 px, the gap between the right-hand controls goes to 0.
  *      Each control keeps its 44 px hit area.
  *   2. Below 480 px, the title becomes the game emoji. The full name stays
@@ -68,6 +77,17 @@ export const HEADER_COMPACT_BELOW_PX = 480;
 export const HEADER_RESULT_CHIP_BELOW_PX = 400;
 /** Below this width Fullscreen moves into the pause menu. */
 export const HEADER_FULLSCREEN_TO_MENU_BELOW_PX = 340;
+/**
+ * A screen whose short side is this or less is a phone, in both
+ * orientations. It matches the short: variant (max-height 480 px) of a
+ * phone held sideways.
+ */
+export const PHONE_SHORT_SIDE_MAX_PX = 480;
+
+/** True for a phone screen in either orientation (the short side is 480 px or less). */
+export function isPhoneScreen(width: number, height: number): boolean {
+  return Math.min(width, height) <= PHONE_SHORT_SIDE_MAX_PX;
+}
 
 /** Which sign-in control the header shows. */
 export type HeaderLogin = "guest" | "signedIn" | "none";
@@ -96,6 +116,11 @@ export interface HeaderControls {
   resultChipReady: boolean;
   /** An emoji is known for the title. */
   hasEmoji: boolean;
+  /**
+   * A phone with a touch screen, during play: a run is live and the pause
+   * menu is one tap away (step 0). Default false.
+   */
+  phonePlay?: boolean;
 }
 
 /** Where a movable control is shown. */
@@ -116,6 +141,12 @@ export interface HeaderLayout {
   restart: HeaderPlacement;
   /** "moved" means the pause menu holds it. */
   fullscreen: HeaderPlacement;
+  /**
+   * The guest Sign In control. "moved" means the pause menu holds it
+   * (step 0). "none" when the login control is not the guest button (the
+   * signed-in avatar stays in the header, it is 44 px).
+   */
+  signIn: HeaderPlacement;
   /** The Sign In button shows its label. Always false when login is not "guest". */
   signInLabel: boolean;
   /** The width that the layout needs, in CSS pixels. */
@@ -146,7 +177,9 @@ function clusterWidths(controls: HeaderControls, d: Decision): number[] {
   if (controls.clipSlot) widths.push(HEADER_CONTROL_PX);
   if (controls.pause) widths.push(HEADER_CONTROL_PX);
   if (controls.login === "guest") {
-    widths.push(d.signInLabel ? HEADER_SIGN_IN_LABEL_PX : HEADER_SIGN_IN_ICON_PX);
+    if (d.signIn === "header") {
+      widths.push(d.signInLabel ? HEADER_SIGN_IN_LABEL_PX : HEADER_SIGN_IN_ICON_PX);
+    }
   } else if (controls.login === "signedIn") {
     widths.push(HEADER_CONTROL_PX);
   }
@@ -186,8 +219,19 @@ export function planHeader(width: number, controls: HeaderControls): HeaderLayou
     leaderboard: controls.leaderboard ? "header" : "none",
     restart: controls.restart ? "header" : "none",
     fullscreen: controls.fullscreen ? "header" : "none",
+    signIn: controls.login === "guest" ? "header" : "none",
     signInLabel: controls.login === "guest",
   };
+
+  // Step 0: a phone during play. The pause menu holds Leaderboard and Sign
+  // In (and the result chip holds Leaderboard at game over).
+  if (controls.phonePlay && controls.pausable) {
+    if (d.leaderboard === "header") d.leaderboard = "moved";
+    if (d.signIn === "header") {
+      d.signIn = "moved";
+      d.signInLabel = false;
+    }
+  }
 
   // Step 3: only when the pause menu AND the result chip can hold them.
   if (

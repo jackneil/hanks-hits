@@ -41,6 +41,7 @@ import { createPortal } from "react-dom";
 
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
 import { createPressOwnership } from "@/shared/lib/input/pressOwnership";
+import { useShellOverlay } from "@/shared/lib/shellOverlays";
 
 import { VIEWER_COPY } from "./copy";
 import { CloseGlyph } from "./glyphs";
@@ -94,6 +95,11 @@ export function Sheet({ title, variant, onClose, readAloudText, children, testId
   useEffect(() => {
     onCloseRef.current = onClose;
   });
+
+  // A shell overlay while mounted (the runtime mounts a sheet only while it
+  // is open): GameShell holds the game under it, also a game that cannot
+  // pause and runs its own loop.
+  useShellOverlay(true);
 
   // Escape closes the sheet and stops there (capture phase, before GameShell).
   useEffect(() => {

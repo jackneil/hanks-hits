@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef } from "react";
 
+import { useShellOverlay } from "../lib/shellOverlays";
 import { ReadAloudButton } from "./ReadAloudButton";
 
 interface RestartConfirmationDialogProps {
@@ -26,6 +27,10 @@ export function RestartConfirmationDialog({
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
+
+  // A shell overlay: GameShell holds the game while the question is up
+  // (Hill Climb kept driving under it).
+  useShellOverlay(isOpen);
 
   useEffect(() => {
     if (!isOpen) {
@@ -91,13 +96,15 @@ export function RestartConfirmationDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/70 px-4">
+    // m-auto on the card (not items-center here) centers it when it fits
+    // and lets it scroll from its top on a short screen (a phone sideways).
+    <div className="fixed inset-0 z-[3000] flex overflow-y-auto bg-black/70 px-4 py-4 short:py-2">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-sm rounded-2xl bg-base-100 p-6 text-base-content shadow-2xl"
+        className="m-auto w-full max-w-sm rounded-2xl bg-base-100 p-6 text-base-content shadow-2xl short:p-4"
       >
         <h2 id={titleId} className="text-2xl font-bold">
           Restart game?
@@ -105,9 +112,9 @@ export function RestartConfirmationDialog({
         <p className="mt-3 text-base-content/75">
           {message ?? `Start ${gameName} again from the beginning?`}
         </p>
-        <ReadAloudButton text={readAloudText} className="mt-4" />
+        <ReadAloudButton text={readAloudText} className="mt-4 short:mt-2 short:min-h-[44px]" />
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex justify-end gap-3 short:mt-3">
           <button ref={cancelRef} type="button" onClick={onCancel} className="btn btn-ghost min-h-[44px]">
             Cancel
           </button>

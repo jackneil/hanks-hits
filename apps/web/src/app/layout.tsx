@@ -59,7 +59,10 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${nunito.className} antialiased min-h-screen bg-base-100`}>
+      {/* dvh, not vh (screen): on an iPhone 100vh is the height with the
+          Safari toolbars hidden, so a 100vh body scrolled on every page
+          while the toolbars showed. dvh is the real screen either way. */}
+      <body className={`${nunito.className} antialiased min-h-dvh bg-base-100`}>
         <AuthProvider>
           {children}
           {/* Trophy Case: global unlock celebrations + achievements cloud sync */}

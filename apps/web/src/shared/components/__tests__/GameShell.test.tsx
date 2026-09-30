@@ -85,18 +85,24 @@ describe("GameShell", () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
-  it("does not resume a running game when header restart is confirmed", async () => {
-    const onRestart = vi.fn();
-    const onResume = vi.fn();
+  it("holds a running game under the restart question and lets it go before the restart, never after", async () => {
+    // The question is a shell overlay: the game is paused under it (it
+    // used to keep running). On confirm the old run is let go first, then
+    // restarted; no resume reaches the new run.
+    const order: string[] = [];
+    const onRestart = vi.fn(() => order.push("restart"));
+    const onPause = vi.fn(() => order.push("pause"));
+    const onResume = vi.fn(() => order.push("resume"));
     render(
-      <GameShell gameName="2048" onRestart={onRestart} onResume={onResume}>
+      <GameShell gameName="2048" onRestart={onRestart} onPause={onPause} onResume={onResume}>
         <div>Game content</div>
       </GameShell>
     );
     fireEvent.click(screen.getByRole("button", { name: /restart game/i }));
+    expect(order).toEqual(["pause"]);
     fireEvent.click(await screen.findByRole("button", { name: /confirm restart/i }));
-    expect(onRestart).toHaveBeenCalledTimes(1);
-    expect(onResume).not.toHaveBeenCalled();
+    expect(order).toEqual(["pause", "resume", "restart"]);
+    expect(screen.queryByTestId("pause-menu")).not.toBeInTheDocument();
   });
 
   it("Escape cancels the dialog without opening the pause menu", async () => {
