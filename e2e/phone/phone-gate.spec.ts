@@ -577,6 +577,8 @@ interface RouteResult {
  * A 3D route under software rendering can take this long to mount its HUD.
  */
 const PLAY_UI_WAIT_MS = 15_000;
+/** How long a route may take to mount the game shell after "load". */
+const SHELL_MOUNT_MS = 30_000;
 
 /** Opens one route on one screen, plays its first seconds by touch, and judges every check. */
 async function checkRoute(
@@ -603,6 +605,15 @@ async function checkRoute(
     const cdp = await context.newCDPSession(page);
     const expectCard = mountsStartCard(route);
     await page.goto(route, { waitUntil: "load" });
+    // The game shell (its play box) mounts after "load" on a slow link: over
+    // the internet a 3D route had not hydrated yet, and the gate measured an
+    // empty page and reported "no play box on the page" (four-wheeler-3d on
+    // hankshits.com, 2026-10-01). Every route has a play box.
+    try {
+      await page.locator("[data-play-box]").waitFor({ state: "attached", timeout: SHELL_MOUNT_MS });
+    } catch {
+      throw new Error(`the game shell (its play box) did not mount in ${SHELL_MOUNT_MS / 1000} s`);
+    }
     if (expectCard) await expect(page.getByTestId("game-start-overlay")).toBeVisible();
     await settle(page);
 
