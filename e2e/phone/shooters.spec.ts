@@ -90,6 +90,86 @@ function paddleRun(root: string, hint: string) {
   };
 }
 
+/**
+ * Arkanoid's balls split on the walls (up to 16 from one touch), and a run
+ * ends only when every ball is gone. A paddle swept from wall to wall kept
+ * catching some by luck, and a run outlasted the budget (390x664 on
+ * hankshits.com, 2026-10-01). This kid dodges instead: it reads the canvas,
+ * finds where the falling balls are, and moves the paddle to the emptiest
+ * part of the field, so the balls fall past it. Touch moves the paddle by
+ * the finger's own distance, so it also reads where the paddle is now.
+ */
+function arkanoidDodge() {
+  /** In the page: where to move the paddle, in CSS px (0 when it is fine). */
+  const plan = () => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="arkanoid-canvas"]');
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return 0;
+    const W = canvas.width, H = canvas.height;
+    const px = ctx.getImageData(0, 0, W, H).data;
+    const at = (x: number, y: number) => (y * W + x) * 4;
+    // Field rows: normalized y runs from 1 (top) to -1 (bottom); the paddle
+    // sits at -0.9. Balls are blue, orange or yellow at their centres; the
+    // field is a green checkerboard on slate, and the walls are grey.
+    const row = (ny: number) => Math.round(((1 - ny) / 2) * H);
+    const bucket = 4, cols = Math.ceil(W / bucket), weight = new Array(cols).fill(0);
+    const top = row(-0.2), bottom = row(-0.85);
+    for (let y = top; y < bottom; y += 2) {
+      const w = 1 + (3 * (y - top)) / (bottom - top);
+      for (let x = 0; x < W; x += 2) {
+        const i = at(x, y);
+        if (px[i] > 150 || px[i + 2] > 150) weight[Math.floor(x / bucket)] += w;
+      }
+    }
+    let minX = W, maxX = -1;
+    for (let y = row(-0.88); y < row(-0.92); y += 1)
+      for (let x = 0; x < W; x += 1) {
+        const i = at(x, y);
+        if (px[i] > 200 && px[i + 2] < 90) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
+      }
+    if (maxX < 0) return 0;
+    const paddleCols = Math.max(1, Math.round((maxX - minX) / bucket));
+    const current = (minX + maxX) / 2;
+    const here = Math.round(current / bucket - paddleCols / 2);
+    const sumAt = (c: number) => {
+      let sum = 0;
+      for (let k = Math.max(0, c); k < Math.min(cols, c + paddleCols); k++) sum += weight[k];
+      return sum;
+    };
+    // Nothing over the paddle: stay put (chasing an empty field only jittered).
+    if (sumAt(here) === 0) return 0;
+    // Else the emptiest window, and of equals the nearest one.
+    let best = here, bestSum = Infinity;
+    for (let c = 0; c + paddleCols <= cols; c++) {
+      const sum = sumAt(c);
+      if (sum < bestSum || (sum === bestSum && Math.abs(c - here) < Math.abs(best - here))) { bestSum = sum; best = c; }
+    }
+    const target = (best + paddleCols / 2) * bucket;
+    return ((target - current) / W) * canvas.getBoundingClientRect().width;
+  };
+  return {
+    getMoving: async (page: Page, finger: Finger) => {
+      await page.getByTestId("arkanoid-launch-hint").waitFor();
+      const box = (await page.locator('[data-testid="arkanoid-root"]').boundingBox())!;
+      await finger.tapAt(box.x + box.width / 2, box.y + box.height * 0.9);
+    },
+    playToTheEnd: async (page: Page, finger: Finger) => {
+      const until = Date.now() + RUN_BUDGET_MS;
+      while (Date.now() < until && !(await chipShows(page))) {
+        const box = (await page.locator('[data-testid="arkanoid-root"]').boundingBox())!;
+        const y = box.y + box.height * 0.9;
+        if (await page.getByTestId("arkanoid-launch-hint").isVisible()) {
+          await finger.tapAt(box.x + box.width / 2, y);
+          await page.waitForTimeout(150);
+        }
+        const dx = await page.evaluate(plan).catch(() => 0);
+        if (Math.abs(dx) > 4) await finger.drag(box.x + box.width / 2, y, dx, 2);
+        await page.waitForTimeout(30);
+      }
+    },
+  };
+}
+
 const SHOOTERS: Shooter[] = [
   {
     route: "/games/breakout",
@@ -107,7 +187,7 @@ const SHOOTERS: Shooter[] = [
     picture: '[data-testid="arkanoid-canvas"]',
     buttons: '[data-testid="arkanoid-sound"]',
     resultCard: '[data-testid="arkanoid-result-card"]',
-    ...paddleRun('[data-testid="arkanoid-root"]', "arkanoid-launch-hint"),
+    ...arkanoidDodge(),
   },
   {
     route: "/games/space-invaders",
