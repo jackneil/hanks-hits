@@ -73,10 +73,10 @@ describe("ArkanoidGame Component (GameShell-wrapped)", () => {
     expect(screen.queryByText("⏸")).not.toBeInTheDocument();
   });
 
-  it("keeps the score HUD (live multiplier/high line + sound toggle)", () => {
+  it("keeps the score HUD (live multiplier/best line, lives + sound toggle)", () => {
     render(<ArkanoidGame />);
-    expect(screen.getByText(/Multiplier/)).toBeInTheDocument();
-    expect(screen.getByText(/High:/)).toBeInTheDocument();
+    expect(screen.getByTestId("arkanoid-hud")).toHaveTextContent(/1x · Best/);
+    expect(screen.getByLabelText(/\d+ lives/)).toBeInTheDocument();
     // Sound toggle survives with a descriptive, >=44px accessible target.
     expect(
       screen.getByRole("button", { name: /sound/i })
@@ -87,9 +87,9 @@ describe("ArkanoidGame Component (GameShell-wrapped)", () => {
     mockPointer(true);
     render(<ArkanoidGame />);
     expect(
-      screen.getByText("Slide your finger to move the paddle")
+      screen.getByText("Slide your finger anywhere to move the paddle")
     ).toBeInTheDocument();
-    expect(screen.getByText("Tap to launch the ball")).toBeInTheDocument();
+    expect(screen.getByText("Tap to launch the balls")).toBeInTheDocument();
     // Mouse copy must not show to touch users.
     expect(
       screen.queryByText("Move the paddle with your mouse")
@@ -102,7 +102,7 @@ describe("ArkanoidGame Component (GameShell-wrapped)", () => {
     expect(
       screen.getByText("Move the paddle with your mouse")
     ).toBeInTheDocument();
-    expect(screen.getByText("Click to launch the ball")).toBeInTheDocument();
+    expect(screen.getByText("Click to launch the balls")).toBeInTheDocument();
   });
 
   it("keeps the arrow keys alive after Play (the ready guard must not go stale)", () => {
@@ -141,10 +141,11 @@ describe("ArkanoidGame Component (GameShell-wrapped)", () => {
     });
 
     render(<ArkanoidGame />);
-    expect(screen.getByText("Game Over!")).toBeInTheDocument();
-    expect(screen.getByText(/^Score:/)).toBeInTheDocument();
-    expect(screen.getByText(/^High Score:/)).toBeInTheDocument();
-    expect(screen.getByText(/Play Again/)).toBeInTheDocument();
+    const card = screen.getByTestId("arkanoid-result-card");
+    expect(card).toHaveTextContent("Game over!");
+    expect(card).toHaveTextContent("1,500 points");
+    expect(card).toHaveTextContent("Best 2,000");
+    expect(screen.getByRole("button", { name: /play again/i })).toBeInTheDocument();
   });
 
   it("shows 'New High Score!' message when wasNewHighScore is true", () => {
@@ -164,7 +165,7 @@ describe("ArkanoidGame Component (GameShell-wrapped)", () => {
     });
 
     render(<ArkanoidGame />);
-    expect(screen.getByText(/New High Score!/)).toBeInTheDocument();
+    expect(screen.getByTestId("arkanoid-result-card")).toHaveTextContent("New best!");
   });
 
   it("does NOT show 'New High Score!' when wasNewHighScore is false", () => {
@@ -184,6 +185,6 @@ describe("ArkanoidGame Component (GameShell-wrapped)", () => {
     });
 
     render(<ArkanoidGame />);
-    expect(screen.queryByText("New High Score!")).not.toBeInTheDocument();
+    expect(screen.getByTestId("arkanoid-result-card")).not.toHaveTextContent("New best!");
   });
 });

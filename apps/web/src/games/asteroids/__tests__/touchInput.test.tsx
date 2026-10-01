@@ -21,6 +21,7 @@ vi.mock("next/navigation", () => ({
 
 import { AsteroidsGame } from "../Game";
 import { useAsteroidsStore } from "../lib/store";
+import { PAD_LABELS } from "../lib/overlayCopy";
 import { fingerCancel, fingerDown, fingerUp, liftAllFingers } from "@/__tests__/finger-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
@@ -56,7 +57,7 @@ function input() {
 describe("Asteroids pad", () => {
   it("thrust holds while the finger is down and releases on touchcancel", () => {
     render(<AsteroidsGame />);
-    const thrust = screen.getByRole("button", { name: "🔥" });
+    const thrust = screen.getByRole("button", { name: PAD_LABELS.thrust });
     fingerDown(thrust);
     expect(input().thrusting).toBe(true);
     fingerCancel(thrust);
@@ -65,13 +66,13 @@ describe("Asteroids pad", () => {
 
   it("releases on lift and on window blur", () => {
     render(<AsteroidsGame />);
-    const fire = screen.getByRole("button", { name: "●" });
+    const fire = screen.getByRole("button", { name: PAD_LABELS.fire });
     fingerDown(fire);
     expect(input().shooting).toBe(true);
     fingerUp(fire);
     expect(input().shooting).toBe(false);
 
-    const left = screen.getByRole("button", { name: "↺" });
+    const left = screen.getByRole("button", { name: PAD_LABELS.turnLeft });
     fingerDown(left);
     expect(input().rotatingLeft).toBe(true);
     act(() => {

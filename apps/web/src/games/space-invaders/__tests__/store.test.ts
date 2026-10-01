@@ -67,7 +67,7 @@ describe("Space Invaders difficulty scaling", () => {
     useSpaceInvadersStore.setState({ alienMoveTimer: 0 });
     vi.spyOn(Date, "now").mockReturnValue(1000);
 
-    useSpaceInvadersStore.getState().update(16);
+    useSpaceInvadersStore.getState().update();
 
     const after = useSpaceInvadersStore.getState().aliens[0];
     const expectedStep =

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, type ReactNode } from "react";
 import { useAsteroidsStore } from "./lib/store";
 import {
   CANVAS_WIDTH,
@@ -10,18 +10,37 @@ import {
   COLORS,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { useCoarsePointer, usePointerHold } from "@/shared/hooks";
+import { useCoarsePointer, usePlayBox, usePointerHold } from "@/shared/hooks";
+import type { PointerHoldHandlers } from "@/shared/hooks";
+import { useGameLoop } from "@/shared/hooks/useGameLoop";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { metadata } from "./metadata";
-import { gameOverText, getOverlayCopy, NEW_BEST_LINE, SOUND_LABELS } from "./lib/overlayCopy";
+import {
+  gameOverText,
+  getOverlayCopy,
+  NEXT_WAVE_LABEL,
+  PAD_LABELS,
+  SOUND_LABELS,
+  waveCompleteText,
+} from "./lib/overlayCopy";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { ResultChip } from "@/shared/components/ResultChip";
-import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { RESULT_CHIP_BUTTON } from "@/shared/components/buttonStyles";
 import { DEFAULT_RESTART_GRACE_MS, useRestartGrace } from "@/shared/lib/input";
 import { useAsteroidsClips } from "./lib/useAsteroidsClips";
 import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
 import { ASTEROIDS_AUDIO_ID, releaseSounds } from "./lib/sounds";
+import {
+  ACTION_BUTTON_PX,
+  asteroidsLayout,
+  EDGE_PX,
+  GUTTER_PX,
+  PAD_GAP_PX,
+  STATS_ROW_PX,
+  TURN_BUTTON_PX,
+} from "./lib/layout";
 
 // ============================================
 // CANVAS RENDERER
@@ -30,8 +49,10 @@ function useCanvasRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   isCoarse: boolean
 ) {
-  const store = useAsteroidsStore();
-
+  // render reads the store when it draws (getState), never a snapshot from
+  // the last React render: the loop calls it right after its steps, so a
+  // snapshot drew the picture a frame or more behind the game, and `store`
+  // (the whole state, new after every set) re-made render on every set.
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -41,7 +62,7 @@ function useCanvasRenderer(
 
     const copy = getOverlayCopy(isCoarse);
 
-    const { ship, bullets, asteroids, ufo, particles, score, lives, wave, status } = store;
+    const { ship, bullets, asteroids, ufo, particles, score, lives, wave, status } = useAsteroidsStore.getState();
 
     // Clear canvas
     ctx.fillStyle = COLORS.BACKGROUND;
@@ -137,8 +158,9 @@ function useCanvasRenderer(
       ctx.closePath();
       ctx.stroke();
 
-      // Thrust flame
-      if (ship.thrusting) {
+      // Thrust flame. Its flicker is game time (the ship's own frame
+      // count), so a paused picture holds still under the shell's hold.
+      if (ship.thrusting && status === "playing") {
         ctx.strokeStyle = COLORS.SHIP_THRUST;
         ctx.beginPath();
         ctx.moveTo(-SHIP_SIZE * 0.5, -SHIP_SIZE * 0.3);
@@ -202,45 +224,58 @@ function useCanvasRenderer(
       ctx.fillText(copy.resume, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
     }
 
-    if (status === "gameOver") {
+    // Game over and the wave card only dim the field: the words are a
+    // ResultCard over the canvas, clear of the result chip (the chip
+    // covered the lower quarter of the canvas upright).
+    if (status === "gameOver" || status === "waveComplete") {
       ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#ef4444";
-      ctx.font = "bold 36px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("GAME OVER", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
-
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.font = "24px Arial";
-      ctx.fillText(`Score: ${score}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
-      ctx.fillText(`Wave: ${wave}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 50);
-
-      // No "play again" line: the result chip under the card has the
-      // button. A new best gets its own line.
-      if (store.lastRunNewBest) {
-        ctx.fillStyle = "#eab308";
-        ctx.font = "bold 24px Arial";
-        ctx.fillText(NEW_BEST_LINE, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 95);
-      }
     }
-
-    if (status === "waveComplete") {
-      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.fillStyle = "#22c55e";
-      ctx.font = "bold 36px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(`WAVE ${wave} COMPLETE!`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-
-      ctx.fillStyle = COLORS.TEXT;
-      ctx.font = "18px Arial";
-      ctx.fillText(copy.nextWave, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
-    }
-  }, [canvasRef, store, isCoarse]);
+  }, [canvasRef, isCoarse]);
 
   return render;
+}
+
+// ============================================
+// PAD BUTTON
+// ============================================
+const PAD_BUTTON_CLASSES =
+  "flex flex-col items-center justify-center rounded-2xl font-bold leading-none text-white touch-none select-none [-webkit-touch-callout:none] shadow-md active:scale-95";
+
+/** One hold button of the pad: a glyph, a short word under it, and a fixed size. */
+function PadButton({
+  hold,
+  label,
+  glyph,
+  word,
+  size,
+  tone,
+}: {
+  hold: PointerHoldHandlers<HTMLButtonElement>;
+  label: string;
+  glyph: ReactNode;
+  word?: string;
+  size: number;
+  tone: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      {...hold}
+      className={`${PAD_BUTTON_CLASSES} ${tone}`}
+      style={{ width: size, height: size }}
+    >
+      <span aria-hidden="true" className="text-2xl">
+        {glyph}
+      </span>
+      {word && (
+        <span aria-hidden="true" className="mt-0.5 text-[11px] tracking-wide">
+          {word}
+        </span>
+      )}
+    </button>
+  );
 }
 
 // ============================================
@@ -248,12 +283,17 @@ function useCanvasRenderer(
 // ============================================
 export function AsteroidsGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
 
   const store = useAsteroidsStore();
   const isCoarse = useCoarsePointer();
   const render = useCanvasRenderer(canvasRef, isCoarse);
+
+  // The canvas fits the play box on both axes (layout.ts): upright the pad
+  // sits under it, sideways the pad sits in the gutters beside it. The box
+  // is fitted: it never scrolls, and a touch on it goes to the game.
+  const box = usePlayBox({ fit: true });
+  const layout = asteroidsLayout(box);
+  const { canvas: fit, sideways } = layout;
 
   // Gameplay clips: the canvas, the run phases and the new-best moment.
   useAsteroidsClips(canvasRef, {
@@ -289,81 +329,55 @@ export function AsteroidsGame() {
     }
   }, [store.status, forceSync]);
 
-  // Game loop
+  // The shared fixed-step loop: 60 steps of game time each second on any
+  // screen (the old requestAnimationFrame chain ran the store's per-frame
+  // update once per screen frame, so a 120 Hz phone played at double
+  // speed). The steps stop between rounds and while the shell holds the
+  // game (the store is "paused" then); the picture still draws each frame.
   const update = store.update;
+  const playing = store.status === "playing";
+  useGameLoop({ update, render }, { running: true, paused: !playing });
+
+  // Between rounds the picture changes only with the state (a card, a
+  // pause): draw it in the same commit, so the card is on the canvas
+  // before the next frame, also where frames are throttled.
   useEffect(() => {
-    if (store.status !== "playing") return;
-
-    let animationId: number;
-
-    const gameLoop = () => {
-      update();
-      render();
-      animationId = requestAnimationFrame(gameLoop);
-    };
-
-    animationId = requestAnimationFrame(gameLoop);
-
-    return () => {
-      cancelAnimationFrame(animationId);
-    };
-  }, [store.status, update, render]);
-
-  // Render when not playing
-  useEffect(() => {
-    render();
-  }, [render, store.status]);
-
-  // Responsive scaling
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight - 150;
-
-      const scaleX = containerWidth / CANVAS_WIDTH;
-      const scaleY = containerHeight / CANVAS_HEIGHT;
-      const newScale = Math.min(scaleX, scaleY, 1.5);
-
-      setScale(newScale);
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
+    if (!playing) render();
+  }, [render, playing]);
 
   // Restart and "next wave" wait out a short grace after the card appears,
   // and a held key's repeats never count: a kid who is still firing when
   // the run ends sees the card first.
   const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, store.status);
 
-  // Keyboard controls
+  // Keyboard controls. The handlers read the store when a key goes down:
+  // `store` is the whole state, new after every set, so depending on it took
+  // the listeners off and put them back on every frame of play.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const game = useAsteroidsStore.getState();
       // A focused button or link owns its own Space and Enter: never swallow them.
       if (keyBelongsToTarget(e)) return;
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
-      if (store.status === "ready") return;
-      if (store.status === "gameOver") {
+      if (game.status === "ready") return;
+      if (game.status === "gameOver") {
         if (e.code === "Space") {
           e.preventDefault();
-          if (grace.accept(e)) store.startGame();
+          if (grace.accept(e)) game.startGame();
         }
         return;
       }
 
-      if (store.status === "waveComplete") {
+      if (game.status === "waveComplete") {
         if (e.code === "Space") {
           e.preventDefault();
-          if (grace.accept(e)) store.nextWave();
+          if (grace.accept(e)) game.nextWave();
         }
         return;
       }
 
-      if (store.status === "paused") {
+      if (game.status === "paused") {
         // Pause/resume is owned by the GameShell now (ESC + pause button), so
         // we ignore game keys while paused instead of double-handling ESC/P.
         return;
@@ -373,47 +387,48 @@ export function AsteroidsGame() {
         case "KeyA":
         case "ArrowLeft":
           e.preventDefault();
-          store.setInput({ rotatingLeft: true });
+          game.setInput({ rotatingLeft: true });
           break;
         case "KeyD":
         case "ArrowRight":
           e.preventDefault();
-          store.setInput({ rotatingRight: true });
+          game.setInput({ rotatingRight: true });
           break;
         case "KeyW":
         case "ArrowUp":
           e.preventDefault();
-          store.setInput({ thrusting: true });
+          game.setInput({ thrusting: true });
           break;
         case "Space":
           e.preventDefault();
-          store.setInput({ shooting: true });
+          game.setInput({ shooting: true });
           break;
         case "ShiftLeft":
         case "ShiftRight":
           e.preventDefault();
-          store.hyperspace();
+          game.hyperspace();
           break;
         // Pause (ESC) is owned by the GameShell now — see the wrapper.
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      const game = useAsteroidsStore.getState();
       switch (e.code) {
         case "KeyA":
         case "ArrowLeft":
-          store.setInput({ rotatingLeft: false });
+          game.setInput({ rotatingLeft: false });
           break;
         case "KeyD":
         case "ArrowRight":
-          store.setInput({ rotatingRight: false });
+          game.setInput({ rotatingRight: false });
           break;
         case "KeyW":
         case "ArrowUp":
-          store.setInput({ thrusting: false });
+          game.setInput({ thrusting: false });
           break;
         case "Space":
-          store.setInput({ shooting: false });
+          game.setInput({ shooting: false });
           break;
       }
     };
@@ -425,7 +440,7 @@ export function AsteroidsGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [store.status, store, grace]);
+  }, [grace]);
 
   // The pad buttons are hold controls through the shared pointer hold: one
   // press per button however many fingers, pointer capture so a thumb that
@@ -451,14 +466,21 @@ export function AsteroidsGame() {
     () => setInput({ rotatingRight: false })
   );
 
-  // Game over restarts only from the result chip's Play again (or Space): a
-  // tap that was meant for a control at the moment of the last death must
-  // not start a new run and wipe the score off the card.
+  // A held input lets go when the round stops (the wave card, game over,
+  // a pause): the next round never starts with a thrust or a shot the kid
+  // is no longer making.
+  useEffect(() => {
+    if (playing) return;
+    setInput({ rotatingLeft: false, rotatingRight: false, thrusting: false, shooting: false });
+  }, [playing, setInput]);
+
+  // Game over restarts only from the result chip's Play again (or Space),
+  // and a wave goes on only from the chip's Next wave (or Space): a tap that
+  // was meant for a control at the moment the round ended must not skip
+  // the card.
   const handleCanvasClick = () => {
     if (store.status === "ready") {
       store.startGame();
-    } else if (store.status === "waveComplete") {
-      if (grace.accept()) store.nextWave();
     } else if (store.status === "paused") {
       store.resumeGame();
     }
@@ -469,146 +491,162 @@ export function AsteroidsGame() {
     store.setProgress({ ...store.progress, soundEnabled: !current });
   };
 
-  const playing = store.status === "playing";
   const gameOver = store.status === "gameOver";
+  const waveComplete = store.status === "waveComplete";
   const soundLabel = store.progress.soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off;
+
+  // The pad groups keep their place on every screen, so the canvas does not
+  // jump when a run ends; they show and take taps only while a round plays.
+  const padState = playing
+    ? {}
+    : ({ "aria-hidden": true, inert: true } as const);
+  const padHidden = playing ? "" : "invisible";
+
+  const turnPad = (
+    <div
+      data-testid="asteroids-pad-turn"
+      className={`flex items-center ${padHidden}`}
+      style={{ gap: PAD_GAP_PX }}
+      {...padState}
+    >
+      <PadButton hold={leftHold} label={PAD_LABELS.turnLeft} glyph="↺" size={TURN_BUTTON_PX} tone="bg-gray-700 active:bg-gray-600" />
+      <PadButton hold={rightHold} label={PAD_LABELS.turnRight} glyph="↻" size={TURN_BUTTON_PX} tone="bg-gray-700 active:bg-gray-600" />
+    </div>
+  );
+  const actionPad = (
+    <div
+      data-testid="asteroids-pad-action"
+      className={`flex items-center ${padHidden}`}
+      style={{ gap: PAD_GAP_PX }}
+      {...padState}
+    >
+      <PadButton hold={thrustHold} label={PAD_LABELS.thrust} glyph="🔥" word="GO" size={ACTION_BUTTON_PX} tone="bg-orange-600 active:bg-orange-500" />
+      <PadButton hold={fireHold} label={PAD_LABELS.fire} glyph="●" word="FIRE" size={ACTION_BUTTON_PX} tone="bg-yellow-600 active:bg-yellow-500" />
+    </div>
+  );
+
+  const soundButton = (
+    <button
+      type="button"
+      data-testid="asteroids-sound"
+      aria-label={soundLabel}
+      onClick={toggleSound}
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gray-700 text-xl text-white hover:bg-gray-600 touch-manipulation"
+    >
+      <span aria-hidden="true">{store.progress.soundEnabled ? "🔊" : "🔇"}</span>
+    </button>
+  );
+
+  // The stats: one line upright (it never wraps, so the canvas never moves
+  // when a number grows), two short lines in the gutter sideways.
+  const stats = (
+    <div
+      data-testid="asteroids-stats"
+      className={
+        sideways
+          ? "flex max-w-full flex-col items-center gap-0.5 overflow-hidden whitespace-nowrap text-center text-xs text-white"
+          : "flex max-w-full items-center gap-3 overflow-hidden whitespace-nowrap text-xs text-white sm:gap-4 sm:text-sm"
+      }
+    >
+      <span>High: {store.progress.highScore}</span>
+      <span>Best wave: {store.progress.highestWave}</span>
+      <span>Rocks: {store.progress.totalAsteroidsDestroyed}</span>
+    </div>
+  );
+
+  const canvasBox = (
+    <div className="relative shrink-0" style={{ width: fit.width, height: fit.height }}>
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        onClick={handleCanvasClick}
+        className="rounded-lg border-2 border-gray-700"
+        style={{ width: fit.width, height: fit.height }}
+      />
+
+      {store.status === "gameOver" && (
+        <ResultCard testId="asteroids-result-card" title="Game over!">
+          <ResultLine big>
+            Score {store.score} · Wave {store.wave}
+          </ResultLine>
+          <ResultLine>{store.lastRunNewBest ? "🏆 New best!" : `Best ${store.progress.highScore}`}</ResultLine>
+        </ResultCard>
+      )}
+      {store.status === "waveComplete" && (
+        <ResultCard testId="asteroids-result-card" title={`Wave ${store.wave} complete!`}>
+          <ResultLine big>Score {store.score}</ResultLine>
+        </ResultCard>
+      )}
+
+      {store.status === "ready" && (
+        <GameStartOverlay
+          title="Asteroids"
+          emoji={metadata.emoji}
+          keyboardHints={[
+            "A/D or ← → to rotate",
+            "W or ↑ to thrust",
+            "SPACE to fire",
+            "SHIFT for hyperspace",
+          ]}
+          touchHints={[
+            "Tap ⟲ ⟳ to rotate",
+            "Hold 🔥 to thrust",
+            "Tap ● to fire",
+          ]}
+          onStart={store.startGame}
+        />
+      )}
+    </div>
+  );
 
   return (
     <div
-      ref={containerRef}
-      className="flex flex-col items-center justify-center min-h-full bg-black p-4 select-none"
+      data-testid="asteroids-root"
+      data-layout={sideways ? "sideways" : "upright"}
+      className="h-full w-full select-none bg-black"
     >
-      {/* Stats Bar: one line at every width, so the canvas never moves
-          when a number grows (a new best at game over). */}
-      <div
-        data-testid="asteroids-stats"
-        className="flex max-w-full items-center gap-3 overflow-hidden whitespace-nowrap mb-2 text-white text-xs sm:gap-4 sm:text-sm"
-      >
-        <span>High: {store.progress.highScore}</span>
-        <span aria-hidden="true" className="hidden sm:inline">|</span>
-        <span>Best Wave: {store.progress.highestWave}</span>
-        <span aria-hidden="true" className="hidden sm:inline">|</span>
-        <span>Asteroids: {store.progress.totalAsteroidsDestroyed}</span>
-      </div>
+      {sideways ? (
+        // Sideways: the pad in the gutters, the canvas full height between them.
+        <div className="flex h-full w-full items-center justify-center" style={{ padding: EDGE_PX }}>
+          <div
+            data-testid="asteroids-gutter-left"
+            className="flex shrink-0 flex-col items-center justify-center gap-3"
+            style={{ width: GUTTER_PX }}
+          >
+            {turnPad}
+            {stats}
+          </div>
+          {canvasBox}
+          <div
+            data-testid="asteroids-gutter-right"
+            className="flex shrink-0 flex-col items-center justify-center gap-3"
+            style={{ width: GUTTER_PX }}
+          >
+            {actionPad}
+            {soundButton}
+          </div>
+        </div>
+      ) : (
+        // Upright: the stats line, the canvas, then the pad in one row.
+        <div className="flex h-full w-full flex-col items-center" style={{ padding: EDGE_PX, gap: PAD_GAP_PX }}>
+          <div className="flex w-full shrink-0 items-center justify-center gap-3" style={{ height: STATS_ROW_PX }}>
+            {stats}
+            {soundButton}
+          </div>
+          {canvasBox}
+          <div className="flex w-full shrink-0 items-center justify-between" style={{ height: ACTION_BUTTON_PX, maxWidth: fit.width }}>
+            {turnPad}
+            {actionPad}
+          </div>
+        </div>
+      )}
 
-      {/* Canvas */}
-      <div
-        className="relative"
-        style={{
-          width: CANVAS_WIDTH * scale,
-          height: CANVAS_HEIGHT * scale,
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          onClick={handleCanvasClick}
-          className="rounded-lg border-2 border-gray-700"
-          style={{
-            width: CANVAS_WIDTH * scale,
-            height: CANVAS_HEIGHT * scale,
-          }}
-        />
-
-        {store.status === "ready" && (
-          <GameStartOverlay
-            title="Asteroids"
-            emoji={metadata.emoji}
-            keyboardHints={[
-              "A/D or ← → to rotate",
-              "W or ↑ to thrust",
-              "SPACE to fire",
-              "SHIFT for hyperspace",
-            ]}
-            touchHints={[
-              "Tap ⟲ ⟳ to rotate",
-              "Hold 🔥 to thrust",
-              "Tap ● to fire",
-            ]}
-            onStart={store.startGame}
-          />
-        )}
-      </div>
-
-      {/* Mobile controls. The row keeps its place on every screen, so the
-          canvas does not jump when a run ends; it shows and takes taps only
-          while a round plays. */}
-      <div
-        data-testid="asteroids-touch-controls"
-        className={`flex gap-2 mt-4 ${store.status === "playing" ? "" : "invisible"}`}
-        aria-hidden={store.status === "playing" ? undefined : true}
-        inert={store.status !== "playing"}
-      >
-        <button
-          type="button"
-          {...leftHold}
-          className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl touch-none select-none"
-        >
-          ↺
-        </button>
-        <button
-          type="button"
-          {...thrustHold}
-          className="w-16 h-16 bg-orange-600 active:bg-orange-500 text-white text-2xl font-bold rounded-xl touch-none select-none"
-        >
-          🔥
-        </button>
-        <button
-          type="button"
-          {...fireHold}
-          className="w-16 h-16 bg-yellow-600 active:bg-yellow-500 text-white text-2xl font-bold rounded-xl touch-none select-none"
-        >
-          ●
-        </button>
-        <button
-          type="button"
-          {...rightHold}
-          className="w-16 h-16 bg-gray-700 active:bg-gray-600 text-white text-2xl font-bold rounded-xl touch-none select-none"
-        >
-          ↻
-        </button>
-      </div>
-
-      {/* Control row. It keeps its place on every screen: the pause button
-          stays mounted (shown and tappable only while a round plays), so
-          the sound switch never moves. At game over the result chip covers
-          this row, so the row hides and the chip has the sound switch. */}
-      <div
-        data-testid="asteroids-control-row"
-        className={`flex items-center gap-4 mt-4 ${gameOver ? "invisible" : ""}`}
-        aria-hidden={gameOver ? true : undefined}
-        inert={gameOver}
-      >
-        <button
-          type="button"
-          data-testid="asteroids-sound"
-          aria-label={soundLabel}
-          onClick={toggleSound}
-          className="w-12 h-12 bg-gray-700 hover:bg-gray-600 text-white rounded-full flex items-center justify-center"
-        >
-          {store.progress.soundEnabled ? "🔊" : "🔇"}
-        </button>
-        <button
-          type="button"
-          data-testid="asteroids-pause"
-          aria-label="Pause"
-          onClick={() => store.pauseGame()}
-          aria-hidden={playing ? undefined : true}
-          inert={!playing}
-          className={`w-12 h-12 bg-yellow-600 hover:bg-yellow-500 text-white rounded-full flex items-center justify-center font-bold ${
-            playing ? "" : "invisible"
-          }`}
-        >
-          II
-        </button>
-        <IOSInstallPrompt />
-      </div>
+      <IOSInstallPrompt />
 
       {/* The result chip under the game-over card (plan 11.4): read it to
-          me, Play again, the leaderboard, the sound switch, and with clips
-          on the clip buttons. Mounted only at game over, so its grace
-          starts then. */}
+          me, Play again, the leaderboard, and with clips on the clip
+          buttons. Mounted only at game over, so its grace starts then. */}
       {gameOver && (
         <ResultChip
           resultText={gameOverText({
@@ -619,18 +657,23 @@ export function AsteroidsGame() {
           })}
           appId="asteroids"
           onRestart={store.startGame}
-          spokenExtras={[soundLabel]}
-        >
+          keyboardHint="Space"
+        />
+      )}
+
+      {/* The wave-complete chip: read it to me, then Next wave. The canvas
+          used to say "Tap for Next Wave" in 18 px text; now the button is
+          real, 44 px or more, and the voice can say it. */}
+      {waveComplete && (
+        <ResultChip resultText={waveCompleteText({ wave: store.wave, score: store.score })} spokenExtras={[NEXT_WAVE_LABEL]}>
           <button
             type="button"
-            data-testid="result-chip-sound"
-            onClick={toggleSound}
-            // A pointer press leaves no focus here, so Space still means "play again".
-            onMouseDown={(event) => event.preventDefault()}
-            className={`btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`}
+            data-testid="asteroids-next-wave"
+            onClick={() => store.nextWave()}
+            className={`btn btn-primary gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} active:scale-[0.97] touch-manipulation`}
           >
-            <span aria-hidden="true">{store.progress.soundEnabled ? "🔊" : "🔇"}</span>
-            {soundLabel}
+            <span aria-hidden="true">▶</span>
+            {NEXT_WAVE_LABEL}
           </button>
         </ResultChip>
       )}

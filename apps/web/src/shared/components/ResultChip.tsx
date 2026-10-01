@@ -209,6 +209,8 @@ export function ResultChip({
   // Same order as the buttons on screen: Play again, Leaderboard, extras,
   // the clip buttons, then the notes in the break slot. Built at tap time,
   // so the clip buttons that show right now are the ones the voice says.
+  // Each part ends a sentence before the next one starts; a part that
+  // already ends in . ! or ? gets no second period ("340.. Next wave").
   const spokenText = () =>
     [
       resultText,
@@ -218,8 +220,8 @@ export function ResultChip({
       ...spokenLabelsIn(clipActionsRef.current),
       ...readBreakNotes(),
     ]
-      .filter(Boolean)
-      .join(". ");
+      .filter((part): part is string => !!part)
+      .reduce((text, part) => (text ? `${/[.!?]$/.test(text) ? text : `${text}.`} ${part}` : part), "");
 
   // During the grace, a tap or click on ANY button in the bar (the children
   // slot included) does nothing. Stopping it in the capture phase keeps it

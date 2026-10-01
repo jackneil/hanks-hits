@@ -7,4 +7,5 @@ export const metadata: GameMetadata = {
   category: "arcade",
   description: "Watch balls multiply in this mesmerizing chain reaction game!",
   hidden: false,
+  clips: true,
 };

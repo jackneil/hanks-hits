@@ -14,7 +14,6 @@ import {
   PADDLE_HEIGHT,
   PADDLE_Y,
   BALL_RADIUS,
-  BALL_INITIAL_SPEED,
   BALL_MAX_SPEED,
   BALL_SPEED_INCREMENT,
   BRICK_WIDTH,
@@ -25,7 +24,6 @@ import {
   POWERUP_WIDTH,
   POWERUP_HEIGHT,
   POWERUP_FALL_SPEED,
-  POWERUP_CHANCE,
   BIG_PADDLE_DURATION,
   SLOW_DURATION,
   STICKY_DURATION,
@@ -36,10 +34,10 @@ import {
   BRICK_COLORS,
   clamp,
   getRandomPowerUp,
-  normalizeVector,
   createBall,
 } from "./constants";
-import { getLevel, countBreakableBricks, getTotalLevels } from "./levels";
+import { getLevel, getTotalLevels } from "./levels";
+import { playSound } from "./sounds";
 
 // Progress data (persisted)
 export type BreakoutProgress = {
@@ -63,6 +61,17 @@ type ActivePowerUp = {
 export type BreakoutGameState = {
   // Game status
   status: GameStatus;
+  /**
+   * Counts the runs of this page: startGame and restartLevel add one (Play,
+   * Play again, and a restart from the header or the pause menu). Gameplay
+   * clips read it: a new value while playing is a new run.
+   */
+  runId: number;
+  /**
+   * The saved best when this run started. The store raises the saved best
+   * at each level card, so the clips' new-best moment reads this one.
+   */
+  runStartBest: number;
 
   // Current level
   level: number;
@@ -110,7 +119,7 @@ type BreakoutActions = {
   launchBall: () => void;
 
   // Game loop
-  update: (deltaTime: number) => void;
+  update: () => void;
 
   // Progress sync
   getProgress: () => BreakoutProgress;
@@ -138,7 +147,8 @@ function createInitialPaddle(): Paddle {
   };
 }
 
-function createInitialBall(paddle: Paddle, speed: number): Ball {
+/** The ball resting on the paddle; its speed is set at launch (currentBallSpeed). */
+function createInitialBall(paddle: Paddle): Ball {
   return {
     id: 1,
     x: paddle.x + paddle.width / 2,
@@ -200,11 +210,13 @@ function createInitialGameState(level: number = 1): Partial<BreakoutGameState> {
 
   return {
     status: "idle",
+    runId: 0,
+    runStartBest: 0,
     level,
     lives: INITIAL_LIVES,
     score: 0,
     paddle,
-    balls: [createInitialBall(paddle, levelConfig.ballSpeed)],
+    balls: [createInitialBall(paddle)],
     bricks: createBricksFromLevel(level),
     powerUps: [],
     particles: [],
@@ -215,83 +227,6 @@ function createInitialGameState(level: number = 1): Partial<BreakoutGameState> {
     nextPowerUpId: 1,
     nextParticleId: 1,
   };
-}
-
-// Audio context for sound effects
-let audioContext: AudioContext | null = null;
-
-function getAudioContext(): AudioContext {
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
-  }
-  return audioContext;
-}
-
-function playSound(type: "bounce" | "break" | "powerup" | "lose-life" | "level-complete" | "game-over", enabled: boolean) {
-  if (!enabled) return;
-
-  try {
-    const ctx = getAudioContext();
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    switch (type) {
-      case "bounce":
-        oscillator.frequency.value = 440;
-        oscillator.type = "square";
-        gainNode.gain.value = 0.1;
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.05);
-        break;
-      case "break":
-        oscillator.frequency.value = 660;
-        oscillator.type = "square";
-        gainNode.gain.value = 0.15;
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.1);
-        break;
-      case "powerup":
-        oscillator.frequency.value = 880;
-        oscillator.type = "sine";
-        gainNode.gain.value = 0.2;
-        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.3);
-        break;
-      case "lose-life":
-        oscillator.frequency.value = 200;
-        oscillator.type = "sawtooth";
-        gainNode.gain.value = 0.2;
-        oscillator.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.3);
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.3);
-        break;
-      case "level-complete":
-        oscillator.frequency.value = 523;
-        oscillator.type = "sine";
-        gainNode.gain.value = 0.2;
-        const now = ctx.currentTime;
-        oscillator.frequency.setValueAtTime(523, now);
-        oscillator.frequency.setValueAtTime(659, now + 0.1);
-        oscillator.frequency.setValueAtTime(784, now + 0.2);
-        oscillator.start();
-        oscillator.stop(now + 0.4);
-        break;
-      case "game-over":
-        oscillator.frequency.value = 300;
-        oscillator.type = "sawtooth";
-        gainNode.gain.value = 0.2;
-        oscillator.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.5);
-        oscillator.start();
-        oscillator.stop(ctx.currentTime + 0.5);
-        break;
-    }
-  } catch {
-    // Audio not supported or blocked
-  }
 }
 
 export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
@@ -308,6 +243,8 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
         set({
           ...initialState,
           status: "playing",
+          runId: state.runId + 1,
+          runStartBest: state.progress.highScore,
           progress: {
             ...state.progress,
             gamesPlayed: state.progress.gamesPlayed + 1,
@@ -343,7 +280,7 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
           status: "playing",
           level: nextLevelNum,
           paddle,
-          balls: [createInitialBall(paddle, levelConfig.ballSpeed)],
+          balls: [createInitialBall(paddle)],
           bricks: createBricksFromLevel(nextLevelNum),
           powerUps: [],
           particles: [],
@@ -368,8 +305,11 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
 
         set({
           status: "playing",
+          // A restart is a new run for clips; the level's score starts over.
+          runId: state.runId + 1,
+          runStartBest: state.progress.highScore,
           paddle,
-          balls: [createInitialBall(paddle, levelConfig.ballSpeed)],
+          balls: [createInitialBall(paddle)],
           bricks: createBricksFromLevel(state.level),
           powerUps: [],
           particles: [],
@@ -384,7 +324,7 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
       // Game over
       gameOver: () => {
         const state = get();
-        playSound("game-over", state.progress.soundEnabled);
+        playSound("game-over");
 
         set({
           status: "game-over",
@@ -455,7 +395,8 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
       },
 
       // Main game update
-      update: (deltaTime: number) => {
+      // One fixed step: useGameLoop runs 60 a second, whatever the screen's rate.
+      update: () => {
         const state = get();
         if (state.status !== "playing") return;
 
@@ -522,18 +463,18 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
           if (newX - ball.radius <= 0) {
             newX = ball.radius;
             newVx = Math.abs(newVx);
-            playSound("bounce", progress.soundEnabled);
+            playSound("bounce");
           } else if (newX + ball.radius >= CANVAS_WIDTH) {
             newX = CANVAS_WIDTH - ball.radius;
             newVx = -Math.abs(newVx);
-            playSound("bounce", progress.soundEnabled);
+            playSound("bounce");
           }
 
           // Ceiling collision
           if (newY - ball.radius <= 0) {
             newY = ball.radius;
             newVy = Math.abs(newVy);
-            playSound("bounce", progress.soundEnabled);
+            playSound("bounce");
           }
 
           // Bottom - lose ball
@@ -574,12 +515,11 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
               balls[i] = { ...ball, x: newX, y: newY, vx: newVx, vy: newVy };
             }
 
-            playSound("bounce", progress.soundEnabled);
+            playSound("bounce");
             continue;
           }
 
           // Brick collisions
-          let hitBrick = false;
           for (let j = 0; j < bricks.length; j++) {
             const brick = bricks[j];
 
@@ -590,7 +530,6 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
               newY + ball.radius >= brick.y &&
               newY - ball.radius <= brick.y + brick.height
             ) {
-              hitBrick = true;
 
               // Determine collision side
               const overlapLeft = (newX + ball.radius) - brick.x;
@@ -683,15 +622,15 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
                     }
                   }
 
-                  playSound("break", progress.soundEnabled);
+                  playSound("break");
 
                   // Remove destroyed brick
                   bricks = bricks.filter(b => b.hitsRemaining > 0);
                 } else {
-                  playSound("bounce", progress.soundEnabled);
+                  playSound("bounce");
                 }
               } else {
-                playSound("bounce", progress.soundEnabled);
+                playSound("bounce");
               }
 
               break;
@@ -723,7 +662,7 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
           ) {
             // Collected!
             powerUpsToRemove.push(powerUp.id);
-            playSound("powerup", progress.soundEnabled);
+            playSound("powerup");
             progress = { ...progress, powerUpsCollected: progress.powerUpsCollected + 1 };
 
             // Apply power-up effect
@@ -785,7 +724,7 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
         // Check if all balls lost
         if (balls.length === 0) {
           lives--;
-          playSound("lose-life", progress.soundEnabled);
+          playSound("lose-life");
 
           if (lives <= 0) {
             // Game over
@@ -811,7 +750,7 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
 
           // Reset ball on paddle
           const levelConfig = getLevel(state.level);
-          balls = [createInitialBall(paddle, levelConfig.ballSpeed)];
+          balls = [createInitialBall(paddle)];
           isSticky = false;
           activePowerUps = [];
           paddle = { ...paddle, width: paddle.baseWidth };
@@ -821,7 +760,7 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
         // Check level complete - no breakable bricks left
         const breakableBricks = bricks.filter(b => b.type !== "indestructible");
         if (breakableBricks.length === 0) {
-          playSound("level-complete", progress.soundEnabled);
+          playSound("level-complete");
 
           const newProgress = {
             ...progress,

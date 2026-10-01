@@ -64,13 +64,17 @@ describe("game metadata generator", () => {
     // later) add modules one at a time: add each one here with its PR.
     // hill-climb: PR-G1 (phone UX, driving).
     // dino-runner, endless-runner, flappy-bird, platformer: PR-G2 (phone UX, runners).
+    // arkanoid, breakout, space-invaders: PR-G3 (phone UX, shooters).
     expect(Object.entries(GAME_METADATA).filter(([, m]) => m.clips).map(([id]) => id)).toEqual([
+      "arkanoid",
       "asteroids",
+      "breakout",
       "dino-runner",
       "endless-runner",
       "flappy-bird",
       "hill-climb",
       "platformer",
+      "space-invaders",
     ]);
     expect(getGameMetadata("no-such-game").clips).toBe(false);
   });
@@ -111,14 +115,21 @@ describe("game metadata generator", () => {
   it("declares a preferred orientation only for the games the phone audit found one-way", () => {
     // Endless Runner and Platformer asked for landscape before (they
     // mounted OrientationWarning in their own tree). Flappy Bird is a
-    // portrait-shaped game. Hill Climb, Monster Truck and Four-Wheeler 3D
-    // play both ways (main-loop decision 2) and declare nothing. A genre
-    // PR that makes a game play both ways removes its line here.
+    // portrait-shaped game, and so is Breakout's 3:4 field (it plays
+    // sideways too, at half the size, so the tip says so once). Hill
+    // Climb, Monster Truck and Four-Wheeler 3D play both ways (main-loop
+    // decision 2) and declare nothing. A genre PR that makes a game play
+    // both ways removes its line here.
     const declared = Object.entries(GAME_METADATA)
       .filter(([, m]) => m.preferredOrientation)
       .map(([id, m]) => `${id}:${m.preferredOrientation}`)
       .sort();
-    expect(declared).toEqual(["endless-runner:landscape", "flappy-bird:portrait", "platformer:landscape"]);
+    expect(declared).toEqual([
+      "breakout:portrait",
+      "endless-runner:landscape",
+      "flappy-bird:portrait",
+      "platformer:landscape",
+    ]);
     for (const id of ["hill-climb", "monster-truck", "four-wheeler-3d"]) {
       expect(GAME_METADATA[id].preferredOrientation, id).toBeUndefined();
     }

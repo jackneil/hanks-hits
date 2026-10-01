@@ -5,35 +5,38 @@
 // just never said so).
 
 //
-// Game over has no "play again" line: the shared result chip under the card
-// has a real Play again button (and Space still restarts on a keyboard).
+// Game over and wave complete have no instruction line: the shared result
+// chip under the card has the real buttons (Play again, Next wave), and
+// Space still works on a keyboard.
 
 export type OverlayCopy = {
   resume: string;
-  nextWave: string;
 };
 
 export function getOverlayCopy(isCoarse: boolean): OverlayCopy {
   if (isCoarse) {
     return {
       resume: "Tap to Resume",
-      nextWave: "Tap for Next Wave",
     };
   }
   return {
     resume: "Press Escape or Click to Resume",
-    nextWave: "Press Space for Next Wave",
   };
 }
 
-/** The canvas card's line for a new best (the card is arcade text in capitals, like GAME OVER). */
-export const NEW_BEST_LINE = "NEW BEST!";
-
-/**
- * The sound switch in the result chip at game over (the chip covers the
- * switch under the canvas). The words say what the kid hears now.
- */
+/** The sound switch: the words say what the kid hears now. */
 export const SOUND_LABELS = { on: "Sound on", off: "Sound off" } as const;
+
+/** The pad buttons' accessible names (the voice and the tests use them). */
+export const PAD_LABELS = {
+  turnLeft: "Turn left",
+  turnRight: "Turn right",
+  thrust: "Thrust",
+  fire: "Fire",
+} as const;
+
+/** The one button of the wave-complete chip. */
+export const NEXT_WAVE_LABEL = "Next wave";
 
 /**
  * The result chip's words at game over, read out loud first: the score,
@@ -44,4 +47,9 @@ export function gameOverText({ score, wave, best, newBest }: { score: number; wa
   if (newBest) words.push("That is a new best!");
   else if (best > 0) words.push(`Your best is ${best}.`);
   return words.join(" ");
+}
+
+/** The wave-complete chip's words, read out loud first. */
+export function waveCompleteText({ wave, score }: { wave: number; score: number }): string {
+  return `Wave ${wave} done! Your score is ${score}.`;
 }

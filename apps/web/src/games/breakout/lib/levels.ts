@@ -1,7 +1,7 @@
 // Breakout Game - Level Definitions
 
 import type { BrickType } from "./constants";
-import { BRICK_COLS, BRICK_ROWS } from "./constants";
+import { BRICK_COLS } from "./constants";
 
 export type LevelConfig = {
   id: number;
