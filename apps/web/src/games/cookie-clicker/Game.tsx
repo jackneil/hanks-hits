@@ -496,7 +496,7 @@ function UpgradeItem({ upgradeId }: { upgradeId: string }) {
       onClick={() => buyUpgrade(upgradeId)}
       disabled={!canAfford}
       aria-label={`${upgrade.name}: ${description}. ${formatNumber(upgrade.cost)} cookies.`}
-      className={`flex w-28 shrink-0 flex-col items-center rounded-lg border-2 px-2 py-2 transition-colors duration-150 touch-manipulation ${
+      className={`flex w-40 shrink-0 flex-col items-center rounded-lg border-2 px-2 py-2 transition-colors duration-150 touch-manipulation ${
         canAfford
           ? "border-purple-500 bg-purple-100 active:bg-purple-300"
           : "cursor-not-allowed border-gray-300 bg-gray-100 opacity-60"
@@ -505,8 +505,11 @@ function UpgradeItem({ upgradeId }: { upgradeId: string }) {
       <span aria-hidden="true" className="text-2xl">
         {emoji}
       </span>
-      <span className="w-full truncate text-center text-sm font-bold text-purple-950">{upgrade.name}</span>
-      <span className="w-full truncate text-center text-sm text-purple-900">{description}</span>
+      {/* w-40 fits every name and effect on one line ("Adamantium Mouse",
+          "+5 cookies per tap" were cut to "..." in a w-28 tile); a longer
+          one wraps, never cut. */}
+      <span className="w-full text-balance text-center text-sm leading-tight font-bold text-purple-950">{upgrade.name}</span>
+      <span className="w-full text-balance text-center text-sm leading-tight text-purple-900">{description}</span>
       <span className={`text-sm font-bold ${canAfford ? "text-green-700" : "text-red-700"}`}>🍪 {formatNumber(upgrade.cost)}</span>
     </button>
   );
