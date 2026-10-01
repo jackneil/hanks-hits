@@ -9,18 +9,20 @@
  * every visible button and link is 44 px or more. These pages scroll, so
  * the page height is not checked.
  *
- * Run it with the gate: pnpm e2e:phone <base-url>. E2E_ROUTES limits it.
+ * Run it with the gate: pnpm e2e:phone <base-url>. It always opens all
+ * seven pages (about 20 s): E2E_ROUTES names game routes only, and the
+ * phone gate rejects a route the home page does not list.
  */
 import { expect, test } from "playwright/test";
 
-import { cutLabels, measure, openGame, SCREENS, wanted } from "./touch";
+import { cutLabels, measure, openGame, SCREENS } from "./touch";
 
 const PAGES = ["/", "/leaderboards", "/trophies", "/profile", "/login", "/signup", "/licenses"];
 
 for (const screen of SCREENS) {
   test(`pages on ${screen.name}`, async ({ browser }) => {
     const problems: string[] = [];
-    for (const route of PAGES.filter(wanted)) {
+    for (const route of PAGES) {
       const { context, page } = await openGame(browser, screen, route);
       try {
         await page.waitForTimeout(800);
