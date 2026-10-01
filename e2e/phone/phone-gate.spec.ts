@@ -89,6 +89,8 @@ import path from "node:path";
 
 import { expect, test, type Browser, type BrowserContextOptions, type CDPSession, type Page } from "playwright/test";
 
+import { cutLabels } from "./touch";
+
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const APP_SRC = path.join(REPO_ROOT, "apps", "web", "src");
 
@@ -387,8 +389,8 @@ interface PageProbe {
  * this sample (the next sample in play measures it). A looping animation
  * never settles: its button is measured as it is.
  */
-function probePage(page: Page): Promise<PageProbe> {
-  return page.evaluate(
+async function probePage(page: Page): Promise<PageProbe> {
+  const probe = await page.evaluate(
     async ({ pattern, notCopy, minTarget, minBoardCell, settleMs }) => {
       const finite = () =>
         document.getAnimations().filter((a) => a.playState === "running" && a.effect?.getComputedTiming().iterations !== Infinity);
@@ -429,30 +431,6 @@ function probePage(page: Page): Promise<PageProbe> {
         keyboardCopy.push(text.slice(0, 60));
       }
 
-      const cutLabels: string[] = [];
-      for (const control of document.querySelectorAll<HTMLElement>('button, [role="button"], a[href], select')) {
-        if (!visible(control) || settling(control)) continue;
-        for (const el of [control, ...control.querySelectorAll<HTMLElement>("*")]) {
-          if (!visible(el)) continue;
-          const ownText = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim());
-          if (!ownText) continue;
-          const style = getComputedStyle(el);
-          const clipsX = style.textOverflow === "ellipsis" || style.overflowX === "hidden" || style.overflowX === "clip";
-          const clamped = style.webkitLineClamp !== "" && style.webkitLineClamp !== "none";
-          const cutWide = clipsX && el.scrollWidth > el.clientWidth + 1;
-          const cutTall = clamped && el.scrollHeight > el.clientHeight + 2;
-          if (cutWide || cutTall) {
-            const name = (control.getAttribute("aria-label") ?? control.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 30);
-            cutLabels.push(
-              cutWide
-                ? `"${name}" shows ${el.clientWidth} of ${el.scrollWidth} px wide`
-                : `"${name}" shows ${el.clientHeight} of ${el.scrollHeight} px tall`
-            );
-            break;
-          }
-        }
-      }
-
       const smallButtons: string[] = [];
       for (const button of document.querySelectorAll<HTMLElement>('button, [role="button"]')) {
         if (!visible(button) || settling(button)) continue;
@@ -470,13 +448,13 @@ function probePage(page: Page): Promise<PageProbe> {
         scrollHeight: document.scrollingElement?.scrollHeight ?? document.documentElement.scrollHeight,
         innerHeight: vh,
         keyboardCopy: [...new Set(keyboardCopy)],
-        cutLabels: [...new Set(cutLabels)],
         smallButtons: [...new Set(smallButtons)],
         playButtons,
       };
     },
     { pattern: KEYBOARD_COPY_SOURCE, notCopy: NOT_KEYBOARD_COPY, minTarget: MIN_TARGET, minBoardCell: MIN_BOARD_CELL, settleMs: SETTLE_MS }
   );
+  return { ...probe, cutLabels: await page.evaluate(cutLabels) };
 }
 
 /**
