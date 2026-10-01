@@ -94,8 +94,48 @@ export function useCanvas({
     isInitializedRef.current = true;
   }, []);
 
+  /**
+   * The frame grew (the phone turned): grow the canvas to fill it and keep
+   * the drawing where it was. The canvas was sized once, so after a turn
+   * part of it was clipped and part of the frame could not be drawn on.
+   * The canvas never shrinks: a smaller frame only clips it, so turning the
+   * phone back shows the whole drawing again. Undo starts over from the
+   * grown canvas (the older steps are the old size).
+   */
+  const growCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    const ctx = ctxRef.current;
+    if (!canvas || !container || !ctx) return;
+    const rect = container.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(canvas.width, Math.floor(rect.width * dpr));
+    const height = Math.max(canvas.height, Math.floor(rect.height * dpr));
+    if (width === canvas.width && height === canvas.height) return;
+    if (canvas.width <= 0 || canvas.height <= 0) return;
+
+    const drawing = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = `${width / dpr}px`;
+    canvas.style.height = `${height / dpr}px`;
+    // Setting the size resets the context: paint the paper, put the drawing
+    // back at the top left, and set the brush again.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = CANVAS_BG_COLOR;
+    ctx.fillRect(0, 0, width, height);
+    ctx.putImageData(drawing, 0, 0);
+    ctx.scale(dpr, dpr);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    setHistory([ctx.getImageData(0, 0, width, height)]);
+    setHistoryIndex(0);
+  }, []);
+
   // Initialize on mount, and retry if the container starts at zero size
-  // (short viewport / delayed layout) until it has real dimensions.
+  // (short viewport / delayed layout) until it has real dimensions. Once
+  // drawn on, a bigger frame grows the canvas.
   useEffect(() => {
     initCanvas();
 
@@ -103,13 +143,12 @@ export function useCanvas({
     if (!container || typeof ResizeObserver === "undefined") return;
 
     const observer = new ResizeObserver(() => {
-      if (!isInitializedRef.current) {
-        initCanvas();
-      }
+      if (!isInitializedRef.current) initCanvas();
+      else growCanvas();
     });
     observer.observe(container);
     return () => observer.disconnect();
-  }, [initCanvas]);
+  }, [initCanvas, growCanvas]);
 
   // Save current state to history
   const saveToHistory = useCallback(() => {

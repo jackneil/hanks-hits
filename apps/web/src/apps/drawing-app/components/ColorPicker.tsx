@@ -8,19 +8,22 @@ import { BASIC_COLORS, EXTENDED_COLORS } from "../lib/constants";
  * ColorPicker Component - Color selection
  * Basic palette + full color picker
  */
-export function ColorPicker() {
+export function ColorPicker({ onPicked }: { onPicked?: () => void } = {}) {
   const { color, setColor } = useDrawingStore();
   const [showExtended, setShowExtended] = useState(false);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
 
   return (
-    <div className="p-2 bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg">
+    <div className="p-2 bg-white/90 rounded-2xl shadow-lg">
       <div className="flex items-center gap-2 flex-wrap">
         {/* Basic color palette */}
         {BASIC_COLORS.map((c) => (
           <button
             key={c.hex}
-            onClick={() => setColor(c.hex)}
+            onClick={() => {
+              setColor(c.hex);
+              onPicked?.();
+            }}
             className={`
               w-11 h-11 md:w-12 md:h-12 rounded-full transition-all touch-manipulation
               ${
@@ -72,7 +75,7 @@ export function ColorPicker() {
               />
               <button
                 onClick={() => setShowCustomPicker(false)}
-                className="w-full mt-2 py-1 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                className="w-full mt-2 min-h-11 text-base bg-blue-500 text-white rounded-lg hover:bg-blue-600"
               >
                 Done
               </button>
@@ -98,6 +101,7 @@ export function ColorPicker() {
                 onClick={() => {
                   setColor(hex);
                   setShowExtended(false);
+                  onPicked?.();
                 }}
                 className={`
                   w-11 h-11 md:w-12 md:h-12 rounded-full transition-all touch-manipulation

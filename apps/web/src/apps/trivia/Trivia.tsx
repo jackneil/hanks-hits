@@ -5,6 +5,7 @@ import { useTriviaStore, type TriviaProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useShellHold } from "@/shared/hooks/useShellHold";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ResultChip } from "@/shared/components/ResultChip";
 import {
   GameStartOverlay,
   GameStartOverlayButton,
@@ -199,6 +200,12 @@ export function Trivia() {
     }
   }, [timeLeft, gameState, showResult, questions.length]);
 
+  // Play again from the result: a new quiz at once, at the same age.
+  const playAgainNow = () => {
+    handlePlayAgain();
+    handleStartGame();
+  };
+
   // Reset game
   const handlePlayAgain = () => {
     reset();
@@ -215,7 +222,7 @@ export function Trivia() {
     <div className="relative min-h-full bg-gradient-to-b from-indigo-900 via-purple-900 to-pink-900 text-white">
       <IOSInstallPrompt />
 
-      <div className="container mx-auto px-4 py-8 max-w-2xl">
+      <div className="container mx-auto max-w-2xl px-4 py-3 short:max-w-none short:px-3 short:py-2">
         {/* Ready screen: the shared start overlay. It renders the title once
             and carries the read-aloud button; the age picker and this round's
             stats live in its children slot. */}
@@ -272,7 +279,7 @@ export function Trivia() {
                       : ""
                   }`}
                 >
-                  {DIFFICULTY_SETTINGS[diff].emoji} {diff}
+                  {DIFFICULTY_SETTINGS[diff].emoji} {DIFFICULTY_SETTINGS[diff].label}
                 </GameStartOverlayButton>
               ))}
             </div>
@@ -293,19 +300,27 @@ export function Trivia() {
           </GameStartOverlay>
         )}
 
-        {/* Playing Screen */}
+        {/* Playing Screen: one header line and a thin clock, then the
+            question and its answers. Sideways the question sits beside the
+            answers, so all four are on the screen when the clock starts
+            (the first answer was at y=392 of 311). */}
         {gameState === "playing" && currentQuestion && (
-          <div className="space-y-6">
-            {/* Header */}
-            <div className="flex justify-between items-center">
-              <div className="text-lg">
+          <div data-testid="trivia-playing" className="space-y-3 short:space-y-2">
+            <div className="flex items-center justify-between gap-2 text-base">
+              <div>
                 Question {questionIndex + 1}/{questions.length}
               </div>
-              <div className="text-lg font-bold">Score: {currentScore}</div>
+              <div
+                aria-label={`${timeLeft} seconds left`}
+                className={`rounded-full px-3 py-0.5 font-bold ${timeLeft <= 5 ? "bg-red-500" : "bg-white/15"}`}
+              >
+                ⏱ {timeLeft}s
+              </div>
+              <div className="font-bold">⭐ {currentScore}</div>
             </div>
 
             {/* Timer */}
-            <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-gray-700">
               <div
                 className={`h-full transition-all duration-1000 ${
                   timeLeft <= 5 ? "bg-red-500" : timeLeft <= 10 ? "bg-yellow-500" : "bg-green-500"
@@ -313,87 +328,79 @@ export function Trivia() {
                 style={{ width: `${(timeLeft / diffSettings.timerSec) * 100}%` }}
               />
             </div>
-            <div className="text-center text-2xl font-bold">
-              {timeLeft}s
-            </div>
 
-            {/* Streak */}
-            {currentStreak > 0 && (
-              <div className="text-center text-yellow-400 font-bold animate-pulse">
-                🔥 {currentStreak} streak! (+{currentStreak * POINTS.streakBonus} bonus)
+            <div className="space-y-3 short:grid short:grid-cols-2 short:items-start short:gap-3 short:space-y-0">
+              {/* Question */}
+              <div className="space-y-2 rounded-2xl bg-white/10 p-4 short:p-3">
+                <div className="text-sm text-purple-200">{currentQuestion.category}</div>
+                <div className={`font-bold ${diffSettings.fontSize} short:text-lg`}>{currentQuestion.question}</div>
+                {/* Streak */}
+                {currentStreak > 0 && (
+                  <div className="font-bold text-yellow-300">
+                    🔥 {currentStreak} streak! (+{currentStreak * POINTS.streakBonus} bonus)
+                  </div>
+                )}
               </div>
-            )}
 
-            {/* Question */}
-            <div className="bg-white/10 rounded-2xl p-6 space-y-4">
-              <div className="text-sm text-purple-300">{currentQuestion.category}</div>
-              <div className={`font-bold ${diffSettings.fontSize}`}>
-                {currentQuestion.question}
-              </div>
-            </div>
+              {/* Answers */}
+              <div data-testid="trivia-answers" className="grid grid-cols-1 gap-2">
+                {currentQuestion.answers.map((answer, i) => {
+                  const isCorrect = answer === currentQuestion.correctAnswer;
+                  const isSelected = answer === selectedAnswer;
+                  let buttonClass = "bg-white/20 hover:bg-white/30";
 
-            {/* Answers */}
-            <div className="grid grid-cols-1 gap-3">
-              {currentQuestion.answers.map((answer, i) => {
-                const isCorrect = answer === currentQuestion.correctAnswer;
-                const isSelected = answer === selectedAnswer;
-                let buttonClass = "bg-white/20 hover:bg-white/30";
-
-                if (showResult) {
-                  if (isCorrect) {
-                    buttonClass = "bg-green-500 ring-4 ring-green-300";
-                  } else if (isSelected && !isCorrect) {
-                    buttonClass = "bg-red-500 ring-4 ring-red-300";
-                  } else {
-                    buttonClass = "bg-white/10 opacity-50";
+                  if (showResult) {
+                    if (isCorrect) {
+                      buttonClass = "bg-green-500 ring-4 ring-green-300";
+                    } else if (isSelected && !isCorrect) {
+                      buttonClass = "bg-red-500 ring-4 ring-red-300";
+                    } else {
+                      buttonClass = "bg-white/10 opacity-50";
+                    }
                   }
-                }
 
-                return (
-                  <button
-                    key={i}
-                    onClick={() => handleAnswer(answer)}
-                    disabled={showResult}
-                    className={`w-full rounded-xl font-bold transition-all ${diffSettings.buttonSize} ${buttonClass}`}
-                  >
-                    {answer}
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => handleAnswer(answer)}
+                      disabled={showResult}
+                      className={`min-h-11 w-full rounded-xl px-3 font-bold transition-all ${diffSettings.buttonSize} short:py-2 short:text-base ${buttonClass}`}
+                    >
+                      {answer}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Finished Screen */}
+        {/* Finished Screen: the score here, and the shared result chip for
+            Read it to me, Play again (a new quiz at once) and the
+            leaderboard. */}
         {gameState === "finished" && (
-          <div className="text-center space-y-8">
-            <h1 className="text-5xl font-bold">🎉 Quiz Complete!</h1>
-
-            <div className="bg-white/10 rounded-2xl p-6 space-y-4">
-              <div className="text-4xl font-bold text-yellow-400">
-                {currentScore} points
-              </div>
+          <div data-testid="trivia-finished" className="space-y-3 text-center short:space-y-2">
+            <h1 className="text-4xl font-bold short:text-2xl">🎉 Quiz Complete!</h1>
+            <div className="space-y-2 rounded-2xl bg-white/10 p-4 short:p-3">
+              <div className="text-4xl font-bold text-yellow-300 short:text-3xl">{currentScore} points</div>
               {currentScore >= highScore && currentScore > 0 && (
-                <div className="text-green-400 font-bold animate-bounce">
-                  🏆 NEW HIGH SCORE!
-                </div>
+                <div className="font-bold text-green-300">🏆 NEW HIGH SCORE!</div>
               )}
               <div className="text-lg">
                 {questions.filter((_, i) => i < questionIndex + 1).length} questions answered
               </div>
-              <div className="text-purple-200">
-                Best streak this game: {bestStreakThisGame}
-              </div>
+              <div className="text-purple-100">Best streak this game: {bestStreakThisGame}</div>
             </div>
-
-            <div className="flex gap-4 justify-center">
-              <button
-                onClick={handlePlayAgain}
-                className="btn btn-primary btn-lg text-xl px-8 rounded-full"
-              >
-                🔄 Play Again
-              </button>
-            </div>
+            <ResultChip
+              resultText={quizResultText({
+                score: currentScore,
+                answered: questions.filter((_, i) => i < questionIndex + 1).length,
+                newBest: currentScore >= highScore && currentScore > 0,
+              })}
+              appId="trivia"
+              onRestart={playAgainNow}
+            />
           </div>
         )}
       </div>
@@ -402,3 +409,9 @@ export function Trivia() {
 }
 
 export default Trivia;
+
+/** The result, read out loud first by the result chip. */
+export function quizResultText({ score, answered, newBest }: { score: number; answered: number; newBest: boolean }): string {
+  const questions = answered === 1 ? "1 question" : `${answered} questions`;
+  return `Quiz complete! You got ${score} points in ${questions}.${newBest ? " That is a new high score!" : ""}`;
+}

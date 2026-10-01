@@ -21,7 +21,7 @@ export function BrushSettings() {
   const previewColor = tool === "eraser" ? "#E5E7EB" : color;
 
   return (
-    <div className="p-3 bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg">
+    <div className="p-3 bg-white/90 rounded-2xl shadow-lg">
       {/* Size label */}
       <div className="flex justify-between items-center mb-2">
         <span className="text-sm font-medium text-gray-600">Brush Size</span>
@@ -91,7 +91,7 @@ export function BrushSettings() {
             >
               {preset.icon}
             </span>
-            <span className="text-[10px] font-medium">{preset.name}</span>
+            <span className="text-sm font-medium">{preset.name}</span>
           </button>
         ))}
       </div>

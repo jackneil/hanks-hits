@@ -143,7 +143,6 @@ export function calculateMood(
 
   const stats = [hunger, happiness, energy, cleanliness];
   const min = Math.min(...stats);
-  const avg = stats.reduce((a, b) => a + b, 0) / stats.length;
   const belowThreshold = stats.filter(s => s < MOOD_THRESHOLDS.miserable).length;
 
   if (belowThreshold >= 2) return "miserable";
