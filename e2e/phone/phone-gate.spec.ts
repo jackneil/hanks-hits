@@ -142,13 +142,6 @@ const KNOWN_FAILURES: KnownFailure[] = [
   // PR-G5: Puzzle and word. Wordle's keyboard keys are 32 px wide upright
   // (sideways the row has room, and the keys are 44 px or wider).
   { route: "/games/wordle", check: "button-size", screens: UPRIGHT, fixedBy: "PR-G5" },
-  // PR-G8: Apps. The drum machine's Pads and Sequencer tabs are 40 px
-  // tall. The joke generator and the virtual pet have no start card and
-  // no break surface, so the First Play trophy shows as the 60 px strip at
-  // the bottom of the page for 4 s, over the app's bottom row.
-  { route: "/apps/drum-machine", check: "button-size", screens: EVERY_SCREEN, fixedBy: "PR-G8" },
-  { route: "/apps/joke-generator", check: "fixed-over-play", screens: EVERY_SCREEN, fixedBy: "PR-G8" },
-  { route: "/apps/virtual-pet", check: "fixed-over-play", screens: EVERY_SCREEN, fixedBy: "PR-G8" },
 ];
 
 /** `${route}|${check}|${screen}` of a known failure. */
