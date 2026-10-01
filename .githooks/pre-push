@@ -41,11 +41,12 @@ run() {
   fi
 }
 
-echo "[ci-gate] running local CI gate before push (lint, typecheck, test, build) ..." >&2
+echo "[ci-gate] running local CI gate before push (lint, typecheck, e2e typecheck, test, build) ..." >&2
 
 run "install (frozen lockfile)" pnpm install --frozen-lockfile
 run "lint"                      pnpm --filter web lint
 run "typecheck"                 pnpm --filter web typecheck
+run "e2e typecheck"             pnpm e2e:typecheck
 run "test"                      pnpm --filter web test
 run "build"                     pnpm --filter web build
 

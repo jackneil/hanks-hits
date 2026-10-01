@@ -2,14 +2,15 @@
 /**
  * Runs the clips E2E A/V harness (e2e/clips, plan 15.3): `pnpm clips:e2e`.
  *
- * The repo has no Playwright dependency. This runner uses the Playwright
+ * The root package.json pins Playwright, and `pnpm install` puts it in the
+ * repo. This runner uses that copy. With no install, it uses the Playwright
  * that `npx playwright` finds on this machine (the npx cache, or a global
- * install) and gives the specs its "playwright/test" through NODE_PATH.
+ * install). It gives the specs its "playwright/test" through NODE_PATH.
  * - Playwright here: it runs `playwright test -c e2e/clips/playwright.config.ts`
  *   with every argument you give (for example `-g "WebGL2"` or `--headed`).
  * - No Playwright: it prints a SKIPPED row and exits 0, so a clone without
- *   the tool never fails. Get the tool with `npx playwright --version`
- *   (it asks to install), then the browser with `npx playwright install`.
+ *   the tool never fails. Run `pnpm install`, then get the browser with
+ *   `pnpm exec playwright install`.
  *
  * Environment: see e2e/clips/playwright.config.ts and e2e/clips/lib/lab.ts
  * (CLIPS_E2E_PORT, CLIPS_E2E_BASE_URL, CLIPS_E2E_CHANNEL, CLIPS_E2E_HEADED,

@@ -12,15 +12,17 @@
  * (pnpm --filter web build, then pnpm --filter web start), or point it at
  * any other server. The base URL can also come from E2E_BASE_URL.
  *
- * The repo has no Playwright dependency. The runner uses the Playwright
- * that this machine has: a local install, a folder on NODE_PATH, or the
- * npx cache (`npx --no-install playwright`). It gives the specs their
- * "playwright/test" through NODE_PATH.
+ * The root package.json pins Playwright (a devDependency, so `pnpm e2e:typecheck`
+ * can check the specs), and `pnpm install` puts it in the repo. The runner
+ * uses that copy. With no install, it uses a folder on NODE_PATH or the npx
+ * cache (`npx --no-install playwright`). It gives the specs their
+ * "playwright/test" through NODE_PATH, so the specs and the runner use one
+ * copy.
  *
  * No Playwright on the machine: the runner prints NOT RUN and exits 1.
  * You asked for this check, so a check that did not run must not look
- * like a pass. Get the tool with `npx playwright --version` (it asks to
- * install), then the browser with `npx playwright install chromium`.
+ * like a pass. Run `pnpm install`, then get the browser with
+ * `pnpm exec playwright install chromium`.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
