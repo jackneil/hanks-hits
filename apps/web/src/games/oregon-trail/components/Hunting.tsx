@@ -1,56 +1,29 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useOregonTrailStore } from "../lib/store";
 import { useHuntPauseStore } from "../lib/huntPause";
 import { HUNTING_TIME, MAX_CARRY_WEIGHT } from "../lib/constants";
 import { usePointerTap, type TapEvent } from "@/shared/lib/input";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+import { MAIN_ACTION, Screen } from "./Screen";
 
 // Animal configurations
-const ANIMAL_CONFIG = {
-  squirrel: {
-    emoji: "🐿️",
-    name: "Squirrel",
-    speed: 6,
-    size: 32,
-    meat: 2,
-    spawnChance: 0.4,
-    points: 50,
-    yRange: [0.3, 0.5], // Spawns higher (in trees)
-  },
-  rabbit: {
-    emoji: "🐰",
-    name: "Rabbit",
-    speed: 5,
-    size: 40,
-    meat: 5,
-    spawnChance: 0.35,
-    points: 30,
-    yRange: [0.5, 0.7],
-  },
-  deer: {
-    emoji: "🦌",
-    name: "Deer",
-    speed: 3,
-    size: 56,
-    meat: 60,
-    spawnChance: 0.18,
-    points: 100,
-    yRange: [0.45, 0.65],
-  },
-  buffalo: {
-    emoji: "🦬",
-    name: "Buffalo",
-    speed: 1.5,
-    size: 72,
-    meat: 200,
-    spawnChance: 0.07,
-    points: 200,
-    yRange: [0.5, 0.7],
-  },
-};
+export const ANIMAL_CONFIG = {
+  squirrel: { emoji: "🐿️", name: "Squirrel", speed: 6, size: 32, meat: 2, spawnChance: 0.4, points: 50, yRange: [0.3, 0.5] },
+  rabbit: { emoji: "🐰", name: "Rabbit", speed: 5, size: 40, meat: 5, spawnChance: 0.35, points: 30, yRange: [0.5, 0.7] },
+  deer: { emoji: "🦌", name: "Deer", speed: 3, size: 56, meat: 60, spawnChance: 0.18, points: 100, yRange: [0.45, 0.65] },
+  buffalo: { emoji: "🦬", name: "Buffalo", speed: 1.5, size: 72, meat: 200, spawnChance: 0.07, points: 200, yRange: [0.5, 0.7] },
+} as const;
 
 type AnimalType = keyof typeof ANIMAL_CONFIG;
+
+/**
+ * A tap this close to an animal's centre hits it. Half its size, but never
+ * less than a fingertip (a squirrel is 32 px; a finger covers about 40).
+ */
+export const MIN_HIT_RADIUS = 26;
+export const hitRadius = (type: AnimalType) => Math.max(ANIMAL_CONFIG[type].size / 2, MIN_HIT_RADIUS);
 
 interface Animal {
   id: number;
@@ -62,37 +35,48 @@ interface Animal {
   frameOffset: number;
 }
 
-interface HitEffect {
+interface Effect {
   id: number;
   x: number;
   y: number;
-  text: string;
+  text?: string;
   life: number;
 }
 
-interface MissEffect {
-  id: number;
-  x: number;
-  y: number;
-  life: number;
-}
+/** How long the "tap an animal" tip stays when nobody taps. */
+const TIP_MS = 4000;
 
+/**
+ * The hunt: 30 seconds, animals run across the prairie, a tap shoots
+ * where the finger lands.
+ *
+ * Why this shape (phone UX audit 2026-09-29): the field was screen-tall
+ * under the header, so the time and score slid under it; the animal legend
+ * and a "Controls" box sat over the bottom of the field, across the band
+ * the animals run in when the phone is sideways; the canvas had a 1x
+ * backing store (blurry emoji on a 2x phone); and the drawing loop was
+ * torn down and rebuilt on every finger move. Now the counts and the
+ * legend are one strip at the top, the animals live in refs (React draws
+ * only the numbers), the canvas has the screen's pixels, and the loop runs
+ * once for the whole hunt.
+ */
 export function Hunting() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const animationRef = useRef<number>(0);
 
-  const { supplies, hunt } = useOregonTrailStore();
+  const ammunition = useOregonTrailStore((s) => s.supplies.ammunition);
+  const hunt = useOregonTrailStore((s) => s.hunt);
 
-  // Paused by the GameShell (ESC / pause button / pause-on-blur). While paused,
-  // the countdown, the animal spawner, and the animation loop all freeze so the
-  // hunt does not run behind the shell's pause menu.
+  // Paused by the GameShell (ESC / pause button / pause-on-blur), and held
+  // under a shell overlay (the orientation tip, the leaderboard) or in a
+  // hidden tab: the countdown, the spawner and the animals all stand still.
   const paused = useHuntPauseStore((s) => s.paused);
   const setPaused = useHuntPauseStore((s) => s.setPaused);
+  const held = useShellHold();
+  const frozen = paused || held;
 
   // A fresh hunt must never start paused, and leaving the hunt must not strand
-  // the flag as paused for the next one (the store is not persisted, so this is
-  // just belt-and-suspenders around the shell's onResume).
+  // the flag as paused for the next one.
   useEffect(() => {
     setPaused(false);
     return () => setPaused(false);
@@ -101,209 +85,168 @@ export function Hunting() {
   const [food, setFood] = useState(0);
   const [ammo, setAmmo] = useState(0);
   const [time, setTime] = useState(HUNTING_TIME);
-  const [animals, setAnimals] = useState<Animal[]>([]);
-  const [hitEffects, setHitEffects] = useState<HitEffect[]>([]);
-  const [missEffects, setMissEffects] = useState<MissEffect[]>([]);
   const [score, setScore] = useState(0);
-  const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
-  const [recoil, setRecoil] = useState(false);
+  const [tip, setTip] = useState(true);
+
+  const animals = useRef<Animal[]>([]);
+  const hits = useRef<Effect[]>([]);
+  const misses = useRef<Effect[]>([]);
+  const cursor = useRef<{ x: number; y: number } | null>(null);
+  const recoilUntil = useRef(0);
+  const size = useRef({ width: 0, height: 0 });
+  const frozenRef = useRef(frozen);
+  useEffect(() => {
+    frozenRef.current = frozen;
+  }, [frozen]);
+
+  const left = ammunition - ammo;
+  const finished = time <= 0 || left <= 0;
 
   // Timer countdown
   useEffect(() => {
-    if (time <= 0 || paused) return;
+    if (finished || frozen) return;
     const t = setInterval(() => setTime((p) => Math.max(0, p - 1)), 1000);
     return () => clearInterval(t);
-  }, [time, paused]);
+  }, [finished, frozen]);
+
+  // The tip goes after the first shot, or after a while.
+  useEffect(() => {
+    if (!tip || frozen) return;
+    const t = setTimeout(() => setTip(false), TIP_MS);
+    return () => clearTimeout(t);
+  }, [tip, frozen]);
 
   // Spawn animals
   useEffect(() => {
-    if (time <= 0 || paused) return;
-
+    if (finished || frozen) return;
     const spawn = setInterval(() => {
-      const types = Object.keys(ANIMAL_CONFIG) as AnimalType[];
-
-      for (const type of types) {
+      const { width, height } = size.current;
+      if (!width || !height) return;
+      for (const type of Object.keys(ANIMAL_CONFIG) as AnimalType[]) {
         const config = ANIMAL_CONFIG[type];
         if (Math.random() < config.spawnChance * 0.3) {
           const direction = Math.random() < 0.5 ? 1 : -1;
-          const canvas = canvasRef.current;
-          const width = canvas?.width || 800;
-          const height = canvas?.height || 400;
-
-          setAnimals((prev) => [
-            ...prev,
-            {
-              id: Date.now() + Math.random(),
-              type,
-              x: direction === 1 ? width + config.size : -config.size,
-              y: height * (config.yRange[0] + Math.random() * (config.yRange[1] - config.yRange[0])),
-              hit: false,
-              direction,
-              frameOffset: Math.random() * Math.PI * 2,
-            },
-          ]);
+          animals.current.push({
+            id: performance.now() + Math.random(),
+            type,
+            x: direction === 1 ? width + config.size : -config.size,
+            y: height * (config.yRange[0] + Math.random() * (config.yRange[1] - config.yRange[0])),
+            hit: false,
+            direction,
+            frameOffset: Math.random() * Math.PI * 2,
+          });
         }
       }
     }, 800);
-
     return () => clearInterval(spawn);
-  }, [time, paused]);
+  }, [finished, frozen]);
 
-  // The crosshair follows the pointer: one handler for a mouse and a finger.
-  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+  // A mouse moves the crosshair; a finger's tap places it.
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== "mouse") return;
     const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
-      setCursorPos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
-    }
-  }, []);
+    if (rect) cursor.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
 
-  // Shooting logic. One tap = one shot: the field used to carry onClick AND
-  // onTouchStart, so a finger tap fired on touchstart and again on the
-  // compatibility click and spent two bullets.
-  const shoot = useCallback((e: TapEvent<HTMLDivElement>) => {
-    if (time <= 0) return;
-    if (supplies.ammunition - ammo <= 0) return;
-
-    // Get tap position
+  // One tap = one shot (the field used to carry onClick AND onTouchStart,
+  // so a finger tap fired twice and spent two bullets).
+  const shoot = (e: TapEvent<HTMLDivElement>) => {
+    if (finished || frozen) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
-
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-    // A tap also places the crosshair (it used to sit at 0,0 until a drag).
-    setCursorPos({ x: clickX, y: clickY });
-
-    // Trigger recoil animation
-    setRecoil(true);
-    setTimeout(() => setRecoil(false), 100);
-
-    // Use ammo
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    cursor.current = { x, y };
+    recoilUntil.current = performance.now() + 100;
+    setTip(false);
     setAmmo((p) => p + 1);
 
-    // Check if we hit any animal
-    let hitSomething = false;
-
-    setAnimals((prev) =>
-      prev.map((animal) => {
-        if (animal.hit) return animal;
-
-        const config = ANIMAL_CONFIG[animal.type];
-        const hitRadius = config.size / 2;
-
-        // Check if click is within animal hitbox
-        const dx = clickX - animal.x;
-        const dy = clickY - animal.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < hitRadius && food < MAX_CARRY_WEIGHT) {
-          hitSomething = true;
-
-          // Add food
-          const meatGained = Math.min(config.meat, MAX_CARRY_WEIGHT - food);
-          setFood((f) => Math.min(MAX_CARRY_WEIGHT, f + meatGained));
-          setScore((s) => s + config.points);
-
-          // Add hit effect
-          setHitEffects((effects) => [
-            ...effects,
-            {
-              id: Date.now(),
-              x: animal.x,
-              y: animal.y,
-              text: `+${meatGained} lbs!`,
-              life: 60,
-            },
-          ]);
-
-          return { ...animal, hit: true };
-        }
-
-        return animal;
-      })
-    );
-
-    // Add miss effect if we didn't hit anything
-    if (!hitSomething) {
-      setMissEffects((effects) => [
-        ...effects,
-        { id: Date.now(), x: clickX, y: clickY, life: 30 },
-      ]);
+    // The nearest live animal within reach is hit.
+    let target: Animal | null = null;
+    let best = Infinity;
+    for (const animal of animals.current) {
+      if (animal.hit) continue;
+      const d = Math.hypot(x - animal.x, y - animal.y);
+      if (d < hitRadius(animal.type) && d < best) {
+        target = animal;
+        best = d;
+      }
     }
-  }, [time, supplies.ammunition, ammo, food]);
-
-  // One shot per tap for a finger, a mouse, or Enter on the focused field.
+    if (target && food < MAX_CARRY_WEIGHT) {
+      const config = ANIMAL_CONFIG[target.type];
+      const meat = Math.min(config.meat, MAX_CARRY_WEIGHT - food);
+      const shot = target;
+      animals.current = animals.current.map((a) => (a === shot ? { ...a, hit: true } : a));
+      setFood((f) => Math.min(MAX_CARRY_WEIGHT, f + meat));
+      setScore((s) => s + config.points);
+      hits.current.push({ id: performance.now(), x: target.x, y: target.y, text: `+${meat} lbs!`, life: 60 });
+    } else {
+      misses.current.push({ id: performance.now(), x, y, life: 30 });
+    }
+  };
   const shootTap = usePointerTap<HTMLDivElement>(shoot);
 
-  // Animation loop
+  // The drawing loop: once for the whole hunt. It reads the refs, so a
+  // finger move or a shot never rebuilds it; a pause or a hold keeps the
+  // last frame on screen.
   useEffect(() => {
-    // While the shell has the hunt paused, don't schedule frames — the canvas
-    // keeps its last drawn frame, so the scene freezes in place under the menu.
-    if (paused) return;
-
+    if (finished) return;
     const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
 
     const resize = () => {
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
+      const dpr = window.devicePixelRatio || 1;
+      const width = canvas.offsetWidth;
+      const height = canvas.offsetHeight;
+      size.current = { width, height };
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
     window.addEventListener("resize", resize);
 
-    let lastTime = 0;
-
+    let frame = 0;
+    let last = performance.now();
     const animate = (timestamp: number) => {
-      const delta = (timestamp - lastTime) / 16; // Normalize to 60fps
-      lastTime = timestamp;
+      const delta = Math.min(3, (timestamp - last) / 16);
+      last = timestamp;
+      frame = requestAnimationFrame(animate);
+      if (frozenRef.current) return;
+      const { width, height } = size.current;
 
-      const width = canvas.width;
-      const height = canvas.height;
-
-      // Clear
       ctx.clearRect(0, 0, width, height);
-
-      // Draw sky gradient
-      const skyGradient = ctx.createLinearGradient(0, 0, 0, height * 0.5);
-      skyGradient.addColorStop(0, "#87CEEB");
-      skyGradient.addColorStop(1, "#B8E8F8");
-      ctx.fillStyle = skyGradient;
+      const sky = ctx.createLinearGradient(0, 0, 0, height * 0.5);
+      sky.addColorStop(0, "#87CEEB");
+      sky.addColorStop(1, "#B8E8F8");
+      ctx.fillStyle = sky;
       ctx.fillRect(0, 0, width, height * 0.5);
 
-      // Draw distant hills
       ctx.fillStyle = "#6b8e6b";
       ctx.beginPath();
       ctx.moveTo(0, height * 0.4);
       for (let x = 0; x <= width; x += 50) {
-        const y = height * 0.4 + Math.sin(x * 0.02) * 20 + Math.sin(x * 0.01) * 30;
-        ctx.lineTo(x, y);
+        ctx.lineTo(x, height * 0.4 + Math.sin(x * 0.02) * 20 + Math.sin(x * 0.01) * 30);
       }
       ctx.lineTo(width, height);
       ctx.lineTo(0, height);
       ctx.closePath();
       ctx.fill();
 
-      // Draw prairie
-      const prairieGradient = ctx.createLinearGradient(0, height * 0.45, 0, height);
-      prairieGradient.addColorStop(0, "#9ACD32");
-      prairieGradient.addColorStop(0.5, "#8FBC8F");
-      prairieGradient.addColorStop(1, "#6B8E23");
-      ctx.fillStyle = prairieGradient;
+      const prairie = ctx.createLinearGradient(0, height * 0.45, 0, height);
+      prairie.addColorStop(0, "#9ACD32");
+      prairie.addColorStop(0.5, "#8FBC8F");
+      prairie.addColorStop(1, "#6B8E23");
+      ctx.fillStyle = prairie;
       ctx.fillRect(0, height * 0.45, width, height * 0.55);
 
-      // Draw grass tufts
       ctx.strokeStyle = "#556B2F";
       ctx.lineWidth = 2;
       for (let i = 0; i < 80; i++) {
         const gx = (i * 17 + timestamp * 0.01) % width;
         const gy = height * 0.5 + (i % 5) * (height * 0.1);
         const sway = Math.sin(timestamp * 0.002 + i) * 3;
-
         ctx.beginPath();
         ctx.moveTo(gx, gy);
         ctx.lineTo(gx - 3 + sway, gy - 12);
@@ -314,302 +257,192 @@ export function Hunting() {
         ctx.stroke();
       }
 
-      // Update and draw animals
-      setAnimals((prev) => {
-        const updated = prev
-          .map((animal) => {
-            const config = ANIMAL_CONFIG[animal.type];
+      // Move the animals, then draw them.
+      animals.current = animals.current.filter((animal) => {
+        const config = ANIMAL_CONFIG[animal.type];
+        animal.x -= config.speed * delta * animal.direction;
+        if (animal.hit) animal.y += 5 * delta;
+        if (animal.direction === 1 && animal.x < -config.size) return false;
+        if (animal.direction === -1 && animal.x > width + config.size) return false;
+        return animal.y <= height + config.size;
+      });
+      for (const animal of animals.current) {
+        const config = ANIMAL_CONFIG[animal.type];
+        ctx.save();
+        ctx.translate(animal.x, animal.y);
+        if (animal.direction === -1) ctx.scale(-1, 1);
+        const bob = Math.sin(timestamp * 0.01 + animal.frameOffset) * 3;
+        ctx.fillStyle = "rgba(0,0,0,0.2)";
+        ctx.beginPath();
+        ctx.ellipse(0, config.size / 2, config.size / 3, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.font = `${config.size}px serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        // An opaque fill: the browser draws a colour emoji with the alpha of
+        // the fill style, and the shadow left it at 20% (every animal was
+        // drawn faded, as if already hit).
+        ctx.fillStyle = "#000";
+        if (animal.hit) {
+          ctx.globalAlpha = 0.5;
+          ctx.rotate(0.3);
+        }
+        ctx.fillText(config.emoji, 0, bob);
+        ctx.restore();
+      }
 
-            // Move animal
-            const newX = animal.x - config.speed * delta * animal.direction;
+      hits.current = hits.current.filter((e) => (e.life -= delta) > 0);
+      for (const e of hits.current) {
+        ctx.save();
+        ctx.globalAlpha = e.life / 60;
+        ctx.fillStyle = "#FFD700";
+        ctx.font = "bold 24px sans-serif";
+        ctx.textAlign = "center";
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 3;
+        const rise = (60 - e.life) * 0.5;
+        ctx.strokeText(e.text ?? "", e.x, e.y - rise);
+        ctx.fillText(e.text ?? "", e.x, e.y - rise);
+        ctx.restore();
+      }
 
-            // Remove if off screen
-            if (animal.direction === 1 && newX < -config.size) return null;
-            if (animal.direction === -1 && newX > width + config.size) return null;
-
-            // Fall down if hit
-            let newY = animal.y;
-            if (animal.hit) {
-              newY += 5 * delta;
-              if (newY > height + config.size) return null;
-            }
-
-            return { ...animal, x: newX, y: newY };
-          })
-          .filter(Boolean) as Animal[];
-
-        // Draw animals (in animation frame)
-        updated.forEach((animal) => {
-          const config = ANIMAL_CONFIG[animal.type];
-
-          ctx.save();
-          ctx.translate(animal.x, animal.y);
-
-          // Flip based on direction
-          if (animal.direction === -1) {
-            ctx.scale(-1, 1);
-          }
-
-          // Bobbing animation
-          const bob = Math.sin(timestamp * 0.01 + animal.frameOffset) * 3;
-
-          // Draw shadow
-          ctx.fillStyle = "rgba(0,0,0,0.2)";
+      misses.current = misses.current.filter((e) => (e.life -= delta) > 0);
+      for (const e of misses.current) {
+        ctx.save();
+        ctx.globalAlpha = e.life / 30;
+        ctx.fillStyle = "#654321";
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#8B7355";
+        for (let i = 0; i < 5; i++) {
+          const angle = (i / 5) * Math.PI * 2;
+          const dist = 8 + (30 - e.life) * 0.5;
           ctx.beginPath();
-          ctx.ellipse(0, config.size / 2, config.size / 3, 5, 0, 0, Math.PI * 2);
+          ctx.arc(e.x + Math.cos(angle) * dist, e.y + Math.sin(angle) * dist, 2, 0, Math.PI * 2);
           ctx.fill();
+        }
+        ctx.restore();
+      }
 
-          // Draw animal (emoji)
-          ctx.font = `${config.size}px serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-
-          if (animal.hit) {
-            // Fade out and rotate when hit
-            ctx.globalAlpha = 0.5;
-            ctx.rotate(0.3);
-          }
-
-          ctx.fillText(config.emoji, 0, bob);
-
-          ctx.restore();
-        });
-
-        return updated;
-      });
-
-      // Draw hit effects
-      setHitEffects((effects) => {
-        const updated = effects
-          .map((e) => ({ ...e, life: e.life - 1 }))
-          .filter((e) => e.life > 0);
-
-        updated.forEach((effect) => {
-          const alpha = effect.life / 60;
-          const rise = (60 - effect.life) * 0.5;
-
-          ctx.save();
-          ctx.globalAlpha = alpha;
-          ctx.fillStyle = "#FFD700";
-          ctx.font = "bold 24px sans-serif";
-          ctx.textAlign = "center";
-          ctx.strokeStyle = "black";
-          ctx.lineWidth = 3;
-          ctx.strokeText(effect.text, effect.x, effect.y - rise);
-          ctx.fillText(effect.text, effect.x, effect.y - rise);
-          ctx.restore();
-        });
-
-        return updated;
-      });
-
-      // Draw miss effects (bullet holes)
-      setMissEffects((effects) => {
-        const updated = effects
-          .map((e) => ({ ...e, life: e.life - 1 }))
-          .filter((e) => e.life > 0);
-
-        updated.forEach((effect) => {
-          const alpha = effect.life / 30;
-          ctx.save();
-          ctx.globalAlpha = alpha;
-          ctx.fillStyle = "#654321";
-          ctx.beginPath();
-          ctx.arc(effect.x, effect.y, 5, 0, Math.PI * 2);
-          ctx.fill();
-          // Dirt spray
-          ctx.fillStyle = "#8B7355";
-          for (let i = 0; i < 5; i++) {
-            const angle = (i / 5) * Math.PI * 2;
-            const dist = 8 + (30 - effect.life) * 0.5;
-            ctx.beginPath();
-            ctx.arc(
-              effect.x + Math.cos(angle) * dist,
-              effect.y + Math.sin(angle) * dist,
-              2,
-              0,
-              Math.PI * 2
-            );
-            ctx.fill();
-          }
-          ctx.restore();
-        });
-
-        return updated;
-      });
-
-      // Draw crosshair
-      ctx.save();
-      ctx.strokeStyle = recoil ? "#ff0000" : "#ff4444";
-      ctx.lineWidth = 2;
-      const crosshairSize = 20;
-
-      ctx.beginPath();
-      ctx.arc(cursorPos.x, cursorPos.y, crosshairSize, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(cursorPos.x - crosshairSize - 5, cursorPos.y);
-      ctx.lineTo(cursorPos.x - 5, cursorPos.y);
-      ctx.moveTo(cursorPos.x + 5, cursorPos.y);
-      ctx.lineTo(cursorPos.x + crosshairSize + 5, cursorPos.y);
-      ctx.moveTo(cursorPos.x, cursorPos.y - crosshairSize - 5);
-      ctx.lineTo(cursorPos.x, cursorPos.y - 5);
-      ctx.moveTo(cursorPos.x, cursorPos.y + 5);
-      ctx.lineTo(cursorPos.x, cursorPos.y + crosshairSize + 5);
-      ctx.stroke();
-
-      // Center dot
-      ctx.fillStyle = recoil ? "#ff0000" : "#ff4444";
-      ctx.beginPath();
-      ctx.arc(cursorPos.x, cursorPos.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.restore();
-
-      animationRef.current = requestAnimationFrame(animate);
+      // The crosshair, where the last shot (or the mouse) is.
+      const c = cursor.current;
+      if (c) {
+        const red = timestamp < recoilUntil.current ? "#ff0000" : "#ff4444";
+        const r = 20;
+        ctx.save();
+        ctx.strokeStyle = red;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(c.x - r - 5, c.y);
+        ctx.lineTo(c.x - 5, c.y);
+        ctx.moveTo(c.x + 5, c.y);
+        ctx.lineTo(c.x + r + 5, c.y);
+        ctx.moveTo(c.x, c.y - r - 5);
+        ctx.lineTo(c.x, c.y - 5);
+        ctx.moveTo(c.x, c.y + 5);
+        ctx.lineTo(c.x, c.y + r + 5);
+        ctx.stroke();
+        ctx.fillStyle = red;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     };
-
-    animationRef.current = requestAnimationFrame(animate);
-
+    frame = requestAnimationFrame(animate);
     return () => {
-      cancelAnimationFrame(animationRef.current);
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", resize);
     };
-  }, [cursorPos, recoil, paused]);
+  }, [finished]);
 
-  // Game over screen
-  if (time <= 0) {
+  // The hunt is over: the time ran out, or the bullets did.
+  if (finished) {
+    const outOfBullets = left <= 0 && time > 0;
     return (
-      <div className="min-h-full flex items-center justify-center bg-gradient-to-b from-green-800 to-green-900">
-        <div className="bg-green-700/90 backdrop-blur p-8 rounded-2xl text-white text-center max-w-md shadow-2xl">
-          <h2 className="text-4xl font-bold mb-4 text-amber-200">
-            🎯 Hunt Complete!
-          </h2>
-
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-green-600/50 rounded-lg p-4">
-              <div className="text-3xl mb-1">🍖</div>
-              <div className="text-2xl font-bold">{food}</div>
-              <div className="text-sm text-green-300">lbs of meat</div>
-            </div>
-            <div className="bg-green-600/50 rounded-lg p-4">
-              <div className="text-3xl mb-1">🎯</div>
-              <div className="text-2xl font-bold">{ammo}</div>
-              <div className="text-sm text-green-300">bullets used</div>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <div className="text-lg text-green-300">Score</div>
-            <div className="text-4xl font-bold text-amber-400">{score}</div>
-          </div>
-
-          {food >= MAX_CARRY_WEIGHT && (
-            <div className="mb-4 text-amber-300 bg-amber-900/30 rounded-lg p-2">
-              🎒 Carrying capacity reached! ({MAX_CARRY_WEIGHT} lbs max)
-            </div>
-          )}
-
-          <button
-            onClick={() => hunt(food, ammo)}
-            className="btn btn-primary btn-lg text-xl w-full"
-          >
-            Take Food Back to Wagon
+      <Screen
+        testId="oregon-hunt-done"
+        tone="green"
+        title={outOfBullets ? "🎯 Out of bullets!" : "🎯 Hunt complete!"}
+        speak={`${outOfBullets ? "Out of bullets!" : "The hunt is over!"} You got ${food} pounds of meat with ${ammo} bullets. Your score is ${score}.${
+          food >= MAX_CARRY_WEIGHT ? ` You can only carry ${MAX_CARRY_WEIGHT} pounds.` : ""
+        }`}
+        actions={
+          <button type="button" onClick={() => hunt(food, ammo)} className={MAIN_ACTION}>
+            🐂 Take the food to the wagon
           </button>
+        }
+      >
+        <div className="mx-auto grid max-w-md grid-cols-3 gap-2 text-center">
+          <div className="rounded-lg bg-black/25 px-2 py-2">
+            <div className="text-2xl font-bold">{food}</div>
+            <div className="text-sm">🍖 lbs of meat</div>
+          </div>
+          <div className="rounded-lg bg-black/25 px-2 py-2">
+            <div className="text-2xl font-bold">{ammo}</div>
+            <div className="text-sm">🎯 bullets used</div>
+          </div>
+          <div className="rounded-lg bg-black/25 px-2 py-2">
+            <div className="text-2xl font-bold text-amber-300">{score}</div>
+            <div className="text-sm">⭐ score</div>
+          </div>
         </div>
-      </div>
+        {food >= MAX_CARRY_WEIGHT && (
+          <p className="mt-2 text-center text-base text-amber-200">🎒 That is all you can carry ({MAX_CARRY_WEIGHT} lbs)</p>
+        )}
+      </Screen>
     );
   }
 
+  const pill = "rounded-full bg-black/55 px-2.5 py-1 text-base font-bold text-white";
   return (
     <div
       ref={containerRef}
       data-testid="hunt-field"
-      className="min-h-full bg-green-900 relative select-none overflow-hidden touch-none"
-      style={{ cursor: "none" }}
+      className="relative h-full select-none overflow-hidden bg-green-900 touch-none"
       onPointerMove={handlePointerMove}
       {...shootTap}
     >
-      {/* Game canvas */}
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-      {/* HUD */}
-      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start pointer-events-none">
-        {/* Timer */}
-        <div className="bg-black/50 backdrop-blur rounded-lg px-4 py-2 text-white">
-          <div className="text-sm text-gray-300">Time</div>
-          <div className={`text-3xl font-bold ${time <= 10 ? "text-red-400 animate-pulse" : "text-white"}`}>
-            {time}s
-          </div>
+      {/* The counts, then the animals and their meat, in one strip at the top. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col items-center gap-1 p-2">
+        <div className="flex w-full items-center justify-between gap-1">
+          <span className={`${pill} ${time <= 10 ? "text-red-300" : ""}`} aria-label={`${time} seconds left`}>
+            ⏱ {time}s
+          </span>
+          <span className={pill} aria-label={`Score ${score}`}>
+            ⭐ {score}
+          </span>
+          <span className={`${pill} ${left <= 10 ? "text-red-300" : ""}`}>
+            🎯 <span data-testid="hunt-ammo">{left}</span>
+          </span>
+          <span className={pill} aria-label={`${food} of ${MAX_CARRY_WEIGHT} pounds of meat`}>
+            🍖 {food}/{MAX_CARRY_WEIGHT}
+          </span>
         </div>
-
-        {/* Center info */}
-        <div className="bg-black/50 backdrop-blur rounded-lg px-4 py-2 text-white text-center">
-          <div className="text-sm text-gray-300">Score</div>
-          <div className="text-2xl font-bold text-amber-400">{score}</div>
-        </div>
-
-        {/* Ammo & Food */}
-        <div className="bg-black/50 backdrop-blur rounded-lg px-4 py-2 text-white text-right">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg">🎯</span>
-            <span
-              data-testid="hunt-ammo"
-              className={`font-bold ${supplies.ammunition - ammo <= 10 ? "text-red-400" : ""}`}
-            >
-              {supplies.ammunition - ammo}
+        <div data-testid="hunt-legend" className="flex flex-wrap justify-center gap-x-2 rounded-full bg-black/45 px-3 py-0.5 text-sm text-white">
+          {Object.values(ANIMAL_CONFIG).map((a) => (
+            <span key={a.name} className="whitespace-nowrap">
+              {a.emoji} +{a.meat}
             </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🍖</span>
-            <span className="font-bold">{food}/{MAX_CARRY_WEIGHT}</span>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Animal legend */}
-      <div className="absolute bottom-4 left-4 bg-black/50 backdrop-blur rounded-lg p-3 text-white text-sm pointer-events-none">
-        <div className="text-xs text-gray-400 mb-2">Animals</div>
-        {Object.entries(ANIMAL_CONFIG).map(([type, config]) => (
-          <div key={type} className="flex items-center gap-2 mb-1">
-            <span>{config.emoji}</span>
-            <span>{config.name}</span>
-            <span className="text-green-400">+{config.meat} lbs</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Instructions */}
-      <div className="absolute bottom-4 right-4 bg-black/50 backdrop-blur rounded-lg p-3 text-white text-sm pointer-events-none">
-        <div className="text-xs text-gray-400 mb-1">Controls</div>
-        <div>Click/Tap to shoot!</div>
-        <div className="text-xs text-gray-400 mt-1">
-          Bigger animals = more food
-        </div>
-      </div>
-
-      {/* Low ammo warning */}
-      {supplies.ammunition - ammo <= 5 && supplies.ammunition - ammo > 0 && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-          <div className="bg-red-900/80 text-red-200 px-4 py-2 rounded-lg animate-pulse">
-            ⚠️ Low Ammo: {supplies.ammunition - ammo} left
-          </div>
+      {tip && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center">
+          <p className="rounded-xl bg-black/60 px-4 py-2 text-lg font-bold text-white">👆 Tap an animal to hunt it!</p>
         </div>
       )}
 
-      {/* Out of ammo */}
-      {supplies.ammunition - ammo <= 0 && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
-          <div className="bg-red-900/90 text-white p-6 rounded-lg text-center">
-            <div className="text-2xl mb-4">❌ Out of Ammo!</div>
-            <button
-              onClick={() => hunt(food, ammo)}
-              className="btn btn-primary"
-            >
-              End Hunt Early
-            </button>
-          </div>
+      {left > 0 && left <= 5 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+          <p className="rounded-lg bg-red-900/85 px-4 py-1.5 text-base font-bold text-red-100">⚠️ {left} bullets left</p>
         </div>
       )}
     </div>

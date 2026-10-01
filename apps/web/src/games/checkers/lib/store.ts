@@ -10,7 +10,6 @@ import {
   type GameVariant,
   type GameMode,
   type RuleSet,
-  BOARD_SIZE,
   RULE_SETS,
   createInitialBoard,
   getOpponent,
@@ -21,9 +20,7 @@ import {
   getValidMovesForPiece,
   executeMove,
   checkGameStatus,
-  countPieces,
   getSelectablePieces,
-  getAllValidMoves,
 } from "./gameLogic";
 import { getAIMove } from "./ai";
 
@@ -62,7 +59,8 @@ export type GameState = {
   lastMove: Move | null;
   status: GameStatus;
   difficulty: Difficulty;
-  isAIThinking: boolean;
+  /** The shell's pause menu is open: the computer waits. */
+  paused: boolean;
   piecesCapturedThisGame: number;
   kingsEarnedThisGame: number;
   longestChainThisGame: number;
@@ -79,9 +77,16 @@ type GameActions = {
   setDifficulty: (difficulty: Difficulty) => void;
   setVariant: (variant: GameVariant) => void;
   setGameMode: (mode: GameMode) => void;
-  triggerAIMove: () => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
+  /** True while the computer is to move. */
+  isComputerTurn: () => boolean;
+  /**
+   * The computer's move, now. The game calls it after a short wait, from a
+   * timer that belongs to that turn: a new game or a pause cancels it.
+   */
+  aiMove: () => void;
   recordWin: (winner: Player) => void;
-  recordLoss: () => void;
   getProgress: () => CheckersProgress;
   setProgress: (data: CheckersProgress) => void;
 };
@@ -120,7 +125,7 @@ export const useCheckersStore = create<GameState & GameActions>()(
       lastMove: null,
       status: "playing",
       difficulty: "easy",
-      isAIThinking: false,
+      paused: false,
       piecesCapturedThisGame: 0,
       kingsEarnedThisGame: 0,
       longestChainThisGame: 0,
@@ -128,9 +133,14 @@ export const useCheckersStore = create<GameState & GameActions>()(
       rules: getDefaultRuleSet(),
       gameMode: "vs-ai",
 
+      isComputerTurn: () => {
+        const state = get();
+        return state.gameMode === "vs-ai" && state.currentPlayer === "black" && state.status === "playing";
+      },
+
       selectPiece: (pos) => {
         const state = get();
-        if (state.status !== "playing" || state.isAIThinking) return;
+        if (state.status !== "playing" || state.paused) return;
 
         // In AI mode, only human player (red) can select
         // In 2-player mode, current player can select their pieces
@@ -150,7 +160,7 @@ export const useCheckersStore = create<GameState & GameActions>()(
 
       makeMove: (to) => {
         const state = get();
-        if (!state.selectedPiece || state.status !== "playing") return;
+        if (!state.selectedPiece || state.status !== "playing" || state.paused || get().isComputerTurn()) return;
         const move = state.validMoves.find((m) => positionsEqual(m.to, to));
         if (!move) return;
 
@@ -181,52 +191,28 @@ export const useCheckersStore = create<GameState & GameActions>()(
           longestChainThisGame: newLongestChain,
         });
 
-        // Handle game over
+        // Handle game over (the computer's turn is the game's own timer)
         if (newStatus !== "playing") {
           const winner = newStatus === "red-wins" ? "red" : "black";
           get().recordWin(winner);
-        } else if (state.gameMode === "vs-ai" && nextPlayer === "black") {
-          // AI's turn
-          setTimeout(() => get().triggerAIMove(), 500);
         }
-        // In 2-player mode, just wait for next human input
       },
 
-      triggerAIMove: () => {
+      aiMove: () => {
+        if (!get().isComputerTurn() || get().paused) return;
         const state = get();
-        if (state.status !== "playing" || state.currentPlayer !== "black" || state.gameMode !== "vs-ai") return;
-        set({ isAIThinking: true });
-
-        setTimeout(() => {
-          const currentState = get();
-          const aiMove = getAIMove(currentState.board, "black", currentState.difficulty, currentState.rules);
-          if (!aiMove) {
-            // No moves = game over
-            const newStatus = checkGameStatus(currentState.board, "black", currentState.rules);
-            set({ status: newStatus, isAIThinking: false });
-            if (newStatus !== "playing") {
-              const winner = newStatus === "red-wins" ? "red" : "black";
-              get().recordWin(winner);
-            }
-            return;
-          }
-
-          const newBoard = executeMove(currentState.board, aiMove);
-          const newStatus = checkGameStatus(newBoard, "red", currentState.rules);
-
-          set({
-            board: newBoard,
-            currentPlayer: "red",
-            lastMove: aiMove,
-            status: newStatus,
-            isAIThinking: false,
-          });
-
-          if (newStatus !== "playing") {
-            const winner = newStatus === "red-wins" ? "red" : "black";
-            get().recordWin(winner);
-          }
-        }, 300);
+        const move = getAIMove(state.board, "black", state.difficulty, state.rules);
+        if (!move) {
+          // No moves: the game is over.
+          const status = checkGameStatus(state.board, "black", state.rules);
+          set({ status });
+          if (status === "red-wins" || status === "black-wins") get().recordWin(status === "red-wins" ? "red" : "black");
+          return;
+        }
+        const board = executeMove(state.board, move);
+        const status = checkGameStatus(board, "red", state.rules);
+        set({ board, currentPlayer: "red", lastMove: move, status, selectedPiece: null, validMoves: [] });
+        if (status === "red-wins" || status === "black-wins") get().recordWin(status === "red-wins" ? "red" : "black");
       },
 
       newGame: (options) => {
@@ -243,7 +229,7 @@ export const useCheckersStore = create<GameState & GameActions>()(
           lastMove: null,
           status: "playing",
           difficulty: newDifficulty,
-          isAIThinking: false,
+          paused: false,
           piecesCapturedThisGame: 0,
           kingsEarnedThisGame: 0,
           longestChainThisGame: 0,
@@ -252,21 +238,23 @@ export const useCheckersStore = create<GameState & GameActions>()(
         });
       },
 
-      setDifficulty: (difficulty) => set({ difficulty }),
+      // The pickers are on the start card: a new choice is a new game, so
+      // the rules never change and the computer is never switched on in
+      // the middle of one.
+      setDifficulty: (difficulty) => get().newGame({ difficulty }),
 
       setVariant: (variant) => {
-        set((state) => ({
-          rules: RULE_SETS[variant],
-          progress: { ...state.progress, variant, lastModified: Date.now() },
-        }));
+        set((state) => ({ progress: { ...state.progress, variant, lastModified: Date.now() } }));
+        get().newGame({ variant });
       },
 
       setGameMode: (mode) => {
-        set((state) => ({
-          gameMode: mode,
-          progress: { ...state.progress, gameMode: mode, lastModified: Date.now() },
-        }));
+        set((state) => ({ progress: { ...state.progress, gameMode: mode, lastModified: Date.now() } }));
+        get().newGame({ mode });
       },
+
+      pauseGame: () => set({ paused: true }),
+      resumeGame: () => set({ paused: false }),
 
       recordWin: (winner: Player) => {
         const state = get();
@@ -324,10 +312,6 @@ export const useCheckersStore = create<GameState & GameActions>()(
         }
       },
 
-      recordLoss: () => {
-        // Kept for backward compatibility but now handled by recordWin
-      },
-
       getProgress: () => ({
         ...get().progress,
         difficulty: get().difficulty,
@@ -371,6 +355,20 @@ export const useCheckersStore = create<GameState & GameActions>()(
         progress: state.progress,
         difficulty: state.difficulty,
       }),
+      // The saved rules and mode live in progress: a reload starts the
+      // board with them (it started American vs the computer, whatever the
+      // kid had picked, until the next New Game).
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<Pick<GameState, "progress" | "difficulty">> | undefined;
+        const progress = { ...defaultProgress, ...current.progress, ...saved?.progress };
+        return {
+          ...current,
+          ...saved,
+          progress,
+          rules: RULE_SETS[progress.variant] ?? getDefaultRuleSet(),
+          gameMode: progress.gameMode === "vs-friend" ? "vs-friend" : "vs-ai",
+        };
+      },
     }
   )
 );

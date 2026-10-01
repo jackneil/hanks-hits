@@ -17,28 +17,28 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 
 import { QuoridorGame } from "../Game";
 import { useQuoridorStore } from "../lib/store";
+import { crossingOf, quoridorLayout } from "../lib/layout";
 import { fingerTap, liftAllFingers } from "@/__tests__/finger-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
-// Regression (2026 phone audit, quoridor): each groove hitbox carried
-// onClick AND onTouchStart/onTouchEnd (a preview that was set on touchstart
-// and cleared on touchend, before anyone could see it) plus
-// onMouseEnter/Leave. Now one input path places the wall, and the hover
-// preview is a mouse-only pointer affordance.
+// Regression (2026 phone audit, quoridor): the grooves carried onClick AND
+// onTouchStart/onTouchEnd (a preview set on touchstart and cleared on
+// touchend, before anyone could see it), and a finger that missed a 19 px
+// groove placed a wall at once, a row away. Now a mouse previews on hover
+// and places with one click, and a finger only ever moves the preview:
+// the Place button places it (phone.test.tsx has the drag).
 
 beforeEach(() => {
   localStorage.clear();
-  act(() => {
-    useQuoridorStore.getState().newGame();
-    useQuoridorStore.setState({ wallMode: true, wallOrientation: "horizontal", wallPreview: null });
-  });
+  act(() => useQuoridorStore.getState().newGame("ai", "easy"));
 });
 
 /** The board is inert until the start card's Play is tapped. */
-function renderStarted() {
-  const view = render(<QuoridorGame />);
+function startInWallMode() {
+  render(<QuoridorGame />);
   fireEvent.click(screen.getByRole("button", { name: "▶ Play!" }));
-  return view;
+  fireEvent.click(screen.getByRole("button", { name: /wall/i }));
+  return screen.getByTestId("quoridor-board");
 }
 
 afterEach(() => {
@@ -46,31 +46,42 @@ afterEach(() => {
   resetPointerMock();
 });
 
-/** A horizontal wall in the middle of the board is valid at game start. */
-const MIDDLE_GROOVE = "groove-horizontal-3-3";
+/** The middle of the board, where every wall is valid at the start. */
+function middleCrossing() {
+  const { square, groove } = quoridorLayout({ width: window.innerWidth, height: window.innerHeight });
+  const pitch = square + groove;
+  return { clientX: 3 * pitch + square + groove / 2, clientY: 4 * pitch + square + groove / 2 };
+}
 
-describe("Quoridor grooves", () => {
-  it("a mouse hover previews the wall; a finger's pointerenter does not", () => {
+describe("Quoridor walls by pointer type", () => {
+  it("a mouse hover moves the wall; a finger that is not pressed does not", () => {
     mockPointer(false);
-    renderStarted();
-    const groove = screen.getByTestId(MIDDLE_GROOVE);
+    const board = startInWallMode();
+    const first = useQuoridorStore.getState().wallPreview;
 
-    fireEvent.pointerEnter(groove, { pointerType: "touch", pointerId: 1 });
-    expect(useQuoridorStore.getState().wallPreview).toBeNull();
+    // A finger's pointermove with no press (a pen hovering, say) is not a mouse hover.
+    fireEvent.pointerMove(board, { pointerType: "touch", pointerId: 1, buttons: 0, ...middleCrossing() });
+    expect(useQuoridorStore.getState().wallPreview).toEqual(first);
 
-    fireEvent.pointerEnter(groove, { pointerType: "mouse", pointerId: 9 });
-    expect(useQuoridorStore.getState().wallPreview).not.toBeNull();
-
-    fireEvent.pointerLeave(groove, { pointerType: "mouse", pointerId: 9 });
-    expect(useQuoridorStore.getState().wallPreview).toBeNull();
+    fireEvent.pointerMove(board, { pointerType: "mouse", pointerId: 9, buttons: 0, ...middleCrossing() });
+    expect(crossingOf(useQuoridorStore.getState().wallPreview!)).toEqual({ i: 3, j: 4 });
   });
 
-  it("one finger tap on a groove places ONE wall", () => {
+  it("one mouse click places ONE wall", () => {
+    mockPointer(false);
+    const board = startInWallMode();
+    fireEvent.pointerDown(board, { pointerType: "mouse", pointerId: 9, buttons: 1, ...middleCrossing() });
+    fireEvent.pointerUp(board, { pointerType: "mouse", pointerId: 9, ...middleCrossing() });
+    fireEvent.click(board, { detail: 1, ...middleCrossing() });
+    expect(useQuoridorStore.getState().walls).toHaveLength(1);
+    expect(useQuoridorStore.getState().wallsRemaining[1]).toBe(9);
+  });
+
+  it("one finger tap moves the wall there and places nothing", () => {
     mockPointer(true);
-    renderStarted();
-    const groove = screen.getByTestId(MIDDLE_GROOVE);
-    const before = useQuoridorStore.getState().walls.length;
-    fingerTap(groove);
-    expect(useQuoridorStore.getState().walls.length).toBe(before + 1);
+    const board = startInWallMode();
+    fingerTap(board, { x: middleCrossing().clientX, y: middleCrossing().clientY });
+    expect(useQuoridorStore.getState().walls).toHaveLength(0);
+    expect(crossingOf(useQuoridorStore.getState().wallPreview!)).toEqual({ i: 3, j: 4 });
   });
 });

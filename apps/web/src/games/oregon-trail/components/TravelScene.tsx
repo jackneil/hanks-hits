@@ -3,6 +3,7 @@
 import { useRef, useEffect, useCallback } from "react";
 import { useOregonTrailStore } from "../lib/store";
 import { WEATHER_CONDITIONS } from "../lib/constants";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 
 // Color palettes for time of day
 const TIME_PALETTES = {
@@ -69,6 +70,15 @@ export function TravelScene() {
   const oxenFrameRef = useRef(0);
 
   const { currentDay, weather, pace } = useOregonTrailStore();
+
+  // The shell holds the game under an overlay (the orientation tip, the
+  // leaderboard, the install steps) and in a hidden tab: the scene stands
+  // still there, on its last frame.
+  const held = useShellHold();
+  const heldRef = useRef(held);
+  useEffect(() => {
+    heldRef.current = held;
+  }, [held]);
 
   // Determine time of day based on game day (cycle every 4 days for visual variety)
   const getTimeOfDay = useCallback(() => {
@@ -452,25 +462,33 @@ export function TravelScene() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Set canvas size
+    // The drawing is in CSS px; the backing store has the screen's pixels,
+    // so the scene is sharp on a 2x or 3x phone (it was 1x, and blurry).
+    let width = 0;
+    let height = 0;
     const resize = () => {
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
+      const dpr = window.devicePixelRatio || 1;
+      width = canvas.offsetWidth;
+      height = canvas.offsetHeight;
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Reinitialize particles on resize
       const weatherConfig = WEATHER_EFFECTS[weather as keyof typeof WEATHER_EFFECTS] || WEATHER_EFFECTS.clear;
-      particlesRef.current = initParticles(weatherConfig.particles, canvas.height, canvas.width);
+      particlesRef.current = initParticles(weatherConfig.particles, height, width);
     };
 
     resize();
     window.addEventListener("resize", resize);
 
     const animate = (timestamp: number) => {
-      const delta = timestamp - lastTimeRef.current;
+      const delta = Math.min(50, timestamp - lastTimeRef.current);
       lastTimeRef.current = timestamp;
-
-      const width = canvas.width;
-      const height = canvas.height;
+      if (heldRef.current) {
+        animationRef.current = requestAnimationFrame(animate);
+        return;
+      }
       const scrollSpeed = getScrollSpeed();
       const timeOfDay = getTimeOfDay();
       const palette = TIME_PALETTES[timeOfDay];
@@ -596,14 +614,10 @@ export function TravelScene() {
   ]);
 
   return (
-    <div className="relative w-full h-48 md:h-64 rounded-lg overflow-hidden shadow-lg">
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full"
-        style={{ imageRendering: "pixelated" }}
-      />
+    <div data-testid="oregon-scene" className="relative h-36 w-full overflow-hidden rounded-lg shadow-lg short:h-32">
+      <canvas ref={canvasRef} className="h-full w-full" />
       {/* Weather indicator overlay */}
-      <div className="absolute top-2 right-2 bg-black/30 backdrop-blur-sm rounded px-2 py-1 text-white text-sm">
+      <div className="pointer-events-none absolute right-2 top-2 rounded bg-black/45 px-2 py-1 text-sm text-white">
         {(WEATHER_CONDITIONS[weather] || WEATHER_CONDITIONS.clear).emoji} {(WEATHER_CONDITIONS[weather] || WEATHER_CONDITIONS.clear).name}
       </div>
     </div>

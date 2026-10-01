@@ -1,17 +1,28 @@
 "use client";
 import { useOregonTrailStore } from "../lib/store";
+import { MAIN_ACTION, Screen, type ScreenTone } from "./Screen";
+
+const TONE: Record<string, ScreenTone> = { positive: "green", neutral: "amber", negative: "amber", severe: "red" };
 
 export function Event() {
-  const { currentEvent, dismissEvent } = useOregonTrailStore();
+  const currentEvent = useOregonTrailStore((s) => s.currentEvent);
+  const dismissEvent = useOregonTrailStore((s) => s.dismissEvent);
   if (!currentEvent) return null;
-  const bg = currentEvent.category === "positive" ? "bg-green-700" : currentEvent.category === "severe" ? "bg-red-700" : "bg-amber-700";
   return (
-    <div className="min-h-full flex items-center justify-center bg-amber-900 p-4">
-      <div className={bg + " p-8 rounded-lg text-white text-center max-w-md"}>
-        <h2 className="text-3xl mb-4">{currentEvent.title}</h2>
-        <p className="text-xl mb-6">{currentEvent.message}</p>
-        <button onClick={dismissEvent} className="btn btn-primary btn-lg">Continue</button>
+    <Screen
+      testId="oregon-event"
+      tone={TONE[currentEvent.category] ?? "amber"}
+      speak={`${currentEvent.title} ${currentEvent.message}`}
+      actions={
+        <button type="button" onClick={dismissEvent} className={MAIN_ACTION}>
+          Continue ▶
+        </button>
+      }
+    >
+      <div className="flex min-h-full flex-col items-center justify-center py-2 text-center">
+        <h2 className="mb-3 text-3xl font-bold short:mb-1 short:text-2xl">{currentEvent.title}</h2>
+        <p className="max-w-md text-xl short:text-lg">{currentEvent.message}</p>
       </div>
-    </div>
+    </Screen>
   );
 }

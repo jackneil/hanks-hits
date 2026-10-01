@@ -73,24 +73,24 @@ describe("Checkers start overlay", () => {
   });
 });
 
-describe("checkers controls under the start card", () => {
-  it("makes the covered game controls inert until Play is pressed", () => {
-    // Regression: the board and its New Game button mount UNDER the start
-    // card, so Tab reached them before Play and a tap could land on them.
+describe("checkers board under the start card", () => {
+  it("makes the covered board inert until Play is pressed", () => {
+    // Regression: the board mounts UNDER the start card, so Tab reached its
+    // squares before Play and a tap could land on them.
     render(<CheckersGame />);
 
-    const newGame = screen.getByRole("button", { name: /New Game/i });
-    const covered = newGame.closest("[inert]");
+    const square = screen.getByTestId("checkers-board").querySelector("button")!;
+    const covered = square.closest("[inert]");
     expect(covered).not.toBeNull();
     expect(covered!.contains(screen.getByTestId("game-start-overlay"))).toBe(
       false
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Play/i }));
+    fireEvent.click(screen.getByRole("button", { name: "▶ Play!" }));
 
     expect(screen.queryByTestId("game-start-overlay")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /New Game/i }).closest("[inert]")
+      screen.getByTestId("checkers-board").querySelector("button")!.closest("[inert]")
     ).toBeNull();
   });
 });

@@ -17,13 +17,15 @@ export function Piece({ piece, isSelected, isSelectable }: PieceProps) {
   const mainColor = player === "red" ? COLORS.RED_PIECE : COLORS.BLACK_PIECE;
   const darkColor = player === "red" ? COLORS.RED_PIECE_DARK : COLORS.BLACK_PIECE_DARK;
 
-  const selectedStyle = isSelected ? "scale-110 ring-4 ring-yellow-400" : "";
+  // The picked piece lifts and stays lifted (it bounced forever before,
+  // which read as "something is wrong" more than "this one is picked").
+  const selectedStyle = isSelected ? "scale-110 ring-4 ring-yellow-300" : "";
   const selectableStyle = isSelectable && !isSelected ? "hover:scale-105" : "";
-  const bounceStyle = isSelected ? "animate-bounce" : "";
 
   return (
     <div
-      className={`relative w-4/5 h-4/5 rounded-full transition-transform duration-150 ${selectedStyle} ${selectableStyle} ${bounceStyle}`}
+      aria-hidden="true"
+      className={`pointer-events-none relative w-4/5 h-4/5 rounded-full transition-transform duration-150 ${selectedStyle} ${selectableStyle}`}
       style={{
         background: `radial-gradient(circle at 30% 30%, ${mainColor}, ${darkColor})`,
         boxShadow: "0 4px 8px rgba(0,0,0,0.3), inset 0 -2px 4px rgba(0,0,0,0.2)",

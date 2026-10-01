@@ -40,10 +40,10 @@ describe("Quoridor start overlay", () => {
     render(<QuoridorGame />);
 
     expect(
-      screen.getByText("👆 Tap your pawn, then tap a green dot")
+      screen.getByText("👆 Tap a green dot to move")
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("🖱️ Click your pawn, then click a green dot")
+      screen.queryByText("🖱️ Click a green dot to move")
     ).not.toBeInTheDocument();
   });
 
@@ -52,10 +52,10 @@ describe("Quoridor start overlay", () => {
     render(<QuoridorGame />);
 
     expect(
-      screen.getByText("🖱️ Click your pawn, then click a green dot")
+      screen.getByText("🖱️ Click a green dot to move")
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("👆 Tap your pawn, then tap a green dot")
+      screen.queryByText("👆 Tap a green dot to move")
     ).not.toBeInTheDocument();
   });
 

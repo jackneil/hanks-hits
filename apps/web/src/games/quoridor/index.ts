@@ -9,7 +9,6 @@ export type {
   Position,
   Wall,
   WallOrientation,
-  Move,
   GameStatus,
   GameMode,
   Difficulty,

@@ -41,6 +41,11 @@ export type QuoridorProgress = {
   lastModified: number;
 };
 
+/** The last thing a player did, so the board can show what the computer did. */
+export type LastMove =
+  | { player: Player; kind: "move"; from: Position }
+  | { player: Player; kind: "wall"; wall: Wall };
+
 // Complete game state
 export type GameState = {
   // Board state
@@ -49,18 +54,18 @@ export type GameState = {
   wallsRemaining: Record<Player, number>;
   currentPlayer: Player;
   status: GameStatus;
+  lastMove: LastMove | null;
 
-  // UI state
-  selectedPawn: boolean;
+  // UI state: wall mode shows a wall the player moves around, then places.
   wallMode: boolean;
   wallOrientation: WallOrientation;
   wallPreview: Wall | null;
-  validMoves: Position[];
 
   // Game settings
   gameMode: GameMode;
   difficulty: Difficulty;
-  isAIThinking: boolean;
+  /** The shell's pause menu is open: the computer waits. */
+  paused: boolean;
 
   // Stats for current game
   movesThisGame: number;
@@ -72,30 +77,35 @@ export type GameState = {
 
 type GameActions = {
   // Core game actions
-  selectPawn: () => void;
   movePawn: (to: Position) => void;
-  enterWallMode: () => void;
+  enterWallMode: (preview?: Wall | null) => void;
   exitWallMode: () => void;
   toggleWallOrientation: () => void;
   setWallPreview: (wall: Wall | null) => void;
-  placeWall: (wall: Wall) => void;
+  /** Places the wall (or the preview), if it is a valid wall. True when it did. */
+  placeWall: (wall?: Wall) => boolean;
 
   // Game control
   newGame: (mode?: GameMode, difficulty?: Difficulty) => void;
   setGameMode: (mode: GameMode) => void;
   setDifficulty: (difficulty: Difficulty) => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
 
   // AI
-  triggerAIMove: () => void;
+  /** True while the computer is to move. */
+  isComputerTurn: () => boolean;
+  /** The computer's move, now (the game waits a moment before it calls this). */
+  aiMove: (random?: () => number) => void;
 
   // Stats
-  recordWin: () => void;
-  recordLoss: () => void;
   getProgress: () => QuoridorProgress;
   setProgress: (data: QuoridorProgress) => void;
 
   // Helpers
   getLogicState: () => GameLogicState;
+  /** The squares the player to move can step to (none on the computer's turn). */
+  humanMoves: () => Position[];
 };
 
 const defaultProgress: QuoridorProgress = {
@@ -108,347 +118,288 @@ const defaultProgress: QuoridorProgress = {
   totalMovesToWin: 0,
   fastestWin: null,
   difficulty: "easy",
-  gameMode: "local",
+  gameMode: "ai",
   lastModified: Date.now(),
 };
 
-function createInitialState(): Omit<GameState, keyof GameActions> {
+type BoardState = Omit<GameState, "gameMode" | "difficulty" | "progress">;
+
+function createBoardState(): BoardState {
   return {
     positions: createInitialPositions(),
     walls: [],
     wallsRemaining: { 1: WALLS_PER_PLAYER, 2: WALLS_PER_PLAYER },
     currentPlayer: 1,
     status: "playing",
-    selectedPawn: false,
+    lastMove: null,
     wallMode: false,
     wallOrientation: "horizontal",
     wallPreview: null,
-    validMoves: [],
-    gameMode: "local",
-    difficulty: "easy",
-    isAIThinking: false,
+    paused: false,
     movesThisGame: 0,
     wallsPlacedThisGame: 0,
-    progress: defaultProgress,
   };
+}
+
+/**
+ * The computer's choice: a step along its shortest path, or (medium and
+ * hard) sometimes a wall that makes the player's path longer. Easy never
+ * places walls.
+ */
+export function chooseAIMove(
+  logic: GameLogicState,
+  difficulty: Difficulty,
+  random: () => number = Math.random
+): { kind: "move"; to: Position } | { kind: "wall"; wall: Wall } | null {
+  const validMoves = getValidMoves(logic, 2);
+  const aiGoal = getGoalRow(2);
+  const playerGoal = getGoalRow(1);
+
+  let bestMove: Position | null = null;
+  let bestDist = Infinity;
+  for (const move of validMoves) {
+    const dist = getShortestPathLength(applyPawnMove(logic.positions, 2, move)[2], aiGoal, logic.walls);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestMove = move;
+    }
+  }
+
+  if (difficulty !== "easy" && logic.wallsRemaining[2] > 0) {
+    const wallChance = difficulty === "hard" ? 0.7 : 0.4;
+    if (random() < wallChance) {
+      const playerDist = getShortestPathLength(logic.positions[1], playerGoal, logic.walls);
+      // Shuffle for variety, and look at 40 of them (the wall check is a BFS each).
+      const walls = getValidWalls(logic, 2)
+        .map((wall) => ({ wall, key: random() }))
+        .sort((a, b) => a.key - b.key)
+        .slice(0, 40)
+        .map((entry) => entry.wall);
+      const slowing = walls.find(
+        (wall) => getShortestPathLength(logic.positions[1], playerGoal, [...logic.walls, wall]) > playerDist
+      );
+      if (slowing) return { kind: "wall", wall: slowing };
+    }
+  }
+
+  return bestMove ? { kind: "move", to: bestMove } : null;
 }
 
 export const useQuoridorStore = create<GameState & GameActions>()(
   persist(
-    (set, get) => ({
-      ...createInitialState(),
-
-      getLogicState: (): GameLogicState => {
+    (set, get) => {
+      /** The game is over: count it (a game against the computer only). */
+      const finishGame = (status: GameStatus) => {
         const state = get();
-        return {
-          positions: state.positions,
-          walls: state.walls,
-          wallsRemaining: state.wallsRemaining,
-        };
-      },
-
-      selectPawn: () => {
-        const state = get();
-        if (state.status !== "playing" || state.isAIThinking) return;
-        if (state.gameMode === "ai" && state.currentPlayer === 2) return;
-
-        const logicState = get().getLogicState();
-        const validMoves = getValidMoves(logicState, state.currentPlayer);
-
-        set({
-          selectedPawn: true,
-          wallMode: false,
-          wallPreview: null,
-          validMoves,
-        });
-      },
-
-      movePawn: (to: Position) => {
-        const state = get();
-        if (state.status !== "playing" || state.isAIThinking) return;
-        if (state.gameMode === "ai" && state.currentPlayer === 2) return;
-
-        // Verify move is valid
-        const isValidMove = state.validMoves.some((m) => positionsEqual(m, to));
-        if (!isValidMove) return;
-
-        const newPositions = applyPawnMove(
-          state.positions,
-          state.currentPlayer,
-          to
-        );
-        const newStatus = getGameStatus(newPositions);
-        const nextPlayer = getOpponent(state.currentPlayer);
-
-        set({
-          positions: newPositions,
-          currentPlayer: nextPlayer,
-          status: newStatus,
-          selectedPawn: false,
-          wallMode: false,
-          validMoves: [],
-          movesThisGame: state.movesThisGame + 1,
-        });
-
-        // Check win condition
-        if (newStatus === "player1-wins") {
-          get().recordWin();
-        } else if (newStatus === "player2-wins") {
-          if (state.gameMode === "ai") {
-            get().recordLoss();
-          }
-        } else if (state.gameMode === "ai" && nextPlayer === 2) {
-          // Trigger AI move
-          setTimeout(() => get().triggerAIMove(), 500);
-        }
-      },
-
-      enterWallMode: () => {
-        const state = get();
-        if (state.status !== "playing" || state.isAIThinking) return;
-        if (state.gameMode === "ai" && state.currentPlayer === 2) return;
-        if (state.wallsRemaining[state.currentPlayer] <= 0) return;
-
-        set({
-          wallMode: true,
-          selectedPawn: false,
-          validMoves: [],
-        });
-      },
-
-      exitWallMode: () => {
-        set({
-          wallMode: false,
-          wallPreview: null,
-        });
-      },
-
-      toggleWallOrientation: () => {
-        set((state) => ({
-          wallOrientation:
-            state.wallOrientation === "horizontal" ? "vertical" : "horizontal",
-          wallPreview: null,
-        }));
-      },
-
-      setWallPreview: (wall: Wall | null) => {
-        set({ wallPreview: wall });
-      },
-
-      placeWall: (wall: Wall) => {
-        const state = get();
-        if (state.status !== "playing" || state.isAIThinking) return;
-        if (state.gameMode === "ai" && state.currentPlayer === 2) return;
-
-        const logicState = get().getLogicState();
-        if (!isValidWallPlacement(logicState, wall, state.currentPlayer)) {
+        if (status === "playing") return;
+        const wallsPlaced = state.progress.totalWallsPlaced + state.wallsPlacedThisGame;
+        // A 2-player game on one phone is the kid against the kid: it counts
+        // as a game played, never as a win, a loss or a streak (a win there
+        // would put a free win on the leaderboard).
+        if (state.gameMode === "local") {
+          set({
+            progress: {
+              ...state.progress,
+              gamesPlayed: state.progress.gamesPlayed + 1,
+              totalWallsPlaced: wallsPlaced,
+              lastModified: Date.now(),
+            },
+          });
           return;
         }
-
-        const nextPlayer = getOpponent(state.currentPlayer);
-
-        set({
-          walls: [...state.walls, wall],
-          wallsRemaining: {
-            ...state.wallsRemaining,
-            [state.currentPlayer]: state.wallsRemaining[state.currentPlayer] - 1,
-          },
-          currentPlayer: nextPlayer,
-          wallMode: false,
-          wallPreview: null,
-          wallsPlacedThisGame: state.wallsPlacedThisGame + 1,
-        });
-
-        // Trigger AI move if needed
-        if (state.gameMode === "ai" && nextPlayer === 2) {
-          setTimeout(() => get().triggerAIMove(), 500);
-        }
-      },
-
-      triggerAIMove: () => {
-        const state = get();
-        if (state.status !== "playing" || state.currentPlayer !== 2) return;
-
-        set({ isAIThinking: true });
-
-        setTimeout(() => {
-          const currentState = get();
-          const logicState = currentState.getLogicState();
-
-          // Simple AI: prioritize moving toward goal
-          const validMoves = getValidMoves(logicState, 2);
-          const validWalls = getValidWalls(logicState, 2);
-
-          let bestMove: Position | null = null;
-          let bestWall: Wall | null = null;
-
-          // Evaluate moves based on distance to goal
-          const aiGoal = getGoalRow(2);
-          const playerGoal = getGoalRow(1);
-
-          if (validMoves.length > 0) {
-            // Find move that gets us closest to goal
-            let bestDist = Infinity;
-            for (const move of validMoves) {
-              const newPositions = applyPawnMove(currentState.positions, 2, move);
-              const dist = getShortestPathLength(
-                newPositions[2],
-                aiGoal,
-                currentState.walls
-              );
-              if (dist < bestDist) {
-                bestDist = dist;
-                bestMove = move;
-              }
-            }
-          }
-
-          // For medium/hard AI, consider walls
-          if (
-            currentState.difficulty !== "easy" &&
-            validWalls.length > 0 &&
-            currentState.wallsRemaining[2] > 0
-          ) {
-            // Check if placing a wall helps
-            const currentPlayerDist = getShortestPathLength(
-              currentState.positions[1],
-              playerGoal,
-              currentState.walls
-            );
-
-            // Shuffle walls for variety, check more of them
-            const shuffledWalls = [...validWalls].sort(
-              () => Math.random() - 0.5
-            );
-            for (const wall of shuffledWalls.slice(0, 40)) {
-              const newWalls = [...currentState.walls, wall];
-              const newPlayerDist = getShortestPathLength(
-                currentState.positions[1],
-                playerGoal,
-                newWalls
-              );
-
-              // Accept any wall that slows player down
-              if (newPlayerDist > currentPlayerDist) {
-                bestWall = wall;
-                break;
-              }
-            }
-          }
-
-          // Decide: move or place wall based on difficulty
-          let shouldPlaceWall = false;
-          if (bestWall) {
-            if (currentState.difficulty === "hard") {
-              shouldPlaceWall = Math.random() > 0.3; // 70% chance on hard
-            } else if (currentState.difficulty === "medium") {
-              shouldPlaceWall = Math.random() > 0.6; // 40% chance on medium
-            }
-            // Easy: never places walls (shouldPlaceWall stays false)
-          }
-
-          if (shouldPlaceWall && bestWall) {
-            // Place wall
-            const nextPlayer = 1;
-            set({
-              walls: [...currentState.walls, bestWall],
-              wallsRemaining: {
-                ...currentState.wallsRemaining,
-                2: currentState.wallsRemaining[2] - 1,
-              },
-              currentPlayer: nextPlayer,
-              isAIThinking: false,
-            });
-          } else if (bestMove) {
-            // Move pawn
-            const newPositions = applyPawnMove(
-              currentState.positions,
-              2,
-              bestMove
-            );
-            const newStatus = getGameStatus(newPositions);
-
-            set({
-              positions: newPositions,
-              currentPlayer: 1,
-              status: newStatus,
-              isAIThinking: false,
-            });
-
-            if (newStatus === "player2-wins") {
-              get().recordLoss();
-            }
-          } else {
-            // No valid moves (shouldn't happen)
-            set({ isAIThinking: false });
-          }
-        }, 500);
-      },
-
-      newGame: (mode?: GameMode, difficulty?: Difficulty) => {
-        const state = get();
-        set({
-          ...createInitialState(),
-          gameMode: mode ?? state.gameMode,
-          difficulty: difficulty ?? state.difficulty,
-          progress: state.progress,
-        });
-      },
-
-      setGameMode: (mode: GameMode) => set({ gameMode: mode }),
-      setDifficulty: (difficulty: Difficulty) => set({ difficulty }),
-
-      recordWin: () => {
-        set((state) => {
-          const newStreak = state.progress.currentWinStreak + 1;
-          const fastestWin =
-            state.progress.fastestWin === null
-              ? state.movesThisGame
-              : Math.min(state.progress.fastestWin, state.movesThisGame);
-
-          return {
+        if (status === "player1-wins") {
+          const streak = state.progress.currentWinStreak + 1;
+          set({
             progress: {
               ...state.progress,
               gamesPlayed: state.progress.gamesPlayed + 1,
               gamesWon: state.progress.gamesWon + 1,
-              currentWinStreak: newStreak,
-              bestWinStreak: Math.max(state.progress.bestWinStreak, newStreak),
-              totalWallsPlaced:
-                state.progress.totalWallsPlaced + state.wallsPlacedThisGame,
-              totalMovesToWin:
-                state.progress.totalMovesToWin + state.movesThisGame,
-              fastestWin,
+              currentWinStreak: streak,
+              bestWinStreak: Math.max(state.progress.bestWinStreak, streak),
+              totalWallsPlaced: wallsPlaced,
+              totalMovesToWin: state.progress.totalMovesToWin + state.movesThisGame,
+              fastestWin:
+                state.progress.fastestWin === null
+                  ? state.movesThisGame
+                  : Math.min(state.progress.fastestWin, state.movesThisGame),
               lastModified: Date.now(),
             },
+          });
+        } else {
+          set({
+            progress: {
+              ...state.progress,
+              gamesPlayed: state.progress.gamesPlayed + 1,
+              gamesLost: state.progress.gamesLost + 1,
+              currentWinStreak: 0,
+              totalWallsPlaced: wallsPlaced,
+              lastModified: Date.now(),
+            },
+          });
+        }
+      };
+
+      /** A player may act: the game is on, and it is not the computer's turn. */
+      const humanMayAct = () => {
+        const state = get();
+        return state.status === "playing" && !state.paused && !get().isComputerTurn();
+      };
+
+      return {
+        ...createBoardState(),
+        gameMode: "ai",
+        difficulty: "easy",
+        progress: defaultProgress,
+
+        getLogicState: (): GameLogicState => {
+          const state = get();
+          return {
+            positions: state.positions,
+            walls: state.walls,
+            wallsRemaining: state.wallsRemaining,
           };
-        });
-      },
+        },
 
-      recordLoss: () => {
-        set((state) => ({
-          progress: {
-            ...state.progress,
-            gamesPlayed: state.progress.gamesPlayed + 1,
-            gamesLost: state.progress.gamesLost + 1,
-            currentWinStreak: 0,
-            totalWallsPlaced:
-              state.progress.totalWallsPlaced + state.wallsPlacedThisGame,
-            lastModified: Date.now(),
-          },
-        }));
-      },
+        isComputerTurn: () => {
+          const state = get();
+          return state.gameMode === "ai" && state.currentPlayer === 2 && state.status === "playing";
+        },
 
-      getProgress: () => ({
-        ...get().progress,
-        difficulty: get().difficulty,
-        gameMode: get().gameMode,
-      }),
-      setProgress: (data: QuoridorProgress) => set({
-        progress: data,
-        difficulty: data.difficulty ?? get().difficulty,
-        gameMode: data.gameMode ?? get().gameMode,
-      }),
-    }),
+        humanMoves: () => {
+          if (!humanMayAct()) return [];
+          return getValidMoves(get().getLogicState(), get().currentPlayer);
+        },
+
+        movePawn: (to: Position) => {
+          if (!humanMayAct()) return;
+          const state = get();
+          if (!getValidMoves(state.getLogicState(), state.currentPlayer).some((m) => positionsEqual(m, to))) return;
+
+          const positions = applyPawnMove(state.positions, state.currentPlayer, to);
+          const status = getGameStatus(positions);
+          set({
+            positions,
+            currentPlayer: getOpponent(state.currentPlayer),
+            status,
+            lastMove: { player: state.currentPlayer, kind: "move", from: state.positions[state.currentPlayer] },
+            wallMode: false,
+            wallPreview: null,
+            movesThisGame: state.currentPlayer === 1 ? state.movesThisGame + 1 : state.movesThisGame,
+          });
+          finishGame(status);
+        },
+
+        enterWallMode: (preview = null) => {
+          if (!humanMayAct()) return;
+          const state = get();
+          if (state.wallsRemaining[state.currentPlayer] <= 0) return;
+          set({
+            wallMode: true,
+            wallPreview: preview,
+            wallOrientation: preview?.orientation ?? state.wallOrientation,
+          });
+        },
+
+        exitWallMode: () => {
+          set({ wallMode: false, wallPreview: null });
+        },
+
+        toggleWallOrientation: () => {
+          set((state) => {
+            const orientation: WallOrientation = state.wallOrientation === "horizontal" ? "vertical" : "horizontal";
+            if (!state.wallPreview) return { wallOrientation: orientation };
+            // Turn the wall about its own centre (the same groove crossing).
+            const p = state.wallPreview;
+            const turned: Wall =
+              p.orientation === "horizontal"
+                ? { row: p.row - 1, col: p.col + 1, orientation: "vertical" }
+                : { row: p.row + 1, col: p.col - 1, orientation: "horizontal" };
+            return { wallOrientation: orientation, wallPreview: turned };
+          });
+        },
+
+        setWallPreview: (wall: Wall | null) => {
+          set({ wallPreview: wall });
+        },
+
+        placeWall: (wall?: Wall) => {
+          if (!humanMayAct()) return false;
+          const state = get();
+          const target = wall ?? state.wallPreview;
+          if (!target) return false;
+          if (!isValidWallPlacement(state.getLogicState(), target, state.currentPlayer)) return false;
+
+          set({
+            walls: [...state.walls, target],
+            wallsRemaining: {
+              ...state.wallsRemaining,
+              [state.currentPlayer]: state.wallsRemaining[state.currentPlayer] - 1,
+            },
+            currentPlayer: getOpponent(state.currentPlayer),
+            lastMove: { player: state.currentPlayer, kind: "wall", wall: target },
+            wallMode: false,
+            wallPreview: null,
+            wallsPlacedThisGame: state.currentPlayer === 1 ? state.wallsPlacedThisGame + 1 : state.wallsPlacedThisGame,
+          });
+          return true;
+        },
+
+        aiMove: (random = Math.random) => {
+          if (!get().isComputerTurn() || get().paused) return;
+          const state = get();
+          const choice = chooseAIMove(state.getLogicState(), state.difficulty, random);
+          if (!choice) return;
+          if (choice.kind === "wall") {
+            set({
+              walls: [...state.walls, choice.wall],
+              wallsRemaining: { ...state.wallsRemaining, 2: state.wallsRemaining[2] - 1 },
+              currentPlayer: 1,
+              lastMove: { player: 2, kind: "wall", wall: choice.wall },
+            });
+            return;
+          }
+          const positions = applyPawnMove(state.positions, 2, choice.to);
+          const status = getGameStatus(positions);
+          set({
+            positions,
+            currentPlayer: 1,
+            status,
+            lastMove: { player: 2, kind: "move", from: state.positions[2] },
+          });
+          finishGame(status);
+        },
+
+        newGame: (mode?: GameMode, difficulty?: Difficulty) => {
+          const state = get();
+          set({
+            ...createBoardState(),
+            wallOrientation: state.wallOrientation,
+            gameMode: mode ?? state.gameMode,
+            difficulty: difficulty ?? state.difficulty,
+          });
+        },
+
+        // The pickers are on the start card: a new choice is a new game, so
+        // the computer is never switched on halfway through its own turn.
+        setGameMode: (mode: GameMode) => get().newGame(mode),
+        setDifficulty: (difficulty: Difficulty) => get().newGame(undefined, difficulty),
+
+        pauseGame: () => set({ paused: true }),
+        resumeGame: () => set({ paused: false }),
+
+        getProgress: () => ({
+          ...get().progress,
+          difficulty: get().difficulty,
+          gameMode: get().gameMode,
+        }),
+        setProgress: (data: QuoridorProgress) =>
+          set({
+            progress: data,
+            difficulty: data.difficulty ?? get().difficulty,
+            gameMode: data.gameMode ?? get().gameMode,
+          }),
+      };
+    },
     {
       name: "quoridor-progress",
       partialize: (state) => ({

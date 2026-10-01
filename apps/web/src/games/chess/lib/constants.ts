@@ -12,7 +12,8 @@ export const COLORS = {
   LIGHT_SQUARE: "#EDEED1",
   DARK_SQUARE: "#779952",
   SELECTED: "#F6F669",
-  VALID_MOVE: "#829769",
+  // Where a piece can go: dark and half clear, so it shows on both square colours.
+  VALID_MOVE: "rgba(20, 40, 20, 0.45)",
   LAST_MOVE: "#CDD26A",
   CHECK: "#E84855",
 } as const;
@@ -50,49 +51,3 @@ export const PIECE_UNICODE: Record<string, string> = {
   bN: "\u265E", // Black Knight
   bP: "\u265F", // Black Pawn
 };
-
-// Encouraging messages for kids
-export const MESSAGES = {
-  goodMoves: [
-    "Nice move!",
-    "Great choice!",
-    "You're thinking ahead!",
-    "That's smart!",
-    "Good thinking!",
-  ],
-  captures: [
-    "Got 'em!",
-    "Nice capture!",
-    "One down!",
-    "Excellent!",
-    "You took a piece!",
-  ],
-  check: [
-    "Check! Keep going!",
-    "The king is in danger!",
-    "Check! You're on the attack!",
-  ],
-  win: [
-    "CHECKMATE! You won!",
-    "Amazing! You're a chess champion!",
-    "Victory! Great game!",
-    "You did it! Checkmate!",
-  ],
-  lose: [
-    "Good game! Want to try again?",
-    "That was a tough opponent!",
-    "You'll get 'em next time!",
-    "Keep practicing, you're getting better!",
-  ],
-  draw: [
-    "It's a draw! Great battle!",
-    "Neither side wins - good fight!",
-    "A tie! That was close!",
-  ],
-} as const;
-
-// Helper to get random message
-export function getRandomMessage(category: keyof typeof MESSAGES): string {
-  const messages = MESSAGES[category];
-  return messages[Math.floor(Math.random() * messages.length)];
-}

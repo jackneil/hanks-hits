@@ -1,11 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { Chess, Square, Move } from "chess.js";
+import { Chess, Square } from "chess.js";
 import {
   type Difficulty,
   type GameMode,
   type GameStatus,
-  AI_CONFIG,
 } from "./constants";
 import {
   createGame,
@@ -50,7 +49,8 @@ export type GameState = {
 
   // Game state
   status: GameStatus;
-  isAIThinking: boolean;
+  /** The shell's pause menu is open: the computer waits. */
+  paused: boolean;
   selectedSquare: Square | null;
   legalMoves: Square[];
   lastMove: { from: Square; to: Square } | null;
@@ -64,9 +64,6 @@ export type GameState = {
 
   // Progress tracking
   progress: ChessProgress;
-
-  // Identifies the active board so delayed AI work cannot mutate a newer game.
-  gameGeneration: number;
 };
 
 type GameActions = {
@@ -75,13 +72,23 @@ type GameActions = {
   makeMove: (from: Square, to: Square, promotion?: string) => boolean;
   handlePromotion: (piece: string) => void;
   cancelPromotion: () => void;
-  triggerAIMove: () => void;
+  /** True while the computer is to move. */
+  isComputerTurn: () => boolean;
+  /**
+   * The computer's move, now. The game calls it after a short wait, from a
+   * timer that belongs to that turn: a new game, a pause or an undo cancels
+   * the timer, so the computer never moves in a board it did not see.
+   */
+  aiMove: () => void;
   undoMove: () => void;
 
   // Game control
   newGame: (options?: { mode?: GameMode; difficulty?: Difficulty; playerColor?: "white" | "black" }) => void;
   setDifficulty: (difficulty: Difficulty) => void;
   setGameMode: (mode: GameMode) => void;
+  setPlayerColor: (color: "white" | "black") => void;
+  pauseGame: () => void;
+  resumeGame: () => void;
   resign: () => void;
 
   // Progress
@@ -127,7 +134,7 @@ export const useChessStore = create<GameState & GameActions>()(
       difficulty: "easy",
       playerColor: "white",
       status: "playing",
-      isAIThinking: false,
+      paused: false,
       selectedSquare: null,
       legalMoves: [],
       lastMove: null,
@@ -137,11 +144,16 @@ export const useChessStore = create<GameState & GameActions>()(
       showPromotion: false,
       pendingPromotion: null,
       progress: defaultProgress,
-      gameGeneration: 0,
+
+      isComputerTurn: () => {
+        const state = get();
+        if (state.gameMode !== "ai" || state.status !== "playing") return false;
+        return state.game.turn() === (state.playerColor === "white" ? "b" : "w");
+      },
 
       selectSquare: (square) => {
         const state = get();
-        if (state.status !== "playing" || state.isAIThinking) return;
+        if (state.status !== "playing" || state.paused || get().isComputerTurn()) return;
         if (state.showPromotion) return;
 
         const game = state.game;
@@ -172,6 +184,7 @@ export const useChessStore = create<GameState & GameActions>()(
 
       makeMove: (from, to, promotion) => {
         const state = get();
+        if (state.status !== "playing" || state.paused || get().isComputerTurn()) return false;
         const game = state.game;
 
         // Check if this is a pawn promotion
@@ -223,12 +236,6 @@ export const useChessStore = create<GameState & GameActions>()(
               if (state.gameMode === "ai") {
                 get().recordDraw();
               }
-            } else if (state.gameMode === "ai") {
-              // Trigger AI move if it's AI's turn
-              const aiColor = state.playerColor === "white" ? "b" : "w";
-              if (game.turn() === aiColor) {
-                setTimeout(() => get().triggerAIMove(), AI_CONFIG.MOVE_DELAY_MS);
-              }
             }
 
             return true;
@@ -258,62 +265,32 @@ export const useChessStore = create<GameState & GameActions>()(
         });
       },
 
-      triggerAIMove: () => {
-        const state = get();
-        if (state.status !== "playing") return;
-        const scheduledGeneration = state.gameGeneration;
-
-        set({ isAIThinking: true });
-
-        setTimeout(() => {
-          const currentState = get();
-          if (
-            currentState.gameGeneration !== scheduledGeneration ||
-            currentState.status !== "playing" ||
-            currentState.gameMode !== "ai"
-          ) {
-            return;
-          }
-
-          const game = currentState.game;
-          const aiColor = currentState.playerColor === "white" ? "b" : "w";
-          if (game.turn() !== aiColor) {
-            set({ isAIThinking: false });
-            return;
-          }
-          const aiMove = getAIMove(game, currentState.difficulty);
-
-          if (!aiMove) {
-            set({ isAIThinking: false });
-            return;
-          }
-
-          try {
-            game.move(aiMove);
-            get().updateGameState();
-
-            // Check game end
-            if (game.isCheckmate()) {
-              set({ status: "checkmate" });
-              get().recordLoss();
-            } else if (game.isStalemate()) {
-              set({ status: "stalemate" });
-              get().recordDraw();
-            } else if (game.isDraw()) {
-              set({ status: "draw" });
-              get().recordDraw();
-            }
-          } catch {
-            // AI move failed
-          }
-
-          set({ isAIThinking: false });
-        }, 300);
+      aiMove: () => {
+        if (!get().isComputerTurn() || get().paused) return;
+        const game = get().game;
+        const move = getAIMove(game, get().difficulty);
+        if (!move) return;
+        try {
+          game.move(move);
+        } catch {
+          return;
+        }
+        get().updateGameState();
+        if (game.isCheckmate()) {
+          set({ status: "checkmate" });
+          get().recordLoss();
+        } else if (game.isStalemate()) {
+          set({ status: "stalemate" });
+          get().recordDraw();
+        } else if (game.isDraw()) {
+          set({ status: "draw" });
+          get().recordDraw();
+        }
       },
 
       undoMove: () => {
         const state = get();
-        if (state.status !== "playing") return;
+        if (state.status !== "playing" || state.paused || get().isComputerTurn()) return;
 
         const game = state.game;
 
@@ -343,7 +320,7 @@ export const useChessStore = create<GameState & GameActions>()(
           difficulty,
           playerColor,
           status: "playing",
-          isAIThinking: false,
+          paused: false,
           selectedSquare: null,
           legalMoves: [],
           lastMove: null,
@@ -352,17 +329,17 @@ export const useChessStore = create<GameState & GameActions>()(
           message: null,
           showPromotion: false,
           pendingPromotion: null,
-          gameGeneration: state.gameGeneration + 1,
         });
-
-        // If player is black, AI moves first
-        if (mode === "ai" && playerColor === "black") {
-          setTimeout(() => get().triggerAIMove(), AI_CONFIG.MOVE_DELAY_MS);
-        }
+        // Playing black against the computer: the computer moves first (the
+        // game's turn timer sees its turn).
       },
 
-      setDifficulty: (difficulty) => set({ difficulty }),
-      setGameMode: (mode) => set({ gameMode: mode }),
+      // The pickers are on the start card: a new choice is a new game.
+      setDifficulty: (difficulty) => get().newGame({ difficulty }),
+      setGameMode: (mode) => get().newGame({ mode }),
+      setPlayerColor: (playerColor) => get().newGame({ playerColor }),
+      pauseGame: () => set({ paused: true }),
+      resumeGame: () => set({ paused: false }),
 
       resign: () => {
         const state = get();
