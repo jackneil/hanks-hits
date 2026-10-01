@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useVirtualPetStore, type VirtualPetProgress } from "./lib/store";
+import { useVirtualPetStore } from "./lib/store";
 import {
   PET_SPECIES,
   SHOP_ITEMS,
@@ -11,6 +11,8 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { AppNotesSlot } from "@/shared/components/AppNotesSlot";
+import { useShortViewport } from "@/shared/hooks/useShortViewport";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
 import { VIRTUAL_PET_INSTRUCTIONS } from "./lib/readAloud";
 
@@ -20,10 +22,10 @@ import { VIRTUAL_PET_INSTRUCTIONS } from "./lib/readAloud";
 function StatBar({ label, value, color, icon }: { label: string; value: number; color: string; icon: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-2xl">{icon}</span>
-      <div className="flex-1">
-        <div className="flex justify-between text-sm mb-1">
-          <span className="text-gray-600">{label}</span>
+      <span className="text-xl" aria-hidden="true">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex justify-between text-sm">
+          <span className="text-gray-700">{label}</span>
           <span className="font-bold">{Math.round(value)}%</span>
         </div>
         <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
@@ -83,7 +85,9 @@ function MiniGame({ onEnd }: { onEnd: (score: number) => void }) {
     const moveInterval = setInterval(() => {
       setTreats(prev =>
         prev
-          .map(t => ({ ...t, y: t.y + 3 }))
+          // 2% a step: about 2.5 s to fall (it was 1.7 s, fast for a
+          // six-year-old).
+          .map(t => ({ ...t, y: t.y + 2 }))
           .filter(t => t.y < 100)
       );
     }, 50);
@@ -110,7 +114,8 @@ function MiniGame({ onEnd }: { onEnd: (score: number) => void }) {
           <button
             key={treat.id}
             onClick={() => catchTreat(treat.id)}
-            className="absolute text-4xl transition-transform hover:scale-125 active:scale-90"
+            aria-label="Catch the cookie"
+            className="absolute flex h-14 w-14 -translate-x-1/2 items-center justify-center text-4xl transition-transform active:scale-90"
             style={{
               left: `${treat.x}%`,
               top: `${treat.y}%`,
@@ -134,6 +139,8 @@ function MiniGame({ onEnd }: { onEnd: (score: number) => void }) {
 export function VirtualPet() {
   const containerRef = useRef<HTMLDivElement>(null);
   const store = useVirtualPetStore();
+  // A phone held sideways: the pet on the left, the care buttons beside it.
+  const short = useShortViewport();
 
   const species = PET_SPECIES.find(s => s.id === store.progress.pet.speciesId) || PET_SPECIES[0];
   const stage = getStage(store.progress.stats.daysCaredFor);
@@ -150,10 +157,10 @@ export function VirtualPet() {
 
   // Update stats on mount and periodically
   useEffect(() => {
-    store.updateFromTime();
+    useVirtualPetStore.getState().updateFromTime();
 
     const interval = setInterval(() => {
-      store.updateFromTime();
+      useVirtualPetStore.getState().updateFromTime();
     }, 60000); // Every minute
 
     return () => clearInterval(interval);
@@ -192,33 +199,142 @@ export function VirtualPet() {
     return <MiniGame onEnd={(score) => store.endMiniGame(score)} />;
   }
 
+  // Care, the shop, the sound and the stats: always on screen (the care
+  // buttons started at y=672 on a 549 px phone, under the pet and the
+  // stats: phone UX audit 2026-09-29).
+  const dock = (
+    <div className="flex w-full max-w-md flex-col gap-2">
+      {/* Action buttons */}
+        <div data-testid="pet-actions" className={`grid w-full max-w-md gap-2 ${short ? "grid-cols-3" : "grid-cols-5"}`}>
+          {/* Feed button */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                if (foodItems.length > 0) {
+                  store.feed(foodItems[0].itemId);
+                }
+              }}
+              disabled={foodItems.length === 0 || store.progress.pet.sleeping}
+              className="w-full h-16 bg-green-500 hover:bg-green-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
+            >
+              <span className="text-2xl" aria-hidden="true">🍎</span>
+              <span className="text-sm font-bold">Feed</span>
+            </button>
+            {foodItems.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+                {foodItems.reduce((sum, i) => sum + i.quantity, 0)}
+              </span>
+            )}
+          </div>
+
+          {/* Toy button */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                if (toyItems.length > 0) {
+                  store.useToy(toyItems[0].itemId);
+                }
+              }}
+              disabled={toyItems.length === 0 || store.progress.pet.sleeping}
+              className="w-full h-16 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
+            >
+              <span className="text-2xl" aria-hidden="true">⚽</span>
+              <span className="text-sm font-bold">Toy</span>
+            </button>
+            {toyItems.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+                {toyItems.reduce((sum, i) => sum + i.quantity, 0)}
+              </span>
+            )}
+          </div>
+
+          {/* Play button */}
+          <button
+            onClick={() => store.startMiniGame()}
+            disabled={store.progress.pet.sleeping || store.progress.pet.energy < 10}
+            className="h-16 bg-blue-500 hover:bg-blue-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
+          >
+            <span className="text-2xl" aria-hidden="true">🎮</span>
+            <span className="text-sm font-bold">Play</span>
+          </button>
+
+          {/* Sleep/Wake button */}
+          <button
+            onClick={() => store.progress.pet.sleeping ? store.wake() : store.sleep()}
+            className={`h-16 ${
+              store.progress.pet.sleeping ? "bg-amber-500 hover:bg-amber-400" : "bg-indigo-500 hover:bg-indigo-400"
+            } rounded-2xl flex flex-col items-center justify-center text-white shadow-lg`}
+          >
+            <span className="text-2xl" aria-hidden="true">{store.progress.pet.sleeping ? "☀️" : "💤"}</span>
+            <span className="text-sm font-bold">{store.progress.pet.sleeping ? "Wake" : "Sleep"}</span>
+          </button>
+
+          {/* Clean button */}
+          <button
+            onClick={() => store.clean()}
+            disabled={store.progress.pet.sleeping}
+            className="h-16 bg-purple-500 hover:bg-purple-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
+          >
+            <span className="text-2xl" aria-hidden="true">🛁</span>
+            <span className="text-sm font-bold">Clean</span>
+          </button>
+        </div>
+
+      <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+        <button
+          type="button"
+          onClick={() => store.toggleShop()}
+          className="min-h-12 rounded-xl bg-amber-500 font-bold text-white shadow-lg hover:bg-amber-400"
+        >
+          🏪 Shop
+        </button>
+        <button
+          type="button"
+          onClick={toggleSound}
+          aria-label={store.progress.settings.soundEnabled ? "Sound on" : "Sound off"}
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-200 hover:bg-amber-300"
+        >
+          {store.progress.settings.soundEnabled ? "🔊" : "🔇"}
+        </button>
+        <button
+          type="button"
+          onClick={() => store.toggleStats()}
+          aria-label="Stats"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-200 hover:bg-amber-300"
+        >
+          📊
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div
       ref={containerRef}
-      className="flex flex-col items-center min-h-full bg-amber-50 p-4 select-none"
+      data-testid="pet-root"
+      className={`flex h-full select-none bg-amber-50 ${short ? "flex-row gap-3 p-2" : "flex-col p-3"}`}
     >
-      {/* Header */}
-      <div className="w-full max-w-md flex justify-between items-center mb-4">
-        <div className="text-amber-800">
-          <span className="font-bold">Day {store.progress.stats.daysCaredFor + 1}</span>
-          <span className="ml-2">🔥 {store.progress.stats.currentStreak} streak</span>
+      {/* The pet and how it feels: this part scrolls if it must. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-3 overflow-y-auto overscroll-contain pb-2">
+        {/* The install pill and a trophy show here, as rows of the page,
+            never over the buttons. */}
+        <IOSInstallPrompt />
+        <AppNotesSlot className="w-full max-w-md" />
+        {/* Header: the day, the streak, the coins, and Read it to me. */}
+        <div className="flex w-full max-w-md items-center gap-2 text-amber-900">
+          <ReadAloudButton text={VIRTUAL_PET_INSTRUCTIONS} variant="icon" />
+          <div className="min-w-0 flex-1 text-base">
+            <span className="font-bold">Day {store.progress.stats.daysCaredFor + 1}</span>
+            <span className="ml-2">🔥 {store.progress.stats.currentStreak} streak</span>
+          </div>
+          <div className="flex items-center gap-1 font-bold">
+            <span aria-hidden="true">💰</span>
+            <span>{store.progress.coins}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 text-amber-800 font-bold">
-          <span>💰</span>
-          <span>{store.progress.coins}</span>
-        </div>
-      </div>
-
-      {/* Read it to me — its own row under the header, above the pet card, so
-          it never covers a care button and needs no scrolling on a phone. */}
-      <div className="w-full max-w-md mb-4">
-        <ReadAloudButton
-          text={VIRTUAL_PET_INSTRUCTIONS}
-        />
-      </div>
 
       {/* Pet display */}
-      <div className="relative bg-amber-100 rounded-3xl p-8 shadow-lg mb-6 w-full max-w-md">
+      <div className="relative w-full max-w-md rounded-3xl bg-amber-100 p-4 shadow-lg short:p-3">
         {/* Cosmetics */}
         <div className="absolute top-4 right-4 flex gap-1">
           {store.progress.equippedCosmetics.map(id => {
@@ -229,14 +345,14 @@ export function VirtualPet() {
 
         {/* Pet */}
         <div className="text-center">
-          <div className="text-8xl mb-4 animate-bounce">
+          <div className="mb-2 text-7xl short:text-6xl">
             {petEmoji}
           </div>
           <div className="text-2xl mb-2 flex items-center justify-center gap-2">
             <span className="font-bold text-amber-800">{store.progress.pet.name}</span>
             <span>{moodEmoji}</span>
           </div>
-          <div className="text-sm text-amber-600 capitalize">
+          <div className="text-base text-amber-700 capitalize">
             {stage} {species.name} • {mood}
           </div>
         </div>
@@ -250,7 +366,7 @@ export function VirtualPet() {
       </div>
 
       {/* Stats */}
-      <div className="w-full max-w-md space-y-3 mb-6 bg-white rounded-2xl p-4 shadow">
+      <div data-testid="pet-stats" className="grid w-full max-w-md grid-cols-2 gap-x-4 gap-y-2 rounded-2xl bg-white p-3 shadow">
         <StatBar
           label="Hunger"
           value={store.progress.pet.hunger}
@@ -277,85 +393,9 @@ export function VirtualPet() {
         />
       </div>
 
-      {/* Action buttons */}
-      <div className="grid grid-cols-5 gap-3 w-full max-w-md mb-6">
-        {/* Feed button */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              if (foodItems.length > 0) {
-                store.feed(foodItems[0].itemId);
-              }
-            }}
-            disabled={foodItems.length === 0 || store.progress.pet.sleeping}
-            className="w-full aspect-square bg-green-500 hover:bg-green-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
-          >
-            <span className="text-3xl">🍎</span>
-            <span className="text-xs font-bold">Feed</span>
-          </button>
-          {foodItems.length > 0 && (
-            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
-              {foodItems.reduce((sum, i) => sum + i.quantity, 0)}
-            </span>
-          )}
-        </div>
-
-        {/* Toy button */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              if (toyItems.length > 0) {
-                store.useToy(toyItems[0].itemId);
-              }
-            }}
-            disabled={toyItems.length === 0 || store.progress.pet.sleeping}
-            className="w-full aspect-square bg-orange-500 hover:bg-orange-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
-          >
-            <span className="text-3xl">⚽</span>
-            <span className="text-xs font-bold">Toy</span>
-          </button>
-          {toyItems.length > 0 && (
-            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
-              {toyItems.reduce((sum, i) => sum + i.quantity, 0)}
-            </span>
-          )}
-        </div>
-
-        {/* Play button */}
-        <button
-          onClick={() => store.startMiniGame()}
-          disabled={store.progress.pet.sleeping || store.progress.pet.energy < 10}
-          className="aspect-square bg-blue-500 hover:bg-blue-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
-        >
-          <span className="text-3xl">🎮</span>
-          <span className="text-xs font-bold">Play</span>
-        </button>
-
-        {/* Sleep/Wake button */}
-        <button
-          onClick={() => store.progress.pet.sleeping ? store.wake() : store.sleep()}
-          className={`aspect-square ${
-            store.progress.pet.sleeping ? "bg-amber-500 hover:bg-amber-400" : "bg-indigo-500 hover:bg-indigo-400"
-          } rounded-2xl flex flex-col items-center justify-center text-white shadow-lg`}
-        >
-          <span className="text-3xl">{store.progress.pet.sleeping ? "☀️" : "💤"}</span>
-          <span className="text-xs font-bold">{store.progress.pet.sleeping ? "Wake" : "Sleep"}</span>
-        </button>
-
-        {/* Clean button */}
-        <button
-          onClick={() => store.clean()}
-          disabled={store.progress.pet.sleeping}
-          className="aspect-square bg-purple-500 hover:bg-purple-400 disabled:bg-gray-300 rounded-2xl flex flex-col items-center justify-center text-white shadow-lg disabled:shadow-none"
-        >
-          <span className="text-3xl">🛁</span>
-          <span className="text-xs font-bold">Clean</span>
-        </button>
-      </div>
-
       {/* Empty-inventory hint - points kids to the shop when Feed/Toy are disabled */}
       {(foodItems.length === 0 || toyItems.length === 0) && (
-        <div className="w-full max-w-md -mt-2 mb-4 text-center text-sm font-semibold text-amber-700">
+        <div className="w-full max-w-md text-center text-base font-semibold text-amber-800">
           {foodItems.length === 0 && toyItems.length === 0
             ? "Out of food and toys? Buy some in the 🏪 Shop!"
             : foodItems.length === 0
@@ -364,29 +404,9 @@ export function VirtualPet() {
         </div>
       )}
 
-      {/* Shop button */}
-      <button
-        onClick={() => store.toggleShop()}
-        className="w-full max-w-md bg-amber-500 hover:bg-amber-400 text-white py-3 rounded-xl font-bold shadow-lg mb-4"
-      >
-        🏪 Shop
-      </button>
-
-      {/* Control row */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={toggleSound}
-          className="w-12 h-12 bg-amber-200 hover:bg-amber-300 rounded-full flex items-center justify-center"
-        >
-          {store.progress.settings.soundEnabled ? "🔊" : "🔇"}
-        </button>
-        <button
-          onClick={() => store.toggleStats()}
-          className="w-12 h-12 bg-amber-200 hover:bg-amber-300 rounded-full flex items-center justify-center"
-        >
-          📊
-        </button>
-        <IOSInstallPrompt />
+      </div>
+      <div className={`shrink-0 ${short ? "flex w-[17rem] flex-col justify-center" : "flex justify-center border-t border-amber-200 pt-2"}`}>
+        {dock}
       </div>
 
       {/* Shop modal */}

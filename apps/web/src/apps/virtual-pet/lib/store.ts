@@ -1,16 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  type PetStage,
-  type PetMood,
   DECAY_RATES,
   SHOP_ITEMS,
-  PET_SPECIES,
   PLAY_HAPPINESS_GAIN,
   PLAY_ENERGY_COST,
   MINIGAME_REWARD,
-  calculateMood,
-  getStage,
   clamp,
 } from "./constants";
 
