@@ -80,6 +80,7 @@ For each game: load it, then actually play — not just look:
 - [ ] Nothing is hover-gated (menus, buttons, tooltips that only appear on hover)
 - [ ] Touch targets are ≥ 44px (kid fingers; CLAUDE.md rule). One exception: the cells of a game board (chess and checkers squares), which the board sizes. Mark the board `data-game-board`; its cells must be ≥ 24px, and the whole board must fit the play box both ways up
 - [ ] No horizontal scroll; canvas/board fits and is not clipped at 390x844
+- [ ] No button, link or select shows its words cut off (an ellipsis, or text clipped by its box) on a 375 px phone or sideways. The phone gate's `cut-label` check catches it; Chrome shows the same cut, but no size check does
 - [ ] Start, restart, pause (if present), and exit are all reachable by touch
 - [ ] Instructions shown on a touch viewport never say "press SPACE / use arrow keys" (use `useCoarsePointer` from `@/shared/hooks` to branch the copy)
 - [ ] Driving games: touch pedals work by tap; tilt steering wired in code (monster-truck pattern)
