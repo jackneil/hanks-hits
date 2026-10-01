@@ -6,6 +6,7 @@ import { MAX_FRAME_MS, useDinoRunnerStore } from "../lib/store";
 import { installNoop2dContext } from "@/__tests__/noop-2d-context";
 import { installRafMock, uninstallRafMock, type RafMock } from "@/__tests__/raf-mock";
 import { ShellHoldContext } from "@/shared/hooks/useShellHold";
+import { DEFAULT_FIXED_STEP_MS } from "@/shared/hooks/useGameLoop";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: () => ({
@@ -23,7 +24,9 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 
 // Regression (phone UX audit 2026-09-29, S8; review of phone/foundation):
 // the shell's hold reached no game that cannot pause, and the store took a
-// frame after a 25 s background as one giant step.
+// frame after a 25 s background as one giant step. The game now runs on the
+// shared fixed-step loop (useGameLoop): the hold pauses the steps, the
+// resume frame only restarts the clock, and a long frame is clamped.
 
 let raf: RafMock;
 let restoreContext: () => void;
@@ -69,19 +72,44 @@ describe("Dino Runner under the shell's hold", () => {
     act(() => {
       raf.nextFrame(60);
     });
-    expect(score(), "the seed frame moves nothing").toBe(atHold);
+    expect(score(), "the resume frame only restarts the clock").toBe(atHold);
     act(() => {
       raf.nextFrame(60);
     });
     const firstStep = score() - atHold;
     const afterFirst = score();
-    // The loop effect re-runs on each store change (render is a dependency),
-    // so an update frame is followed by a seed frame: two frames make one
-    // more step.
-    raf.runFor(2000 / 60, 60, act);
+    act(() => {
+      raf.nextFrame(60);
+    });
     const nextStep = score() - afterFirst;
     expect(firstStep).toBeGreaterThan(0);
-    expect(firstStep).toBeLessThanOrEqual(nextStep * 1.5);
+    // One frame after the wait is one fixed step, like the frame after it:
+    // never thirty seconds of running at once.
+    expect(firstStep).toBeCloseTo(nextStep, 3);
+  });
+
+  it("runs one fixed step per 60 Hz frame, and the same game time per second on a 120 Hz screen", () => {
+    const realUpdate = useDinoRunnerStore.getState().update;
+    const update = vi.fn();
+    try {
+      render(<Game held={false} />);
+      act(() => useDinoRunnerStore.getState().startGame());
+      act(() => useDinoRunnerStore.setState({ update }));
+      // The first frame of the run only starts the clock.
+      act(() => {
+        raf.nextFrame(60);
+      });
+      raf.runFor(1000, 60, act);
+      const at60 = update.mock.calls.length;
+      update.mockClear();
+      raf.runFor(1000, 120, act);
+      const at120 = update.mock.calls.length;
+      expect(at60).toBe(60);
+      expect(at120).toBe(60);
+      expect(new Set(update.mock.calls.map((c) => c[0]))).toEqual(new Set([DEFAULT_FIXED_STEP_MS]));
+    } finally {
+      useDinoRunnerStore.setState({ update: realUpdate });
+    }
   });
 });
 

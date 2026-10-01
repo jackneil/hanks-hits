@@ -63,9 +63,14 @@ describe("game metadata generator", () => {
     // Asteroids is the first live proof (Wave C integration). Game PRs (2.6 and
     // later) add modules one at a time: add each one here with its PR.
     // hill-climb: PR-G1 (phone UX, driving).
+    // dino-runner, endless-runner, flappy-bird, platformer: PR-G2 (phone UX, runners).
     expect(Object.entries(GAME_METADATA).filter(([, m]) => m.clips).map(([id]) => id)).toEqual([
       "asteroids",
+      "dino-runner",
+      "endless-runner",
+      "flappy-bird",
       "hill-climb",
+      "platformer",
     ]);
     expect(getGameMetadata("no-such-game").clips).toBe(false);
   });

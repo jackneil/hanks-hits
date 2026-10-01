@@ -14,8 +14,13 @@ export const CANVAS_HEIGHT = 300;
 // ============================================
 export const GRAVITY = 0.6;
 export const JUMP_VELOCITY = -12;
-export const MAX_JUMP_VELOCITY = -15; // Hold for higher jump
-export const JUMP_HOLD_MULTIPLIER = 0.3; // Additional velocity when holding
+/**
+ * How much less gravity a held jump feels while the dino rises. A tap gives
+ * an apex of JUMP_VELOCITY^2 / (2 * GRAVITY) = 120 px; a held jump gives
+ * JUMP_VELOCITY^2 / (2 * (GRAVITY - cut)) = 180 px, so "hold = higher" is
+ * true and the dino stays inside the canvas (its head at 33 px from the top).
+ */
+export const JUMP_HOLD_GRAVITY_CUT = 0.2;
 export const GROUND_Y = CANVAS_HEIGHT - 40; // Ground level
 
 // Speed ramping

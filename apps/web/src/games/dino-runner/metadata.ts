@@ -6,4 +6,5 @@ export const metadata: GameMetadata = {
   emoji: "🦖",
   category: "racing",
   description: "Chrome-style endless runner",
+  clips: true,
 };

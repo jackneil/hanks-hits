@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { usePlatformerStore, type PlatformerProgress } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { usePointerHold, useTouchInput } from "@/shared/hooks/useTouchInput";
-import { usePointerTap } from "@/shared/lib/input";
+import { DEFAULT_RESTART_GRACE_MS, usePointerTap, useRestartGrace } from "@/shared/lib/input";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { RESULT_CHIP_BUTTON } from "@/shared/components/buttonStyles";
+import { ThumbPadLayout, fitThumbPads } from "@/shared/components/ThumbPadLayout";
+import { usePlatformerClips } from "./lib/usePlatformerClips";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import {
   GameStartOverlay,
@@ -26,14 +32,58 @@ import {
 } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
+/** A phone held sideways: ◀ and ▶ side by side under the left thumb. */
+export const LEFT_GUTTER_WIDTH = 132;
+
+/** The result of a level in kid words, read aloud first. */
+export function levelResultText({
+  cleared,
+  levelName,
+  score,
+  stars,
+  coins,
+  newBestTime,
+  lastLevel,
+}: {
+  cleared: boolean;
+  levelName: string;
+  score: number;
+  stars: number;
+  coins: number;
+  newBestTime: boolean;
+  lastLevel: boolean;
+}): string {
+  const coinWords = coins === 1 ? "1 coin" : `${coins} coins`;
+  const starWords = stars === 1 ? "1 star" : `${stars} stars`;
+  if (!cleared) return `Oops! You got ${score} points, ${coinWords} and ${starWords}. Try again!`;
+  const best = newBestTime ? " That is your best time!" : "";
+  const next = lastLevel ? " You beat every level!" : "";
+  return `Level complete: ${levelName}! You got ${score} points, ${coinWords} and ${starWords}.${best}${next}`;
+}
+
+const PAD_BUTTON =
+  "flex items-center justify-center rounded-2xl font-bold text-white shadow-md touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none]";
+
 export function PlatformerGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const lastTimeRef = useRef<number>(0);
-  const [scale, setScale] = useState(1);
   // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
   const isCoarse = useCoarsePointer();
+  // The picture fits the play box, with ◀ ▶ under the left thumb and JUMP
+  // under the right, beside it sideways or under it upright. Sideways the
+  // player, the ground and the low platforms used to be below the screen.
+  const box = usePlayBox({ fit: true });
+  const fit = fitThumbPads(
+    box,
+    isCoarse,
+    { width: CANVAS_WIDTH, height: CANVAS_HEIGHT },
+    // The whole world, always: the camera is clamped at the start of a
+    // level (the player stands at the left), and the HUD sits at the edges,
+    // so a crop hid both. Upright it is 40 percent of an SE's box (the audit
+    // found a 28 to 32 percent strip).
+    { maxScale: 2, gutterLeft: LEFT_GUTTER_WIDTH },
+  );
 
   const store = usePlatformerStore();
 
@@ -78,22 +128,6 @@ export function PlatformerGame() {
     reset,
     nextLevel,
   } = store;
-
-  // Responsive scaling
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight;
-      const scaleX = containerWidth / CANVAS_WIDTH;
-      const scaleY = containerHeight / CANVAS_HEIGHT;
-      setScale(Math.min(scaleX, scaleY, 2.5));
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
 
   // Drawing functions
   const drawSky = useCallback(
@@ -440,122 +474,18 @@ export function PlatformerGame() {
     [score, coinsThisRun, starsThisRun, currentLevel, timeElapsed]
   );
 
-  const drawGameOver = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      // Darken background
-      ctx.fillStyle = COLORS.GAME_OVER_BG;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  // The end of a level is DOM text over the picture (legible at every
+  // scale; the canvas text and buttons were 86x21 px upright). The canvas
+  // only tints the world.
+  const drawGameOver = useCallback((ctx: CanvasRenderingContext2D) => {
+    ctx.fillStyle = COLORS.GAME_OVER_BG;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }, []);
 
-      ctx.textAlign = "center";
-
-      // Game Over text
-      ctx.font = "bold 48px Arial, sans-serif";
-      ctx.fillStyle = "#FF4444";
-      ctx.fillText("Oops!", CANVAS_WIDTH / 2, 120);
-
-      // Score box
-      ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-      ctx.fillRect(CANVAS_WIDTH / 2 - 120, 150, 240, 120);
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(CANVAS_WIDTH / 2 - 120, 150, 240, 120);
-
-      ctx.fillStyle = "#000";
-      ctx.font = "22px Arial, sans-serif";
-      ctx.fillText("Score", CANVAS_WIDTH / 2, 185);
-      ctx.font = "bold 36px Arial, sans-serif";
-      ctx.fillText(`${score}`, CANVAS_WIDTH / 2, 225);
-
-      ctx.font = "18px Arial, sans-serif";
-      ctx.fillText(
-        `Coins: ${coinsThisRun} | Stars: ${starsThisRun}`,
-        CANVAS_WIDTH / 2,
-        260
-      );
-
-      // Try Again button
-      ctx.fillStyle = "rgba(34, 197, 94, 0.95)";
-      ctx.fillRect(CANVAS_WIDTH / 2 - 100, 300, 200, 50);
-      ctx.strokeStyle = "#166534";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(CANVAS_WIDTH / 2 - 100, 300, 200, 50);
-      ctx.font = "bold 24px Arial, sans-serif";
-      ctx.fillStyle = "#FFF";
-      ctx.fillText("TRY AGAIN", CANVAS_WIDTH / 2, 332);
-    },
-    [score, coinsThisRun, starsThisRun]
-  );
-
-  const drawLevelComplete = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      // Darken background
-      ctx.fillStyle = "rgba(0, 100, 0, 0.8)";
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.textAlign = "center";
-
-      // Level Complete text
-      ctx.font = "bold 48px Arial, sans-serif";
-      ctx.fillStyle = "#FFD700";
-      ctx.fillText("LEVEL COMPLETE!", CANVAS_WIDTH / 2, 100);
-
-      // Score box
-      ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-      ctx.fillRect(CANVAS_WIDTH / 2 - 140, 130, 280, 160);
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(CANVAS_WIDTH / 2 - 140, 130, 280, 160);
-
-      ctx.fillStyle = "#000";
-      ctx.font = "22px Arial, sans-serif";
-      ctx.fillText("Score", CANVAS_WIDTH / 2, 165);
-      ctx.font = "bold 36px Arial, sans-serif";
-      ctx.fillText(`${score}`, CANVAS_WIDTH / 2, 205);
-
-      // Stars collected
-      ctx.font = "24px Arial, sans-serif";
-      for (let i = 0; i < 3; i++) {
-        ctx.fillStyle = i < starsThisRun ? STAR.COLOR : "#CCC";
-        ctx.font = "bold 36px Arial";
-        ctx.fillText("*", CANVAS_WIDTH / 2 - 40 + i * 40, 250);
-      }
-
-      ctx.font = "18px Arial, sans-serif";
-      ctx.fillStyle = "#000";
-      ctx.fillText(`Coins: ${coinsThisRun}`, CANVAS_WIDTH / 2, 280);
-
-      // New record
-      if (isNewHighScore) {
-        ctx.fillStyle = "#FFD700";
-        ctx.font = "bold 24px Arial, sans-serif";
-        ctx.fillText("NEW BEST TIME!", CANVAS_WIDTH / 2, 320);
-      }
-
-      // Next Level / Menu buttons
-      const hasNextLevel = currentLevelIndex < LEVELS.length - 1;
-
-      if (hasNextLevel) {
-        ctx.fillStyle = "rgba(34, 197, 94, 0.95)";
-        ctx.fillRect(CANVAS_WIDTH / 2 - 100, 350, 200, 50);
-        ctx.strokeStyle = "#166534";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(CANVAS_WIDTH / 2 - 100, 350, 200, 50);
-        ctx.font = "bold 24px Arial, sans-serif";
-        ctx.fillStyle = "#FFF";
-        ctx.fillText("NEXT LEVEL", CANVAS_WIDTH / 2, 382);
-      } else {
-        ctx.fillStyle = "rgba(59, 130, 246, 0.95)";
-        ctx.fillRect(CANVAS_WIDTH / 2 - 100, 350, 200, 50);
-        ctx.strokeStyle = "#1e40af";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(CANVAS_WIDTH / 2 - 100, 350, 200, 50);
-        ctx.font = "bold 24px Arial, sans-serif";
-        ctx.fillStyle = "#FFF";
-        ctx.fillText("ALL COMPLETE!", CANVAS_WIDTH / 2, 382);
-      }
-    },
-    [score, coinsThisRun, starsThisRun, isNewHighScore, currentLevelIndex]
-  );
+  const drawLevelComplete = useCallback((ctx: CanvasRenderingContext2D) => {
+    ctx.fillStyle = "rgba(0, 100, 0, 0.6)";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }, []);
 
   // Main render function
   const render = useCallback(
@@ -642,18 +572,24 @@ export function PlatformerGame() {
     };
   }, [gameState, update, render]);
 
-  // Input handling
+  const lastLevel = currentLevelIndex >= LEVELS.length - 1;
+  // Clips: the canvas, one run per attempt at a level, and the level-clear moment.
+  usePlatformerClips(canvasRef, { gameState, score });
+
+  // Try again and Next level wait out a short grace after the result shows,
+  // so a thumb still pressing JUMP at the finish does not skip the result.
+  const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, gameState);
+  const tryAgain = useCallback(() => startGame(currentLevelIndex), [startGame, currentLevelIndex]);
+  const goNext = useCallback(() => {
+    if (lastLevel) reset();
+    else nextLevel();
+  }, [lastLevel, reset, nextLevel]);
+
+  // Input handling. The start card, the result chip and its buttons own
+  // every screen but play, so a tap on the picture only ever plays.
   const handleTap = useCallback(() => {
-    if (gameState === "ready") {
-      startGame();
-    } else if (gameState === "playing") {
-      jump();
-    } else if (gameState === "gameOver") {
-      reset();
-    } else if (gameState === "levelComplete") {
-      nextLevel();
-    }
-  }, [gameState, startGame, jump, reset, nextLevel]);
+    if (gameState === "playing") jump();
+  }, [gameState, jump]);
 
   // Keyboard controls
   useEffect(() => {
@@ -663,17 +599,11 @@ export function PlatformerGame() {
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
       if (gameState === "ready") return;
-      if (
-        e.code === "Space" ||
-        e.code === "ArrowUp" ||
-        e.code === "KeyW"
-      ) {
+      if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
         e.preventDefault();
-        if (gameState === "playing") {
-          jump();
-        } else {
-          handleTap();
-        }
+        if (gameState === "playing") jump();
+        else if (gameState === "gameOver" && grace.accept(e)) tryAgain();
+        else if (gameState === "levelComplete" && grace.accept(e)) goNext();
       }
       if (e.code === "ArrowLeft" || e.code === "KeyA") {
         e.preventDefault();
@@ -706,36 +636,29 @@ export function PlatformerGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [gameState, jump, handleTap, setMovingLeft, setMovingRight]);
+  }, [gameState, jump, setMovingLeft, setMovingRight, grace, tryAgain, goNext]);
 
-  // Touch zones on the canvas through the shared native touch hook:
-  // non-passive listeners (so the tap never scrolls and the browser sends no
-  // compatibility click), and one zone per finger, read from that finger's
-  // own start point. The old handler read e.touches[0], the OLDEST finger:
-  // a tap on the canvas while the ▶ button was held used the ▶ thumb's
-  // coordinates (so it moved LEFT sideways), and any touchend released both
-  // directions even when the ▶ thumb was still down.
+  // Touch zones on the picture through the shared native touch hook: one
+  // zone per finger, read from that finger's own start point (the old
+  // handler read the OLDEST finger, so a tap while ▶ was held moved LEFT).
+  // Left third moves left, right third moves right, the middle jumps.
   useTouchInput<"left" | "right" | "jump">(canvasRef, {
     onStart: (touch) => {
+      if (gameState !== "playing") return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      const x = (touch.startX - rect.left) / scale;
-
-      if (gameState === "playing") {
-        // Left third = move left, right third = move right, middle = jump
-        if (x < CANVAS_WIDTH / 3) {
-          touch.tag = "left";
-          setMovingLeft(true);
-        } else if (x > (CANVAS_WIDTH * 2) / 3) {
-          touch.tag = "right";
-          setMovingRight(true);
-        } else {
-          touch.tag = "jump";
-          jump();
-        }
+      if (!(rect.width > 0)) return;
+      const x = ((touch.startX - rect.left) / rect.width) * CANVAS_WIDTH;
+      if (x < CANVAS_WIDTH / 3) {
+        touch.tag = "left";
+        setMovingLeft(true);
+      } else if (x > (CANVAS_WIDTH * 2) / 3) {
+        touch.tag = "right";
+        setMovingRight(true);
       } else {
-        handleTap();
+        touch.tag = "jump";
+        jump();
       }
     },
     onEnd: (touch) => {
@@ -744,10 +667,8 @@ export function PlatformerGame() {
     },
   });
 
-  // The on-screen pad: ◀ ▶ are holds (pointer capture, release on cancel,
-  // blur and unmount); JUMP is one tap. They used to be React onTouchStart/
-  // onTouchEnd with no touchcancel path, so a system-cancelled touch left a
-  // direction stuck on.
+  // The pad: ◀ ▶ are holds (pointer capture, release on cancel, blur and
+  // unmount); JUMP is one press, for any finger, while ▶ is held.
   const leftHold = usePointerHold<HTMLButtonElement>(
     () => setMovingLeft(true),
     () => setMovingLeft(false)
@@ -758,124 +679,159 @@ export function PlatformerGame() {
   );
   const jumpTap = usePointerTap<HTMLButtonElement>(() => jump());
 
+  // The pad keeps its place between levels (invisible and inert), so the
+  // thumbs never land on nothing and the picture never jumps.
+  const playing = gameState === "playing";
+  const sideways = fit.layout === "sideways";
+  const padState = playing ? "" : "invisible";
+  const arrowSize = sideways ? "h-24 w-14 text-3xl" : "h-20 flex-1 text-4xl";
+  const arrows = (
+    <>
+      <button
+        type="button"
+        aria-label="Move left"
+        data-testid="platformer-left"
+        {...leftHold}
+        aria-hidden={playing ? undefined : true}
+        inert={!playing}
+        className={`${PAD_BUTTON} bg-slate-800/85 active:bg-slate-900 ${arrowSize} ${padState}`}
+      >
+        ◀
+      </button>
+      <button
+        type="button"
+        aria-label="Move right"
+        data-testid="platformer-right"
+        {...rightHold}
+        aria-hidden={playing ? undefined : true}
+        inert={!playing}
+        className={`${PAD_BUTTON} bg-slate-800/85 active:bg-slate-900 ${arrowSize} ${padState}`}
+      >
+        ▶
+      </button>
+    </>
+  );
+  const jumpButton = (
+    <button
+      type="button"
+      data-testid="platformer-jump"
+      {...jumpTap}
+      aria-hidden={playing ? undefined : true}
+      inert={!playing}
+      className={`${PAD_BUTTON} bg-green-700 active:bg-green-800 text-2xl ${sideways ? "h-24 w-[72px]" : "h-20 flex-1"} ${padState}`}
+    >
+      JUMP
+    </button>
+  );
+
+  const finished = gameState === "gameOver" || gameState === "levelComplete";
+  const cleared = gameState === "levelComplete";
+  const resultWords = levelResultText({
+    cleared,
+    levelName: currentLevel?.name ?? "",
+    score,
+    stars: starsThisRun,
+    coins: coinsThisRun,
+    newBestTime: isNewHighScore,
+    lastLevel,
+  });
+
   return (
-    <div className="min-h-full bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
+    <div className="relative h-full w-full bg-sky-500 touch-none select-none [-webkit-touch-callout:none]">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Game container */}
-      <div
-        ref={containerRef}
-        className="relative w-full max-w-4xl flex items-center justify-center"
-        style={{ aspectRatio: `${CANVAS_WIDTH}/${CANVAS_HEIGHT}` }}
-      >
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          onClick={handleTap}
-          className="rounded-lg shadow-2xl cursor-pointer touch-none"
-          style={{
-            width: CANVAS_WIDTH * scale,
-            height: CANVAS_HEIGHT * scale,
-          }}
-        />
+      <ThumbPadLayout fit={fit} left={arrows} right={jumpButton} rowTestId="platformer-control-row">
+        {/* The window onto the whole world. */}
+        <div
+          data-testid="platformer-viewport"
+          className="relative shrink-0 overflow-hidden rounded-lg shadow-xl"
+          style={{ width: fit.viewWidth, height: fit.viewHeight }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            // Mouse only: a finger's touch events are default-prevented by the
+            // hook above, so the browser sends no click for a tap.
+            onClick={handleTap}
+            className="block cursor-pointer touch-none"
+            style={{
+              width: Math.round(CANVAS_WIDTH * fit.scale),
+              height: fit.viewHeight,
+            }}
+          />
 
-        {/* Start screen: shared DOM overlay with a real level picker */}
-        {gameState === "ready" && (
-          <GameStartOverlay
-            title="Hank's Hopper"
-            emoji={metadata.emoji}
-            subtitle="A Platformer Adventure!"
-            touchHints={["Tap ◀ ▶ to move", "Tap JUMP to jump"]}
-            keyboardHints={["A/D or Arrows to move", "SPACE to jump"]}
-            showStartButton={false}
-            spokenChoices={`Tap a level and the game starts: ${LEVELS.map(
-              (level, index) => `Level ${index + 1}, ${level.name}`
-            ).join(", ")}.`}
-            onStart={() => startGame(currentLevelIndex)}
-          >
-            {LEVELS.map((level, index) => {
-              const stars = progress.levels[level.id]?.starsCollected ?? 0;
-              const starLabel =
-                "⭐".repeat(stars) + "☆".repeat(Math.max(0, 3 - stars));
-              return (
-                <GameStartOverlayButton
-                  key={level.id}
-                  onClick={() => startGame(index)}
-                >
-                  Level {index + 1}: {level.name} · {starLabel}
-                </GameStartOverlayButton>
-              );
-            })}
-            <div className="text-sm font-semibold opacity-80">
-              ⭐ Total Stars: {progress.totalStars} · 🪙 Coins:{" "}
-              {progress.totalCoins}
-            </div>
-          </GameStartOverlay>
-        )}
-      </div>
+          {finished && (
+            <ResultCard testId="platformer-result-card" title={cleared ? "Level complete!" : "Oops!"}>
+              <ResultLine big>
+                {score} points · 🪙 {coinsThisRun} · {"⭐".repeat(starsThisRun)}
+                {"☆".repeat(Math.max(0, 3 - starsThisRun))}
+              </ResultLine>
+              {cleared && isNewHighScore && <ResultLine>⏱️ Best time!</ResultLine>}
+            </ResultCard>
+          )}
+        </div>
+      </ThumbPadLayout>
 
-      {/* Visible mobile controls — gated on a coarse (touch) pointer, not a
-          width breakpoint. The game forces landscape (844px wide), so
-          md:hidden would hide these on a phone and make it unplayable. */}
-      {gameState === "playing" && isCoarse && (
-        /* Two-thumb layout: ◀ ▶ clustered under the LEFT thumb, JUMP under the
-           RIGHT thumb - run-right-and-jump is the core verb, so JUMP must be
-           reachable while a movement button is held (a centered JUMP is out of
-           reach for both thumbs). Safe-area padding keeps the row clear of the
-           home indicator on installed-PWA phones. */
-        <div className="fixed bottom-4 left-0 right-0 flex justify-between items-end px-4 pb-[env(safe-area-inset-bottom)] pointer-events-none select-none [-webkit-touch-callout:none]">
-          <div className="flex gap-4 pointer-events-none">
-            <button
-              type="button"
-              {...leftHold}
-              className="w-20 h-20 bg-black/30 rounded-full flex items-center justify-center text-4xl font-bold text-white [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] shadow-lg active:bg-black/50 pointer-events-auto touch-none select-none"
-            >
-              ◀
-            </button>
-            <button
-              type="button"
-              {...rightHold}
-              className="w-20 h-20 bg-black/30 rounded-full flex items-center justify-center text-4xl font-bold text-white [text-shadow:_0_2px_4px_rgb(0_0_0_/_60%)] shadow-lg active:bg-black/50 pointer-events-auto touch-none select-none"
-            >
-              ▶
-            </button>
+      {/* Start screen: shared DOM overlay with a real level picker */}
+      {gameState === "ready" && (
+        <GameStartOverlay
+          title="Hank's Hopper"
+          emoji={metadata.emoji}
+          subtitle="A Platformer Adventure!"
+          touchHints={["Hold ◀ ▶ to move", "Tap JUMP to jump"]}
+          keyboardHints={["A/D or Arrows to move", "SPACE to jump"]}
+          showStartButton={false}
+          spokenChoices={`Tap a level and the game starts: ${LEVELS.map(
+            (level, index) => `Level ${index + 1}, ${level.name}`
+          ).join(", ")}.`}
+          onStart={() => startGame(currentLevelIndex)}
+        >
+          {LEVELS.map((level, index) => {
+            const stars = progress.levels[level.id]?.starsCollected ?? 0;
+            const starLabel =
+              "⭐".repeat(stars) + "☆".repeat(Math.max(0, 3 - stars));
+            return (
+              <GameStartOverlayButton
+                key={level.id}
+                onClick={() => startGame(index)}
+              >
+                Level {index + 1}: {level.name} · {starLabel}
+              </GameStartOverlayButton>
+            );
+          })}
+          <div className="text-sm font-semibold opacity-80">
+            ⭐ Total Stars: {progress.totalStars} · 🪙 Coins:{" "}
+            {progress.totalCoins} · Jumps: {progress.totalJumps}
           </div>
-          <button
-            type="button"
-            {...jumpTap}
-            className="w-24 h-24 bg-green-500/60 rounded-full flex items-center justify-center text-2xl font-bold text-white shadow-lg active:bg-green-500/80 pointer-events-auto touch-none select-none"
-          >
-            JUMP
-          </button>
-        </div>
+        </GameStartOverlay>
       )}
 
-      {/* Controls hint — in-play reminder only; the start overlay carries
-          this copy on the ready screen */}
-      {gameState !== "ready" && (
-        <div className="mt-4 text-center text-white/80 text-sm">
-          {!isCoarse && (
-            <p>
-              <strong>Desktop:</strong> A/D or Arrows to move, Space to jump
-            </p>
+      {/* The result chip: read it to me, Try again (Play again), Next level,
+          the leaderboard, and with clips on the clip buttons. Mounted only
+          at the end of a level, so its grace starts then. */}
+      {finished && (
+        <ResultChip
+          resultText={resultWords}
+          appId="platformer"
+          onRestart={tryAgain}
+          spokenExtras={cleared ? [lastLevel ? "Pick a level" : "Next level"] : []}
+          keyboardHint="Space"
+        >
+          {cleared && (
+            <button
+              type="button"
+              data-testid="platformer-next"
+              // The chip holds every button in its bar through the grace.
+              onClick={goNext}
+              className={`btn btn-primary ${RESULT_CHIP_BUTTON}`}
+            >
+              {lastLevel ? "🗺️ Pick a level" : "▶ Next level"}
+            </button>
           )}
-          {isCoarse && (
-            <p>
-              <strong>Mobile:</strong> Use the buttons below to move and jump
-            </p>
-          )}
-        </div>
+        </ResultChip>
       )}
-
-      {/* Stats */}
-      <div className="mt-2 text-center text-white/60 text-xs">
-        <p>
-          Games: {progress.gamesPlayed} | Deaths: {progress.totalDeaths} |
-          Jumps: {progress.totalJumps}
-        </p>
-      </div>
     </div>
   );
 }

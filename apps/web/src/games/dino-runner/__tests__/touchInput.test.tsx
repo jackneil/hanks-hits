@@ -15,12 +15,7 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
 
-import {
-  DinoRunnerGame,
-  getRestartLine,
-  INTENT_MOVE_PX,
-  JUMP_INTENT_MS,
-} from "../Game";
+import { DinoRunnerGame, INTENT_MOVE_PX, JUMP_INTENT_MS } from "../Game";
 import { useDinoRunnerStore } from "../lib/store";
 import {
   fingerCancel,
@@ -32,13 +27,14 @@ import {
 } from "@/__tests__/finger-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
-// Regression (2026 phone audit, dino-runner): the canvas carried
-// onTouchStart AND onClick, so one tap ran the input handler twice (at
-// 844x340 a game-over tap restarted AND pressed the Play button under the
-// finger); every touchstart jumped at once, so "swipe down to duck" hopped
-// the dino into the pterodactyl; DUCK sat behind md:hidden, so a large
-// phone held sideways (844 px wide) had no duck control at all; the
-// game-over line told a phone kid to press Space.
+// Regression (2026 phone audit, dino-runner): the touch handlers were on the
+// canvas only, so the bottom 220 to 275 px of a phone held upright, where a
+// thumb rests, was dead; DUCK sat below the fold sideways and did not
+// exist at all on a large phone (md:hidden); a game-over tap restarted at
+// once (and at 844x340 also pressed the Play button under the finger).
+// Now the whole play surface takes the finger, JUMP and DUCK are hold
+// buttons beside (or under) the picture, and game over waits for the
+// result chip's Play again.
 
 beforeEach(() => {
   localStorage.clear();
@@ -59,15 +55,17 @@ afterEach(() => {
   });
 });
 
+const surface = () => screen.getByTestId("dino-surface");
+
 describe("Dino Runner touch input", () => {
-  it("one finger tap on the canvas jumps ONCE (no compatibility click)", () => {
+  it("one finger tap ANYWHERE on the play surface jumps ONCE (no compatibility click)", () => {
     const jump = vi.fn();
     act(() => {
       useDinoRunnerStore.setState({ jump });
     });
-    const { container } = render(<DinoRunnerGame />);
-    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
-    fingerTap(canvas, { x: 200, y: 100 });
+    render(<DinoRunnerGame />);
+    // Where a thumb rests: below the picture.
+    fingerTap(surface(), { x: 180, y: 480 });
     expect(jump).toHaveBeenCalledTimes(1);
   });
 
@@ -77,14 +75,13 @@ describe("Dino Runner touch input", () => {
     act(() => {
       useDinoRunnerStore.setState({ jump, duck });
     });
-    const { container } = render(<DinoRunnerGame />);
-    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
-    fingerDown(canvas, { x: 200, y: 100 });
+    render(<DinoRunnerGame />);
+    fingerDown(surface(), { x: 200, y: 100 });
     expect(jump).not.toHaveBeenCalled();
-    fingerMove(canvas, { x: 202, y: 100 + INTENT_MOVE_PX + 2 });
+    fingerMove(surface(), { x: 202, y: 100 + INTENT_MOVE_PX + 2 });
     expect(jump).not.toHaveBeenCalled();
     expect(duck).toHaveBeenLastCalledWith(true);
-    fingerUp(canvas);
+    fingerUp(surface());
     expect(duck).toHaveBeenLastCalledWith(false);
     expect(jump).not.toHaveBeenCalled();
   });
@@ -97,16 +94,15 @@ describe("Dino Runner touch input", () => {
       act(() => {
         useDinoRunnerStore.setState({ jump, releaseJump });
       });
-      const { container } = render(<DinoRunnerGame />);
-      const canvas = container.querySelector("canvas") as HTMLCanvasElement;
-      fingerDown(canvas, { x: 200, y: 100 });
+      render(<DinoRunnerGame />);
+      fingerDown(surface(), { x: 200, y: 100 });
       expect(jump).not.toHaveBeenCalled();
       act(() => {
         vi.advanceTimersByTime(JUMP_INTENT_MS);
       });
       expect(jump).toHaveBeenCalledTimes(1);
       expect(releaseJump).not.toHaveBeenCalled();
-      fingerUp(canvas);
+      fingerUp(surface());
       expect(releaseJump).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -119,41 +115,92 @@ describe("Dino Runner touch input", () => {
     act(() => {
       useDinoRunnerStore.setState({ jump, duck });
     });
-    const { container } = render(<DinoRunnerGame />);
-    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
-    fingerDown(canvas, { x: 200, y: 100 });
-    fingerMove(canvas, { x: 200, y: 100 - INTENT_MOVE_PX - 2 });
+    render(<DinoRunnerGame />);
+    fingerDown(surface(), { x: 200, y: 100 });
+    fingerMove(surface(), { x: 200, y: 100 - INTENT_MOVE_PX - 2 });
     expect(jump).toHaveBeenCalledTimes(1);
     expect(duck).not.toHaveBeenCalled();
-    fingerUp(canvas);
+    fingerUp(surface());
   });
 
-  it("shows DUCK on a coarse pointer and never on a fine one, at any width", () => {
+  it("shows JUMP and DUCK on a coarse pointer and never on a fine one, at any width", () => {
     mockPointer(true);
     const { unmount } = render(<DinoRunnerGame />);
     expect(screen.getByRole("button", { name: "DUCK" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "JUMP" })).toBeInTheDocument();
     unmount();
 
     mockPointer(false);
     render(<DinoRunnerGame />);
     expect(screen.queryByRole("button", { name: "DUCK" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "JUMP" })).not.toBeInTheDocument();
   });
 
-  it("DUCK is a hold: down ducks, a cancelled touch stands the dino back up", () => {
+  it("DUCK is a hold: down ducks, a cancelled touch stands the dino back up, and the surface never sees it", () => {
     const duck = vi.fn();
+    const jump = vi.fn();
     act(() => {
-      useDinoRunnerStore.setState({ duck });
+      useDinoRunnerStore.setState({ duck, jump });
     });
     render(<DinoRunnerGame />);
     const button = screen.getByRole("button", { name: "DUCK" });
     fingerDown(button);
     expect(duck).toHaveBeenLastCalledWith(true);
+    // The button's press is the button's: the surface under it does not jump.
+    expect(jump).not.toHaveBeenCalled();
     fingerCancel(button);
     expect(duck).toHaveBeenLastCalledWith(false);
+    expect(jump).not.toHaveBeenCalled();
   });
 
-  it("the game-over line never says Space to a finger", () => {
-    expect(getRestartLine(true)).toBe("Tap to Restart");
-    expect(getRestartLine(false)).toBe("Press Space or Tap to Restart");
+  it("JUMP is a hold: down jumps once, up lets the jump go (hold = higher)", () => {
+    const jump = vi.fn();
+    const releaseJump = vi.fn();
+    act(() => {
+      useDinoRunnerStore.setState({ jump, releaseJump });
+    });
+    render(<DinoRunnerGame />);
+    const button = screen.getByRole("button", { name: "JUMP" });
+    fingerDown(button);
+    expect(jump).toHaveBeenCalledTimes(1);
+    expect(releaseJump).not.toHaveBeenCalled();
+    fingerUp(button);
+    expect(jump).toHaveBeenCalledTimes(1);
+    expect(releaseJump).toHaveBeenCalledTimes(1);
+  });
+
+  it("a mouse press on the surface jumps once and its release lets the jump go", () => {
+    mockPointer(false);
+    const jump = vi.fn();
+    const releaseJump = vi.fn();
+    act(() => {
+      useDinoRunnerStore.setState({ jump, releaseJump });
+    });
+    const { container } = render(<DinoRunnerGame />);
+    const canvas = container.querySelector("canvas") as HTMLCanvasElement;
+    act(() => {
+      canvas.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, ...({ pointerType: "mouse" } as object) }));
+    });
+    expect(jump).toHaveBeenCalledTimes(1);
+    act(() => {
+      canvas.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0, ...({ pointerType: "mouse" } as object) }));
+    });
+    expect(releaseJump).toHaveBeenCalledTimes(1);
+  });
+
+  it("at game over a tap on the surface does nothing: the result chip restarts", () => {
+    act(() => {
+      useDinoRunnerStore.setState({ gameState: "game-over", score: 42 });
+    });
+    const startGame = vi.fn();
+    act(() => {
+      useDinoRunnerStore.setState({ startGame });
+    });
+    render(<DinoRunnerGame />);
+    fingerTap(surface(), { x: 200, y: 100 });
+    fingerTap(surface(), { x: 200, y: 400 });
+    expect(startGame).not.toHaveBeenCalled();
+    expect(useDinoRunnerStore.getState().gameState).toBe("game-over");
+    expect(screen.getByTestId("result-chip")).toBeInTheDocument();
   });
 });

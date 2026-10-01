@@ -144,14 +144,14 @@ describe("Platformer canvas touch zones", () => {
     expect(usePlatformerStore.getState().movingRight).toBe(false);
   });
 
-  it("still handles taps on non-playing states (game over -> ready) via touchstart", () => {
+  it("never restarts from a tap on the level at game over (the result chip owns Try again)", () => {
     act(() => {
       usePlatformerStore.setState({ gameState: "gameOver" });
     });
     const { container } = render(<PlatformerGame />);
 
     fingerDown(getCanvas(container), { x: 400, y: 200 });
-    expect(usePlatformerStore.getState().gameState).toBe("ready");
+    expect(usePlatformerStore.getState().gameState).toBe("gameOver");
     fingerUp(getCanvas(container));
   });
 });
@@ -167,8 +167,8 @@ describe("Platformer on-screen mobile controls", () => {
     // The move + jump buttons must exist regardless of viewport width, since
     // the game forces a 844px-wide landscape posture.
     expect(screen.getByRole("button", { name: "JUMP" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "◀" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "▶" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move left" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move right" })).toBeInTheDocument();
   });
 
   it("hides the touch controls while playing on a fine (mouse) pointer", () => {
@@ -179,8 +179,8 @@ describe("Platformer on-screen mobile controls", () => {
     render(<PlatformerGame />);
 
     expect(screen.queryByRole("button", { name: "JUMP" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "◀" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "▶" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Move left" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Move right" })).toBeNull();
   });
 });
 

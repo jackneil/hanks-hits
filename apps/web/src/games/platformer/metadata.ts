@@ -7,4 +7,5 @@ export const metadata: GameMetadata = {
   category: "action",
   description: "Jump and run adventure",
   preferredOrientation: "landscape",
+  clips: true,
 };

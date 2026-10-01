@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useFlappyStore } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useShellHold } from "@/shared/hooks/useShellHold";
@@ -17,14 +17,33 @@ import {
   getMedal,
 } from "./lib/constants";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
-import { usePointerTap } from "@/shared/lib/input";
+import { DEFAULT_RESTART_GRACE_MS, usePointerTap, useRestartGrace } from "@/shared/lib/input";
+import { fitCanvas, usePlayBox } from "@/shared/hooks/usePlayBox";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+
+/** The medal of a run, as a picture a kid knows. */
+const MEDAL_EMOJI = { bronze: "🥉", silver: "🥈", gold: "🥇", platinum: "🏅" } as const;
+import { useFlappyClips } from "./lib/useFlappyClips";
+
+/** The result in kid words, read aloud first. */
+export function flappyResultText({ score, best, newBest }: { score: number; best: number; newBest: boolean }): string {
+  const pipes = score === 1 ? "1 pipe" : `${score} pipes`;
+  const medal = getMedal(score);
+  const medalWords = medal === "none" ? "" : ` You earned a ${medal} medal!`;
+  const bestWords = newBest ? " That is a new best!" : ` Your best is ${best}.`;
+  return `Game over! You flew through ${pipes}.${medalWords}${bestWords}`;
+}
 
 export function FlappyBirdGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const lastTimeRef = useRef<number>(0);
-  const [scale, setScale] = useState(1);
+  // The board fits the play box on both axes, so a phone held sideways
+  // shows the whole board (it was 672 px tall in a 263 px window) and a
+  // phone held upright never scrolls (phone UX audit 2026-09-29).
+  const box = usePlayBox({ fit: true });
+  const fit = fitCanvas(box, CANVAS_WIDTH, CANVAS_HEIGHT);
   // The shell holds the game under an overlay (the orientation tip, the
   // restart question, the leaderboard, the install steps) and in a hidden
   // tab: the loop skips its update while it is true, so the bird hangs in
@@ -62,22 +81,6 @@ export function FlappyBirdGame() {
       forceSync();
     }
   }, [gameState, forceSync]);
-
-  // Responsive scaling
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight;
-      const scaleX = containerWidth / CANVAS_WIDTH;
-      const scaleY = containerHeight / CANVAS_HEIGHT;
-      setScale(Math.min(scaleX, scaleY, 2)); // Cap at 2x
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
 
   // Drawing functions
   const drawBird = useCallback(
@@ -193,75 +196,12 @@ export function FlappyBirdGame() {
     [gameState, score]
   );
 
-  const drawGameOver = useCallback(
-    (ctx: CanvasRenderingContext2D) => {
-      // Darken background
-      ctx.fillStyle = COLORS.GAME_OVER_BG;
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-      ctx.textAlign = "center";
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.strokeStyle = COLORS.SCORE_SHADOW;
-      ctx.lineWidth = 2;
-
-      // Game Over text
-      ctx.font = "bold 40px Arial, sans-serif";
-      ctx.strokeText("Game Over!", CANVAS_WIDTH / 2, 120);
-      ctx.fillText("Game Over!", CANVAS_WIDTH / 2, 120);
-
-      // Score box
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.fillRect(CANVAS_WIDTH / 2 - 100, 150, 200, 140);
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(CANVAS_WIDTH / 2 - 100, 150, 200, 140);
-
-      ctx.fillStyle = "#000";
-      ctx.font = "20px Arial, sans-serif";
-      ctx.fillText("Score", CANVAS_WIDTH / 2, 180);
-      ctx.font = "bold 36px Arial, sans-serif";
-      ctx.fillText(score.toString(), CANVAS_WIDTH / 2, 220);
-
-      ctx.font = "20px Arial, sans-serif";
-      ctx.fillText("Best", CANVAS_WIDTH / 2, 260);
-      ctx.font = "bold 28px Arial, sans-serif";
-      ctx.fillText(progress.highScore.toString(), CANVAS_WIDTH / 2, 290);
-
-      // New high score celebration
-      if (isNewHighScore) {
-        ctx.fillStyle = "#FFD700";
-        ctx.font = "bold 24px Arial, sans-serif";
-        ctx.fillText("NEW HIGH SCORE!", CANVAS_WIDTH / 2, 330);
-      }
-
-      // Medal
-      const medal = getMedal(score);
-      if (medal !== "none") {
-        const medalColors = {
-          bronze: "#CD7F32",
-          silver: "#C0C0C0",
-          gold: "#FFD700",
-          platinum: "#E5E4E2",
-        };
-        ctx.fillStyle = medalColors[medal];
-        ctx.beginPath();
-        ctx.arc(CANVAS_WIDTH / 2 - 60, 235, 25, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = "#000";
-        ctx.font = "12px Arial, sans-serif";
-        ctx.fillText(medal.toUpperCase(), CANVAS_WIDTH / 2 - 60, 270);
-      }
-
-      // Restart instruction
-      ctx.fillStyle = COLORS.SCORE_TEXT;
-      ctx.font = UI.SMALL_FONT;
-      ctx.fillText("Tap to Restart", CANVAS_WIDTH / 2, 400);
-    },
-    [score, progress.highScore, isNewHighScore]
-  );
+  // The result is DOM text over the board (ResultCard): legible at every
+  // scale and never under the result chip. The canvas only dims the world.
+  const drawGameOver = useCallback((ctx: CanvasRenderingContext2D) => {
+    ctx.fillStyle = COLORS.GAME_OVER_BG;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }, []);
 
   // Main render function
   const render = useCallback(
@@ -342,16 +282,23 @@ export function FlappyBirdGame() {
     };
   }, [gameState, held, update, render]);
 
-  // Input handling
-  // Taps and keys never start the game any more: the shared start overlay
-  // owns that, so a tap on its Play button cannot also flap the bird.
+  // Clips: the canvas, runs and the new-best moment.
+  useFlappyClips(canvasRef, { gameState, score, highScore: progress.highScore });
+
+  // Play again: straight into a new flight, no start card in between.
+  const restart = useCallback(() => {
+    reset();
+    startGame();
+  }, [reset, startGame]);
+  // A thumb still mashing when the bird crashes must not restart at once.
+  const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, gameState);
+
+  // Input handling. Taps and keys never start the game: the shared start
+  // overlay owns that, and the result chip owns Play again, so a tap on
+  // the board only ever flaps.
   const handleInput = useCallback(() => {
-    if (gameState === "playing") {
-      flap();
-    } else if (gameState === "gameOver") {
-      reset();
-    }
-  }, [gameState, flap, reset]);
+    if (gameState === "playing") flap();
+  }, [gameState, flap]);
 
   // One tap = one flap, for a finger, a mouse, or Enter on the focused
   // canvas: the shared pointer tap acts on pointerdown and ignores the
@@ -366,63 +313,71 @@ export function FlappyBirdGame() {
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
       if (gameState === "ready") return;
-      if (e.code === "Space" || e.code === "Enter" || e.code === "ArrowUp") {
-        e.preventDefault();
-        handleInput();
-      }
+      if (e.code !== "Space" && e.code !== "Enter" && e.code !== "ArrowUp") return;
+      e.preventDefault();
+      if (gameState === "playing") handleInput();
+      else if (gameState === "gameOver" && grace.accept(e)) restart();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [gameState, handleInput]);
+  }, [gameState, handleInput, restart, grace]);
+
+  const medal = getMedal(score);
 
   return (
-    <div className="min-h-full bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
+    <div className="relative flex h-full w-full items-center justify-center bg-sky-500">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-
-      {/* Game container */}
-      <div
-        ref={containerRef}
-        className="relative w-full max-w-md aspect-[2/3] flex items-center justify-center"
-      >
+      <div className="relative shrink-0" style={{ width: fit.width, height: fit.height }}>
         <canvas
           ref={canvasRef}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
+          data-testid="flappy-canvas"
           // One handler for finger and mouse. A React onTouchStart cannot
           // preventDefault (React attaches it passive), so a tap used to fire
           // touchstart AND the compatibility click: two flaps per tap.
           {...canvasTap}
-          className="rounded-lg shadow-2xl cursor-pointer touch-manipulation"
-          style={{
-            width: CANVAS_WIDTH * scale,
-            height: CANVAS_HEIGHT * scale,
-          }}
+          className="block rounded-lg shadow-2xl cursor-pointer touch-none"
+          style={{ width: fit.width, height: fit.height }}
         />
-
-        {/* Shared DOM start screen (renders the title once) */}
-        {gameState === "ready" && (
-          <GameStartOverlay
-            title="Flappy Bird"
-            emoji="🐦"
-            subtitle="Fly through the pipes!"
-            touchHints={["👆 Tap to flap", "🟩 Fly through the gaps"]}
-            keyboardHints={["⌨️ Space to flap", "🟩 Fly through the gaps"]}
-            onStart={() => startGame()}
-          >
-            <div className="text-base font-medium opacity-90">
-              🏆 Best: {progress.highScore}
-            </div>
-          </GameStartOverlay>
+        {gameState === "gameOver" && (
+          <ResultCard testId="flappy-result-card" title="Game over!">
+            <ResultLine big>
+              🟩 {score} {score === 1 ? "pipe" : "pipes"}
+              {medal !== "none" && <> · {MEDAL_EMOJI[medal]}</>}
+            </ResultLine>
+            <ResultLine>{isNewHighScore ? "🏆 New best!" : `Best ${progress.highScore}`}</ResultLine>
+          </ResultCard>
         )}
       </div>
 
-      {/* Stats */}
-      <div className="mt-4 text-center text-white/80 text-sm">
-        <p>Games: {progress.gamesPlayed} | Total Pipes: {progress.totalPipes}</p>
-      </div>
+      {/* Shared DOM start screen (renders the title once) */}
+      {gameState === "ready" && (
+        <GameStartOverlay
+          title="Flappy Bird"
+          emoji="🐦"
+          subtitle="Fly through the pipes!"
+          touchHints={["👆 Tap to flap", "🟩 Fly through the gaps"]}
+          keyboardHints={["⌨️ Space to flap", "🟩 Fly through the gaps"]}
+          onStart={() => startGame()}
+        >
+          <div className="text-base font-medium opacity-90">
+            🏆 Best: {progress.highScore} · Games: {progress.gamesPlayed} · Pipes: {progress.totalPipes}
+          </div>
+        </GameStartOverlay>
+      )}
+
+      {gameState === "gameOver" && (
+        <ResultChip
+          resultText={flappyResultText({ score, best: progress.highScore, newBest: isNewHighScore })}
+          appId="flappy-bird"
+          onRestart={restart}
+          keyboardHint="Space"
+        />
+      )}
 
       {/* Sync status indicator */}
       {isAuthenticated && (

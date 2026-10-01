@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useEndlessRunnerStore, type EndlessRunnerProgress } from "./lib/store";
 import {
   CANVAS_WIDTH,
@@ -22,15 +22,47 @@ import { getInstructionLines } from "./lib/instructions";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
-import { useTouchInput } from "@/shared/hooks/useTouchInput";
+import { usePointerHold, useTouchInput } from "@/shared/hooks/useTouchInput";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { DEFAULT_RESTART_GRACE_MS, usePointerTap, useRestartGrace } from "@/shared/lib/input";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { ThumbPadLayout, fitThumbPads } from "@/shared/components/ThumbPadLayout";
+import { useEndlessClips } from "./lib/useEndlessClips";
+
+/**
+ * On a phone the window shows at least this much of the world's width,
+ * so the picture is taller (the runner stands at x = 100; 500 px of road
+ * ahead is what a kid needs). Before this it was a strip 25 to 29 percent
+ * of the screen tall (phone UX audit 2026-09-29).
+ */
+export const PHONE_VISIBLE_WORLD = 600;
+
+/** The result in kid words, read aloud first. */
+export function runnerResultText({ distance, coins, best, newBest }: { distance: number; coins: number; best: number; newBest: boolean }): string {
+  const coinWords = coins === 1 ? "1 coin" : `${coins} coins`;
+  const bestWords = newBest ? " That is a new best!" : ` Your best is ${best} meters.`;
+  return `Game over! You ran ${distance} meters and got ${coinWords}.${bestWords}`;
+}
+
+const HOLD_BUTTON =
+  "flex items-center justify-center rounded-2xl bg-slate-800/90 text-white text-xl font-bold shadow-md active:bg-slate-900 touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none]";
 
 export function EndlessRunnerGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const lastTimeRef = useRef<number>(0);
-  const [scale, setScale] = useState(1);
   const isCoarse = useCoarsePointer();
+  // The picture fits the play box on both axes, with the thumb buttons
+  // beside it (sideways) or under it (upright). Sideways the runner, the
+  // crates and the ground used to be below the screen.
+  const box = usePlayBox({ fit: true });
+  const fit = fitThumbPads(
+    box,
+    isCoarse,
+    { width: CANVAS_WIDTH, height: CANVAS_HEIGHT },
+    { minVisibleWorld: PHONE_VISIBLE_WORLD, maxScale: 2 },
+  );
   // The shell holds the game under an overlay (the orientation tip, the
   // restart question, the leaderboard, the install steps) and in a hidden
   // tab: the loop skips its update while it is true, so the runner stands
@@ -74,23 +106,6 @@ export function EndlessRunnerGame() {
     }
   }, [gameState, forceSync]);
 
-  // Responsive scaling
-  useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight;
-      const scaleX = containerWidth / CANVAS_WIDTH;
-      const scaleY = containerHeight / CANVAS_HEIGHT;
-      setScale(Math.min(scaleX, scaleY, 2.5)); // Cap at 2.5x
-    };
-
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
-  }, []);
-
-  // Get character color
   const getCharacterColor = useCallback(() => {
     const charId = progress.selectedCharacter as CharacterId;
     return CHARACTERS[charId]?.color || PLAYER.COLOR_BODY;
@@ -351,6 +366,10 @@ export function EndlessRunnerGame() {
     });
   }, [coins]);
 
+  // The right edge of the part of the world on screen: on a phone the
+  // window may crop the world on the right (PHONE_VISIBLE_WORLD), so the
+  // coin counter is drawn at the visible edge, never off screen.
+  const visibleRight = Math.round(fit.scale > 0 ? fit.visibleWorld : CANVAS_WIDTH);
   const drawHUD = useCallback((ctx: CanvasRenderingContext2D) => {
     // Distance counter
     ctx.font = UI.SCORE_FONT;
@@ -363,70 +382,26 @@ export function EndlessRunnerGame() {
     // Coins counter
     ctx.textAlign = "right";
     ctx.fillStyle = COLORS.SCORE_SHADOW;
-    ctx.fillText(`${coinsThisRun}`, CANVAS_WIDTH - 18, 42);
+    ctx.fillText(`${coinsThisRun}`, visibleRight - 18, 42);
     ctx.fillStyle = COIN.COLOR;
-    ctx.fillText(`${coinsThisRun}`, CANVAS_WIDTH - 20, 40);
+    ctx.fillText(`${coinsThisRun}`, visibleRight - 20, 40);
 
     // Coin icon
     ctx.fillStyle = COIN.COLOR;
     ctx.beginPath();
-    ctx.arc(CANVAS_WIDTH - 60, 32, 12, 0, Math.PI * 2);
+    ctx.arc(visibleRight - 60, 32, 12, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = COIN.OUTLINE_COLOR;
     ctx.lineWidth = 2;
     ctx.stroke();
-  }, [score, coinsThisRun]);
+  }, [score, coinsThisRun, visibleRight]);
 
+  // The result is DOM text over the picture (legible at every scale; the
+  // canvas text was 7.7 px upright). The canvas only dims the world.
   const drawGameOver = useCallback((ctx: CanvasRenderingContext2D) => {
-    // Darken background
     ctx.fillStyle = COLORS.GAME_OVER_BG;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    ctx.textAlign = "center";
-
-    // Game Over text
-    ctx.font = "bold 48px Arial, sans-serif";
-    ctx.fillStyle = COLORS.SCORE_SHADOW;
-    ctx.fillText("Game Over!", CANVAS_WIDTH / 2 + 2, 82);
-    ctx.fillStyle = COLORS.SCORE_TEXT;
-    ctx.fillText("Game Over!", CANVAS_WIDTH / 2, 80);
-
-    // Score box
-    ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-    ctx.fillRect(CANVAS_WIDTH / 2 - 120, 100, 240, 160);
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(CANVAS_WIDTH / 2 - 120, 100, 240, 160);
-
-    ctx.fillStyle = "#000";
-    ctx.font = "22px Arial, sans-serif";
-    ctx.fillText("Distance", CANVAS_WIDTH / 2, 135);
-    ctx.font = "bold 40px Arial, sans-serif";
-    ctx.fillText(`${score}m`, CANVAS_WIDTH / 2, 175);
-
-    ctx.font = "18px Arial, sans-serif";
-    ctx.fillText(`Coins: +${coinsThisRun}`, CANVAS_WIDTH / 2, 210);
-
-    ctx.font = "20px Arial, sans-serif";
-    ctx.fillText(`Best: ${progress.highScore}m`, CANVAS_WIDTH / 2, 245);
-
-    // New high score celebration
-    if (isNewHighScore) {
-      ctx.fillStyle = "#FFD700";
-      ctx.font = "bold 28px Arial, sans-serif";
-      ctx.fillText("NEW HIGH SCORE!", CANVAS_WIDTH / 2, 290);
-    }
-
-    // Play Again button
-    ctx.fillStyle = "rgba(34, 197, 94, 0.95)";
-    ctx.fillRect(CANVAS_WIDTH / 2 - 100, 320, 200, 50);
-    ctx.strokeStyle = "#166534";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(CANVAS_WIDTH / 2 - 100, 320, 200, 50);
-    ctx.font = "bold 24px Arial, sans-serif";
-    ctx.fillStyle = "#FFF";
-    ctx.fillText("PLAY AGAIN", CANVAS_WIDTH / 2, 352);
-  }, [score, coinsThisRun, progress.highScore, isNewHighScore]);
+  }, []);
 
   // Main render function
   const render = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -502,16 +477,23 @@ export function EndlessRunnerGame() {
     };
   }, [gameState, held, update, render]);
 
-  // Input handling
-  // Taps and keys never start the run any more: the shared start overlay owns
-  // that, so a tap on its Play button cannot also make the runner jump.
+  // Clips: the canvas, runs and the new-best moment.
+  useEndlessClips(canvasRef, { gameState, distance: score, highScore: progress.highScore });
+
+  // Play again: straight into a new run, no start card in between.
+  const restart = useCallback(() => {
+    reset();
+    startGame();
+  }, [reset, startGame]);
+  // A thumb still mashing at the crash must not restart at once.
+  const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, gameState);
+
+  // Input handling. Taps and keys never start the run: the shared start
+  // overlay owns that, and the result chip owns Play again, so a tap on
+  // the picture only ever jumps.
   const handleTap = useCallback(() => {
-    if (gameState === "playing") {
-      jump();
-    } else if (gameState === "gameOver") {
-      reset();
-    }
-  }, [gameState, jump, reset]);
+    if (gameState === "playing") jump();
+  }, [gameState, jump]);
 
   // Keyboard controls
   useEffect(() => {
@@ -523,7 +505,8 @@ export function EndlessRunnerGame() {
       if (gameState === "ready") return;
       if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
         e.preventDefault();
-        handleTap();
+        if (gameState === "playing") handleTap();
+        else if (gameState === "gameOver" && grace.accept(e)) restart();
       }
       if (e.code === "ArrowDown" || e.code === "KeyS") {
         e.preventDefault();
@@ -546,22 +529,19 @@ export function EndlessRunnerGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [handleTap, gameState, startDuck, stopDuck]);
+  }, [handleTap, gameState, startDuck, stopDuck, grace, restart]);
 
-  // Touch controls through the shared native touch hook: non-passive
-  // listeners (the old React onTouchStart/onTouchEnd called preventDefault,
-  // a no-op in React's passive listeners that logged an error on every tap),
-  // and one zone per finger. A thumb holding the duck zone stays ducked
-  // while the other thumb taps to jump; only the duck finger lifting stands
-  // the runner up.
+  // Touch on the picture through the shared native touch hook: one zone
+  // per finger. The ground (the bottom 30 percent) ducks while held, the
+  // rest jumps. A thumb holding the ground stays ducked while the other
+  // thumb taps to jump; only the duck finger lifting stands the runner up.
   useTouchInput<"duck" | "jump">(canvasRef, {
     onStart: (touch) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      const canvasY = (touch.startY - rect.top) / scale;
-
-      // Bottom third of screen = duck, rest = jump
+      if (!(rect.height > 0)) return;
+      const canvasY = ((touch.startY - rect.top) / rect.height) * CANVAS_HEIGHT;
       if (canvasY > CANVAS_HEIGHT * 0.7 && gameState === "playing") {
         touch.tag = "duck";
         startDuck();
@@ -575,36 +555,79 @@ export function EndlessRunnerGame() {
     },
   });
 
+  // The thumb buttons: JUMP on the press, DUCK while held (up, a cancel or
+  // a blur stands the runner back up).
+  const jumpTap = usePointerTap<HTMLButtonElement>(() => handleTap());
+  const duckHold = usePointerHold<HTMLButtonElement>(
+    () => {
+      if (useEndlessRunnerStore.getState().gameState === "playing") startDuck();
+    },
+    () => stopDuck(),
+  );
+  const playing = gameState === "playing";
+  const sideways = fit.layout === "sideways";
+  const buttonSize = sideways ? "h-24 w-[72px]" : "h-20 flex-1";
+  const jumpButton = (
+    <button
+      type="button"
+      data-testid="runner-jump"
+      {...jumpTap}
+      aria-hidden={playing ? undefined : true}
+      inert={!playing}
+      className={`${HOLD_BUTTON} ${buttonSize} ${playing ? "" : "invisible"}`}
+    >
+      JUMP
+    </button>
+  );
+  const duckButton = (
+    <button
+      type="button"
+      data-testid="runner-duck"
+      {...duckHold}
+      aria-hidden={playing ? undefined : true}
+      inert={!playing}
+      className={`${HOLD_BUTTON} ${buttonSize} ${playing ? "" : "invisible"}`}
+    >
+      DUCK
+    </button>
+  );
+
   return (
-    <div className="relative min-h-full bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center p-4">
+    <div className="relative h-full w-full bg-sky-500 touch-none select-none [-webkit-touch-callout:none]">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
+      <ThumbPadLayout fit={fit} left={jumpButton} right={duckButton} rowTestId="runner-control-row">
+        {/* The window onto the world. Upright it crops the world on the
+            right, so the picture is as tall as the box allows. */}
+        <div
+          data-testid="runner-viewport"
+          className="relative shrink-0 overflow-hidden rounded-lg shadow-xl"
+          style={{ width: fit.viewWidth, height: fit.viewHeight }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            // Mouse only: a finger's touch events are default-prevented by the
+            // hook above, so the browser sends no click for a tap.
+            onClick={handleTap}
+            className="block cursor-pointer touch-none"
+            style={{ width: Math.round(CANVAS_WIDTH * fit.scale), height: fit.viewHeight }}
+          />
 
-      {/* Game container */}
-      <div
-        ref={containerRef}
-        className="relative w-full max-w-4xl flex items-center justify-center"
-        style={{ aspectRatio: `${CANVAS_WIDTH}/${CANVAS_HEIGHT}` }}
-      >
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          // Mouse only: a finger's touch events are default-prevented by the
-          // hook above, so the browser sends no click for a tap.
-          onClick={handleTap}
-          className="rounded-lg shadow-2xl cursor-pointer touch-none"
-          style={{
-            width: CANVAS_WIDTH * scale,
-            height: CANVAS_HEIGHT * scale,
-          }}
-        />
-      </div>
+          {gameState === "gameOver" && (
+            <ResultCard testId="runner-result-card" title="Game over!">
+              <ResultLine big>
+                {score} m · 🪙 +{coinsThisRun}
+              </ResultLine>
+              <ResultLine>{isNewHighScore ? "🏆 New best!" : `Best ${progress.highScore} m`}</ResultLine>
+            </ResultCard>
+          )}
+        </div>
+      </ThumbPadLayout>
 
-      {/* Shared DOM start screen (renders the title once). It covers the
-          page (it portals to document.body), so the wide, short canvas box
-          cannot clip the start card on a phone. */}
+      {/* Shared DOM start screen (renders the title once). */}
       {gameState === "ready" && (
         <GameStartOverlay
           title="Endless Runner"
@@ -615,24 +638,29 @@ export function EndlessRunnerGame() {
           onStart={() => startGame()}
         >
           <div className="text-base font-medium opacity-90">
-            🏆 Best: {progress.highScore}m
+            🏆 Best: {progress.highScore}m · 🪙 Coins: {progress.totalCoins}
           </div>
-          <div className="text-base font-medium opacity-90">
-            🪙 Coins: {progress.totalCoins}
+          <div className="text-sm opacity-80">
+            Games: {progress.gamesPlayed} · Total: {Math.floor(progress.totalDistance)}m
           </div>
         </GameStartOverlay>
       )}
 
-      {/* Stats */}
-      <div className="mt-4 text-center text-white/80 text-sm">
-        <p>Games: {progress.gamesPlayed} | Total Distance: {Math.floor(progress.totalDistance)}m</p>
-      </div>
-
-      {/* Touch hint: keyed on the pointer, never on a width breakpoint */}
-      {isCoarse && (
-        <div className="mt-2 text-center text-white/60 text-xs">
-          <p>Tap top to jump, tap bottom to duck</p>
-        </div>
+      {/* The result chip: read it to me, Play again, the leaderboard, and
+          with clips on the clip buttons. Mounted only at game over, so its
+          grace starts then. */}
+      {gameState === "gameOver" && (
+        <ResultChip
+          resultText={runnerResultText({
+            distance: score,
+            coins: coinsThisRun,
+            best: progress.highScore,
+            newBest: isNewHighScore,
+          })}
+          appId="endless-runner"
+          onRestart={restart}
+          keyboardHint="Space"
+        />
       )}
     </div>
   );

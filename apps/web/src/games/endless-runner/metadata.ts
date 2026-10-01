@@ -7,4 +7,5 @@ export const metadata: GameMetadata = {
   category: "action",
   description: "Run forever, dodge obstacles",
   preferredOrientation: "landscape",
+  clips: true,
 };

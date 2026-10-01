@@ -7,4 +7,5 @@ export const metadata: GameMetadata = {
   category: "arcade",
   description: "Tap to fly through pipes",
   preferredOrientation: "portrait",
+  clips: true,
 };

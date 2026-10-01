@@ -4,8 +4,8 @@ import { getInstructions, getInstructionLines } from "../lib/instructions";
 describe("endless-runner getInstructions", () => {
   it("gives touch hints for a coarse pointer (no keyboard jargon)", () => {
     const { jump, duck } = getInstructions(true);
-    expect(jump).toBe("👆 Tap the top to jump");
-    expect(duck).toBe("👇 Tap the bottom to duck");
+    expect(jump).toBe("👆 Tap JUMP or the sky to jump");
+    expect(duck).toBe("👇 Hold DUCK or the ground to duck");
     // A phone kid must never be told about Space or Arrow keys
     expect(jump).not.toMatch(/space/i);
     expect(duck).not.toMatch(/arrow/i);
