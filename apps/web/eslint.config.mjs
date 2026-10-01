@@ -12,6 +12,13 @@ import {
   TOUCH_INPUT_RESTRICTED_SYNTAX,
   TOUCH_INPUT_TEST_IGNORES,
 } from "./src/shared/lib/input/touchInputRule.mjs";
+import {
+  WHOLE_STORE_DEPS_LINT_FILES,
+  WHOLE_STORE_DEPS_PLUGIN,
+  WHOLE_STORE_DEPS_RULE,
+  WHOLE_STORE_DEPS_TEST_IGNORES,
+  wholeStoreDepsPlugin,
+} from "./src/shared/lib/wholeStoreDepsRule.mjs";
 
 const eslintConfig = defineConfig([
   ...nextVitals,
@@ -62,6 +69,21 @@ const eslintConfig = defineConfig([
     ignores: [...TOUCH_INPUT_TEST_IGNORES],
     rules: {
       "no-restricted-syntax": ["error", ...TOUCH_INPUT_RESTRICTED_SYNTAX],
+    },
+  },
+  {
+    // A whole Zustand store (useXStore() with no selector) is a new object
+    // after every set(), so a hook that lists it in its deps runs again on
+    // every state change: a game loop restarts every frame, a listener is
+    // removed and added on every tick (issue #56). Read the state with
+    // useXStore.getState() in the handler, or use a selector. See
+    // src/shared/lib/wholeStoreDepsRule.mjs.
+    name: "hanks-hits/no-whole-store-deps",
+    files: [...WHOLE_STORE_DEPS_LINT_FILES],
+    ignores: [...WHOLE_STORE_DEPS_TEST_IGNORES],
+    plugins: { [WHOLE_STORE_DEPS_PLUGIN]: wholeStoreDepsPlugin },
+    rules: {
+      [`${WHOLE_STORE_DEPS_PLUGIN}/${WHOLE_STORE_DEPS_RULE}`]: "error",
     },
   },
   // Override default ignores of eslint-config-next.

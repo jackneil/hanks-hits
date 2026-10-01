@@ -729,6 +729,47 @@ no touch event was default-prevented. A test that taps an element with
 
 ---
 
+## Store reads in hooks
+
+A hook runs again only when the value it uses changes.
+
+**Why.** `const store = useXStore()` with no selector gives the whole
+Zustand state. That object is new after every `set()`. A hook that lists
+`store` in its dependency array runs again on every state change. A game
+loop restarts every frame, so its `deltaTime` and its timers reset. An
+interval or a key listener is removed and added again on every tick. A
+`useCallback` is a new function after every `set()`, so each effect that
+depends on it runs again too. In Weather, this made the city search ask
+the geocoding service again about every 300 ms for as long as a query
+stayed in the box (issue #56).
+
+**Rules for a game or an app:**
+
+- In a handler, an effect, a loop or a timer, read the state when the
+  code runs: `useXStore.getState().tick()`. Do not put `store` in the
+  dependency array.
+- For a value that the render shows, subscribe to that field with a
+  selector: `useXStore((s) => s.score)`. A field such as `store.level`
+  in a dependency array is also correct.
+- A component can keep `const store = useXStore()` for the values that
+  it shows. Do not put that `store` in a dependency array.
+
+**Enforcement:**
+
+- ESLint rule `hanks-hits/no-whole-store-deps` reports a variable that
+  holds `useXStore()` (called with no arguments) in the dependency array
+  of `useEffect`, `useLayoutEffect`, `useInsertionEffect`, `useCallback`,
+  `useMemo` or `useImperativeHandle`. It applies to all of `src/**`.
+  Tests are exempt. `src/shared/lib/wholeStoreDepsRule.mjs` holds the
+  rule.
+- A store hook is a name that ends in `Store`, or a name in
+  `OTHER_STORE_HOOKS`. `src/shared/lib/__tests__/wholeStoreDepsRule.test.ts`
+  reads every Zustand `create()` in `src`. It fails when a store hook has
+  a name that the rule cannot see. Give a new store a name that ends in
+  `Store`.
+
+---
+
 ## Gameplay Clips
 
 A kid taps the clip button in the header, and the game keeps the last 30

@@ -57,12 +57,15 @@ export function Weather() {
   // Search for cities using Open-Meteo Geocoding API
   const searchLocations = useCallback(
     async (query: string) => {
+      // Read the store when the handler runs (issue #56): the whole store in
+      // the deps made this a new function after every set().
+      const weather = useWeatherStore.getState();
       if (query.length < 2) {
-        store.setSearchResults([]);
+        weather.setSearchResults([]);
         return;
       }
 
-      store.setIsSearching(true);
+      weather.setIsSearching(true);
       try {
         const response = await fetch(
           `${WEATHER_API.geocoding}?name=${encodeURIComponent(query)}&count=5&language=en&format=json`
@@ -85,18 +88,18 @@ export function Weather() {
               admin1: r.admin1,
             })
           );
-          store.setSearchResults(locations);
+          weather.setSearchResults(locations);
         } else {
-          store.setSearchResults([]);
+          weather.setSearchResults([]);
         }
       } catch (err) {
         console.error("Search failed:", err);
-        store.setSearchResults([]);
+        weather.setSearchResults([]);
       } finally {
-        store.setIsSearching(false);
+        weather.setIsSearching(false);
       }
     },
-    [store]
+    []
   );
 
   // Debounced search
@@ -110,9 +113,12 @@ export function Weather() {
   // Fetch weather for a location
   const fetchWeather = useCallback(
     async (location: GeoLocation) => {
-      store.setLoading(true);
-      store.setError(null);
-      store.clearSearch();
+      // Read the store when the handler runs (issue #56): the whole store in
+      // the deps made this a new function after every set().
+      const weather = useWeatherStore.getState();
+      weather.setLoading(true);
+      weather.setError(null);
+      weather.clearSearch();
 
       try {
         // Fetch current weather and forecast
@@ -166,18 +172,18 @@ export function Weather() {
           }
         );
 
-        store.setCurrentWeather(current);
-        store.setForecast(forecast);
-        store.setLastLocation(location);
-        store.setCurrentFact(getRandomFact());
+        weather.setCurrentWeather(current);
+        weather.setForecast(forecast);
+        weather.setLastLocation(location);
+        weather.setCurrentFact(getRandomFact());
       } catch (err) {
         console.error("Weather fetch failed:", err);
-        store.setError("Oops! Couldn't get the weather. Try again!");
+        weather.setError("Oops! Couldn't get the weather. Try again!");
       } finally {
-        store.setLoading(false);
+        weather.setLoading(false);
       }
     },
-    [store]
+    []
   );
 
   // Handle location selection
