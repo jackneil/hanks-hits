@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { BufferSource, EncodedPacketSink, Input, MP4 } from "mediabunny";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PacketDTO } from "../../../protocol";
 import { type ContainerNode, type LeafNode, containerAt, readBoxes, readTree, readU32 } from "../boxes";
 import { describeBoxes } from "../moovPatch";
@@ -205,11 +205,21 @@ describe("muxClip", () => {
   });
 
   it("gives the same file for any primingSamples value: the timestamps alone set the edit list", async () => {
-    const clip = makeClipPackets({ seconds: 1, primingSamples: 2114, audioLeadUs: 0 });
-    const same = await muxClip(clip);
-    const other = await muxClip({ ...clip, primingSamples: 1024 });
-    expect(toHex(other.bytes)).toBe(toHex(same.bytes));
-    expect(editList(same.bytes, "soun")![0][1]).toBe(1090);
+    // mediabunny writes the clock's second into mvhd, tkhd and mdhd when a
+    // muxer is made: two muxes on either side of a second differ in those
+    // bytes alone, and this test failed on a push (G5, 2026-10-01). One
+    // clock for both muxes.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
+    try {
+      const clip = makeClipPackets({ seconds: 1, primingSamples: 2114, audioLeadUs: 0 });
+      const same = await muxClip(clip);
+      const other = await muxClip({ ...clip, primingSamples: 1024 });
+      expect(toHex(other.bytes)).toBe(toHex(same.bytes));
+      expect(editList(same.bytes, "soun")![0][1]).toBe(1090);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses the decoder config of the first epoch and the valid ASC", async () => {
