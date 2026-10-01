@@ -92,6 +92,38 @@ describe("Weather", () => {
     expect(screen.queryByText("Boston")).not.toBeInTheDocument();
   });
 
+  // Issue #56: searchLocations listed the whole store in its deps, so it
+  // was a new function after every set(). The debounce effect depends on
+  // it, so each set the search made (isSearching, then the results) armed
+  // the debounce again, and the app asked for the same city every ~300 ms
+  // for as long as the query stayed in the box.
+  it("asks the geocoding service once per query, not again on every store change", async () => {
+    const fetchMock = vi.fn(async () => ({
+      json: async () => ({
+        results: [{ name: "Boston", latitude: 42.36, longitude: -71.06, country: "United States", admin1: "Massachusetts" }],
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<Weather />);
+
+      fireEvent.change(screen.getByPlaceholderText("Search for a city..."), {
+        target: { value: "bos" },
+      });
+
+      for (let i = 0; i < 20; i++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(250);
+        });
+      }
+
+      expect(screen.getByText("Boston")).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("defers home + title to the app shell (no in-app title or home link)", () => {
     render(<Weather />);
 

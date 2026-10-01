@@ -132,8 +132,10 @@ function RomUploader({
       }
 
       // Keep the file itself. EmulatorView makes a new object URL for each
-      // start (see RomSource in lib/store.ts).
-      store.addCustomRom({
+      // start (see RomSource in lib/store.ts). Read the store when the
+      // handler runs (issue #56): the whole store in the deps made this a
+      // new function after every set().
+      useRetroArcadeStore.getState().addCustomRom({
         id: `${system.id}-${file.name}-${Date.now()}`,
         name: file.name,
         system: system.id,
@@ -143,7 +145,7 @@ function RomUploader({
 
       onRomLoaded(file, file.name);
     },
-    [system, onRomLoaded, store]
+    [system, onRomLoaded]
   );
 
   const handleDrop = useCallback(
