@@ -4,7 +4,7 @@ import { useRef, useMemo, useState, useCallback } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
-import { COLLECTIBLES, WORLD, LAKES } from '../lib/constants';
+import { COLLECTIBLES, WORLD, LAKES, PHYSICS } from '../lib/constants';
 import { useGameStore } from '../lib/store';
 import { sounds } from '../lib/sounds';
 import { getTerrainHeight } from '../lib/terrainUtils';
@@ -343,8 +343,9 @@ export function CollectParticles({
   const [visible, setVisible] = useState(true);
   const time = useRef(0);
 
-  useFrame((_, delta) => {
+  useFrame((_, frameDelta) => {
     if (!groupRef.current || !visible) return;
+    const delta = Math.min(frameDelta, PHYSICS.MAX_FRAME_DELTA);
 
     time.current += delta;
     if (time.current > 1) {

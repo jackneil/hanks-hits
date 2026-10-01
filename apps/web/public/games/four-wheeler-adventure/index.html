@@ -219,6 +219,15 @@
   #slideBtn { top: 372px; background: linear-gradient(#5fc0ee, #2a7ad0); }
   #swingBtn { top: 424px; background: linear-gradient(#ffce5a, #e8a01a); color: #5a3a00; }
   #slideBtn:active, #swingBtn:active { transform: translateY(3px); }
+  /* Hunting on foot: the gun, feeders, corn and stands. A keyboard has G, P,
+     B and O; a phone has these buttons (phone UX audit 2026-09-30). */
+  #gunBtn, #feederBtn, #cornBtn, #standPlaceBtn { position: fixed; right: 14px; display: none; font: inherit; font-size: 15px; font-weight: bold; color: #fff;
+    border: none; padding: 10px 18px; border-radius: 40px; cursor: pointer; z-index: 6; box-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 8px 14px rgba(0,0,0,0.3); }
+  #gunBtn { top: 476px; background: linear-gradient(#8a9a6a, #56643a); }
+  #feederBtn { top: 528px; background: linear-gradient(#f0c050, #c08a10); color: #4a3000; }
+  #cornBtn { top: 580px; background: linear-gradient(#f0d070, #c8a020); color: #4a3000; }
+  #standPlaceBtn { top: 632px; background: linear-gradient(#b08a60, #7a5530); }
+  #gunBtn:active, #feederBtn:active, #cornBtn:active, #standPlaceBtn:active { transform: translateY(3px); }
   #putHorseBtn, #rideHorseBtn { position: fixed; right: 14px; display: none; font: inherit; font-size: 15px; font-weight: bold; color: #fff;
     border: none; padding: 10px 18px; border-radius: 40px; cursor: pointer; z-index: 6; box-shadow: 0 4px 0 rgba(0,0,0,0.35), 0 8px 14px rgba(0,0,0,0.3); }
   #putHorseBtn { top: 164px; background: linear-gradient(#caa46a, #8a5a2a); }
@@ -412,6 +421,57 @@
   #btnDown  { right: 28px;  top: 234px; background: rgba(140,200,255,0.4); }
   #btnStunt { right: 116px; top: 150px; background: rgba(185,140,255,0.45); }
   #btnBomb  { right: 116px; top: 234px; background: rgba(255,120,120,0.5); }
+
+  /* ---- Phone layout (phone UX audit 2026-09-30) ----
+     The touch buttons sit in the bottom corners, the speedo moves off GAS,
+     and the context buttons (race, map, garage door, hitch...) live in
+     three rails that never cover the touch buttons (see setupRails). */
+  body.touch .tbtn { background: rgba(20, 30, 20, 0.6); border-color: rgba(255, 255, 255, 0.9); backdrop-filter: none; }
+  body.touch .tbtn .tlabel { display: block; font-size: 13px; line-height: 1; margin-top: 2px; letter-spacing: 0.5px; }
+  body.touch #btnLeft  { left: max(16px, env(safe-area-inset-left)); bottom: 16px; }
+  body.touch #btnRight { left: calc(max(16px, env(safe-area-inset-left)) + 84px); bottom: 16px; }
+  body.touch #btnBrake { right: calc(max(16px, env(safe-area-inset-right)) + 92px); bottom: 16px; width: 76px; height: 76px;
+                         background: #b3261e; font-size: 26px; flex-direction: column; }
+  body.touch #btnGas   { right: max(16px, env(safe-area-inset-right)); bottom: 16px; width: 84px; height: 84px;
+                         background: #1e7b34; font-size: 28px; flex-direction: column; }
+  body.touch #btnJump  { left: max(16px, env(safe-area-inset-left)); bottom: 104px; transform: none; width: 124px; height: 54px;
+                         background: #9a6f00; font-size: 20px; }
+  body.touch #speedo   { width: 84px; height: 84px; right: max(16px, env(safe-area-inset-right)); bottom: 112px; }
+  @media (min-aspect-ratio: 1/1) {
+    /* A phone held sideways: JUMP between the arrows and the pedals, the speedo right of the arrows */
+    body.touch #btnJump { left: 50%; bottom: 16px; transform: translateX(-50%); width: 116px; }
+    body.touch #speedo  { right: auto; left: calc(max(16px, env(safe-area-inset-left)) + 176px); bottom: 12px; width: 76px; height: 76px; }
+  }
+  /* The score boxes: a compact grid, two across upright and four across
+     sideways, so they never grow into a tall column over the left rail. The
+     speed box hides on a touch screen: the speedo dial shows the speed. */
+  body.touch .hud { display: grid; grid-template-columns: repeat(2, auto); gap: 4px; top: 8px; left: max(8px, env(safe-area-inset-left)); }
+  @media (min-aspect-ratio: 1/1) { body.touch .hud { grid-template-columns: repeat(4, auto); } }
+  body.touch #speed { display: none; }
+  /* NOS is a driving control, not a context button: on a touch screen it
+     sits above BRAKE, in reach of the right thumb, and the rails avoid it. */
+  body.touch #nosBtn { top: auto; right: calc(max(16px, env(safe-area-inset-right)) + 92px); bottom: 100px; min-height: 44px; min-width: 76px; z-index: 7; }
+  body.touch .badge { font-size: 13px; padding: 3px 8px; border-radius: 9px; border-width: 1px; }
+
+  .rail { position: fixed; z-index: 6; display: flex; gap: 8px; pointer-events: none; }
+  .rail > button { position: static !important; inset: auto !important; transform: none !important; margin: 0 !important;
+                   pointer-events: auto; min-height: 44px; white-space: nowrap; }
+  .rail > button.railHidden { display: none !important; }
+  #railTop   { top: 10px; right: max(10px, env(safe-area-inset-right)); flex-direction: row; flex-wrap: wrap; justify-content: flex-end; max-width: 62vw; }
+  #railLeft  { left: max(10px, env(safe-area-inset-left)); flex-direction: column; align-items: flex-start; }
+  #railRight { right: max(10px, env(safe-area-inset-right)); flex-direction: column; align-items: flex-end; }
+  @media (max-width: 700px), (max-height: 480px) {
+    .rail > button { font-size: 14px !important; padding: 8px 12px !important; }
+  }
+  .railMore { font: inherit; font-size: 15px; font-weight: bold; color: #fff; background: #37474f; border: 2px solid rgba(255,255,255,0.7);
+              border-radius: 40px; padding: 8px 14px; cursor: pointer; }
+  #moreSheet { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 12px; }
+  #moreSheet .moreCard { background: #fff; color: #14492a; border-radius: 20px; padding: 16px; width: min(420px, 100%); max-height: 100%; overflow-y: auto; }
+  #moreSheet .moreTitle { font-size: 20px; font-weight: bold; margin-bottom: 10px; text-align: center; }
+  #moreSheet .moreList { display: grid; gap: 8px; }
+  #moreSheet .moreList button, #moreSheet .moreClose { font: inherit; font-size: 17px; font-weight: bold; min-height: 48px; border-radius: 14px; border: none; cursor: pointer; }
+  #moreSheet .moreList button { background: #e8f5e9; color: #14492a; }
+  #moreSheet .moreClose { width: 100%; margin-top: 10px; background: #14492a; color: #fff; }
 </style>
 </head>
 <body>
@@ -473,6 +533,10 @@
   <button id="slideBtn">🛝 Slide</button>
   <button id="swingBtn">🪅 Swing</button>
   <button id="castBtn">🎣 Cast</button>
+  <button id="gunBtn">🔫 Aim gun</button>
+  <button id="feederBtn">🌽 Place feeder</button>
+  <button id="cornBtn">🌽 Carry corn</button>
+  <button id="standPlaceBtn">🪜 Place stand</button>
   <button id="deckBtn">🚶 Walk Deck</button>
   <button id="helmBtn">🛞 Back to Helm</button>
   <button id="sellFishBtn">🐟 Sell Fish</button>
@@ -607,8 +671,8 @@
   <div id="touch">
     <div class="tbtn" id="btnLeft">◀</div>
     <div class="tbtn" id="btnRight">▶</div>
-    <div class="tbtn" id="btnBrake">▼</div>
-    <div class="tbtn" id="btnGas">▲</div>
+    <div class="tbtn" id="btnBrake">▼<span class="tlabel">BRAKE</span></div>
+    <div class="tbtn" id="btnGas">▲<span class="tlabel">GAS</span></div>
     <div class="tbtn" id="btnJump">JUMP</div>
   </div>
 
@@ -620,17 +684,17 @@
   </div>
 
   <div id="dealerPanel">
-    <div class="dlTitle">🏪 Dealership &amp; Feeder Store — click to buy</div>
+    <div class="dlTitle">🏪 Dealership &amp; Feeder Store — choose one to buy</div>
     <div id="dlList"></div>
   </div>
 
   <div id="boatPanel">
-    <div class="dlTitle">🚤 Boat &amp; Trailer Sales — click to buy</div>
+    <div class="dlTitle">🚤 Boat &amp; Trailer Sales — choose one to buy</div>
     <div id="boatList"></div>
   </div>
 
   <div id="standPanel">
-    <div class="dlTitle">🪜 Stand Store — click to buy (place with O)</div>
+    <div class="dlTitle">🪜 Stand Store — choose one to buy</div>
     <div id="standList"></div>
   </div>
 
@@ -1682,7 +1746,7 @@ function bindTouch(id, name) {
   el.addEventListener('mouseleave', off);
 }
 bindTouch('btnGas','up'); bindTouch('btnBrake','down'); bindTouch('btnLeft','left'); bindTouch('btnRight','right'); bindTouch('btnJump','jump');
-if ('ontouchstart' in window) document.getElementById('touch').style.display = 'block';
+if ('ontouchstart' in window) { document.getElementById('touch').style.display = 'block'; document.body.classList.add('touch'); }
 
 /* ---- Engine sound (Web Audio) — a real chugging four-wheeler engine ----
    We stack several pieces, like a real motor:
@@ -2044,7 +2108,7 @@ function update(dt) {
     for (const a of animals) {                            // parachute low onto an animal → RIDE it
       if (a.alive && a.type !== 'wolf' && dist(atv.x, atv.y, a.x, a.y) < 34) {
         riding = a; mode = 'mount'; chute = 0; atv.air = 0; atv.angle = a.angle; atv.speed = 0;
-        hint('🤠 Yeehaw! Riding a ' + a.type + ' — press E to hop off'); break;
+        hint('🤠 Yeehaw! Riding a ' + a.type + ' — ' + howTo('🚶 Get Out & Walk', 'E') + ' to hop off'); break;
       }
     }
   }
@@ -2245,6 +2309,19 @@ function update(dt) {
   document.getElementById('closetBtn').style.display = (inHouse && houseAct === 'closet') ? 'block' : 'none';
   document.getElementById('askBtn').style.display = (!inHouse && !onDeck) ? 'block' : 'none';
   document.getElementById('feedDogBtn').style.display = (!inHouse) ? 'block' : 'none';
+  // Hunting on foot (a stand counts for the gun: you hunt from it).
+  const onFootOut = mode === 'foot' && !inHouse && !onDeck, onGround = onFootOut && !inStand;
+  const setLabel = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+  const gunBtn = document.getElementById('gunBtn');
+  gunBtn.style.display = onFootOut ? 'block' : 'none';
+  setLabel(gunBtn, aiming ? '🔫 Lower gun' : (useBow ? '🏹 Aim bow' : '🔫 Aim gun'));
+  const feederNear = onGround && nearFeederIndex() >= 0, feederBtn = document.getElementById('feederBtn');
+  feederBtn.style.display = (onGround && (feederNear || feedersToPlace > 0)) ? 'block' : 'none';
+  setLabel(feederBtn, feederNear ? '🌽 Pick up feeder' : '🌽 Place feeder');
+  const cornBtn = document.getElementById('cornBtn');
+  cornBtn.style.display = (onGround && (carryingCorn || cornBags > 0)) ? 'block' : 'none';
+  setLabel(cornBtn, carryingCorn ? '🌽 Fill feeder' : '🌽 Carry corn');
+  document.getElementById('standPlaceBtn').style.display = (onGround && standsToPlace > 0) ? 'block' : 'none';
   document.getElementById('retrieveBtn').style.display = (!inHouse && carcasses.length > 0 && dog.state === 'follow') ? 'block' : 'none';
   document.getElementById('sellKillsBtn').style.display = (!inHouse && heldKills.length > 0) ? 'block' : 'none';
   document.getElementById('leaveHouseBtn').style.display = inHouse ? 'block' : 'none';
@@ -3859,7 +3936,7 @@ function drawPlanet() {
   ctx.restore();
   ctx.fillStyle = 'rgba(255,255,255,0.94)'; ctx.font = 'bold 20px Trebuchet MS'; ctx.textAlign = 'center'; ctx.fillText('🪐 ' + p.name, W/2, 34);
 }
-const WORLD_HUD = ['raceBtn','endRaceBtn','openGarageBtn','parkGarageBtn','switchBtn','bailBtn','camBtn','trailerBtn','sellBtn','mapBtn','garageBtn','towBtn','fleetBtn','lightBtn','phoneBtn','houseBtn','sleepBtn','eatBtn','closetBtn','askBtn','feedDogBtn','retrieveBtn','sellKillsBtn','invBtn','plowBtn','putHorseBtn','rideHorseBtn','fillBtn','sprayBtn','ladderBtn','nozzleBtn','sprayNozzleBtn','mowBtn','cabinEnterBtn','camperEnterBtn','insideCamperBtn','inAirBtn','slideBtn','swingBtn','castBtn','deckBtn','helmBtn','sellFishBtn','netsBtn','cabinBtn','yachtSkiBtn','tenderBtn','yachtUtvBtn','yachtHeliBtn','loadUtvBtn','landHeliBtn','loadSkiBtn','loadTenderBtn','leaveHouseBtn','trainBtn','rideTrainBtn','aircraftBtn','nosBtn','blastOffBtn','milkBtn','milkHud'];
+const WORLD_HUD = ['raceBtn','endRaceBtn','openGarageBtn','parkGarageBtn','switchBtn','bailBtn','camBtn','trailerBtn','sellBtn','mapBtn','garageBtn','towBtn','fleetBtn','lightBtn','phoneBtn','houseBtn','sleepBtn','eatBtn','closetBtn','askBtn','feedDogBtn','retrieveBtn','sellKillsBtn','invBtn','plowBtn','putHorseBtn','rideHorseBtn','fillBtn','sprayBtn','ladderBtn','nozzleBtn','sprayNozzleBtn','mowBtn','cabinEnterBtn','camperEnterBtn','insideCamperBtn','inAirBtn','slideBtn','swingBtn','castBtn','gunBtn','feederBtn','cornBtn','standPlaceBtn','deckBtn','helmBtn','sellFishBtn','netsBtn','cabinBtn','yachtSkiBtn','tenderBtn','yachtUtvBtn','yachtHeliBtn','loadUtvBtn','landHeliBtn','loadSkiBtn','loadTenderBtn','leaveHouseBtn','trainBtn','rideTrainBtn','aircraftBtn','nosBtn','blastOffBtn','milkBtn','milkHud'];
 function hideWorldHud() { for (const id of WORLD_HUD) { const e = document.getElementById(id); if (e) e.style.display = 'none'; } }
 function showWorldHud() {
   for (const id of WORLD_HUD) { const e = document.getElementById(id); if (e) e.style.display = ''; }
@@ -5396,10 +5473,10 @@ function drawSpeedo() {
 /* =========================================================================
    THE GAME LOOP — update, then draw, over and over forever
    ========================================================================= */
-let running = false, last = 0;
+let running = false, last = 0, paused = false;
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05); last = now;
-  if (running) update(dt);
+  if (running && !paused) update(dt);
   draw();
   requestAnimationFrame(loop);
 }
@@ -5413,35 +5490,47 @@ document.getElementById('raceBtn').addEventListener('click', startRace);
 document.getElementById('endRaceBtn').addEventListener('click', endRace);
 document.getElementById('switchBtn').addEventListener('click', () => { boardOrExit(); startAudio(); });
 document.getElementById('bailBtn').addEventListener('click', () => { bailOut(); startAudio(); });
+// ---- Hunting on foot: one function per action, for its key and its button ----
+// A hint names the button on a phone and the key on a keyboard.
+function howTo(button, key) { return (document.body.classList.contains('touch') ? 'tap ' + button : 'press ' + key); }
+function HowTo(button, key) { const s = howTo(button, key); return s.charAt(0).toUpperCase() + s.slice(1); }
+function toggleGun() {
+  if (mode === 'foot') { aiming = !aiming; canvas.style.cursor = aiming ? 'none' : 'pointer'; }
+  else hint('🔫 Get out on foot to use the gun!');
+  startAudio();
+}
+function placeStand() {
+  if (mode === 'foot' && standsToPlace > 0) { treestands.push({ x: atv.x, y: atv.y, ground: (standType === 'ground') }); standsToPlace--; hint('🪜 Stand placed!'); }
+  else if (standsToPlace <= 0) hint('🪜 Buy a stand at the stand store first');
+  else hint('🪜 Get on foot to place a stand');
+}
+function nearFeederIndex() {
+  for (let i = 0; i < feeders.length; i++) if (dist(atv.x, atv.y, feeders[i].x, feeders[i].y) < 55) return i;
+  return -1;
+}
+function feederAction() {
+  if (mode !== 'foot') { hint('🌽 Get on foot to move feeders'); return; }
+  const near = nearFeederIndex();
+  if (near >= 0) { feeders.splice(near, 1); feedersToPlace++; hint('🌽 Picked up the feeder — ' + howTo('🌽 Place feeder', 'P') + ' to set it down'); }
+  else if (feedersToPlace > 0) { feeders.push({ x: atv.x, y: atv.y, cornAmt: CORN_MAX, label: 'Feeder ' + (feeders.length + 1), corn: Array.from({length:16}, () => ({ dx: range(-24,24), dy: range(-13,13), r: range(1.5,3) })) }); feedersToPlace--; hint('🌽 Feeder placed!'); }
+  else hint('🌽 Stand on a feeder to pick it up, or buy one at the store');
+}
+document.getElementById('gunBtn').addEventListener('click', toggleGun);
+document.getElementById('feederBtn').addEventListener('click', () => { feederAction(); startAudio(); });
+document.getElementById('cornBtn').addEventListener('click', () => { carryCorn(); startAudio(); });
+document.getElementById('standPlaceBtn').addEventListener('click', () => { placeStand(); startAudio(); });
 addEventListener('keydown', e => {
   if (e.code === 'KeyE') { boardOrExit(); startAudio(); }
   if (e.code === 'KeyF') { bailOut(); startAudio(); }
   if (e.code === 'KeyR') { planeStunt(); startAudio(); }
   if (e.code === 'KeyB') { if (isAir(mode)) { dropBomb(); startAudio(); } else carryCorn(); }
-  if (e.code === 'KeyG') {                                  // raise/lower the gun scope (on foot only)
-    if (mode === 'foot') { aiming = !aiming; canvas.style.cursor = aiming ? 'none' : 'pointer'; }
-    else hint('🔫 Get out on foot to use the gun!');
-    startAudio();
-  }
-  if (e.code === 'KeyO') {                                  // place a bought tree/ground stand
-    if (mode === 'foot' && standsToPlace > 0) { treestands.push({ x: atv.x, y: atv.y, ground: (standType === 'ground') }); standsToPlace--; hint('🪜 Stand placed!'); }
-    else if (standsToPlace <= 0) hint('🪜 Buy a stand at the stand store first');
-    else hint('🪜 Get on foot to place a stand');
-  }
+  if (e.code === 'KeyG') toggleGun();                      // raise/lower the gun scope (on foot only)
+  if (e.code === 'KeyO') placeStand();                     // place a bought tree/ground stand
   if (e.code === 'KeyM') showMap = !showMap;               // open/close the overview map
   if (e.code === 'KeyT') { toggleHitch(); startAudio(); }  // hitch / drop a trailer
   if (e.code === 'KeyC') cycleCamera();                    // cycle the camera view
   if (e.code === 'KeyN') gruntCall();                      // N: make a buck grunt to call deer in
-  if (e.code === 'KeyP') {                                  // P: pick up a feeder you're on, OR put one down
-    if (mode !== 'foot') { hint('🌽 Get on foot to move feeders'); }
-    else {
-      let near = -1;
-      for (let i = 0; i < feeders.length; i++) if (dist(atv.x, atv.y, feeders[i].x, feeders[i].y) < 55) { near = i; break; }
-      if (near >= 0) { feeders.splice(near, 1); feedersToPlace++; hint('🌽 Picked up the feeder — press P to set it down'); }
-      else if (feedersToPlace > 0) { feeders.push({ x: atv.x, y: atv.y, cornAmt: CORN_MAX, label: 'Feeder ' + (feeders.length + 1), corn: Array.from({length:16}, () => ({ dx: range(-24,24), dy: range(-13,13), r: range(1.5,3) })) }); feedersToPlace--; hint('🌽 Feeder placed!'); }
-      else hint('🌽 Stand on a feeder to pick it up, or buy one at the store');
-    }
-  }
+  if (e.code === 'KeyP') feederAction();                   // P: pick up a feeder you're on, OR put one down
 });
 // ---- Dealership: buy cars + corn feeders ----
 const dlList = document.getElementById('dlList');
@@ -5487,7 +5576,7 @@ FOR_SALE.forEach((c, i) => {
 });
 const fbBtn = document.createElement('button'); fbBtn.className = 'dlCar'; fbBtn.style.background = 'linear-gradient(#cdeac0,#8fc97f)'; fbBtn.style.boxShadow = '0 3px 0 #5a8a4a';
 fbBtn.innerHTML = '🌽 Corn Feeder<br><span style="font-size:11px;opacity:.85">$500 · place with P</span>';
-fbBtn.addEventListener('click', () => { if (money < 500) { hint('💵 Feeders cost $500'); return; } addMoney(-500); feedersToPlace++; hint('🌽 Feeder bought for $500! Press P to place it.'); });
+fbBtn.addEventListener('click', () => { if (money < 500) { hint('💵 Feeders cost $500'); return; } addMoney(-500); feedersToPlace++; hint('🌽 Feeder bought for $500! ' + HowTo('🌽 Place feeder', 'P') + ' to place it.'); });
 dlList.appendChild(fbBtn);
 
 // ---- Boat & Trailer dealership: buy unlimited boats, jet skis, and long trailers ----
@@ -5532,7 +5621,7 @@ const standList = document.getElementById('standList');
   const b = document.createElement('button'); b.className = 'dlCar';
   b.style.background = 'linear-gradient(#cdeac0,#8fc97f)'; b.style.boxShadow = '0 3px 0 #5a8a4a';
   b.innerHTML = name + '<br><span style="font-size:11px;opacity:.85">$' + cost + ' · place with O</span>';
-  b.addEventListener('click', () => { if (money < cost) { hint('💵 ' + name + ' costs $' + cost); return; } addMoney(-cost); standsToPlace++; standType = k; hint('🪜 Bought a ' + name + ' for $' + cost + '! Press O to place it.'); });
+  b.addEventListener('click', () => { if (money < cost) { hint('💵 ' + name + ' costs $' + cost); return; } addMoney(-cost); standsToPlace++; standType = k; hint('🪜 Bought a ' + name + ' for $' + cost + '! ' + HowTo('🪜 Place stand', 'O') + ' to place it.'); });
   standList.appendChild(b);
 });
 
@@ -5920,7 +6009,7 @@ function openHuntSim() {
   feeders.forEach(f => { const d = document.createElement('div'); d.className = 'hsDot'; d.style.left = (f.x / WORLD * 100) + '%'; d.style.top = (f.y / WORLD * 100) + '%'; d.title = f.label; map.appendChild(d); });
   const me = document.createElement('div'); me.className = 'hsMe'; me.style.left = (atv.x / WORLD * 100) + '%'; me.style.top = (atv.y / WORLD * 100) + '%'; map.appendChild(me);
   const list = v.querySelector('#hsList');
-  if (!feeders.length) list.innerHTML = '<div style="opacity:.7;font-size:13px">No feeders yet — buy one and press P to set it out.</div>';
+  if (!feeders.length) list.innerHTML = '<div style="opacity:.7;font-size:13px">No feeders yet — buy one and ' + howTo('🌽 Place feeder', 'P') + ' to set it out.</div>';
   feeders.forEach((f, i) => {
     const pct = Math.round(f.cornAmt / CORN_MAX * 100), row = document.createElement('div'); row.className = 'hsRow';
     row.innerHTML = '<input class="hsLabel" data-i="' + i + '" value="' + f.label.replace(/"/g, '') + '" maxlength="14"/><span class="hsBar"><span style="width:' + pct + '%;background:' + (pct > 30 ? '#e6c24a' : '#e0241f') + '"></span></span><span class="hsPct">🌽' + pct + '%</span>';
@@ -5987,7 +6076,7 @@ FOR_SALE_HUNT.forEach(([name, key]) => {
     if (money < 100) { hint('💵 Hunting gear costs $100!'); return; }
     addMoney(-100);
     hunterInv[name] = (hunterInv[name] || 0) + 1;   // add it to your hunting inventory
-    if (key === 'decoy') { feedersToPlace++; hint('🦌 Bought a decoy! Press P to set it out — animals come to it.'); }
+    if (key === 'decoy') { feedersToPlace++; hint('🦌 Bought a decoy! ' + HowTo('🌽 Place feeder', 'P') + ' to set it out — animals come to it.'); }
     else if (key === 'rod') { hasRod = true; hint('🎣 Bought a fishing rod! Take a boat out and tap 🎣 Cast.'); }
     else if (key === 'call') { gruntCallUses += 10; hint('📢 Bought a Grunt Call — 10 grunts! Open 🎒 Inventory to use it.'); }
     else if (key === 'bow') hint('🏹 Bought a Bow & Arrow! Open 🎒 Inventory to pick bow or rifle.');
@@ -6076,7 +6165,7 @@ function carryCorn() {   // press B on foot: pick up a corn bag; press B again a
   if (mode !== 'foot') { hint('🌽 Hop out on foot to carry a corn bag!'); return; }
   if (!carryingCorn) {
     if (cornBags <= 0) { hint('🌽 Buy Bags of Corn at the Everything Store first!'); return; }
-    carryingCorn = true; hint('🌽 Picked up a corn bag — walk to a feeder and press B again to fill it!');
+    carryingCorn = true; hint('🌽 Picked up a corn bag — walk to a feeder and ' + howTo('🌽 Fill feeder', 'B again') + ' to fill it!');
   } else {
     let best = null, bd = 140;                                   // 1) next to a feeder? fill it
     for (const f of feeders) { const d = dist(atv.x, atv.y, f.x, f.y); if (d < bd) { bd = d; best = f; } }
@@ -6511,7 +6600,7 @@ function renderInv() {
     let action = '';
     let badge = '×' + hunterInv[k];
     if (k.indexOf('Deer Scent') >= 0) { action = 'tap to spray on corn'; row.style.cursor = 'pointer'; row.onclick = sprayScent; }
-    else if (k.indexOf('Grunt Call') >= 0) { action = 'tap, or press N'; badge = gruntCallUses + ' grunts left'; row.style.cursor = 'pointer'; row.onclick = gruntCall; }
+    else if (k.indexOf('Grunt Call') >= 0) { action = document.body.classList.contains('touch') ? 'tap' : 'tap, or press N'; badge = gruntCallUses + ' grunts left'; row.style.cursor = 'pointer'; row.onclick = gruntCall; }
     else if (k.indexOf('Fishing Rod') >= 0) { action = 'tap to cast 🎣'; row.style.cursor = 'pointer'; row.onclick = () => { document.getElementById('invPanel').style.display = 'none'; castFish(); }; }
     else if (k.indexOf('Camo Suit') >= 0) { action = 'tap to wear/remove'; badge = camoOn ? '🟢 ON' : 'off'; row.style.cursor = 'pointer'; row.onclick = toggleCamo; }
     else if (k.indexOf('Bow & Arrow') >= 0) { action = 'tap: bow or rifle'; badge = useBow ? '🏹 equipped' : 'rifle on'; row.style.cursor = 'pointer'; row.onclick = toggleBow; }
@@ -6610,6 +6699,182 @@ bindTouch('btnUp', 'climb'); bindTouch('btnDown', 'dive');
 document.getElementById('btnStunt').addEventListener('click', () => { planeStunt(); startAudio(); });
 document.getElementById('btnBomb').addEventListener('click', () => { dropBomb(); startAudio(); });
 updateSwitchLabel();
+
+/* =========================================================================
+   PHONE LAYOUT — the context-button rails (phone UX audit 2026-09-30)
+   Each context button (race, map, garage door, hitch...) used to sit at its
+   own fixed spot, so on a phone they covered GAS, BRAKE and the arrows. At
+   start every one moves into one of three rails: a row at the top right,
+   and a column on each side. A rail flows only the buttons that show and
+   stops above the touch buttons on its side; when more buttons show than
+   fit, the rest go behind "More", which lists them. Nothing covers a touch
+   button, and nothing is out of reach.
+   ========================================================================= */
+(function setupRails() {
+  const SKIP = '#touch, #planeCtrls, #start, #detailsPanel, #phonePanel, #amazonPanel, #clothPanel, #askPanel, #sleepPad, #moreSheet';
+  const TOUCH = document.body.classList.contains('touch');
+  const GAP = 8, MARGIN = 10, MORE_H = 44;
+  const mk = (id) => { const d = document.createElement('div'); d.id = id; d.className = 'rail'; document.body.appendChild(d); return d; };
+  const rails = { top: mk('railTop'), left: mk('railLeft'), right: mk('railRight') };
+  const px = (v) => (v === 'auto' || v === '' ? null : (String(v).endsWith('px') ? parseFloat(v) : null));
+  const placed = { top: [], left: [], right: [] };
+  for (const b of document.querySelectorAll('button')) {
+    if (b.closest(SKIP) || b.id === 'playBtn') continue;
+    if (TOUCH && b.id === 'nosBtn') continue; // with the touch buttons
+    const cs = getComputedStyle(b);
+    if (cs.position !== 'fixed') continue;
+    const left = px(cs.left), right = px(cs.right), top = px(cs.top);
+    if (top === null) continue;
+    if (left !== null && left <= 20) placed.left.push({ b, key: top });
+    else if (right !== null && top <= 20) placed.top.push({ b, key: -right });
+    else if (right !== null && right <= 20) placed.right.push({ b, key: top });
+  }
+  for (const side of Object.keys(placed)) {
+    placed[side].sort((a, z) => a.key - z.key).forEach(({ b }) => rails[side].appendChild(b));
+  }
+
+  // "More" for each side column, and the one sheet that lists the rest.
+  const overflow = { left: [], right: [] };
+  const more = {};
+  for (const side of ['left', 'right']) {
+    const m = document.createElement('button');
+    m.type = 'button'; m.className = 'railMore'; m.style.display = 'none';
+    m.addEventListener('click', () => openMore(side));
+    rails[side].appendChild(m); more[side] = m;
+  }
+  const sheet = document.createElement('div');
+  sheet.id = 'moreSheet';
+  sheet.innerHTML = '<div class="moreCard" role="dialog" aria-label="More things to do"><div class="moreTitle">More things to do</div><div class="moreList"></div><button type="button" class="moreClose">Close</button></div>';
+  document.body.appendChild(sheet);
+  const closeMore = () => { sheet.style.display = 'none'; };
+  sheet.querySelector('.moreClose').addEventListener('click', closeMore);
+  sheet.addEventListener('click', (e) => { if (e.target === sheet) closeMore(); });
+  function openMore(side) {
+    const list = sheet.querySelector('.moreList');
+    list.textContent = '';
+    for (const b of overflow[side]) {
+      const p = document.createElement('button');
+      p.type = 'button'; p.textContent = b.textContent.trim();
+      p.addEventListener('click', () => { closeMore(); b.click(); });
+      list.appendChild(p);
+    }
+    sheet.style.display = 'flex';
+  }
+
+  const shows = (el) => !!el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0;
+  // The touch buttons, the plane buttons and the speedo: nothing may cover them.
+  const obstacles = () => [...document.querySelectorAll('#touch .tbtn, #planeCtrls .tbtn, #speedo' + (TOUCH ? ', #nosBtn' : ''))].filter(shows).map((e) => e.getBoundingClientRect());
+
+  function place(side, top) {
+    const rail = rails[side];
+    rail.style.top = top + 'px';
+    if (more[side].parentElement !== rail) rail.appendChild(more[side]);
+    const vw = innerWidth, vh = innerHeight;
+    const mine = obstacles().filter((r) => (side === 'left' ? r.left < vw / 2 : r.right > vw / 2) && r.bottom > top);
+    const bottom = Math.min(vh - MARGIN, ...mine.map((r) => r.top - GAP));
+    const room = Math.max(0, bottom - top);
+    const kids = [...rail.children].filter((c) => c !== more[side]);
+    kids.forEach((c) => c.classList.remove('railHidden'));
+    more[side].style.display = 'none';
+    const vis = kids.filter(shows);
+    let used = 0;
+    const shown = [], hidden = [];
+    for (const c of vis) {
+      const need = used + (shown.length ? GAP : 0) + c.getBoundingClientRect().height;
+      if (need <= room && hidden.length === 0) { shown.push(c); used = need; } else hidden.push(c);
+    }
+    if (hidden.length) {
+      while (shown.length && used + GAP + MORE_H > room) {
+        const last = shown.pop();
+        hidden.unshift(last);
+        used -= last.getBoundingClientRect().height + (shown.length ? GAP : 0);
+      }
+      hidden.forEach((c) => c.classList.add('railHidden'));
+      more[side].textContent = '⋯ More (' + hidden.length + ')';
+      more[side].style.display = '';
+      // No room at all on this side: More goes to the top row instead, so
+      // it never sits on a touch button.
+      if (room < MORE_H) rails.top.appendChild(more[side]);
+    }
+    overflow[side] = hidden;
+  }
+
+  let signature = '';
+  function layout() {
+    const hud = document.querySelector('.hud');
+    const hudRect = hud ? hud.getBoundingClientRect() : { right: 0, bottom: 0 };
+    // The top row gets the width the score boxes leave.
+    rails.top.style.maxWidth = Math.max(160, innerWidth - hudRect.right - 20) + 'px';
+    const topRail = rails.top.getBoundingClientRect();
+    const hudBottom = hudRect.bottom;
+    place('left', Math.round(hudBottom + GAP));
+    place('right', Math.round(Math.max(topRail.bottom, MARGIN) + GAP));
+  }
+  function schedule() {
+    const sig = [...document.querySelectorAll('.rail > button:not(.railMore), #touch, #planeCtrls, #speedo, #nosBtn')]
+      .map((b) => b.id + ':' + (b.style.display || '')).join('|') + '|' + innerWidth + 'x' + innerHeight;
+    if (sig === signature) return;
+    signature = sig;
+    requestAnimationFrame(layout);
+  }
+  const observer = new MutationObserver(schedule);
+  for (const el of document.querySelectorAll('.rail > button, #touch, #planeCtrls, #speedo, #nosBtn')) observer.observe(el, { attributes: true, attributeFilter: ['style', 'class'] });
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => { signature = ''; schedule(); });
+    const hud = document.querySelector('.hud');
+    if (hud) ro.observe(hud);
+    ro.observe(rails.top);
+  }
+  addEventListener('resize', () => { signature = ''; schedule(); });
+  addEventListener('orientationchange', () => { signature = ''; schedule(); });
+  schedule();
+  window.hhRails = { layout, overflow };
+})();
+
+/* A tap by a second finger makes no click in a browser, so while one thumb
+   holds GAS every button here ignored the other thumb (phone check,
+   2026-09-30). The browser's click stays the main path. When a touch lifts
+   on the button it went down on and no click follows within 250 ms, the
+   button gets one click then; a late click after that is dropped, so one
+   tap is one action. The touch pad and the plane pad have their own
+   touch handlers and are left alone. */
+(function secondFingerClicks() {
+  const WAIT = 250, LATE = 1000;
+  const downOn = new Map();
+  let waiting = null, waitingFor = null, firedFor = null, firedAt = -Infinity, synthetic = false;
+  addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || !e.target.closest) return;
+    const b = e.target.closest('button');
+    if (b && !b.closest('#touch, #planeCtrls')) downOn.set(e.pointerId, b);
+  }, true);
+  addEventListener('pointercancel', (e) => downOn.delete(e.pointerId), true);
+  addEventListener('pointerup', (e) => {
+    const b = downOn.get(e.pointerId);
+    downOn.delete(e.pointerId);
+    if (!b) return;
+    const r = b.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+    clearTimeout(waiting);
+    waitingFor = b;
+    waiting = setTimeout(() => {
+      waiting = null; waitingFor = null; firedFor = b; firedAt = performance.now();
+      synthetic = true;
+      try { b.click(); } finally { synthetic = false; }
+    }, WAIT);
+  }, true);
+  addEventListener('click', (e) => {
+    if (synthetic) return;
+    if (waiting !== null && waitingFor && waitingFor.contains(e.target)) { clearTimeout(waiting); waiting = null; waitingFor = null; return; }
+    if (firedFor && firedFor.contains(e.target) && performance.now() - firedAt < LATE) { e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
+})();
+
+/* Pause (the site's pause menu and its hold call this through the page):
+   the world stands still and the sound stops. */
+window.hhSetPaused = function (p) {
+  paused = !!p;
+  try { if (audioCtx) { if (paused) audioCtx.suspend(); else if (audioOn) audioCtx.resume(); } } catch (e) { /* no sound yet */ }
+};
 
 requestAnimationFrame(loop);  // start drawing right away (shows the field behind the menu)
 </script>

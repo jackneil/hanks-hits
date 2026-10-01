@@ -5,6 +5,7 @@ import { useActivitiesSession } from "../../lib/activitiesSession";
 import { PLAY_LOCATIONS, NOZZLE, cutGrassCount } from "../../lib/activities";
 import { LANDMARKS } from "../../lib/landmarks";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
+import { ActionButton, HudButton } from "./HudButton";
 const request = (name: string, payload?: string) =>
   useAdventureSession.getState().requestAction(`activity:${name}`, payload);
 export function ActivitiesPanel() {
@@ -127,7 +128,11 @@ export function ActivitiesPanel() {
     </div>
   );
 }
-/** Small live controls remain reachable after the panel closes. */
+/**
+ * Small live controls remain reachable after the panel closes. They render as
+ * plain buttons inside the HUD's context row, so on a phone they sit in the
+ * slot the shared layout keeps clear of the thumb controls.
+ */
 export function ActivitiesControls() {
   const nozzle = useActivitiesSession((s) => s.nozzle);
   const car = useFourWheeler3dStore(
@@ -136,16 +141,7 @@ export function ActivitiesControls() {
   );
   if (!nozzle && car?.type !== "firetruck") return null;
   return (
-    <div
-      style={{
-        position: "fixed",
-        right: 18,
-        bottom: 180,
-        zIndex: 45,
-        display: "flex",
-        gap: 8,
-      }}
-    >
+    <>
       {nozzle ? (
         <button
           className="fw-primary"
@@ -166,15 +162,15 @@ export function ActivitiesControls() {
           Hold to spray
         </button>
       ) : (
-        <button className="fw-primary" onClick={() => request("fire-spray")}>
+        <ActionButton className="fw-primary" onPress={() => request("fire-spray")}>
           Spray water
-        </button>
+        </ActionButton>
       )}
-      <button
-        onClick={() => useAdventureSession.getState().openPanel("activities")}
+      <HudButton
+        onPress={() => useAdventureSession.getState().openPanel("activities")}
       >
         Equipment
-      </button>
-    </div>
+      </HudButton>
+    </>
   );
 }

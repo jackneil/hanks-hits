@@ -48,8 +48,9 @@ export interface GameState {
   isPlaying: boolean;
   isGameOver: boolean;
   isPaused: boolean;
-  pauseScreen: 'menu' | 'settings';
   gameOverReason: 'head' | 'fuel' | null;
+  /** The run that just ended went past the best from before it. */
+  lastRunNewRecord: boolean;
   distance: number;
   fuel: number;
   nitro: number; // Runtime nitro level (0-100)
@@ -90,7 +91,6 @@ export interface GameActions {
   // Pause actions
   pauseGame: () => void;
   resumeGame: () => void;
-  setPauseScreen: (screen: 'menu' | 'settings') => void;
 
   // Fuel actions
   consumeFuel: (amount: number) => void;
@@ -147,8 +147,8 @@ const initialState: GameState = {
   isPlaying: false,
   isGameOver: false,
   isPaused: false,
-  pauseScreen: 'menu',
   gameOverReason: null,
+  lastRunNewRecord: false,
   distance: 0,
   fuel: FUEL.INITIAL_FUEL,
   nitro: NITRO.MAX,
@@ -218,6 +218,7 @@ export const useHillClimbStore = create<GameState & GameActions>()(
           isPaused: false,
           isGameOver: false,
           gameOverReason: null,
+          lastRunNewRecord: false,
           distance: 0,
           fuel: maxFuel,
           nitro: NITRO.MAX,
@@ -242,6 +243,7 @@ export const useHillClimbStore = create<GameState & GameActions>()(
           isPlaying: false,
           isGameOver: true,
           gameOverReason: reason,
+          lastRunNewRecord: state.distance > 0 && state.distance > state.bestDistance,
           bestDistance: newBestDistance,
           bestDistancePerStage: {
             ...state.bestDistancePerStage,
@@ -264,15 +266,11 @@ export const useHillClimbStore = create<GameState & GameActions>()(
       // =========================================================================
 
       pauseGame: () => {
-        set({ isPaused: true, pauseScreen: 'menu' });
+        set({ isPaused: true });
       },
 
       resumeGame: () => {
-        set({ isPaused: false, pauseScreen: 'menu' });
-      },
-
-      setPauseScreen: (screen) => {
-        set({ pauseScreen: screen });
+        set({ isPaused: false });
       },
 
       // =========================================================================

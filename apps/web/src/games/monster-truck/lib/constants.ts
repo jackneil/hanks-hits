@@ -23,6 +23,26 @@ export const PHYSICS = {
     MAX_TRAVEL: 0.3,
   },
 
+  /** The chassis mass, in kilograms (the ballast adds its own). */
+  CHASSIS_MASS: 1500,
+
+  /**
+   * How hard the tires hold the truck against sliding sideways. Each frame
+   * the grip takes back GRIP_FORCE x tires x dt / CHASSIS_MASS of the
+   * sideways speed.
+   */
+  GRIP_FORCE: 8000,
+
+  /**
+   * The longest frame the truck's own forces integrate over, in seconds.
+   * A slow frame (the first frames compile shaders; a phone hitches) would
+   * otherwise multiply the grip and engine impulses. Past a share of 1 the
+   * grip overshoots, grows, and flings the truck (a 207 MPH spike in the
+   * phone check, 2026-09-30). At 1/20 s the best tires (2.8) take back
+   * 0.75 of the sideways speed, so the grip always settles.
+   */
+  MAX_FRAME_DELTA: 1 / 20,
+
   // Engine/movement (forces scaled for delta-time based impulses)
   ENGINE: {
     BASE_FORCE: 20000,  // Strong acceleration

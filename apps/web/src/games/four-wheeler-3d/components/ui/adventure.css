@@ -238,6 +238,10 @@
   max-width: 60vw;
   flex-wrap: wrap;
 }
+/* display: flex above beats the hidden attribute, so say it again. */
+.fw-context[hidden] {
+  display: none;
+}
 .fw-context button {
   font-size: 12px;
   white-space: nowrap;
@@ -774,26 +778,6 @@
     bottom: 24px;
     max-width: 80vw;
   }
-  .fw-mobile .fw-navigation {
-    bottom: 200px;
-    width: 150px;
-  }
-  .fw-mobile .fw-context {
-    bottom: 170px;
-    left: auto;
-    right: 14px;
-    transform: none;
-    max-width: 55vw;
-  }
-  .fw-mobile .fw-toolbelt {
-    top: 120px;
-  }
-  .fw-mobile .fw-toolbelt button {
-    font-size: 11px;
-  }
-  .fw-mobile .fw-toolbelt button > span {
-    font-size: 18px;
-  }
   .fw-panel > header {
     padding: 18px;
   }
@@ -831,16 +815,6 @@
   .fw-location span {
     max-width: 175px;
   }
-  .fw-toolbelt button {
-    min-height: 40px;
-  }
-  .fw-mobile .fw-navigation {
-    width: 125px;
-    bottom: 205px;
-  }
-  .fw-mobile .fw-map-mini {
-    height: 90px;
-  }
   .fw-route-label span {
     font-size: 9px;
   }
@@ -868,9 +842,6 @@
     font-size: 20px !important;
     line-height: 22px;
   }
-  .fw-speedo-touch.fw-speedo-racing {
-    display: none;
-  }
   .fw-race-status .fw-race-message {
     display: none !important;
   }
@@ -879,20 +850,6 @@
   }
   .fw-toolbelt {
     top: 112px;
-  }
-  .fw-mobile .fw-navigation {
-    bottom: 160px;
-    width: 125px;
-  }
-  .fw-mobile .fw-map-mini {
-    height: 75px;
-  }
-  .fw-mobile .fw-route-label {
-    display: none;
-  }
-  .fw-mobile .fw-context {
-    bottom: 155px;
-    max-width: 70vw;
   }
   .fw-panel-backdrop {
     padding-top: 62px;
@@ -927,7 +884,11 @@
 }
 .fw-start {
   position: fixed;
-  inset: 56px 0 0;
+  /* Under the site header, whatever its height; it scrolls as a last
+     resort (Start your adventure was cut off at 667x311). */
+  inset: var(--shell-header-h, 48px) 0 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 90;
   color: #f3efe3;
   background:
@@ -1181,6 +1142,14 @@
 .fw-world-bubble:focus-visible {
   outline: 3px solid #e8c879;
 }
+/* A finger needs the full 44 px. The HUD (z-index 45) stays above the
+   bubble (30 to 35), so a bubble that drifts under a HUD button never takes
+   its tap. */
+@media (pointer: coarse) {
+  .fw-world-bubble {
+    min-height: 44px;
+  }
+}
 
 .fw-ui:before {
   content: "";
@@ -1202,6 +1171,12 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+/* Every tool is at least a thumb wide, the one-glyph ones (? and the gear)
+   included. */
+.fw-toolbelt button {
+  min-width: 44px;
+  justify-content: center;
+}
 .fw-product > button + button {
   margin-top: 6px;
 }
@@ -1209,8 +1184,25 @@
   font-weight: 700;
 }
 
+/* The speed readout on a touch screen (Speedo renders it only there). */
 .fw-speedo-compact {
-  display: none;
+  height: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  padding-top: 7px;
+  border-radius: 8px;
+  background: #182b25dd;
+  color: #fff5de;
+  font: 700 20px system-ui;
+  font-variant-numeric: tabular-nums;
+}
+.fw-speedo-compact small {
+  font-size: 10px;
+}
+.fw-speedo-compact.fw-speedo-fast {
+  color: #ff8a7a;
 }
 .fw-fullness-labels {
   display: flex;
@@ -1244,31 +1236,6 @@
   width: 100%;
 }
 @media (max-height: 540px) and (orientation: landscape) {
-  .fw-speedo-touch {
-    top: 66px !important;
-    bottom: auto !important;
-    left: 50% !important;
-    right: auto !important;
-    width: 96px !important;
-    height: 36px !important;
-    transform: translateX(-50%);
-  }
-  .fw-speedo-touch > svg,
-  .fw-speedo-touch > .fw-speedo-digits {
-    display: none;
-  }
-  .fw-speedo-compact {
-    display: block;
-    text-align: center;
-    padding: 5px 10px;
-    border-radius: 8px;
-    background: #182b25dd;
-    color: #fff5de;
-    font: 700 20px system-ui;
-  }
-  .fw-speedo-compact small {
-    font-size: 10px;
-  }
   .fw-food-warning {
     top: 165px;
     width: 240px;
@@ -1287,5 +1254,194 @@
   .fw-hint-toast > p {
     max-width: min(400px, calc(100vw - 350px));
     font-size: 12px;
+  }
+}
+
+/* A phone held sideways (a short screen): the title on the left, and Read
+   it to me, Start and the notes on the right, so everything fits in about
+   260 px with no scrolling (phone UX audit 2026-09-29). */
+@media (max-height: 480px) {
+  .fw-start-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+    column-gap: 20px;
+    row-gap: 6px;
+    align-items: center;
+    max-width: 760px;
+    width: 100%;
+    padding: 10px 4vw;
+  }
+  .fw-start-eyebrow,
+  .fw-start-description,
+  .fw-start-edition {
+    display: none;
+  }
+  .fw-start h1 {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    font-size: 46px;
+    letter-spacing: -2px;
+    margin: 0;
+  }
+  .fw-start-lead {
+    grid-column: 1;
+    grid-row: 3;
+    font-size: 16px;
+    margin: 0;
+  }
+  .fw-start-narration,
+  .fw-start-play,
+  .fw-start-save,
+  .fw-start-touch,
+  .fw-start-controls {
+    grid-column: 2;
+    margin: 0;
+  }
+  .fw-start-play {
+    min-height: 48px;
+  }
+  .fw-start-touch {
+    font-size: 13px;
+    line-height: 1.35;
+  }
+}
+
+/* =========================================================================
+   PHONE HUD (phone UX audit 2026-09-30)
+   One layout for a touch screen. The thumb controls come from
+   lib/hudLayout.ts, and everything here keeps clear of them:
+   - Upright: the place name and the cash on top, the tools in two rows
+     under them, the map on the left under the tools, and the context
+     buttons stacked up from the row above NOS, JUMP and HORN
+     (CONTEXT_SLOT.upright, handed over as --fw-ctx-up-*).
+   - Sideways (max-height 480px, the site's `short:` test): the map on the
+     left, the tools in two rows on the right, the cash and the speed in the
+     middle, and the context buttons in the row between the arrows and the
+     pedals (CONTEXT_SLOT.sideways, --fw-ctx-side-*).
+   ========================================================================= */
+.fw-mobile .fw-toolbelt {
+  top: 120px;
+  right: 16px;
+  gap: 6px;
+}
+.fw-mobile .fw-toolbelt button {
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.fw-mobile .fw-toolbelt button > span {
+  font-size: 18px;
+}
+.fw-mobile .fw-navigation {
+  top: 220px;
+  bottom: auto;
+  left: 16px;
+  width: 125px;
+}
+.fw-mobile .fw-map-mini {
+  height: 75px;
+}
+.fw-mobile .fw-route-label {
+  padding-top: 4px;
+}
+.fw-mobile .fw-context {
+  top: auto;
+  left: auto;
+  transform: none;
+  right: var(--fw-ctx-up-right);
+  bottom: var(--fw-ctx-up-bottom);
+  width: var(--fw-ctx-up-width);
+  max-width: none;
+  flex-wrap: wrap-reverse;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.fw-mobile .fw-context button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0 12px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fw-mobile ~ .fw-race-status {
+  top: 64px !important;
+  left: 16px !important;
+  transform: none !important;
+  max-width: calc(100vw - 180px) !important;
+  padding: 4px 10px !important;
+}
+.fw-mobile ~ .fw-race-status .fw-race-countdown {
+  font-size: 22px !important;
+  line-height: 26px;
+}
+.fw-mobile ~ .fw-race-status .fw-race-message {
+  display: none !important;
+}
+.fw-mobile:has(~ .fw-race-status) .fw-location {
+  visibility: hidden; /* The race time takes its place. */
+}
+@media (min-height: 640px) {
+  .fw-mobile .fw-map-mini {
+    height: 100px;
+  }
+}
+@media (max-height: 480px) {
+  .fw-mobile .fw-location {
+    display: none;
+  }
+  .fw-mobile .fw-topline {
+    top: calc(var(--shell-header-h, 44px) + 6px);
+    left: 149px;
+    right: 286px;
+    justify-content: center;
+  }
+  .fw-mobile .fw-balance {
+    text-align: center;
+  }
+  .fw-mobile .fw-balance strong {
+    font-size: 20px;
+  }
+  .fw-mobile .fw-toolbelt {
+    top: calc(var(--shell-header-h, 44px) + 8px);
+    max-width: 262px;
+  }
+  .fw-mobile .fw-toolbelt button {
+    padding: 0 8px;
+  }
+  .fw-mobile .fw-toolbelt button > span {
+    display: none;
+  }
+  .fw-mobile .fw-navigation {
+    top: calc(var(--shell-header-h, 44px) + 8px);
+  }
+  .fw-mobile .fw-route-label {
+    display: none;
+  }
+  .fw-mobile .fw-context {
+    left: var(--fw-ctx-side-left);
+    right: var(--fw-ctx-side-right);
+    bottom: var(--fw-ctx-side-bottom);
+    width: auto;
+    justify-content: center;
+  }
+  /* The speed and the race time share the middle, under the cash. */
+  .fw-speedo-touch,
+  .fw-mobile ~ .fw-race-status {
+    top: calc(var(--shell-header-h, 44px) + 60px) !important;
+    bottom: auto !important;
+    left: calc((149px + 100vw - 286px) / 2) !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+  }
+  .fw-mobile ~ .fw-race-status {
+    max-width: 220px !important;
+  }
+  .fw-speedo-touch.fw-speedo-racing {
+    display: none;
   }
 }

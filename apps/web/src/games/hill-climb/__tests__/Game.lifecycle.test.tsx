@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_RESTART_GRACE_MS } from "@/shared/lib/input";
 
 // useAuthSync -> useSession needs a SessionProvider; stub to guest.
 vi.mock("next-auth/react", () => ({
@@ -55,7 +56,6 @@ beforeEach(() => {
     isPlaying: false,
     isPaused: false,
     isGameOver: false,
-    pauseScreen: "menu",
   });
 });
 
@@ -162,7 +162,7 @@ describe("hill-climb run lifecycle", () => {
     expect(useHillClimbStore.getState().isPaused).toBe(false);
   });
 
-  it("game over -> Try Again runs exactly ONE fresh init via the isPlaying transition", () => {
+  it("game over -> Play again runs exactly ONE fresh init via the isPlaying transition", () => {
     render(<HillClimbGame />);
     fireEvent.click(screen.getByRole("button", { name: /Play Now/ }));
     // rAF never executes here, so every init schedules the same fixed number
@@ -170,10 +170,16 @@ describe("hill-climb run lifecycle", () => {
     // schedules; a regressed double-init on restart would add 2x that.
     const afterStart = rafCalls;
 
+    let clock = performance.now();
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
     act(() => {
       useHillClimbStore.getState().endRun("head");
     });
-    fireEvent.click(screen.getByRole("button", { name: /Try Again/ }));
+    // Game over shows the shared result chip; its Play again ignores taps
+    // for a short grace after it appears (so a tap meant for the truck does
+    // not restart the run), then restarts directly.
+    clock += DEFAULT_RESTART_GRACE_MS + 1;
+    fireEvent.click(screen.getByRole("button", { name: /Play again/ }));
 
     const s = useHillClimbStore.getState();
     expect(s.isPlaying).toBe(true);

@@ -5,7 +5,8 @@ import { Canvas } from "@react-three/fiber";
 
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useShellHold } from "@/shared/hooks/useShellHold";
-import { PauseMenu, WebGLGate } from "@/shared/components";
+import { WebGLGate } from "@/shared/components";
+import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
 import { World } from "./components/World";
 import { ChunkCounter } from "./components/hud/ChunkCounter";
@@ -13,6 +14,7 @@ import { Speedo } from "./components/hud/Speedo";
 import { HintToast } from "./components/hud/HintToast";
 import { MobileControls } from "./components/MobileControls";
 import { useGameControls } from "./hooks/useControls";
+import { useAdventureEscape } from "./hooks/useAdventureEscape";
 import { GameContextProvider, useCreateGameContext } from "./lib/gameContext";
 import { sounds } from "./lib/sounds";
 import { useFourWheeler3dStore, type FourWheeler3dProgress } from "./lib/store";
@@ -27,10 +29,7 @@ import { FishingPanel, RainbowCelebration } from "./components/ui/FishingPanel";
 import { RacePanel, RaceStatus } from "./components/ui/RacePanel";
 import { TrainPanel, TrainHUD } from "./components/ui/TrainPanel";
 import { SpacePanel, SpaceHUD } from "./components/ui/SpacePanel";
-import {
-  ActivitiesPanel,
-  ActivitiesControls,
-} from "./components/ui/ActivitiesPanel";
+import { ActivitiesPanel } from "./components/ui/ActivitiesPanel";
 
 /** The speedometer is redrawn no more often than this, in milliseconds. */
 const SPEEDO_INTERVAL = 80;
@@ -51,10 +50,10 @@ export function FourWheeler3dGame() {
   const isPaused = useFourWheeler3dStore((s) => s.isPaused);
   // The shell holds the game under a shell overlay (the restart question,
   // the install steps) and in a hidden tab: the physics stand still, like
-  // under the game's own pause menu. Read here, outside the Canvas (its
-  // own React root), and passed down as a prop.
+  // under the pause menu. Read here, outside the Canvas (its own React
+  // root), and passed down as a prop.
   const held = useShellHold();
-  const setPaused = useFourWheeler3dStore((s) => s.setPaused);
+  const isCoarse = useCoarsePointer();
   const generation = useAdventureSession((s) => s.generation);
   const panel = useAdventureSession((s) => s.panel);
   const racing = useAdventureSession(
@@ -81,19 +80,8 @@ export function FourWheeler3dGame() {
     setSpeed(metersPerSecond);
   }, []);
 
-  // Escape pauses and unpauses, the same as the other 3D game.
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.code === "Escape") {
-        const session = useAdventureSession.getState();
-        if (session.panel) session.openPanel(null);
-        else if (session.scope) useAdventureSession.setState({ scope: false });
-        else setPaused(!isPaused);
-      }
-    };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [isPaused, setPaused]);
+  // Escape closes a panel or the scope before the site's pause menu sees it.
+  useAdventureEscape();
 
   // The engine starts on the tap that starts the game, which is the tap the
   // browser needs before it will play any sound at all.
@@ -117,10 +105,15 @@ export function FourWheeler3dGame() {
     <div className="fixed inset-0 bg-black">
       <WebGLGate gameName="Four-Wheeler Adventure 3D">
         <GameContextProvider value={gameContext}>
+          {/* On a phone: one pixel per CSS pixel, no shadows and no
+              antialiasing, and the scene renders on demand under the start
+              screen (a real iPhone SE ran 38 fps behind the start screen,
+              phone UX audit 2026-09-29, S15). */}
           <Canvas
-            shadows
-            dpr={[1, 1.5]}
-            gl={{ antialias: true, powerPreference: "high-performance" }}
+            shadows={!isCoarse}
+            dpr={isCoarse ? 1 : [1, 1.5]}
+            frameloop={hasStarted ? "always" : "demand"}
+            gl={{ antialias: !isCoarse, powerPreference: "high-performance" }}
             camera={{ fov: 60, near: 0.3, far: 1500, position: [-400, 6, 24] }}
             style={{ touchAction: "none" }}
           >
@@ -163,7 +156,6 @@ export function FourWheeler3dGame() {
               <RainbowCelebration />
               <TrainHUD />
               <SpaceHUD />
-              {mode !== "space" && mode !== "planet" && <ActivitiesControls />}
               <HuntingScope />
               {controls.isMobile && ["space", "planet"].includes(mode) && (
                 <SpaceTouchControls controls={controls} />
@@ -176,6 +168,7 @@ export function FourWheeler3dGame() {
                   <MobileControls
                     controls={controls}
                     forwardLabel={mode === "parachute" ? "GLIDE" : undefined}
+                    nos={["vehicle", "boat", "aircraft"].includes(mode)}
                     walking={["foot", "interior", "deck", "stand"].includes(
                       mode,
                     )}
@@ -200,15 +193,6 @@ export function FourWheeler3dGame() {
 
         {!hasStarted && <StartScreen />}
       </WebGLGate>
-
-      <PauseMenu
-        isOpen={isPaused}
-        gameName="Four-Wheeler Adventure 3D"
-        onResume={() => setPaused(false)}
-        onHome={() => {
-          window.location.assign(new URL("/", window.location.origin));
-        }}
-      />
     </div>
   );
 }

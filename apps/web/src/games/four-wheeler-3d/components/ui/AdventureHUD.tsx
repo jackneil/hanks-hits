@@ -1,5 +1,10 @@
 "use client";
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   useAdventureSession,
   type WorldPanel,
@@ -15,6 +20,9 @@ import { DeliveryStatus } from "../DeliveryVisuals";
 import { CameraControls, CameraSettings } from "./CameraControls";
 import { RidePanel } from "./RidePanel";
 import { SellPanel } from "./SellPanel";
+import { ActivitiesControls } from "./ActivitiesPanel";
+import { ActionButton, HudButton } from "./HudButton";
+import { contextSlotVars } from "../../lib/hudLayout";
 import "./adventure.css";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
 
@@ -76,8 +84,51 @@ export function AdventureHUD({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, session.panel]);
+  const hungry = p.hunger >= 18,
+    dogHungry = p.adventure.dog.hungerHours >= 18;
+  const foodButtons = (
+    <>
+      {hungry && (
+        <HudButton
+          onPress={() =>
+            session.setWaypoint({
+              id: "house",
+              label: "Home kitchen",
+              x: -485,
+              z: 6,
+            })
+          }
+        >
+          🍽 Find home
+        </HudButton>
+      )}
+      {dogHungry && (
+        <HudButton onPress={() => action("dog:feed")}>🐕 Feed dog · $10</HudButton>
+      )}
+    </>
+  );
+  const interiorButtons = mode === "interior" && (
+    <>
+      <HudButton onPress={() => action("home:exit")} className="fw-primary">
+        Go outside
+      </HudButton>
+      {session.interior?.kind === "garage" && (
+        <HudButton
+          onPress={() => action("property:manage", session.interior!.id)}
+        >
+          Manage parked rides
+        </HudButton>
+      )}
+    </>
+  );
+  // On a phone every button that depends on where you are (Use, Hop off, Go
+  // outside, food, the hose) lives in the one context slot, which the shared
+  // layout keeps clear of the thumb controls (lib/hudLayout.ts).
   return (
-    <div className={`fw-ui ${mobile ? "fw-mobile" : ""}`}>
+    <div
+      className={`fw-ui ${mobile ? "fw-mobile" : ""}`}
+      style={mobile ? (contextSlotVars() as CSSProperties) : undefined}
+    >
       <div className="fw-topline">
         <div className="fw-location">
           <strong>HANK COUNTY</strong>
@@ -91,49 +142,31 @@ export function AdventureHUD({
         </div>
       </div>
       <nav className="fw-toolbelt" aria-label="Adventure tools">
-        <button onClick={() => open("phone")}>
+        <HudButton onPress={() => open("phone")}>
           <span aria-hidden="true">▯</span>Phone<kbd>P</kbd>
-        </button>
-        <button onClick={() => open("map")}>
+        </HudButton>
+        <HudButton onPress={() => open("map")}>
           <span aria-hidden="true">⌖</span>Map<kbd>M</kbd>
-        </button>
-        <button onClick={() => open("inventory")}>
+        </HudButton>
+        <HudButton onPress={() => open("inventory")}>
           <span aria-hidden="true">▣</span>Gear<kbd>I</kbd>
-        </button>
+        </HudButton>
         <CameraControls />
-        <button onClick={() => open("ride")}>Ride</button>
-        <button onClick={() => open("activities")}>Activities</button>
-        <button onClick={() => open("help")} aria-label="Adventure guide">
+        <HudButton onPress={() => open("ride")}>Ride</HudButton>
+        <HudButton onPress={() => open("activities")}>Activities</HudButton>
+        <HudButton onPress={() => open("help")} aria-label="Adventure guide">
           ?
-        </button>
-        <button onClick={() => open("settings")} aria-label="Game settings">
+        </HudButton>
+        <HudButton onPress={() => open("settings")} aria-label="Game settings">
           ⚙
-        </button>
+        </HudButton>
       </nav>
       <DeliveryStatus />
-      {(p.hunger >= 18 || p.adventure.dog.hungerHours >= 18) && (
+      {!mobile && (hungry || dogHungry) && (
         <div className="fw-food-warning" role="status">
           <strong>Time for food</strong>
           <span>Eat and feed your dog before empty to keep your rides.</span>
-          {p.hunger >= 18 && (
-            <button
-              onClick={() =>
-                session.setWaypoint({
-                  id: "house",
-                  label: "Home kitchen",
-                  x: -485,
-                  z: 6,
-                })
-              }
-            >
-              🍽 Find home
-            </button>
-          )}
-          {p.adventure.dog.hungerHours >= 18 && (
-            <button onClick={() => action("dog:feed")}>
-              🐕 Feed dog · $10
-            </button>
-          )}
+          {foodButtons}
         </div>
       )}
       <div className="fw-navigation">
@@ -189,21 +222,16 @@ export function AdventureHUD({
                   ? "Walk around. Tap Use for nearby things."
                   : "Walk around. Press E to use nearby things."}
               </span>
-              <button
-                onClick={() => action("home:exit")}
-                className="fw-primary"
-              >
-                Go outside
-              </button>
-              {session.interior?.kind === "garage" && (
-                <button
-                  onClick={() =>
-                    action("property:manage", session.interior!.id)
-                  }
-                >
-                  Manage parked rides
-                </button>
-              )}
+              {!mobile && interiorButtons}
+            </>
+          ) : mobile && (hungry || dogHungry) ? (
+            <>
+              <strong>Time for food</strong>
+              <span>
+                {waypoint
+                  ? `${waypoint.label} · ${Math.round(distanceTo(position, waypoint))} m`
+                  : "Eat and feed your dog before empty."}
+              </span>
             </>
           ) : waypoint ? (
             <>
@@ -223,33 +251,39 @@ export function AdventureHUD({
       </div>
       <div className="fw-context" hidden={mode === "train"}>
         {(!["vehicle", "boat"].includes(mode) || session.interaction) && (
-          <button onClick={() => action("world:interact")}>
+          <HudButton onPress={() => action("world:interact")}>
             {/* The key badge is for a keyboard; a finger taps the button. */}
             {!mobile && <kbd>E</kbd>}
             {session.interaction?.label ??
               (["vehicle", "boat"].includes(mode)
                 ? "Hop off"
                 : "Use nearby thing")}
-          </button>
+          </HudButton>
         )}
         {["vehicle", "boat"].includes(mode) && (
-          <button onClick={() => action("world:exit")}>Hop off</button>
+          <HudButton onPress={() => action("world:exit")}>Hop off</HudButton>
         )}
-        {["vehicle", "boat", "aircraft"].includes(mode) && (
-          <button onClick={() => useFourWheeler3dStore.getState().startNos()}>
+        {mobile && interiorButtons}
+        {/* On a phone NOS sits with the pedals (MobileControls). */}
+        {!mobile && ["vehicle", "boat", "aircraft"].includes(mode) && (
+          <ActionButton onPress={() => useFourWheeler3dStore.getState().startNos()}>
             NOS
-          </button>
+          </ActionButton>
         )}
         {["boat", "deck"].includes(mode) && (
-          <button onClick={() => open("fishing")}>Fishing</button>
+          <HudButton onPress={() => open("fishing")}>Fishing</HudButton>
         )}
         {mode === "aircraft" && (
           <>
-            <button onClick={() => action("air:climb")}>Climb</button>
-            <button onClick={() => action("air:descend")}>Descend</button>
-            <button onClick={() => action("air:parachute")}>Parachute</button>
+            <ActionButton onPress={() => action("air:climb")}>Climb</ActionButton>
+            <ActionButton onPress={() => action("air:descend")}>Descend</ActionButton>
+            <ActionButton onPress={() => action("air:parachute")}>
+              Parachute
+            </ActionButton>
           </>
         )}
+        <ActivitiesControls />
+        {mobile && foodButtons}
       </div>
       {session.panel && (
         <Panel

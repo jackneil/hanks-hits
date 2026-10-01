@@ -15,10 +15,17 @@ interface VehicleProps {
   rotation?: number;  // Y-axis rotation in radians
   getControls: () => ControlValues;
   onCollect?: (type: 'coin' | 'star' | 'mystery') => void;
+  /**
+   * True while the world stands still (pause, a sheet, the shell's hold).
+   * Rapier applies an impulse to the velocity at once, even while its world
+   * is paused, so a held Gas used to wind the truck up under the pause menu
+   * and launch it on Resume (phone check, 2026-09-30).
+   */
+  paused?: boolean;
 }
 
 export const Vehicle = forwardRef<RapierRigidBody, VehicleProps>(
-  function Vehicle({ position = [0, 5, 0], rotation = 0, getControls }, ref) {
+  function Vehicle({ position = [0, 5, 0], rotation = 0, getControls, paused = false }, ref) {
   const bodyRef = useRef<RapierRigidBody>(null);
 
   // Expose bodyRef to parent for speed tracking
@@ -74,8 +81,10 @@ export const Vehicle = forwardRef<RapierRigidBody, VehicleProps>(
     totalRotation.current = 0;
   };
 
-  useFrame((_, delta) => {
-    if (!bodyRef.current) return;
+  useFrame((_, frameDelta) => {
+    if (!bodyRef.current || paused) return;
+    // A slow frame must not multiply the truck's forces (PHYSICS.MAX_FRAME_DELTA).
+    const delta = Math.min(frameDelta, PHYSICS.MAX_FRAME_DELTA);
 
     const controls = getControls();
     const body = bodyRef.current;
@@ -255,7 +264,7 @@ export const Vehicle = forwardRef<RapierRigidBody, VehicleProps>(
       // GRIP: Strong lateral counter-impulse for "wheels stuck to ground" feel
       // Force must be high enough to actually correct sideways sliding
       const sidewaysSpeed = right.dot(new THREE.Vector3(vel.x, 0, vel.z));
-      const gripForce = 8000 * stats.tires; // Strong lateral correction
+      const gripForce = PHYSICS.GRIP_FORCE * stats.tires; // Strong lateral correction
       const lateralCorrection = right.clone().multiplyScalar(-sidewaysSpeed * gripForce * delta);
       body.applyImpulse({ x: lateralCorrection.x, y: 0, z: lateralCorrection.z }, true);
 
@@ -334,7 +343,7 @@ export const Vehicle = forwardRef<RapierRigidBody, VehicleProps>(
       position={position}
       rotation={[0, rotation, 0]}
       colliders={false}
-      mass={1500}
+      mass={PHYSICS.CHASSIS_MASS}
       canSleep={false}
       ccd={true}
       linearDamping={0.2}

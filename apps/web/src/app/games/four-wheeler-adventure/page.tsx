@@ -28,15 +28,26 @@ const FourWheelerAdventureGame = dynamic(
 
 export default function FourWheelerAdventurePage() {
   const [restartNonce, setRestartNonce] = useState(0);
+  // The game runs in an iframe with its own loop: the shell's pause menu
+  // (and its hold under the restart question, the leaderboard or a hidden
+  // tab) pauses it through the page's hhSetPaused. Before Play there is
+  // nothing to pause.
+  const [playing, setPlaying] = useState(false);
+  const [paused, setPaused] = useState(false);
 
   return (
     <GameShell
       gameName="Four-Wheeler Adventure"
       appId="four-wheeler-adventure"
-      canPause={false}
-      onRestart={() => setRestartNonce((nonce) => nonce + 1)}
+      canPause={playing}
+      onPause={() => setPaused(true)}
+      onResume={() => setPaused(false)}
+      onRestart={() => {
+        setPaused(false);
+        setRestartNonce((nonce) => nonce + 1);
+      }}
     >
-      <FourWheelerAdventureGame restartNonce={restartNonce} />
+      <FourWheelerAdventureGame restartNonce={restartNonce} paused={paused} onPlayingChange={setPlaying} />
     </GameShell>
   );
 }

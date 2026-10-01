@@ -9,6 +9,10 @@ import { useAdventureSession } from "./lib/adventureSession";
 
 export default function FourWheeler3dGameShell() {
   const resetSession = useFourWheeler3dStore((state) => state.resetSession);
+  // The site's pause menu (and its header pause button) pauses the ride:
+  // before, only Escape paused, so a phone could not pause at all.
+  const hasStarted = useFourWheeler3dStore((state) => state.hasStarted);
+  const setPaused = useFourWheeler3dStore((state) => state.setPaused);
   const [gameKey, setGameKey] = useState(0);
 
   // The 3D scene owns the transient rigid-body world. Remount it for a real
@@ -26,8 +30,9 @@ export default function FourWheeler3dGameShell() {
       gameName="Four-Wheeler Adventure 3D"
       appId="four-wheeler-3d"
       headerClassName="fw-shell-header"
-      canPause={false}
-      showPauseButton={false}
+      canPause={hasStarted}
+      onPause={() => setPaused(true)}
+      onResume={() => setPaused(false)}
       onRestart={restart}
       restartConfirmationMessage="This starts the ride over. Your money, vehicles, land, and trophies stay saved."
     >

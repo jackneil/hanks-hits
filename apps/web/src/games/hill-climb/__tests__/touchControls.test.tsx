@@ -1,10 +1,14 @@
 import { act, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 import { useTouchControls, ZONE_IGNORE_SELECTOR } from "../hooks/useControls";
 import { useHillClimbStore } from "../lib/store";
 import { MobileControls } from "../ui/MobileControls";
-import { SettingsMenu } from "../ui/SettingsMenu";
+import { PauseSheet } from "../ui/PauseSheet";
 import { fingerCancel, fingerDown, fingerUp, liftAllFingers } from "@/__tests__/finger-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 import { useShellOverlays } from "@/shared/lib/shellOverlays";
@@ -135,16 +139,15 @@ describe("hill-climb NITRO button", () => {
   });
 });
 
-describe("hill-climb settings hint", () => {
-  it("never tells a finger to press Escape", () => {
+describe("hill-climb settings", () => {
+  it("live in the pause sheet with thumb-size controls and no keyboard words", () => {
+    // The separate Settings card put its Back button under the fold on a
+    // phone held sideways and told a finger to press Escape.
     mockPointer(true);
-    const { unmount } = render(<SettingsMenu onBack={() => {}} />);
-    expect(screen.getByText("Tap Back to go back")).toBeInTheDocument();
-    unmount();
-
-    mockPointer(false);
-    render(<SettingsMenu onBack={() => {}} />);
-    expect(screen.getByText("Press Escape to go back")).toBeInTheDocument();
+    render(<PauseSheet onGoToGarage={() => {}} />);
+    expect(screen.getByRole("slider", { name: "Lean speed" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Sound" })).toBeInTheDocument();
+    expect(screen.queryByText(/escape/i)).not.toBeInTheDocument();
   });
 });
 

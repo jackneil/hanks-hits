@@ -6,6 +6,9 @@ import { HillClimbGame, useHillClimbStore } from ".";
 
 export default function HillClimbGameShell() {
   const restartRun = useHillClimbStore((state) => state.restartRun);
+  // A run is live: the header moves Sign In and Leaderboard into the
+  // game's own pause sheet on a phone (it has no shell pause menu).
+  const inPlay = useHillClimbStore((state) => state.isPlaying && !state.isGameOver);
   const [gameKey, setGameKey] = useState(0);
 
   // Matter.js owns the transient physics world. Remount the game so restart
@@ -23,6 +26,8 @@ export default function HillClimbGameShell() {
       appId="hill-climb"
       canPause={false}
       showPauseButton={false}
+      ownPauseSheet
+      inPlay={inPlay}
       onRestart={restart}
     >
       {/* startActive only on a RESTART remount: the first mount must show the

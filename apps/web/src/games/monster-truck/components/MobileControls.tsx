@@ -1,226 +1,199 @@
 'use client';
 
 import { useTouchControls } from '../hooks/useControls';
+import { useSecondFingerClick } from '@/shared/lib/input';
 
 interface MobileControlsProps {
   touchControls: ReturnType<typeof useTouchControls>;
   onHorn: () => void;
-  onNos: () => void;
   nosCharge: number;
   nosMaxCharge: number;
   useTilt: boolean;
   onToggleTilt: () => void;
   onCalibrate: () => void;
+  /** A kid-friendly note under the TILT button (for example, no permission). */
+  tiltNote?: string | null;
 }
 
+/**
+ * The touch controls, laid out for thumbs (phone UX audit 2026-09-29).
+ *
+ * Upright phone: the BRAKE and GAS pedals fill the bottom; the steering
+ * arrows sit side by side above BRAKE (left thumb) and NOS and the horn
+ * above GAS (right thumb); TILT sits above the arrows. Nothing sits in the
+ * middle, where the truck is.
+ *
+ * Phone held sideways (short screen): the arrows are in the bottom left
+ * corner and the pedals in the bottom right corner, with TILT above the
+ * arrows and NOS and the horn above the pedals. The old layout centred the
+ * arrow column on the whole screen, so ▶ sat under BRAKE and the horn
+ * under GAS: a tap on ▶ pressed BRAKE.
+ */
 export function MobileControls({
   touchControls,
   onHorn,
-  onNos,
   nosCharge,
   nosMaxCharge,
   useTilt,
   onToggleTilt,
   onCalibrate,
+  tiltNote = null,
 }: MobileControlsProps) {
   const { handlers, state } = touchControls;
   const nosPercent = (nosCharge / nosMaxCharge) * 100;
+  // TILT and CALIBRATE work for the other thumb while one holds Gas.
+  const tiltTap = useSecondFingerClick<HTMLButtonElement>(onToggleTilt);
+  const calibrateTap = useSecondFingerClick<HTMLButtonElement>(onCalibrate);
 
   return (
-    // Anchored below the GameShell header (like hill-climb's HUD), so no
-    // control can sit inside the header box. The TILT and CALIBRATE buttons
-    // used to sit at top-4 of the whole screen, under the header, where the
-    // kid could not see or tap them.
+    // Anchored below the GameShell header, so no control sits inside the
+    // header box.
     <div
       data-testid="monster-truck-mobile-controls"
       className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] pointer-events-none z-50"
     >
-      {/* TILT toggle, centered, with a fixed width and one place in both
-          modes, so it never moves out from under the kid's thumb. It stays
-          out of the header box, out of the strip right under the header,
-          off the coin and speed panels, and off the truck:
-          - upright phone: just above the pedals (the truck is higher up);
-          - phone on its side (short screen): in the sky, below that strip
-            (the truck sits just above the pedals there). */}
-      <button
-        type="button"
-        onClick={onToggleTilt}
-        aria-pressed={useTilt}
-        data-testid="tilt-toggle"
-        className={`
-          absolute left-1/2 -translate-x-1/2 bottom-[8.5rem] short:bottom-auto short:top-16
-          pointer-events-auto min-h-[44px] min-w-[8rem] px-4 py-2 rounded-full text-white font-bold text-sm
-          ${useTilt ? 'bg-green-700' : 'bg-gray-600'}
-          active:scale-95 transition-transform
-        `}
+      {/* TILT toggle, with its note, above the steering slot */}
+      <div
+        data-testid="tilt-slot"
+        className="absolute left-3 bottom-[14rem] short:bottom-[6.25rem] flex flex-col items-start gap-1 pointer-events-none"
       >
-        {useTilt ? '🎮 TILT ON' : '🎮 TILT OFF'}
-      </button>
-
-      {/* CALIBRATE, while tilt steers.
-          - Upright phone: where the arrow buttons were (the left HUD
-            column ends far above it).
-          - Phone on its side (short screen): the left HUD column (coins,
-            stars, Session and Challenges) fills the left side from the
-            header down to the pedals, so CALIBRATE sits just right of TILT
-            instead, in the same row. TILT does not move. The max width
-            keeps it clear of the NOS button column on narrow phones (the
-            label wraps instead). */}
-      {useTilt && (
+        {tiltNote && (
+          <div role="status" className="max-w-[14rem] rounded-xl bg-black/75 px-3 py-1.5 text-sm font-semibold text-white">
+            {tiltNote}
+          </div>
+        )}
         <button
           type="button"
-          onClick={onCalibrate}
-          data-testid="calibrate-button"
-          className={`
-            absolute left-4 top-[calc(50%-1.5rem)] md:top-[calc(50%-1.75rem)] -translate-y-1/2
-            short:left-[calc(50%+4.5rem)] short:top-16 short:translate-y-0 short:max-w-[calc(50%-11rem)]
-            pointer-events-auto min-h-[44px] px-4 py-2 rounded-full bg-blue-700 text-white font-bold text-sm leading-tight active:scale-95
-          `}
+          {...tiltTap}
+          aria-pressed={useTilt}
+          data-testid="tilt-toggle"
+          className={`pointer-events-auto min-h-[44px] min-w-[8rem] rounded-full px-4 py-2 text-base font-bold text-white active:scale-95 transition-transform ${
+            useTilt ? 'bg-green-700' : 'bg-gray-700'
+          }`}
         >
-          ⚙️ CALIBRATE
+          {useTilt ? '🎮 TILT ON' : '🎮 TILT OFF'}
         </button>
-      )}
+      </div>
 
-      {/* Steering buttons (when tilt is off). The side columns keep their
-          old screen position (the middle of the whole screen, not of this
-          lower layer), so they do not slide further under the pedals on a
-          phone held sideways. */}
-      {!useTilt && (
-        <div
-          data-testid="steering-area"
-          className="absolute left-4 top-[calc(50%-1.5rem)] md:top-[calc(50%-1.75rem)] -translate-y-1/2 pointer-events-auto flex flex-col gap-4"
-        >
-          <button
-            {...handlers.left}
-            className={`
-              w-16 h-24 rounded-xl
-              flex items-center justify-center
-              text-white font-bold text-3xl
-              ${state.left ? 'bg-blue-400 scale-105' : 'bg-blue-600'}
-              transition-all shadow-lg
-            `}
-            style={{ touchAction: 'none' }}
-          >
-            ◀
-          </button>
-          <button
-            {...handlers.right}
-            className={`
-              w-16 h-24 rounded-xl
-              flex items-center justify-center
-              text-white font-bold text-3xl
-              ${state.right ? 'bg-blue-400 scale-105' : 'bg-blue-600'}
-              transition-all shadow-lg
-            `}
-            style={{ touchAction: 'none' }}
-          >
-            ▶
-          </button>
-        </div>
-      )}
+      {/* The steering slot: the arrows, or (with tilt) CALIBRATE */}
+      <div
+        data-testid="steering-slot"
+        className="absolute left-3 bottom-[8.75rem] short:bottom-3 flex flex-row items-end gap-2 pointer-events-auto"
+      >
+        {useTilt ? (
+          <div className="flex flex-col items-start gap-1">
+            <div className="rounded-full bg-black/60 px-3 py-1 text-sm text-white">📱 Tilt your phone to steer</div>
+            <button
+              type="button"
+              {...calibrateTap}
+              data-testid="calibrate-button"
+              className="min-h-[44px] rounded-full bg-blue-700 px-4 py-2 text-base font-bold text-white active:scale-95"
+            >
+              ⚙️ CALIBRATE
+            </button>
+          </div>
+        ) : (
+          <div data-testid="steering-area" className="flex flex-row gap-2">
+            <button
+              type="button"
+              aria-label="Steer left"
+              {...handlers.left}
+              className={`flex h-16 w-[4.5rem] items-center justify-center rounded-2xl text-3xl font-bold text-white shadow-lg transition-all short:h-[4.5rem] short:w-20 ${
+                state.left ? 'bg-blue-400 scale-105' : 'bg-blue-600'
+              }`}
+              style={{ touchAction: 'none' }}
+            >
+              ◀
+            </button>
+            <button
+              type="button"
+              aria-label="Steer right"
+              {...handlers.right}
+              className={`flex h-16 w-[4.5rem] items-center justify-center rounded-2xl text-3xl font-bold text-white shadow-lg transition-all short:h-[4.5rem] short:w-20 ${
+                state.right ? 'bg-blue-400 scale-105' : 'bg-blue-600'
+              }`}
+              style={{ touchAction: 'none' }}
+            >
+              ▶
+            </button>
+          </div>
+        )}
+      </div>
 
-      {/* Side buttons - NOS and Horn */}
-      <div className="absolute right-4 top-[calc(50%-1.5rem)] md:top-[calc(50%-1.75rem)] -translate-y-1/2 flex flex-col gap-4 pointer-events-auto">
-        {/* NOS button */}
+      {/* NOS and the horn, above GAS */}
+      <div
+        data-testid="boost-slot"
+        className="absolute right-3 bottom-[8.75rem] short:bottom-[6.25rem] flex flex-row gap-2 pointer-events-auto"
+      >
         <button
+          type="button"
+          aria-label="NOS boost"
           {...handlers.nos}
-          className={`
-            relative w-20 h-20 rounded-full
-            flex flex-col items-center justify-center
-            text-white font-bold
-            ${state.nos ? 'bg-cyan-400 scale-110' : 'bg-cyan-600'}
-            ${nosCharge < 10 ? 'opacity-50' : ''}
-            transition-all shadow-lg
-            active:scale-95
-          `}
+          className={`relative flex h-16 w-16 flex-col items-center justify-center rounded-full font-bold text-white shadow-lg transition-all active:scale-95 short:h-14 short:w-14 ${
+            state.nos ? 'bg-cyan-400 scale-110' : 'bg-cyan-600'
+          } ${nosCharge < 10 ? 'opacity-50' : ''}`}
           style={{ touchAction: 'none' }}
         >
-          <span className="text-2xl">🚀</span>
+          <span className="text-2xl short:text-xl" aria-hidden="true">🚀</span>
           <span className="text-xs">NOS</span>
-          {/* NOS level indicator, inside the round button (the button is
-              relative; the meter used to float under the horn instead) */}
-          <div
-            data-testid="nos-meter"
-            className="absolute bottom-3 left-5 right-5 h-1 bg-black/30 rounded"
-          >
-            <div
-              className="h-full bg-cyan-300 rounded transition-all"
-              style={{ width: `${nosPercent}%` }}
-            />
-          </div>
+          {/* NOS level, inside the round button */}
+          <span data-testid="nos-meter" className="absolute bottom-2 left-4 right-4 h-1 rounded bg-black/30">
+            <span className="block h-full rounded bg-cyan-200 transition-all" style={{ width: `${nosPercent}%` }} />
+          </span>
         </button>
 
-        {/* Horn button: the hold handlers plus one honk per press (it used
-            to honk on touchstart AND on the compatibility click). */}
+        {/* The horn: the hold handlers plus one honk per press */}
         <button
           type="button"
+          aria-label="Horn"
           {...handlers.horn}
           onPointerDown={(e) => {
             handlers.horn.onPointerDown(e);
             onHorn();
           }}
-          className={`
-            w-20 h-20 rounded-full
-            flex flex-col items-center justify-center
-            text-white font-bold text-xl
-            ${state.horn ? 'bg-yellow-400 scale-110' : 'bg-yellow-600'}
-            transition-all shadow-lg
-            active:scale-95
-          `}
+          className={`flex h-16 w-16 items-center justify-center rounded-full text-3xl text-white shadow-lg transition-all active:scale-95 short:h-14 short:w-14 short:text-2xl ${
+            state.horn ? 'bg-yellow-400 scale-110' : 'bg-yellow-600'
+          }`}
           style={{ touchAction: 'none' }}
         >
-          <span className="text-3xl">📯</span>
+          <span aria-hidden="true">📯</span>
         </button>
       </div>
 
-      {/* Bottom pedals - with safe area for notched phones */}
-      <div className="absolute bottom-0 left-0 right-0 h-32 flex pointer-events-auto pb-[env(safe-area-inset-bottom)]">
-        {/* Brake pedal */}
+      {/* The pedals: the whole bottom upright; the bottom right corner sideways */}
+      <div
+        data-testid="pedals"
+        className="absolute bottom-0 left-0 right-0 flex h-32 pb-[env(safe-area-inset-bottom)] pointer-events-auto short:bottom-3 short:left-auto short:right-3 short:h-auto short:gap-2 short:pb-0"
+      >
         <button
+          type="button"
+          aria-label="Brake"
           {...handlers.brake}
-          className={`
-            flex-1 m-2 rounded-t-3xl
-            flex items-center justify-center
-            text-white font-bold text-2xl
-            ${state.brake ? 'bg-red-500' : 'bg-red-700'}
-            transition-all shadow-lg
-          `}
+          className={`m-2 flex flex-1 items-center justify-center rounded-t-3xl text-2xl font-bold text-white shadow-lg transition-all short:m-0 short:h-[4.5rem] short:w-24 short:flex-none short:rounded-2xl short:text-lg ${
+            state.brake ? 'bg-red-500' : 'bg-red-700'
+          }`}
           style={{ touchAction: 'none' }}
         >
-          <div className="flex flex-col items-center">
-            <span className="text-4xl">🛑</span>
+          <span className="flex flex-col items-center">
+            <span className="text-4xl short:text-2xl" aria-hidden="true">🛑</span>
             <span>BRAKE</span>
-          </div>
+          </span>
         </button>
-
-        {/* Gas pedal */}
         <button
+          type="button"
+          aria-label="Gas"
           {...handlers.gas}
-          className={`
-            flex-1 m-2 rounded-t-3xl
-            flex items-center justify-center
-            text-white font-bold text-2xl
-            ${state.gas ? 'bg-green-400' : 'bg-green-600'}
-            transition-all shadow-lg
-          `}
+          className={`m-2 flex flex-1 items-center justify-center rounded-t-3xl text-2xl font-bold text-white shadow-lg transition-all short:m-0 short:h-[4.5rem] short:w-28 short:flex-none short:rounded-2xl short:text-lg ${
+            state.gas ? 'bg-green-400' : 'bg-green-700'
+          }`}
           style={{ touchAction: 'none' }}
         >
-          <div className="flex flex-col items-center">
-            <span className="text-4xl">⛽</span>
+          <span className="flex flex-col items-center">
+            <span className="text-4xl short:text-2xl" aria-hidden="true">⛽</span>
             <span>GAS</span>
-          </div>
+          </span>
         </button>
       </div>
-
-      {/* Tilt indicator (when tilt is on): above the TILT toggle on an
-          upright phone, in its old place on a phone held sideways */}
-      {useTilt && (
-        <div className="absolute bottom-[11.75rem] short:bottom-36 left-1/2 -translate-x-1/2 pointer-events-none">
-          <div className="bg-black/50 px-4 py-2 rounded-full text-white text-sm">
-            📱 Tilt phone to steer
-          </div>
-        </div>
-      )}
     </div>
   );
 }

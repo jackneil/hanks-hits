@@ -45,7 +45,9 @@ describe('GameUI challenges', () => {
     expect(screen.getByText('Star Collector')).toBeInTheDocument();
     expect(screen.getAllByText('0/10').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close challenges' }));
+    // The panel is a GameSheet over the play area, with one way back.
+    expect(screen.getByTestId('monster-truck-challenges')).toHaveAttribute('role', 'dialog');
+    fireEvent.click(screen.getByRole('button', { name: /Keep driving/ }));
 
     expect(screen.queryByText('Star Collector')).not.toBeInTheDocument();
   });

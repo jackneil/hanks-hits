@@ -20,11 +20,13 @@ import { useAuthSync } from '@/shared/hooks/useAuthSync';
 import { useShellHold } from '@/shared/hooks/useShellHold';
 import { sounds } from './lib/sounds';
 import { WORLD } from './lib/constants';
+import { toggleTilt } from './lib/tiltToggle';
 import { getTerrainHeight } from './lib/terrainUtils';
 import {
   GameStartOverlay,
   WebGLGate,
 } from '@/shared/components';
+import { useCoarsePointer } from '@/shared/hooks';
 
 // Speed tracker component (inside Canvas)
 function SpeedTracker({
@@ -84,6 +86,7 @@ function GameScene({
           position={spawnPosition}
           rotation={WORLD.SPAWN.ROTATION}
           getControls={getControls}
+          paused={paused}
         />
 
         <Collectibles />
@@ -102,7 +105,18 @@ export function MonsterTruckGame() {
   const [speed, setSpeed] = useState(0);
   // The player starts the game. The 3D world loads behind the start overlay,
   // so Play drops straight into a scene that is already warm.
-  const [hasStarted, setHasStarted] = useState(false);
+  // In the store (not saved), so GameShell knows when a run is live and
+  // moves Sign In and Leaderboard into the pause sheet on a phone. A
+  // header restart remounts this component: the run starts over from the
+  // start card.
+  const hasStarted = useGameStore((s) => s.hasStarted);
+  const setHasStarted = useGameStore((s) => s.setHasStarted);
+  useEffect(() => {
+    setHasStarted(false);
+    return () => setHasStarted(false);
+  }, [setHasStarted]);
+  const isCoarse = useCoarsePointer();
+  const [tiltNote, setTiltNote] = useState<string | null>(null);
 
   // Cloud sync for authenticated users
   const store = useGameStore();
@@ -123,6 +137,7 @@ export function MonsterTruckGame() {
   // own React root), and passed down as a prop.
   const held = useShellHold();
   const showGarage = useGameStore((s) => s.showGarage);
+  const showChallenges = useGameStore((s) => s.showChallenges);
   const setShowGarage = useGameStore((s) => s.setShowGarage);
   const nosCharge = useGameStore((s) => s.nosCharge);
   const nosMaxCharge = useGameStore((s) => s.nosMaxCharge);
@@ -192,12 +207,20 @@ export function MonsterTruckGame() {
   };
 
   return (
-    <div className="fixed inset-0 bg-black">
+    // Under the header (the play box's place), so no part of the 3D view
+    // hides behind it.
+    <div className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] bg-black">
       {/* 3D Canvas - gated so a device without WebGL gets a friendly
           explanation instead of a silent black void */}
       <WebGLGate gameName="Monster Truck">
+        {/* On a phone: one pixel per CSS pixel and no shadows. A real
+            iPhone SE ran 40 fps holding GAS with shadows and dpr up to 1.5
+            (phone UX audit 2026-09-29, S15). The scene renders on demand
+            while the start card is up. */}
         <Canvas
-          shadows
+          shadows={!isCoarse}
+          dpr={isCoarse ? 1 : [1, 1.5]}
+          frameloop={hasStarted ? 'always' : 'demand'}
           camera={{
             fov: 75,
             near: 0.5,  // Prevent z-fighting
@@ -211,7 +234,7 @@ export function MonsterTruckGame() {
               getControls={controls.getControlValues}
               vehicleRef={vehicleRef}
               onSpeedUpdate={handleSpeedUpdate}
-              paused={isPaused || held}
+              paused={isPaused || held || showChallenges || showGarage}
             />
           </Suspense>
         </Canvas>
@@ -257,11 +280,19 @@ export function MonsterTruckGame() {
         <MobileControls
           touchControls={controls.touch}
           onHorn={handleHorn}
-          onNos={() => {}}
           nosCharge={nosCharge}
           nosMaxCharge={nosMaxCharge}
           useTilt={controls.useTilt}
-          onToggleTilt={() => controls.setUseTilt(!controls.useTilt)}
+          onToggleTilt={() => {
+            void toggleTilt({
+              useTilt: controls.useTilt,
+              isSupported: controls.tilt.isSupported,
+              requestPermission: controls.tilt.requestPermission,
+              setUseTilt: controls.setUseTilt,
+              setNote: setTiltNote,
+            });
+          }}
+          tiltNote={tiltNote}
           onCalibrate={controls.tilt.calibrate}
         />
       )}

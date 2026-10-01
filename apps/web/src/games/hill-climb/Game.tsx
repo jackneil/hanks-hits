@@ -4,6 +4,19 @@
  * Hill Climb Racing - Main Game Component
  *
  * Canvas-based 2D physics game using Matter.js.
+ *
+ * Layout: the canvas is exactly the GameShell play box (usePlayBox), never
+ * the window, so on a phone the whole world is on screen with the header
+ * above it. The camera offsets scale with the canvas (cameraOffsets), so
+ * the truck sits left of centre with its wheels and the ground in view at
+ * every size. The HUD is one row at the top; the touch chips sit in the
+ * bottom corners; the pause sheet, the result and the Garage are DOM.
+ *
+ * Loop: Matter.Runner steps the physics on its own clock (the library owns
+ * that loop). The game's own frame chain is the shared useGameLoop: a fixed
+ * step drives the fuel, nitro, airtime and particle accumulators, and each
+ * frame draws the world. Paused or held, the steps stop and the picture
+ * stays.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -12,7 +25,20 @@ import { useCombinedControls, useIsMobile, usePauseKeyboard } from './hooks/useC
 import { useHillClimbStore, type HillClimbProgress } from './lib/store';
 import { useAuthSync } from '@/shared/hooks/useAuthSync';
 import { useShellHold } from '@/shared/hooks/useShellHold';
-import { clampDeltaTime, getControlsCopy } from './lib/gameHelpers';
+import { useGameLoop } from '@/shared/hooks/useGameLoop';
+import { usePlayBox } from '@/shared/hooks/usePlayBox';
+import { setGameSpeakerEnabled, wantGameAudio } from '@/shared/lib/audio';
+import { cameraOffsets, getControlsCopy, resultText } from './lib/gameHelpers';
+import {
+  HILL_CLIMB_AUDIO_ID,
+  isEngineRunning,
+  playSound,
+  releaseSounds,
+  setEngine,
+  startEngine,
+  stopEngine,
+} from './lib/sounds';
+import { useHillClimbClips, type HillClimbClipPhase } from './lib/useHillClimbClips';
 import {
   createVehicle,
   applyWheelTorque,
@@ -30,16 +56,20 @@ import { TerrainGenerator, renderTerrain, type TerrainChunk } from './lib/terrai
 import { PHYSICS, TERRAIN, FUEL, NITRO, SCORING, CAMERA, STAGES, VEHICLES } from './lib/constants';
 import { GameUI } from './ui/GameUI';
 import { MobileControls } from './ui/MobileControls';
-import { GameOverScreen } from './ui/GameOverScreen';
-import { PauseMenu } from './ui/PauseMenu';
+import { PauseSheet } from './ui/PauseSheet';
+import { ResultPanel } from './ui/ResultPanel';
 import { Garage } from './ui/Garage';
-import {
-  GameStartOverlay,
-  GameStartOverlayButton,
-} from '@/shared/components';
+import { GameStartOverlay, GameStartOverlayButton, ResultChip } from '@/shared/components';
+import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from '@/shared/components/buttonStyles';
 
 /** Start-screen control hints, from the single source in gameHelpers. */
 const CONTROLS_COPY = getControlsCopy();
+
+/** The engine's revs are set this many fixed steps apart (about 15 times a second). */
+const ENGINE_STEPS = 4;
+
+/** The label of the Garage button in the result chip. */
+export const RESULT_GARAGE_LABEL = '🔧 Garage';
 
 // =============================================================================
 // TYPES
@@ -63,6 +93,14 @@ interface Particle {
   type: 'nitro' | 'coin' | 'fuel' | 'dust' | 'flip';
 }
 
+/**
+ * The end-to-end hook for the phone gate: `window.__hh.hillClimb.crash()`
+ * ends the run as a crash would. A crash cannot be forced by touch in a
+ * few seconds, and the gate must see the result chip. It can end a run
+ * and nothing else.
+ */
+type TestHooks = { hillClimb?: { crash: () => void } };
+
 // =============================================================================
 // MAIN GAME COMPONENT
 // =============================================================================
@@ -83,7 +121,6 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   const fuelCansRef = useRef<CollectibleBody[]>([]);
   const coinsRef = useRef<CollectibleBody[]>([]);
   const particlesRef = useRef<Particle[]>([]);
-  const animationFrameRef = useRef<number>(0);
 
   // Flip tracking
   const lastRotationRef = useRef(0);
@@ -96,6 +133,8 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   const isPausedRef = useRef(false);
   const nitroRef = useRef<number>(NITRO.MAX);
   const shakeRef = useRef({ intensity: 0, duration: 0 });
+  const nitroWasActiveRef = useRef(false);
+  const engineStepRef = useRef(0);
 
   // Input is dead until the run is active, so taps on the start overlay never
   // register as gas or brake (the touch/key layer is bound to window).
@@ -124,9 +163,15 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     fuel,
     nitro,
     distance,
+    bestDistance,
+    sessionCoins,
+    sessionFlips,
+    gameOverReason,
+    lastRunNewRecord,
     currentVehicleId,
     currentStageId,
     leanSensitivity,
+    soundEnabled,
     startRun,
     endRun,
     consumeFuel,
@@ -154,9 +199,9 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   const [showGarage, setShowGarage] = useState(false);
 
   // The store is a singleton, so a finished run leaves isGameOver true. Coming
-  // back to the game showed the old game-over screen (z-50) on top of the new
-  // start card. Clear the run-session flags while the start card is up. Coins,
-  // unlocks and best distance are separate fields and stay untouched.
+  // back to the game showed the old result on top of the new start card.
+  // Clear the run-session flags while the start card is up. Coins, unlocks
+  // and best distance are separate fields and stay untouched.
   useEffect(() => {
     if (!showStartScreen) return;
     useHillClimbStore.setState({
@@ -178,8 +223,8 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   // The shell holds the game under a shell overlay (the restart question,
   // the leaderboard, the install steps, a clip sheet) and in a hidden tab.
   // A hold stops the game exactly like the game's own pause: the physics
-  // runner stops and the render loop skips the game logic (fuel, distance,
-  // the camera). Before this the truck kept driving under "Restart game?"
+  // runner stops and the loop skips the game logic (fuel, distance, the
+  // camera). Before this the truck kept driving under "Restart game?"
   // (213 m to 890 m; phone UX audit 2026-09-29, S8).
   const held = useShellHold();
   const stopped = isPaused || held;
@@ -200,6 +245,51 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
 
   // Get current stage config
   const stageConfig = STAGES.find((s) => s.id === currentStageId) || STAGES[0];
+
+  // The play box: the canvas is exactly this big (never the window). The
+  // box is fitted (no scroll, no browser gesture) while the canvas shows;
+  // the Garage is a page that scrolls in the box.
+  const box = usePlayBox({ fit: !showGarage });
+
+  // ==========================================================================
+  // SOUND
+  // ==========================================================================
+
+  // The first tap starts the shared game-audio bus; the sound switch is
+  // this game's speaker (also after the saved setting loads); the channel
+  // leaves the bus when the game unmounts.
+  useEffect(() => wantGameAudio(), []);
+  useEffect(() => {
+    setGameSpeakerEnabled(HILL_CLIMB_AUDIO_ID, soundEnabled);
+  }, [soundEnabled]);
+  useEffect(() => () => releaseSounds(), []);
+
+  // The engine runs while the truck drives: not on the start card, not in
+  // the Garage, not under the pause sheet or the shell's hold, not after
+  // the crash.
+  const inRun = !showStartScreen && !showGarage && isPlaying;
+  const engineOn = inRun && !stopped;
+  useEffect(() => {
+    if (engineOn) startEngine();
+    else stopEngine();
+  }, [engineOn]);
+
+  // ==========================================================================
+  // CLIPS
+  // ==========================================================================
+
+  const clipPhase: HillClimbClipPhase = showGarage
+    ? 'garage'
+    : showStartScreen
+      ? 'start'
+      : isGameOver
+        ? 'gameOver'
+        : stopped
+          ? 'paused'
+          : isPlaying
+            ? 'playing'
+            : 'start';
+  useHillClimbClips(canvasRef, { phase: clipPhase, distance, bestDistance });
 
   // ==========================================================================
   // CHUNK MANAGEMENT
@@ -524,6 +614,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
       // Head hit terrain = death
       if (labels.includes('driverHead') && (labels.includes('terrain') || labels.includes('ground'))) {
         triggerShake(25, 0.5); // Big shake on crash
+        playSound('crash');
         endRun('head');
         return;
       }
@@ -535,6 +626,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
         if (fuelCan && !fuelCan.collected) {
           fuelCan.collected = true;
           collectFuel();
+          playSound('fuel');
           // Spawn fuel pickup particles
           for (let i = 0; i < 8; i++) {
             spawnParticle(fuelBody.position.x, fuelBody.position.y, 'fuel');
@@ -551,6 +643,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
           coin.collected = true;
           const value = SCORING.COIN_VALUE_MIN + Math.floor(Math.random() * (SCORING.COIN_VALUE_MAX - SCORING.COIN_VALUE_MIN));
           addCoins(value);
+          playSound('coin');
           // Spawn coin pickup particles
           for (let i = 0; i < 6; i++) {
             spawnParticle(coinBody.position.x, coinBody.position.y, 'coin');
@@ -562,7 +655,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
   }, [endRun, collectFuel, addCoins]);
 
   // ==========================================================================
-  // GAME LOOP
+  // GAME LOOP (one fixed step of game time)
   // ==========================================================================
 
   const gameLoop = useCallback((deltaTime: number) => {
@@ -587,6 +680,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
 
     // Handle nitro consumption/refill
     if (nitroActive) {
+      if (!nitroWasActiveRef.current) playSound('nitro');
       // Drain rate is adjusted by duration upgrade (higher = slower drain)
       consumeNitro((NITRO.DRAIN_RATE / stats.nitroDuration) * deltaTime);
       // Spawn nitro trail particles behind wheels
@@ -598,6 +692,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
       // Refill rate is adjusted by recharge upgrade (higher = faster refill)
       refillNitro(NITRO.BASE_REFILL_RATE * stats.nitroRecharge * deltaTime);
     }
+    nitroWasActiveRef.current = nitroActive;
 
     // Update particles
     updateParticles(deltaTime);
@@ -645,6 +740,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
         if (Math.abs(totalRotationRef.current) >= SCORING.FLIP_ROTATION_THRESHOLD) {
           addFlip();
           addCoins(SCORING.FRONT_FLIP_COINS);
+          playSound('flip');
           // Spawn flip celebration particles
           for (let i = 0; i < 15; i++) {
             spawnParticle(vehicle.chassis.position.x, vehicle.chassis.position.y, 'flip');
@@ -660,6 +756,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
           addCoins(airtimeCoins);
           addAirtime(airborneTimeRef.current);
         }
+        playSound('land');
         // Spawn dust particles on landing
         for (let i = 0; i < 10; i++) {
           spawnParticle(vehicle.wheelRear.position.x, vehicle.wheelRear.position.y, 'dust');
@@ -674,341 +771,328 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
       totalRotationRef.current = 0;
     }
 
+    // The engine follows the speed and the pedal, a few times a second.
+    const kmh = getVehicleSpeed(vehicle);
+    engineStepRef.current = (engineStepRef.current + 1) % ENGINE_STEPS;
+    if (engineStepRef.current === 0) {
+      if (!isEngineRunning()) startEngine();
+      setEngine(kmh, currentControls.gas, nitroActive);
+    }
+
     // Update UI state
-    setSpeed(Math.round(getVehicleSpeed(vehicle)));
+    setSpeed(Math.round(kmh));
     setRotation(Math.round(getVehicleRotation(vehicle)));
   }, [currentVehicleId, getVehicleStats, consumeFuel, consumeNitro, refillNitro, fuel, leanSensitivity, updateDistance, updateChunks, addFlip, addCoins, addAirtime]);
 
   // ==========================================================================
-  // RENDER LOOP
+  // DRAWING (one frame)
   // ==========================================================================
 
-  // Latest-refs: the render loop always calls the freshest game logic without
-  // depending on the callbacks' identities (see the deps note at the bottom of
-  // startRenderLoop for why that identity churn was fatal).
-  const gameLoopRef = useRef(gameLoop);
-  const renderVehicleRef = useRef(renderVehicle);
-  useEffect(() => {
-    gameLoopRef.current = gameLoop;
-    renderVehicleRef.current = renderVehicle;
-  });
-
-  const startRenderLoop = useCallback(() => {
+  function drawFrame() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Defense-in-depth: never allow two concurrent loops. If a previous loop
-    // is still scheduled (e.g. an init path that bypassed the lifecycle
-    // effect's cleanup), kill it before starting a new chain.
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
+    // Render sky background with gradient
+    const skyRender = stageConfig.render;
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, skyRender.skyGradient[0]);
+    gradient.addColorStop(1, skyRender.skyGradient[1]);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Render stars (static background, no camera transform)
+    if (skyRender.hasStars) {
+      ctx.fillStyle = '#FFFFFF';
+      // Deterministic star positions based on canvas size
+      for (let i = 0; i < 100; i++) {
+        const seed = i * 12345;
+        const x = (seed * 7919) % canvas.width;
+        const y = ((seed * 104729) % (canvas.height * 0.7));
+        const size = (seed % 3) + 1;
+        const twinkle = Math.sin(performance.now() / 500 + i) * 0.3 + 0.7;
+        ctx.globalAlpha = twinkle;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
     }
 
-    let lastTime = performance.now();
+    // Render celestial bodies (static background). They sit under the
+    // pause button, below the HUD row, not behind the fuel gauge.
+    const skyX = Math.round(canvas.width / 2);
+    const skyY = Math.max(90, Math.round(canvas.height * 0.3));
+    if (skyRender.showSun) {
+      ctx.fillStyle = '#FFD700';
+      ctx.beginPath();
+      ctx.arc(skyX, skyY, 40, 0, Math.PI * 2);
+      ctx.fill();
+      // Sun glow
+      ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+      ctx.beginPath();
+      ctx.arc(skyX, skyY, 60, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
-    const render = (currentTime: number) => {
-      // Clamp dt so one huge frame (slow phone, backgrounded tab) can't
-      // distort the dt-driven accumulators (fuel/nitro drain, airtime bonus,
-      // particles). Physics itself steps on Matter.Runner's own clock and is
-      // unaffected either way.
-      const deltaTime = clampDeltaTime((currentTime - lastTime) / 1000);
-      lastTime = currentTime;
+    if (skyRender.showMoon) {
+      ctx.fillStyle = '#F0F0F0';
+      ctx.beginPath();
+      ctx.arc(skyX, skyY - 20, 30, 0, Math.PI * 2);
+      ctx.fill();
+      // Moon craters
+      ctx.fillStyle = '#D0D0D0';
+      ctx.beginPath();
+      ctx.arc(skyX - 10, skyY - 25, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(skyX + 10, skyY - 10, 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
-      // Render sky background with gradient
-      const skyRender = stageConfig.render;
-      const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      gradient.addColorStop(0, skyRender.skyGradient[0]);
-      gradient.addColorStop(1, skyRender.skyGradient[1]);
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (skyRender.showEarth) {
+      // Earth in the moon sky
+      ctx.fillStyle = '#4169E1';
+      ctx.beginPath();
+      ctx.arc(skyX, skyY + 20, 50, 0, Math.PI * 2);
+      ctx.fill();
+      // Continents
+      ctx.fillStyle = '#228B22';
+      ctx.beginPath();
+      ctx.arc(skyX - 10, skyY + 10, 20, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(skyX + 20, skyY + 30, 15, 0, Math.PI * 2);
+      ctx.fill();
+      // Clouds
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.beginPath();
+      ctx.arc(skyX - 20, skyY + 20, 12, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
-      // Render stars (static background, no camera transform)
-      if (skyRender.hasStars) {
-        ctx.fillStyle = '#FFFFFF';
-        // Deterministic star positions based on canvas size
-        for (let i = 0; i < 100; i++) {
-          const seed = i * 12345;
-          const x = (seed * 7919) % canvas.width;
-          const y = ((seed * 104729) % (canvas.height * 0.7));
-          const size = (seed % 3) + 1;
-          const twinkle = Math.sin(performance.now() / 500 + i) * 0.3 + 0.7;
-          ctx.globalAlpha = twinkle;
-          ctx.beginPath();
-          ctx.arc(x, y, size, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
+    // Render aurora (animated)
+    if (skyRender.hasAurora) {
+      const time = performance.now() / 2000;
+      for (let i = 0; i < 5; i++) {
+        const wave = Math.sin(time + i * 0.5) * 20;
+        const grd = ctx.createLinearGradient(0, 50 + wave + i * 30, 0, 120 + wave + i * 30);
+        grd.addColorStop(0, 'rgba(0, 255, 100, 0)');
+        grd.addColorStop(0.5, `rgba(0, 255, ${150 + i * 20}, 0.3)`);
+        grd.addColorStop(1, 'rgba(100, 0, 255, 0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 50 + wave + i * 30, canvas.width, 80);
       }
+    }
 
-      // Render celestial bodies (static background)
-      if (skyRender.showSun) {
-        ctx.fillStyle = '#FFD700';
+    // Render clouds (parallax effect)
+    if (skyRender.hasClouds && vehicleRef.current) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      const parallax = vehicleRef.current.chassis.position.x * 0.1;
+      for (let i = 0; i < 8; i++) {
+        const baseX = (i * 200 - parallax) % (canvas.width + 200) - 100;
+        const y = 50 + (i % 3) * 40;
+        // Cloud shape (multiple circles)
         ctx.beginPath();
-        ctx.arc(canvas.width - 100, 80, 40, 0, Math.PI * 2);
-        ctx.fill();
-        // Sun glow
-        ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
-        ctx.beginPath();
-        ctx.arc(canvas.width - 100, 80, 60, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      if (skyRender.showMoon) {
-        ctx.fillStyle = '#F0F0F0';
-        ctx.beginPath();
-        ctx.arc(canvas.width - 80, 60, 30, 0, Math.PI * 2);
-        ctx.fill();
-        // Moon craters
-        ctx.fillStyle = '#D0D0D0';
-        ctx.beginPath();
-        ctx.arc(canvas.width - 90, 55, 8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(canvas.width - 70, 70, 5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      if (skyRender.showEarth) {
-        // Earth in the moon sky
-        ctx.fillStyle = '#4169E1';
-        ctx.beginPath();
-        ctx.arc(canvas.width - 120, 100, 50, 0, Math.PI * 2);
-        ctx.fill();
-        // Continents
-        ctx.fillStyle = '#228B22';
-        ctx.beginPath();
-        ctx.arc(canvas.width - 130, 90, 20, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(canvas.width - 100, 110, 15, 0, Math.PI * 2);
-        ctx.fill();
-        // Clouds
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.beginPath();
-        ctx.arc(canvas.width - 140, 100, 12, 0, Math.PI * 2);
+        ctx.arc(baseX, y, 30, 0, Math.PI * 2);
+        ctx.arc(baseX + 25, y - 10, 25, 0, Math.PI * 2);
+        ctx.arc(baseX + 50, y, 30, 0, Math.PI * 2);
+        ctx.arc(baseX + 25, y + 10, 20, 0, Math.PI * 2);
         ctx.fill();
       }
+    }
 
-      // Render aurora (animated)
-      if (skyRender.hasAurora) {
-        const time = performance.now() / 2000;
-        for (let i = 0; i < 5; i++) {
-          const wave = Math.sin(time + i * 0.5) * 20;
-          const grd = ctx.createLinearGradient(0, 50 + wave + i * 30, 0, 120 + wave + i * 30);
-          grd.addColorStop(0, 'rgba(0, 255, 100, 0)');
-          grd.addColorStop(0.5, `rgba(0, 255, ${150 + i * 20}, 0.3)`);
-          grd.addColorStop(1, 'rgba(100, 0, 255, 0)');
-          ctx.fillStyle = grd;
-          ctx.fillRect(0, 50 + wave + i * 30, canvas.width, 80);
-        }
-      }
+    const vehicle = vehicleRef.current;
+    if (!vehicle) return;
 
-      // Render clouds (parallax effect)
-      if (skyRender.hasClouds && vehicleRef.current) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        const parallax = vehicleRef.current.chassis.position.x * 0.1;
-        for (let i = 0; i < 8; i++) {
-          const baseX = (i * 200 - parallax) % (canvas.width + 200) - 100;
-          const y = 50 + (i % 3) * 40;
-          // Cloud shape (multiple circles)
-          ctx.beginPath();
-          ctx.arc(baseX, y, 30, 0, Math.PI * 2);
-          ctx.arc(baseX + 25, y - 10, 25, 0, Math.PI * 2);
-          ctx.arc(baseX + 50, y, 30, 0, Math.PI * 2);
-          ctx.arc(baseX + 25, y + 10, 20, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
+    // Camera transform with shake. The offsets scale with the canvas, so
+    // the truck sits left of centre with its wheels and the ground in view.
+    const shake = isPausedRef.current ? { x: 0, y: 0 } : getShakeOffset();
+    const { lookAhead, verticalOffset } = cameraOffsets(canvas.width, canvas.height);
+    const cameraX = vehicle.chassis.position.x + lookAhead;
+    const cameraY = Math.max(CAMERA.MIN_Y, vehicle.chassis.position.y + verticalOffset);
 
-      if (vehicleRef.current && isPlayingRef.current && !isPausedRef.current) {
-        // Run game logic (skip when paused to prevent fuel drain, etc.)
-        gameLoopRef.current(deltaTime);
+    ctx.save();
+    ctx.translate(canvas.width / 2 - cameraX + shake.x, canvas.height / 2 - cameraY + shake.y);
 
-        // Update screen shake
-        updateShake(deltaTime);
-        const shake = getShakeOffset();
+    // Render terrain chunks
+    chunksRef.current.forEach((chunk) => {
+      renderTerrain(ctx, chunk.points, stageConfig.groundColor);
+    });
 
-        // Camera transform with shake
-        const vehicle = vehicleRef.current;
-        const cameraX = vehicle.chassis.position.x + CAMERA.LOOK_AHEAD;
-        const cameraY = Math.max(CAMERA.MIN_Y, vehicle.chassis.position.y + CAMERA.VERTICAL_OFFSET);
+    // Render terrain decorations (rocks, trees, crystals, etc.)
+    chunksRef.current.forEach((chunk) => {
+      const decorations = skyRender.decorations;
+      const colors = skyRender.decorationColors;
 
-        ctx.save();
-        ctx.translate(canvas.width / 2 - cameraX + shake.x, canvas.height / 2 - cameraY + shake.y);
+      // Place decorations at intervals along terrain
+      chunk.points.forEach((point, idx) => {
+        if (idx % 8 !== 0) return; // Every 8th point
+        const seed = Math.floor(point.x * 100);
+        const decorType = decorations[seed % decorations.length];
+        const color = colors[seed % colors.length];
 
-        // Render terrain chunks
-        chunksRef.current.forEach((chunk) => {
-          renderTerrain(ctx, chunk.points, stageConfig.groundColor);
-        });
+        switch (decorType) {
+          case 'rocks':
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(point.x - 8, point.y);
+            ctx.lineTo(point.x - 5, point.y - 12);
+            ctx.lineTo(point.x + 3, point.y - 10);
+            ctx.lineTo(point.x + 8, point.y);
+            ctx.closePath();
+            ctx.fill();
+            break;
 
-        // Render terrain decorations (rocks, trees, crystals, etc.)
-        chunksRef.current.forEach((chunk) => {
-          const decorations = skyRender.decorations;
-          const colors = skyRender.decorationColors;
+          case 'trees':
+            // Tree trunk
+            ctx.fillStyle = '#5D4037';
+            ctx.fillRect(point.x - 3, point.y - 40, 6, 40);
+            // Tree foliage
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(point.x, point.y - 80);
+            ctx.lineTo(point.x - 20, point.y - 40);
+            ctx.lineTo(point.x + 20, point.y - 40);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(point.x, point.y - 100);
+            ctx.lineTo(point.x - 15, point.y - 60);
+            ctx.lineTo(point.x + 15, point.y - 60);
+            ctx.closePath();
+            ctx.fill();
+            break;
 
-          // Place decorations at intervals along terrain
-          chunk.points.forEach((point, idx) => {
-            if (idx % 8 !== 0) return; // Every 8th point
-            const seed = Math.floor(point.x * 100);
-            const decorType = decorations[seed % decorations.length];
-            const color = colors[seed % colors.length];
-
-            switch (decorType) {
-              case 'rocks':
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.moveTo(point.x - 8, point.y);
-                ctx.lineTo(point.x - 5, point.y - 12);
-                ctx.lineTo(point.x + 3, point.y - 10);
-                ctx.lineTo(point.x + 8, point.y);
-                ctx.closePath();
-                ctx.fill();
-                break;
-
-              case 'trees':
-                // Tree trunk
-                ctx.fillStyle = '#5D4037';
-                ctx.fillRect(point.x - 3, point.y - 40, 6, 40);
-                // Tree foliage
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.moveTo(point.x, point.y - 80);
-                ctx.lineTo(point.x - 20, point.y - 40);
-                ctx.lineTo(point.x + 20, point.y - 40);
-                ctx.closePath();
-                ctx.fill();
-                ctx.beginPath();
-                ctx.moveTo(point.x, point.y - 100);
-                ctx.lineTo(point.x - 15, point.y - 60);
-                ctx.lineTo(point.x + 15, point.y - 60);
-                ctx.closePath();
-                ctx.fill();
-                break;
-
-              case 'crystals':
-                ctx.fillStyle = color;
-                ctx.globalAlpha = 0.7;
-                ctx.beginPath();
-                ctx.moveTo(point.x, point.y - 25);
-                ctx.lineTo(point.x - 6, point.y);
-                ctx.lineTo(point.x + 6, point.y);
-                ctx.closePath();
-                ctx.fill();
-                ctx.beginPath();
-                ctx.moveTo(point.x + 8, point.y - 15);
-                ctx.lineTo(point.x + 4, point.y);
-                ctx.lineTo(point.x + 12, point.y);
-                ctx.closePath();
-                ctx.fill();
-                ctx.globalAlpha = 1;
-                break;
-
-              case 'craters':
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.ellipse(point.x, point.y + 2, 15, 5, 0, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#4A4A4A';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-                break;
-
-              case 'snowdrifts':
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.ellipse(point.x, point.y - 5, 20, 10, 0, 0, Math.PI);
-                ctx.fill();
-                break;
-
-              case 'cacti':
-                ctx.fillStyle = '#228B22';
-                // Main stem
-                ctx.fillRect(point.x - 4, point.y - 30, 8, 30);
-                // Arms
-                ctx.fillRect(point.x - 15, point.y - 25, 12, 6);
-                ctx.fillRect(point.x - 15, point.y - 35, 6, 15);
-                ctx.fillRect(point.x + 3, point.y - 20, 12, 6);
-                ctx.fillRect(point.x + 9, point.y - 30, 6, 15);
-                break;
-            }
-          });
-        });
-
-        // Render snowfall particles (arctic stage)
-        if (skyRender.hasSnowfall) {
-          ctx.fillStyle = '#FFFFFF';
-          for (let i = 0; i < 50; i++) {
-            const seed = i * 7919;
-            const time = performance.now() / 1000;
-            const x = cameraX - canvas.width / 2 + ((seed + time * 50) % canvas.width);
-            const y = cameraY - canvas.height / 2 + ((seed * 3 + time * 100) % canvas.height);
-            const size = (seed % 3) + 2;
+          case 'crystals':
+            ctx.fillStyle = color;
             ctx.globalAlpha = 0.7;
             ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.moveTo(point.x, point.y - 25);
+            ctx.lineTo(point.x - 6, point.y);
+            ctx.lineTo(point.x + 6, point.y);
+            ctx.closePath();
             ctx.fill();
-          }
-          ctx.globalAlpha = 1;
-        }
-
-        // Render rising ember particles (volcano stage)
-        if (skyRender.hasEmbers) {
-          for (let i = 0; i < 40; i++) {
-            const seed = i * 5347;
-            const time = performance.now() / 1000;
-            // Embers rise from bottom
-            const x = cameraX - canvas.width / 2 + ((seed + time * 30) % canvas.width);
-            const baseY = cameraY + canvas.height / 2;
-            const y = baseY - ((seed * 2 + time * 80) % (canvas.height * 1.5));
-            const size = (seed % 3) + 2;
-            const flicker = Math.sin(time * 10 + i) * 0.3 + 0.7;
-            // Color varies between orange and red
-            const colorVal = (seed % 2 === 0) ? '#FF4500' : '#FF6600';
-            ctx.fillStyle = colorVal;
-            ctx.globalAlpha = flicker * 0.8;
             ctx.beginPath();
-            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.moveTo(point.x + 8, point.y - 15);
+            ctx.lineTo(point.x + 4, point.y);
+            ctx.lineTo(point.x + 12, point.y);
+            ctx.closePath();
             ctx.fill();
-          }
-          ctx.globalAlpha = 1;
+            ctx.globalAlpha = 1;
+            break;
+
+          case 'craters':
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.ellipse(point.x, point.y + 2, 15, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#4A4A4A';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            break;
+
+          case 'snowdrifts':
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.ellipse(point.x, point.y - 5, 20, 10, 0, 0, Math.PI);
+            ctx.fill();
+            break;
+
+          case 'cacti':
+            ctx.fillStyle = '#228B22';
+            // Main stem
+            ctx.fillRect(point.x - 4, point.y - 30, 8, 30);
+            // Arms
+            ctx.fillRect(point.x - 15, point.y - 25, 12, 6);
+            ctx.fillRect(point.x - 15, point.y - 35, 6, 15);
+            ctx.fillRect(point.x + 3, point.y - 20, 12, 6);
+            ctx.fillRect(point.x + 9, point.y - 30, 6, 15);
+            break;
         }
+      });
+    });
 
-        // Render collectibles
-        fuelCansRef.current.forEach((fc) => {
-          if (!fc.collected) {
-            renderFuelCan(ctx, fc.body.position.x, fc.body.position.y);
-          }
-        });
-
-        coinsRef.current.forEach((c) => {
-          if (!c.collected) {
-            renderCoin(ctx, c.body.position.x, c.body.position.y);
-          }
-        });
-
-        // Render vehicle
-        renderVehicleRef.current(ctx, vehicle);
-
-        // Render particles
-        renderParticles(ctx);
-
-        ctx.restore();
+    // Render snowfall particles (arctic stage)
+    if (skyRender.hasSnowfall) {
+      ctx.fillStyle = '#FFFFFF';
+      for (let i = 0; i < 50; i++) {
+        const seed = i * 7919;
+        const time = performance.now() / 1000;
+        const x = cameraX - canvas.width / 2 + ((seed + time * 50) % canvas.width);
+        const y = cameraY - canvas.height / 2 + ((seed * 3 + time * 100) % canvas.height);
+        const size = (seed % 3) + 2;
+        ctx.globalAlpha = 0.7;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
       }
+      ctx.globalAlpha = 1;
+    }
 
-      animationFrameRef.current = requestAnimationFrame(render);
-    };
+    // Render rising ember particles (volcano stage)
+    if (skyRender.hasEmbers) {
+      for (let i = 0; i < 40; i++) {
+        const seed = i * 5347;
+        const time = performance.now() / 1000;
+        // Embers rise from bottom
+        const x = cameraX - canvas.width / 2 + ((seed + time * 30) % canvas.width);
+        const baseY = cameraY + canvas.height / 2;
+        const y = baseY - ((seed * 2 + time * 80) % (canvas.height * 1.5));
+        const size = (seed % 3) + 2;
+        const flicker = Math.sin(time * 10 + i) * 0.3 + 0.7;
+        // Color varies between orange and red
+        const colorVal = (seed % 2 === 0) ? '#FF4500' : '#FF6600';
+        ctx.fillStyle = colorVal;
+        ctx.globalAlpha = flicker * 0.8;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
 
-    animationFrameRef.current = requestAnimationFrame(render);
-    // The loop reads gameLoop/renderVehicle through latest-refs, so their
-    // per-render identity churn must NOT recreate this callback: recreating it
-    // recreated initGame, whose identity re-ran the lifecycle effect, which
-    // tore down and re-created the ENTIRE game every render - the canvas never
-    // painted a frame and the truck never moved (2026-07-11 audit: hill-climb
-    // was fully broken in production, all devices).
-  }, [stageConfig]);
+    // Render collectibles
+    fuelCansRef.current.forEach((fc) => {
+      if (!fc.collected) {
+        renderFuelCan(ctx, fc.body.position.x, fc.body.position.y);
+      }
+    });
+
+    coinsRef.current.forEach((c) => {
+      if (!c.collected) {
+        renderCoin(ctx, c.body.position.x, c.body.position.y);
+      }
+    });
+
+    // Render vehicle
+    renderVehicle(ctx, vehicle);
+
+    // Render particles
+    renderParticles(ctx);
+
+    ctx.restore();
+  }
+
+  // The shared fixed-step loop: one frame chain for the life of the run.
+  // The steps stop under the pause sheet and the shell's hold (paused), and
+  // the chain stops between runs (running), so the crash stays on the
+  // canvas under the result. The old own requestAnimationFrame chain was
+  // torn down and rebuilt with each init, and drew nothing but the sky
+  // while paused (the world vanished under the pause card).
+  useGameLoop(
+    {
+      update: (stepMs) => {
+        if (!isPlayingRef.current) return;
+        const dt = stepMs / 1000;
+        gameLoop(dt);
+        updateShake(dt);
+      },
+      render: () => drawFrame(),
+    },
+    { running: inRun, paused: stopped }
+  );
 
   // ==========================================================================
   // INITIALIZATION
@@ -1016,10 +1100,6 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
 
   const initGame = useCallback(() => {
     if (!canvasRef.current) return;
-
-    // Size the canvas first (critical - must happen before render loop)
-    canvasRef.current.width = window.innerWidth;
-    canvasRef.current.height = window.innerHeight;
 
     // Clean up existing
     if (engineRef.current) {
@@ -1043,6 +1123,7 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     terrainBodiesRef.current.clear();
     fuelCansRef.current = [];
     coinsRef.current = [];
+    particlesRef.current = [];
 
     // Create initial terrain chunks
     for (let i = -1; i <= TERRAIN.CHUNKS_AHEAD; i++) {
@@ -1083,9 +1164,8 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     totalRotationRef.current = 0;
     isAirborneRef.current = false;
     airborneTimeRef.current = 0;
-
-    // Start render loop
-    startRenderLoop();
+    nitroWasActiveRef.current = false;
+    shakeRef.current = { intensity: 0, duration: 0 };
   }, [
     currentVehicleId,
     currentStageId,
@@ -1093,7 +1173,6 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     getVehicleStats,
     createChunk,
     handleCollision,
-    startRenderLoop,
   ]);
 
   // ==========================================================================
@@ -1102,9 +1181,8 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
 
   // Keyed ONLY on the actual run transition. initGame is reached through a
   // latest-ref because its useCallback identity changes across renders, and
-  // re-running this effect mid-run destroys the engine, runner, and render
-  // loop (the everything-frozen, never-painted hill-climb of the 2026-07-11
-  // audit).
+  // re-running this effect mid-run destroys the engine and the runner (the
+  // everything-frozen, never-painted hill-climb of the 2026-07-11 audit).
   const initGameRef = useRef(initGame);
   useEffect(() => {
     initGameRef.current = initGame;
@@ -1122,9 +1200,6 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     }
 
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
       if (runnerRef.current) {
         Matter.Runner.stop(runnerRef.current);
       }
@@ -1134,23 +1209,14 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     };
   }, [showStartScreen, showGarage, isPlaying]);
 
-  // Canvas resize - must run when the canvas appears: not on mount while the
-  // start screen shows, and AGAIN after the Garage closes (the Garage unmounts
-  // the canvas, so leaving it mounts a brand-new element at default size)
+  // The end-to-end hook (see TestHooks).
   useEffect(() => {
-    if (showStartScreen || showGarage) return; // Canvas doesn't exist yet
-
-    const handleResize = () => {
-      if (canvasRef.current) {
-        canvasRef.current.width = window.innerWidth;
-        canvasRef.current.height = window.innerHeight;
-      }
+    const w = window as Window & { __hh?: TestHooks };
+    w.__hh = { ...(w.__hh ?? {}), hillClimb: { crash: () => useHillClimbStore.getState().endRun('head') } };
+    return () => {
+      if (w.__hh) delete w.__hh.hillClimb;
     };
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [showStartScreen, showGarage]);
+  }, []);
 
   // ==========================================================================
   // HANDLERS
@@ -1164,8 +1230,8 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
 
   const handleRestart = () => {
     // startRun() flips isPlaying false->true, and THAT transition drives
-    // exactly one clean init via the lifecycle effect (cleanup cancels the old
-    // loop first). Calling initGame() here as well double-initialized the
+    // exactly one clean init via the lifecycle effect (cleanup stops the old
+    // runner first). Calling initGame() here as well double-initialized the
     // engine on every retry (2026-07-11 DCR finding).
     startRun();
   };
@@ -1180,20 +1246,35 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
     startRun();
   };
 
+  const handleBackFromGarage = () => {
+    setShowGarage(false);
+    setShowStartScreen(true);
+  };
+
   // ==========================================================================
   // RENDER
   // ==========================================================================
 
   // Show Garage screen
   if (showGarage) {
-    return <Garage onStartGame={handleStartFromGarage} />;
+    return <Garage onStartGame={handleStartFromGarage} onBack={handleBackFromGarage} />;
   }
 
-  // The canvas is absolute inset-0 in this root. The start card portals to
-  // document.body (GameStartOverlay), so this root cannot clip it.
+  // The store decides it in endRun, against the best from before the run.
+  const isNewRecord = isGameOver && lastRunNewRecord;
+
+  // The canvas is absolute inset-0 in this root and exactly the play box.
+  // The start card portals to document.body (GameStartOverlay), so this
+  // root cannot clip it.
   return (
     <div className="relative w-full h-full">
-      <canvas ref={canvasRef} className="absolute inset-0" style={{ touchAction: 'none' }} />
+      <canvas
+        ref={canvasRef}
+        width={Math.max(1, box.width)}
+        height={Math.max(1, box.height)}
+        className="absolute inset-0 h-full w-full"
+        style={{ touchAction: 'none' }}
+      />
 
       {/* Shared start screen: a real DOM overlay over the page. It renders
           the title exactly once, so the game paints no title of its own.
@@ -1231,11 +1312,38 @@ export function HillClimbGame({ startActive = false }: { startActive?: boolean }
       )}
 
       {!showStartScreen && isPaused && !isGameOver && (
-        <PauseMenu onGoToGarage={handleGoToGarage} />
+        <PauseSheet onGoToGarage={handleGoToGarage} />
       )}
 
+      {/* The result: a compact card over the crash, and the shared chip
+          with the buttons (read it to me, Play again, the leaderboard,
+          Garage). Play again is direct: after the crash there is nothing
+          to lose. */}
       {!showStartScreen && isGameOver && (
-        <GameOverScreen onRestart={handleRestart} onGoToGarage={handleGoToGarage} />
+        <>
+          <ResultPanel newRecord={isNewRecord} />
+          <ResultChip
+            resultText={resultText({
+              reason: gameOverReason,
+              distance,
+              coins: sessionCoins,
+              flips: sessionFlips,
+              newRecord: isNewRecord,
+            })}
+            appId="hill-climb"
+            onRestart={handleRestart}
+            spokenExtras={['Garage']}
+          >
+            <button
+              type="button"
+              data-testid="hill-climb-result-garage"
+              onClick={handleGoToGarage}
+              className={`btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`}
+            >
+              {RESULT_GARAGE_LABEL}
+            </button>
+          </ResultChip>
+        </>
       )}
     </div>
   );

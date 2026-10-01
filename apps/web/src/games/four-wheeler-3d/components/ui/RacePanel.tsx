@@ -4,6 +4,7 @@ import { useAdventureSession } from "../../lib/adventureSession";
 import { useFourWheeler3dStore } from "../../lib/store";
 import { RACE_LENGTH } from "../../lib/race";
 import { tuningFor } from "../../lib/vehicles";
+import { useSecondFingerClick } from "@/shared/lib/input";
 
 const request = (name: string) =>
   useAdventureSession.getState().requestAction(`race:${name}`);
@@ -86,6 +87,10 @@ export function RaceStatus() {
   const panel = useAdventureSession((s) => s.panel);
   const paused = useFourWheeler3dStore((s) => s.isPaused);
   const speed = useAdventureSession((s) => s.playerSnapshot.speed);
+  // Works for the other thumb while one holds GAS mid-race.
+  const openRace = useSecondFingerClick<HTMLButtonElement>(() =>
+    useAdventureSession.getState().openPanel("race"),
+  );
   if (paused || panel || !race || !["countdown", "racing"].includes(race.phase))
     return null;
   return (
@@ -93,7 +98,7 @@ export function RaceStatus() {
       type="button"
       className="fw-race-status"
       aria-label="Race options: resume, restart or end race"
-      onClick={() => useAdventureSession.getState().openPanel("race")}
+      {...openRace}
       style={{
         position: "fixed",
         top: 88,

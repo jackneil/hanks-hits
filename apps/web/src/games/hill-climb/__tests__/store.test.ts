@@ -10,7 +10,6 @@ function resetStore() {
     isPlaying: false,
     isGameOver: false,
     isPaused: false,
-    pauseScreen: 'menu',
     gameOverReason: null,
     distance: 0,
     fuel: FUEL.INITIAL_FUEL,
@@ -77,5 +76,23 @@ describe('Hill Climb store', () => {
     expect(state.isGameOver).toBe(true);
     expect(state.bestDistance).toBe(2500);
     expect(state.unlockedStages).toEqual(['countryside', 'arctic', 'moon', 'desert']);
+  });
+
+  it('calls a run a new record only when it passes the best from before it', () => {
+    useHillClimbStore.setState({ bestDistance: 400 });
+    useHillClimbStore.getState().startRun();
+    expect(useHillClimbStore.getState().lastRunNewRecord).toBe(false);
+
+    useHillClimbStore.setState({ distance: 650 });
+    useHillClimbStore.getState().endRun('fuel');
+    expect(useHillClimbStore.getState().lastRunNewRecord).toBe(true);
+    expect(useHillClimbStore.getState().bestDistance).toBe(650);
+
+    // The next run starts clean, and a shorter run is no record.
+    useHillClimbStore.getState().startRun();
+    expect(useHillClimbStore.getState().lastRunNewRecord).toBe(false);
+    useHillClimbStore.setState({ distance: 300 });
+    useHillClimbStore.getState().endRun('head');
+    expect(useHillClimbStore.getState().lastRunNewRecord).toBe(false);
   });
 });

@@ -522,9 +522,14 @@ export const UI = {
 // =============================================================================
 
 export const CAMERA = {
-  // Follow settings
-  LOOK_AHEAD: 200, // Pixels ahead of vehicle
-  VERTICAL_OFFSET: -100, // Pixels above vehicle
+  // Follow settings. Both offsets scale with the canvas (gameHelpers
+  // cameraOffsets): a fixed 200 px look-ahead drew the truck at x = -12 on
+  // a 375 px phone, and a fixed 100 px vertical offset put the chassis 82%
+  // down a 311 px canvas with the wheels and the ground under the screen
+  // (phone UX audit 2026-09-29).
+  LOOK_AHEAD_MAX: 200, // Pixels ahead of the vehicle, at most
+  LOOK_AHEAD_SHARE: 0.22, // ... and never more than this share of the width
+  VERTICAL_SHARE: 0.12, // The chassis sits this share of the height below the centre
   SMOOTHING: 0.1, // Lower = smoother camera
 
   // Bounds

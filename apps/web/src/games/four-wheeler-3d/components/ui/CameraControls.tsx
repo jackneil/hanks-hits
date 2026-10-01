@@ -6,6 +6,7 @@ import {
   cameraPreset,
   cycleCameraPreset,
 } from "../../lib/cameraPresets";
+import { HudButton } from "./HudButton";
 function choose(index: number) {
   useAdventureSession.setState({ cameraPreset: index });
   if (useFourWheeler3dStore.getState().progress.settings.helmetCam)
@@ -17,22 +18,22 @@ export function CameraControls() {
     helmet = useFourWheeler3dStore((s) => s.progress.settings.helmetCam);
   return (
     <>
-      <button
-        onClick={() => choose(cycleCameraPreset(index))}
+      <HudButton
+        onPress={() => choose(cycleCameraPreset(index))}
         aria-label={`Camera: ${helmet ? "Rider eyes" : cameraPreset(index).name}. Next view`}
         title="Cycle camera. Drag the world to orbit."
       >
         View <kbd>C</kbd>
-      </button>
-      <button
-        onClick={() =>
+      </HudButton>
+      <HudButton
+        onPress={() =>
           useAdventureSession.getState().requestAction("camera:reset")
         }
         aria-label="Reset camera orbit"
         title="Center camera"
       >
         ↺
-      </button>
+      </HudButton>
     </>
   );
 }

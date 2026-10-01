@@ -1,10 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { MobileControls } from "../components/MobileControls";
+import { useFourWheeler3dStore } from "../lib/store";
 import {
+  CONTEXT_SLOT,
+  SHORT_MAX_HEIGHT,
   TOUCH_LAYOUT,
   boxStyle,
+  contextRect,
   overlaps,
   rectOf,
   type ControlName,
@@ -16,7 +20,44 @@ const PHONE = { width: 390, height: 844 };
 /** The smallest screen a kid is likely to hold. */
 const SMALL_PHONE = { width: 320, height: 568 };
 
+/**
+ * The real iPhone screens the phone gate measures, with Safari's bars
+ * showing (phone UX audit 2026-09-29).
+ */
+const REAL_PHONES = [
+  { name: "iPhone SE upright", width: 375, height: 549 },
+  { name: "iPhone 15 upright", width: 390, height: 664 },
+  { name: "iPhone SE sideways", width: 667, height: 311 },
+  { name: "iPhone 15 sideways", width: 844, height: 340 },
+];
+
 const NAMES = Object.keys(TOUCH_LAYOUT) as ControlName[];
+
+/** The calibrate chip only shows while tilt is on, and tilt hides the arrows. */
+function neverTogether(a: ControlName, b: ControlName) {
+  const pair = [a, b];
+  return (
+    pair.includes("calibrate") &&
+    (pair.includes("steerLeft") || pair.includes("steerRight"))
+  );
+}
+
+/**
+ * Sideways the stylesheet moves the speedo to the middle of the top, so its
+ * box in the layout only describes an upright phone.
+ */
+function placedByLayout(name: ControlName, height: number) {
+  return !(name === "speedo" && height <= SHORT_MAX_HEIGHT);
+}
+
+function clash(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+) {
+  return (
+    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+  );
+}
 
 /** Enough of the controls hook to render the buttons. */
 function fakeControls() {
@@ -110,6 +151,22 @@ describe("the touch controls never cover each other", () => {
     expect(clashes).toEqual([]);
   });
 
+  it("keeps every pair apart on the real iPhone screens, both ways up", () => {
+    const clashes: string[] = [];
+    for (const phone of REAL_PHONES) {
+      const names = NAMES.filter((n) => placedByLayout(n, phone.height));
+      for (let i = 0; i < names.length; i += 1) {
+        for (let j = i + 1; j < names.length; j += 1) {
+          if (neverTogether(names[i], names[j])) continue;
+          if (overlaps(names[i], names[j], phone.width, phone.height)) {
+            clashes.push(`${phone.name}: ${names[i]} covers ${names[j]}`);
+          }
+        }
+      }
+    }
+    expect(clashes).toEqual([]);
+  });
+
   it("keeps them apart on a small phone too", () => {
     // The TILT chip used to sit under the BRAKE pedal. This is that check.
     expect(
@@ -192,5 +249,63 @@ describe("the controls render where the layout says", () => {
     const tilt = screen.getByText("📱 TILT");
     expect(tilt.style.bottom).toBe(boxStyle("tilt").bottom);
     expect(tilt.style.left).toBe(`${TOUCH_LAYOUT.tilt.offset}px`);
+  });
+});
+
+describe("the context slot never covers a touch control", () => {
+  it("stays clear with up to three rows of context buttons", () => {
+    const clashes: string[] = [];
+    for (const phone of REAL_PHONES) {
+      for (let rows = 1; rows <= 3; rows += 1) {
+        const slot = contextRect(rows, phone.width, phone.height);
+        for (const name of NAMES) {
+          if (!placedByLayout(name, phone.height)) continue;
+          if (clash(slot, rectOf(name, phone.width, phone.height))) {
+            clashes.push(`${phone.name}, ${rows} rows: covers ${name}`);
+          }
+        }
+      }
+    }
+    expect(clashes).toEqual([]);
+  });
+
+  it("stays on the screen and leaves room for a real button", () => {
+    for (const phone of REAL_PHONES) {
+      const slot = contextRect(3, phone.width, phone.height);
+      expect(slot.left).toBeGreaterThanOrEqual(0);
+      expect(slot.right).toBeLessThanOrEqual(phone.width);
+      expect(slot.top).toBeGreaterThanOrEqual(0);
+      // Room for "Hop off" and "Use nearby thing" side by side.
+      expect(slot.right - slot.left).toBeGreaterThanOrEqual(200);
+    }
+    expect(CONTEXT_SLOT.upright.width).toBeGreaterThanOrEqual(200);
+  });
+});
+
+describe("NOS sits with the pedals on a phone", () => {
+  const controls = () =>
+    fakeControls() as unknown as Parameters<
+      typeof MobileControls
+    >[0]["controls"];
+
+  it("shows NOS in its layout box on a ride with a boost", () => {
+    render(<MobileControls controls={controls()} nos />);
+    const nos = screen.getByRole("button", { name: "NOS boost" });
+    expect(nos.style.bottom).toBe(boxStyle("nos").bottom);
+    expect(nos.style.right).toBe(`${TOUCH_LAYOUT.nos.offset}px`);
+  });
+
+  it("boosts on the press of a second finger while the first holds GAS", () => {
+    useFourWheeler3dStore.setState({ nosUntil: 0 });
+    render(<MobileControls controls={controls()} nos />);
+    const nos = screen.getByRole("button", { name: "NOS boost" });
+    fireEvent.pointerDown(screen.getByLabelText("Gas"), { pointerId: 1, pointerType: "touch", button: 0 });
+    fireEvent.pointerDown(nos, { pointerId: 2, pointerType: "touch", button: 0 });
+    expect(useFourWheeler3dStore.getState().nosUntil).toBeGreaterThan(Date.now());
+  });
+
+  it("has no NOS on foot", () => {
+    render(<MobileControls controls={controls()} walking />);
+    expect(screen.queryByRole("button", { name: "NOS boost" })).toBeNull();
   });
 });

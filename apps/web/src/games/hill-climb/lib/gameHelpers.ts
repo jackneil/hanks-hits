@@ -5,6 +5,8 @@
  * can be unit tested without spinning up a canvas or Matter.js.
  */
 
+import { CAMERA } from './constants';
+
 /**
  * Maximum per-frame delta time (seconds) the game loop may act on.
  *
@@ -27,6 +29,48 @@ export const MAX_DELTA_TIME = 0.05;
 export function clampDeltaTime(deltaSeconds: number, max: number = MAX_DELTA_TIME): number {
   if (!Number.isFinite(deltaSeconds) || deltaSeconds < 0) return 0;
   return Math.min(deltaSeconds, max);
+}
+
+/** Where the camera looks, for a canvas of this size (CSS px). */
+export type CameraOffsets = {
+  /** The camera centre is this far ahead of the chassis, so the truck sits left of centre. */
+  lookAhead: number;
+  /** The camera centre is this far above the chassis (a negative y offset). */
+  verticalOffset: number;
+};
+
+/**
+ * The camera offsets for a canvas of this size.
+ *
+ * The look-ahead is 22% of the width, and 200 px at most: the truck is
+ * drawn at 28% of the width on a phone (a fixed 200 px put it at x = -12
+ * on a 375 px canvas). The vertical offset is 12% of the height: the
+ * chassis sits at 62% of the height, so the wheels and the ground under
+ * them are on screen at every size (a fixed 100 px put the chassis at 82%
+ * of a 311 px canvas, with the wheels under the screen).
+ */
+export function cameraOffsets(width: number, height: number): CameraOffsets {
+  const w = Number.isFinite(width) && width > 0 ? width : 0;
+  const h = Number.isFinite(height) && height > 0 ? height : 0;
+  return {
+    lookAhead: Math.min(CAMERA.LOOK_AHEAD_MAX, w * CAMERA.LOOK_AHEAD_SHARE),
+    verticalOffset: -(h * CAMERA.VERTICAL_SHARE),
+  };
+}
+
+/** The words of the result, read aloud and shown over the crash. */
+export function resultText(input: {
+  reason: 'head' | 'fuel' | null;
+  distance: number;
+  coins: number;
+  flips: number;
+  newRecord: boolean;
+}): string {
+  const what = input.reason === 'fuel' ? 'Out of fuel!' : 'You crashed!';
+  const parts = [`${what} You drove ${Math.floor(input.distance)} meters and got ${input.coins} coins.`];
+  if (input.flips > 0) parts.push(`${input.flips} ${input.flips === 1 ? 'flip' : 'flips'}!`);
+  if (input.newRecord) parts.push('That is a new record!');
+  return parts.join(' ');
 }
 
 /** The kid-level control hints shown on the start overlay. */

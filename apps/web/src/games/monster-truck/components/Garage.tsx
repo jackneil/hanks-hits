@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useGameStore, Truck } from '../lib/store';
 import { sounds } from '../lib/sounds';
+import { GameSheet, GAME_SHEET_ACTION } from '@/shared/components';
 
 interface GarageProps {
   onClose: () => void;
@@ -47,45 +48,59 @@ export function Garage({ onClose }: GarageProps) {
     }
   };
 
-  const paintColors = [
-    '#e74c3c', '#c0392b', '#9b59b6', '#8e44ad',
-    '#3498db', '#2980b9', '#1abc9c', '#16a085',
-    '#27ae60', '#2ecc71', '#f39c12', '#e67e22',
-    '#ecf0f1', '#bdc3c7', '#34495e', '#2c3e50',
+  const paintColors: { color: string; name: string }[] = [
+    { color: '#e74c3c', name: 'Red' },
+    { color: '#c0392b', name: 'Dark red' },
+    { color: '#9b59b6', name: 'Purple' },
+    { color: '#8e44ad', name: 'Dark purple' },
+    { color: '#3498db', name: 'Blue' },
+    { color: '#2980b9', name: 'Dark blue' },
+    { color: '#1abc9c', name: 'Teal' },
+    { color: '#16a085', name: 'Dark teal' },
+    { color: '#27ae60', name: 'Green' },
+    { color: '#2ecc71', name: 'Light green' },
+    { color: '#f39c12', name: 'Orange' },
+    { color: '#e67e22', name: 'Dark orange' },
+    { color: '#ecf0f1', name: 'White' },
+    { color: '#bdc3c7', name: 'Silver' },
+    { color: '#34495e', name: 'Slate' },
+    { color: '#2c3e50', name: 'Navy' },
   ];
+  const currentPaint = customization[currentTruckId]?.paintColor || currentTruck.color;
 
+  // On the shared GameSheet: "Back to driving" never leaves the screen (the
+  // old footer was 0 px visible on a phone held sideways), the tabs and the
+  // truck list scroll inside the sheet, and the game stands still while the
+  // Garage is open (Game.tsx).
   return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="bg-gradient-to-b from-gray-800 to-gray-900 rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-orange-600 to-red-600 p-4 flex justify-between items-center">
-          <h2 className="text-3xl font-bold text-white flex items-center gap-2">
-            🔧 GARAGE
-          </h2>
-          <div className="flex items-center gap-4">
-            <div className="bg-black/30 px-4 py-2 rounded-full flex items-center gap-2">
-              <span className="text-2xl">🪙</span>
-              <span className="text-xl font-bold text-yellow-400">{coins.toLocaleString()}</span>
-            </div>
-            <button
-              onClick={onClose}
-              className="bg-black/30 hover:bg-black/50 w-10 h-10 rounded-full text-white text-xl transition-colors"
-            >
-              ✕
-            </button>
-          </div>
+    <GameSheet
+      title="Garage"
+      emoji="🔧"
+      testId="monster-truck-garage"
+      className="bg-gray-900 text-white"
+      actions={
+        <button type="button" onClick={onClose} className={`${GAME_SHEET_ACTION} btn-primary`}>
+          🎮 Back to driving
+        </button>
+      }
+    >
+      <div className="text-left">
+        <div className="mb-3 flex items-center gap-2 text-lg font-bold">
+          <span aria-hidden="true">🪙</span>
+          <span className="text-yellow-300">{coins.toLocaleString()} coins</span>
         </div>
 
         {/* Tabs */}
-        <div className="flex bg-gray-900">
+        <div role="tablist" className="mb-3 flex gap-1 rounded-xl bg-black/30 p-1">
           {(['trucks', 'upgrades', 'paint'] as const).map((tab) => (
             <button
               key={tab}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-3 text-lg font-bold transition-colors ${
-                activeTab === tab
-                  ? 'bg-gray-800 text-white border-b-2 border-orange-500'
-                  : 'text-gray-400 hover:text-white'
+              className={`min-h-11 flex-1 whitespace-nowrap rounded-lg px-2 text-base font-bold transition-colors short:px-1 short:text-sm ${
+                activeTab === tab ? 'bg-orange-600 text-white' : 'text-gray-300'
               }`}
             >
               {tab === 'trucks' && '🚛 Trucks'}
@@ -95,187 +110,136 @@ export function Garage({ onClose }: GarageProps) {
           ))}
         </div>
 
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[60vh]">
-          {/* Trucks Tab */}
-          {activeTab === 'trucks' && (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {trucks.map((truck) => (
-                <div
-                  key={truck.id}
-                  onClick={() => truck.unlocked ? handleSelect(truck) : undefined}
-                  className={`
-                    relative p-4 rounded-xl cursor-pointer transition-all
-                    ${truck.id === currentTruckId
-                      ? 'bg-orange-600 ring-4 ring-orange-400'
-                      : truck.unlocked
-                      ? 'bg-gray-700 hover:bg-gray-600'
-                      : 'bg-gray-800 opacity-75'
-                    }
-                  `}
-                >
-                  {/* Lock overlay */}
-                  {!truck.unlocked && (
-                    <div className="absolute inset-0 bg-black/50 rounded-xl flex items-center justify-center">
-                      <div className="text-center">
-                        <div className="text-4xl mb-2">🔒</div>
-                        <div className="text-yellow-400 font-bold">
-                          🪙 {truck.cost.toLocaleString()}
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleUnlock(truck);
-                          }}
-                          disabled={coins < truck.cost}
-                          className={`mt-2 px-4 py-1 rounded-full text-sm font-bold ${
-                            coins >= truck.cost
-                              ? 'bg-green-600 hover:bg-green-500 text-white'
-                              : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                          }`}
-                        >
-                          UNLOCK
-                        </button>
-                      </div>
-                    </div>
-                  )}
+        {/* Trucks: an unlocked truck is one select button; a locked one is a
+            panel whose only control is its Unlock button (a button inside a
+            button can fire twice on one tap) */}
+        {activeTab === 'trucks' && (
+          <div className="grid grid-cols-2 gap-3">
+            {trucks.map((truck) => {
+              const selected = truck.id === currentTruckId;
+              const body = (
+                <>
+                  <span className="mb-2 block h-12 w-full rounded-lg" style={{ backgroundColor: truck.color }} aria-hidden="true" />
+                  <span className="block text-lg font-bold">{truck.name}</span>
+                  <span className="block text-sm text-gray-300">{truck.description}</span>
+                </>
+              );
+              if (truck.unlocked) {
+                return (
+                  <button
+                    key={truck.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => handleSelect(truck)}
+                    className={`relative min-h-11 rounded-xl p-3 text-left transition-colors ${
+                      selected ? 'bg-orange-700 ring-4 ring-orange-300' : 'bg-gray-700'
+                    }`}
+                  >
+                    {body}
+                    {selected && (
+                      <span className="mt-2 inline-block rounded-full bg-green-600 px-2 py-0.5 text-xs font-bold">SELECTED</span>
+                    )}
+                  </button>
+                );
+              }
+              return (
+                <div key={truck.id} className="rounded-xl bg-gray-800 p-3 opacity-90">
+                  {body}
+                  <button
+                    type="button"
+                    onClick={() => handleUnlock(truck)}
+                    disabled={coins < truck.cost}
+                    aria-label={`Unlock ${truck.name} for ${truck.cost.toLocaleString()} coins`}
+                    className={`mt-2 min-h-11 w-full rounded-full px-3 text-base font-bold ${
+                      coins >= truck.cost ? 'bg-green-700 text-white' : 'cursor-not-allowed bg-gray-600 text-gray-300'
+                    }`}
+                  >
+                    🔓 {truck.cost.toLocaleString()}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-                  {/* Truck preview */}
-                  <div
-                    className="w-full h-20 rounded-lg mb-3"
-                    style={{ backgroundColor: truck.color }}
-                  />
-                  <h3 className="text-lg font-bold text-white">{truck.name}</h3>
-                  <p className="text-sm text-gray-300">{truck.description}</p>
-
-                  {/* Selected indicator */}
-                  {truck.id === currentTruckId && (
-                    <div className="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold">
-                      SELECTED
-                    </div>
+        {/* Upgrades */}
+        {activeTab === 'upgrades' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="block h-8 w-16 rounded-lg" style={{ backgroundColor: currentPaint }} aria-hidden="true" />
+              <span className="text-xl font-bold">{currentTruck.name}</span>
+            </div>
+            {(['engine', 'suspension', 'tires', 'nos'] as const).map((stat) => {
+              const upgrade = currentUpgrades[stat];
+              const cost = getNextUpgradeCost(currentTruckId, stat);
+              const statValue = currentStats[stat];
+              const maxed = upgrade.level >= upgrade.maxLevel;
+              return (
+                <div key={stat} className="rounded-xl bg-gray-700 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-lg font-bold capitalize">
+                      <span className="mr-2" aria-hidden="true">
+                        {stat === 'engine' && '🔥'}
+                        {stat === 'suspension' && '🔩'}
+                        {stat === 'tires' && '🛞'}
+                        {stat === 'nos' && '🚀'}
+                      </span>
+                      {stat}
+                    </span>
+                    <span className="text-right text-sm text-gray-300">
+                      Level {upgrade.level}/{upgrade.maxLevel} · <span className="font-bold text-green-300">{(statValue * 100).toFixed(0)}%</span>
+                    </span>
+                  </div>
+                  <div className="mb-2 h-3 overflow-hidden rounded-full bg-gray-600">
+                    <div className="h-full bg-green-500 transition-all" style={{ width: `${(upgrade.level / upgrade.maxLevel) * 100}%` }} />
+                  </div>
+                  {maxed ? (
+                    <div className="text-center font-bold text-yellow-300">✨ Maxed out ✨</div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleUpgrade(stat)}
+                      disabled={coins < (cost || 0)}
+                      className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-lg font-bold ${
+                        coins >= (cost || 0) ? 'bg-green-700 text-white' : 'cursor-not-allowed bg-gray-600 text-gray-300'
+                      }`}
+                    >
+                      <span>Upgrade</span>
+                      <span className="text-yellow-200">🪙 {cost?.toLocaleString()}</span>
+                    </button>
                   )}
                 </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Paint */}
+        {activeTab === 'paint' && (
+          <div>
+            <div className="mb-3 flex items-center gap-3">
+              <span className="block h-10 w-20 rounded-lg transition-colors" style={{ backgroundColor: currentPaint }} aria-hidden="true" />
+              <span className="text-xl font-bold">{currentTruck.name}</span>
+            </div>
+            <div className="grid grid-cols-4 gap-2 short:grid-cols-8">
+              {paintColors.map(({ color, name }) => (
+                <button
+                  key={color}
+                  type="button"
+                  aria-label={name}
+                  aria-pressed={currentPaint === color}
+                  onClick={() => {
+                    setPaintColor(currentTruckId, color);
+                    if (soundEnabled) sounds.playCoin();
+                  }}
+                  className={`h-12 w-full min-w-11 rounded-lg ${currentPaint === color ? 'ring-4 ring-white' : ''}`}
+                  style={{ backgroundColor: color }}
+                />
               ))}
             </div>
-          )}
-
-          {/* Upgrades Tab */}
-          {activeTab === 'upgrades' && (
-            <div className="space-y-4">
-              <div className="text-center mb-6">
-                <h3 className="text-2xl font-bold text-white">{currentTruck.name}</h3>
-                <div
-                  className="w-24 h-12 mx-auto rounded-lg mt-2"
-                  style={{ backgroundColor: customization[currentTruckId]?.paintColor || currentTruck.color }}
-                />
-              </div>
-
-              {(['engine', 'suspension', 'tires', 'nos'] as const).map((stat) => {
-                const upgrade = currentUpgrades[stat];
-                const cost = getNextUpgradeCost(currentTruckId, stat);
-                const statValue = currentStats[stat];
-                const maxed = upgrade.level >= upgrade.maxLevel;
-
-                return (
-                  <div key={stat} className="bg-gray-700 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <div>
-                        <span className="text-2xl mr-2">
-                          {stat === 'engine' && '🔥'}
-                          {stat === 'suspension' && '🔩'}
-                          {stat === 'tires' && '🛞'}
-                          {stat === 'nos' && '🚀'}
-                        </span>
-                        <span className="text-lg font-bold text-white capitalize">{stat}</span>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm text-gray-400">
-                          Level {upgrade.level}/{upgrade.maxLevel}
-                        </div>
-                        <div className="text-lg font-bold text-green-400">
-                          {(statValue * 100).toFixed(0)}%
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Progress bar */}
-                    <div className="h-3 bg-gray-600 rounded-full overflow-hidden mb-3">
-                      <div
-                        className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all"
-                        style={{ width: `${(upgrade.level / upgrade.maxLevel) * 100}%` }}
-                      />
-                    </div>
-
-                    {/* Upgrade button */}
-                    {maxed ? (
-                      <div className="text-center text-yellow-400 font-bold">
-                        ✨ MAXED OUT ✨
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => handleUpgrade(stat)}
-                        disabled={coins < (cost || 0)}
-                        className={`w-full py-2 rounded-lg font-bold flex items-center justify-center gap-2 ${
-                          coins >= (cost || 0)
-                            ? 'bg-green-600 hover:bg-green-500 text-white'
-                            : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                        }`}
-                      >
-                        <span>UPGRADE</span>
-                        <span className="text-yellow-300">🪙 {cost?.toLocaleString()}</span>
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Paint Tab */}
-          {activeTab === 'paint' && (
-            <div>
-              <div className="text-center mb-6">
-                <h3 className="text-2xl font-bold text-white">{currentTruck.name}</h3>
-                <div
-                  className="w-32 h-16 mx-auto rounded-lg mt-2 transition-colors"
-                  style={{ backgroundColor: customization[currentTruckId]?.paintColor || currentTruck.color }}
-                />
-              </div>
-
-              <h4 className="text-lg font-bold text-white mb-4">Choose Color</h4>
-              <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
-                {paintColors.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => {
-                      setPaintColor(currentTruckId, color);
-                      if (soundEnabled) sounds.playCoin();
-                    }}
-                    className={`
-                      w-12 h-12 rounded-lg transition-all hover:scale-110
-                      ${customization[currentTruckId]?.paintColor === color
-                        ? 'ring-4 ring-white scale-110'
-                        : ''
-                      }
-                    `}
-                    style={{ backgroundColor: color }}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="bg-gray-900 p-4 flex justify-center">
-          <button
-            onClick={onClose}
-            className="bg-orange-600 hover:bg-orange-500 text-white px-8 py-3 rounded-xl font-bold text-lg transition-colors"
-          >
-            🎮 BACK TO GAME
-          </button>
-        </div>
+          </div>
+        )}
       </div>
-    </div>
+    </GameSheet>
   );
 }

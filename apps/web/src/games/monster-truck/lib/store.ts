@@ -106,6 +106,8 @@ export interface GameState {
 
   // Game state
   isPaused: boolean;
+  /** A run is live (the start card is gone). Not saved. */
+  hasStarted: boolean;
   showGarage: boolean;
   showChallenges: boolean;
 }
@@ -143,6 +145,7 @@ export interface GameActions {
 
   // UI state
   setPaused: (paused: boolean) => void;
+  setHasStarted: (started: boolean) => void;
   setShowGarage: (show: boolean) => void;
   setShowChallenges: (show: boolean) => void;
 
@@ -305,6 +308,7 @@ export const useGameStore = create<GameState & GameActions>()(
       soundEnabled: true,
       musicEnabled: true,
       isPaused: false,
+      hasStarted: false,
       showGarage: false,
       showChallenges: false,
 
@@ -498,6 +502,7 @@ export const useGameStore = create<GameState & GameActions>()(
 
       // UI state actions
       setPaused: (paused) => set({ isPaused: paused }),
+      setHasStarted: (started) => set({ hasStarted: started }),
       setShowGarage: (show) => set({ showGarage: show }),
       setShowChallenges: (show) => set({ showChallenges: show }),
 

@@ -6,6 +6,8 @@
  * It is the 2D game's dial rebuilt in SVG: an arc that fills as you speed up,
  * a needle, and the number in big digits. The needle and the number turn red
  * once you pass eight tenths of the top speed, the same rule the 2D game uses.
+ * On a touch screen it is a small "12 MPH" readout instead, with the same red
+ * rule, so the dial does not crowd the thumb controls.
  */
 
 import { mphFromMs, topSpeedMph } from "../../lib/vehicles";
@@ -35,8 +37,8 @@ export type SpeedoProps = {
   /** Which vehicle, so the dial knows what its top speed is. */
   vehicleId: string;
   /**
-   * True on a touch screen, where the dial sits above the JUMP and HORN row
-   * in the shared layout. On a mouse screen it tucks into the corner.
+   * True on a touch screen, where a small readout sits above the TILT chip in
+   * the shared layout. On a mouse screen the dial tucks into the corner.
    */
   raised?: boolean;
   racing?: boolean;
@@ -56,31 +58,35 @@ export function Speedo({
   const arcLength = (SWEEP / 360) * 2 * Math.PI * RADIUS;
   const needle = pointOnDial(fraction, RADIUS - 8);
 
+  // On a touch screen the dial would crowd the thumb controls, so the speed
+  // shows as a small "12 MPH" readout in the shared layout instead.
+  if (raised) {
+    return (
+      <div className="pointer-events-none fixed inset-0 z-40" aria-hidden="true">
+        <div
+          className={`fw-speedo-touch${racing ? " fw-speedo-racing" : ""}`}
+          style={boxStyle("speedo")}
+        >
+          <div className={`fw-speedo-compact${fast ? " fw-speedo-fast" : ""}`}>
+            {Math.round(mph)} <small>MPH</small>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="pointer-events-none fixed inset-0 z-40" aria-hidden="true">
       <div
-        className={
-          raised
-            ? `relative fw-speedo-touch${racing ? " fw-speedo-racing" : ""}`
-            : "relative"
-        }
-        style={
-          raised
-            ? boxStyle("speedo")
-            : {
-                position: "absolute",
-                right: "16px",
-                bottom: "16px",
-                width: "128px",
-                height: "128px",
-              }
-        }
+        className="relative"
+        style={{
+          position: "absolute",
+          right: "16px",
+          bottom: "16px",
+          width: "128px",
+          height: "128px",
+        }}
       >
-        {raised && (
-          <div className="fw-speedo-compact">
-            {Math.round(mph)} <small>MPH</small>
-          </div>
-        )}
         <svg viewBox="0 0 100 100" className="h-full w-full">
           <circle cx={CENTER} cy={CENTER} r={48} fill="rgba(12,16,22,0.78)" />
           {/* The empty dial. */}

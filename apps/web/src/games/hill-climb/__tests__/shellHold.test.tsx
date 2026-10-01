@@ -28,7 +28,7 @@ beforeEach(() => {
   // the stubbed rAF never runs the render callback.
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({} as never);
   localStorage.clear();
-  useHillClimbStore.setState({ isPlaying: false, isPaused: false, isGameOver: false, pauseScreen: "menu" });
+  useHillClimbStore.setState({ isPlaying: false, isPaused: false, isGameOver: false });
 });
 
 afterEach(() => {

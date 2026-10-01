@@ -3,10 +3,16 @@
 /**
  * Hill Climb Racing - Game UI (HUD)
  *
- * Displays fuel, distance, coins, and other game stats.
+ * One row at the top of the play area: the distance and the coins on the
+ * left, the pause button in the middle, the fuel and nitro bars and the
+ * speed on the right. The lower two thirds of the screen stay clear for
+ * the truck and the touch chips. The old HUD stacked 216 px wide gauges
+ * down the right side and covered 73% of a phone held sideways, with the
+ * pause button on the fuel gauge upright (phone UX audit 2026-09-29).
  */
 
 import { useHillClimbStore } from '../lib/store';
+import { useSecondFingerClick } from '@/shared/lib/input';
 import { FUEL } from '../lib/constants';
 
 interface GameUIProps {
@@ -19,8 +25,14 @@ interface GameUIProps {
   speed: number;
 }
 
+/** A translucent HUD box. */
+const BOX = 'rounded-xl bg-black/55 text-white';
+
 export function GameUI({ fuel, maxFuel, nitro, maxNitro, nitroActive, distance, speed }: GameUIProps) {
   const { coins, sessionCoins, sessionFlips, bestDistance, combo, pauseGame } = useHillClimbStore();
+  // Pause works for the other thumb while one holds the gas (a browser makes
+  // no click for a second finger).
+  const pauseTap = useSecondFingerClick<HTMLButtonElement>(pauseGame);
 
   const fuelPercent = (fuel / maxFuel) * 100;
   const isLowFuel = fuel < FUEL.LOW_FUEL_THRESHOLD;
@@ -29,120 +41,93 @@ export function GameUI({ fuel, maxFuel, nitro, maxNitro, nitroActive, distance, 
 
   return (
     // Anchored BELOW the GameShell header (fixed, --shell-header-h, z-[1000]):
-    // a plain inset-0 layer put the top-4 pause button and stat boxes
-    // underneath it, which made pause unreachable by touch or mouse.
-    <div className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] pointer-events-none z-40">
-      {/* Top Center - Pause Button */}
-      <div className="absolute top-4 left-1/2 transform -translate-x-1/2">
+    // a plain inset-0 layer put the pause button and stat boxes underneath
+    // it, which made pause unreachable by touch or mouse.
+    <div data-testid="hill-climb-hud" className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] pointer-events-none z-40">
+      <div className="absolute inset-x-2 top-2 flex items-start justify-between gap-2 short:top-1.5">
+        {/* Left: distance, then the coins of this run and the total */}
+        <div className="flex min-w-0 flex-col gap-1.5 short:flex-row short:items-start short:gap-1.5">
+          <div className={`${BOX} px-3 py-1.5 short:px-2 short:py-1`}>
+            <div className="text-2xl font-bold leading-none short:text-lg" data-testid="hill-climb-distance">
+              {Math.floor(distance)}m
+            </div>
+            <div className="mt-0.5 text-sm text-gray-300 short:text-xs">Best {Math.floor(bestDistance)}m</div>
+          </div>
+          <div className={`${BOX} flex items-center gap-2 px-3 py-1.5 short:px-2 short:py-1`}>
+            <span className="text-base font-bold text-yellow-400 short:text-sm">🪙 +{sessionCoins}</span>
+            <span className="text-sm text-gray-300 short:text-xs">💰 {coins.toLocaleString()}</span>
+          </div>
+          {sessionFlips > 0 && (
+            <div className={`${BOX} px-3 py-1 text-base font-bold short:px-2 short:text-sm`}>🔄 {sessionFlips} flips</div>
+          )}
+          {combo > 0 && (
+            <div className="rounded-xl bg-orange-500/90 px-3 py-1 text-base font-bold text-white short:px-2 short:text-sm">
+              x{combo} COMBO!
+            </div>
+          )}
+        </div>
+
+        {/* Middle: pause. A button, so the touch zones never read it as gas. */}
         <button
-          onClick={pauseGame}
+          type="button"
+          {...pauseTap}
           aria-label="Pause game"
-          className="pointer-events-auto w-12 h-12 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center text-white text-2xl transition-colors active:scale-95"
+          className="pointer-events-auto flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-black/55 text-2xl text-white touch-manipulation active:scale-95 short:h-11 short:w-11"
           title="Pause (Esc)"
         >
           ⏸️
         </button>
-      </div>
 
-      {/* Top Left - Stats */}
-      <div className="absolute top-4 left-4 space-y-2">
-        {/* Distance */}
-        <div className="bg-black/50 rounded-lg px-4 py-2 text-white">
-          <div className="text-3xl font-bold">{Math.floor(distance)}m</div>
-          <div className="text-sm text-gray-300">
-            Best: {Math.floor(bestDistance)}m
+        {/* Right: fuel, nitro and the speed */}
+        <div className="flex flex-col items-end gap-1.5 short:flex-row short:items-start short:gap-1.5">
+          <div className={`${BOX} px-3 py-1.5 short:px-2 short:py-1`}>
+            <div className="flex items-center gap-1.5">
+              <span className="text-base leading-none short:text-sm">⛽</span>
+              <span className={`text-sm font-bold ${isLowFuel ? 'animate-pulse text-red-400' : ''}`}>
+                {Math.ceil(fuel)}%
+              </span>
+            </div>
+            <div className="mt-1 h-2.5 w-28 overflow-hidden rounded-full bg-gray-700 short:w-24">
+              <div
+                className={`h-full transition-all duration-200 ${
+                  isLowFuel ? 'animate-pulse bg-red-500' : fuelPercent > 50 ? 'bg-green-500' : 'bg-yellow-500'
+                }`}
+                style={{ width: `${fuelPercent}%` }}
+              />
+            </div>
           </div>
-        </div>
-
-        {/* Session coins */}
-        <div className="bg-black/50 rounded-lg px-4 py-2 text-white flex items-center gap-2">
-          <span className="text-2xl">🪙</span>
-          <span className="text-2xl font-bold text-yellow-400">
-            +{sessionCoins}
-          </span>
-        </div>
-
-        {/* Flips */}
-        {sessionFlips > 0 && (
-          <div className="bg-black/50 rounded-lg px-4 py-2 text-white flex items-center gap-2">
-            <span className="text-xl">🔄</span>
-            <span className="text-xl font-bold">{sessionFlips} flips</span>
+          <div
+            className={`rounded-xl px-3 py-1.5 text-white short:px-2 short:py-1 ${
+              nitroActive ? 'bg-cyan-600/80 ring-2 ring-cyan-300' : 'bg-black/55'
+            }`}
+          >
+            <div className="flex items-center gap-1.5">
+              <span className="text-base leading-none short:text-sm">🚀</span>
+              <span className={`text-sm font-bold ${nitroActive ? 'animate-pulse' : isNitroLow ? 'text-gray-400' : 'text-cyan-300'}`}>
+                {nitroActive ? 'BOOST!' : `${Math.ceil(nitro)}%`}
+              </span>
+            </div>
+            <div className="mt-1 h-2.5 w-28 overflow-hidden rounded-full bg-gray-700 short:w-24">
+              <div
+                className={`h-full transition-all duration-200 ${
+                  nitroActive ? 'animate-pulse bg-cyan-300' : isNitroLow ? 'bg-gray-500' : 'bg-cyan-500'
+                }`}
+                style={{ width: `${nitroPercent}%` }}
+              />
+            </div>
           </div>
-        )}
-
-        {/* Combo */}
-        {combo > 0 && (
-          <div className="bg-purple-600/80 rounded-lg px-4 py-2 text-white animate-pulse">
-            <span className="text-xl font-bold">x{combo} COMBO!</span>
+          <div className={`${BOX} px-3 py-1.5 text-right short:px-2 short:py-1`}>
+            <span className="text-xl font-bold leading-none short:text-base" data-testid="hill-climb-speed">{speed}</span>
+            <span className="ml-1 text-sm text-gray-300 short:text-xs">km/h</span>
           </div>
-        )}
-      </div>
-
-      {/* Top Right - Fuel & Speed */}
-      <div className="absolute top-4 right-4 space-y-2">
-        {/* Fuel gauge */}
-        <div className="bg-black/50 rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xl">⛽</span>
-            <span className={`text-lg font-bold ${isLowFuel ? 'text-red-500 animate-pulse' : 'text-white'}`}>
-              {Math.ceil(fuel)}%
-            </span>
-          </div>
-          <div className="w-48 h-4 bg-gray-700 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-200 ${
-                isLowFuel ? 'bg-red-500 animate-pulse' : fuelPercent > 50 ? 'bg-green-500' : 'bg-yellow-500'
-              }`}
-              style={{ width: `${fuelPercent}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Nitro gauge */}
-        <div className={`rounded-lg p-3 transition-all duration-150 ${
-          nitroActive
-            ? 'bg-cyan-500/40 ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/50'
-            : 'bg-black/50'
-        }`}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`text-xl ${nitroActive ? 'animate-bounce' : ''}`}>🚀</span>
-            <span className={`text-lg font-bold ${
-              nitroActive ? 'text-white animate-pulse' : isNitroLow ? 'text-gray-400' : 'text-cyan-400'
-            }`}>
-              {Math.ceil(nitro)}%
-            </span>
-            {nitroActive && <span className="text-sm text-cyan-300 animate-pulse">BOOST!</span>}
-          </div>
-          <div className="w-48 h-4 bg-gray-700 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-200 ${
-                nitroActive ? 'bg-cyan-400 animate-pulse' : isNitroLow ? 'bg-gray-500' : 'bg-cyan-500'
-              }`}
-              style={{ width: `${nitroPercent}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Speed */}
-        <div className="bg-black/50 rounded-lg px-4 py-2 text-white text-right">
-          <div className="text-2xl font-bold">{speed}</div>
-          <div className="text-sm text-gray-300">km/h</div>
         </div>
       </div>
 
-      {/* Total coins (bottom left) */}
-      <div className="absolute bottom-4 left-4">
-        <div className="bg-black/50 rounded-lg px-4 py-2 text-white flex items-center gap-2">
-          <span className="text-xl">💰</span>
-          <span className="text-xl font-bold">{coins.toLocaleString()}</span>
-        </div>
-      </div>
-
-      {/* Low fuel warning */}
+      {/* Low fuel warning, under the HUD row, never over the truck */}
       {isLowFuel && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-          <div className="bg-red-600/90 rounded-xl px-8 py-4 animate-pulse">
-            <span className="text-2xl font-bold text-white">⚠️ LOW FUEL!</span>
+        <div className="absolute left-1/2 top-24 -translate-x-1/2 short:top-16">
+          <div className="animate-pulse rounded-xl bg-red-600/90 px-5 py-2 short:px-3 short:py-1">
+            <span className="text-xl font-bold text-white short:text-base">⚠️ LOW FUEL!</span>
           </div>
         </div>
       )}
