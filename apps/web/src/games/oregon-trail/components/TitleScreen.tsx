@@ -4,7 +4,7 @@ import { useOregonTrailStore } from "../lib/store";
 import { OCCUPATIONS, MONTH_NAMES } from "../lib/constants";
 import type { OccupationType, Month } from "../types";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
-import { MAIN_ACTION, Screen, choiceClass } from "./Screen";
+import { MAIN_ACTION, MainAction, Screen, choiceClass } from "./Screen";
 
 /** A name a kid types: a first name or a nickname, never a whole address. */
 export const NAME_MAX = 20;
@@ -13,7 +13,8 @@ export const NAME_MAX = 20;
 export const DEFAULT_MEMBER_NAMES = ["Ezra", "Mae", "Jed", "Rose"];
 
 /** 18 px text and 48 px tall: iOS zooms the page into a smaller field. */
-const INPUT = "input input-bordered input-lg w-full bg-white text-gray-900";
+// 44 px on a phone held sideways (48 took height the job buttons needed).
+const INPUT = "input input-bordered input-lg w-full bg-white text-gray-900 short:h-11 short:min-h-11 short:text-base";
 
 export function TitleScreen() {
   const gamePhase = useOregonTrailStore((s) => s.gamePhase);
@@ -65,12 +66,11 @@ export function TitleScreen() {
           (o) => `${o.name}. ${o.description}`
         ).join(" ")}`}
         actions={
-          <div className="flex flex-col gap-1">
-            {!ready && <p className="text-center text-base font-bold text-amber-200">✏️ Type your name to go on</p>}
+          <MainAction hint={ready ? undefined : "✏️ Type your name to go on"}>
             <button type="button" onClick={() => ready && setPhase("setup_party")} className={MAIN_ACTION} disabled={!ready}>
               Next ▶
             </button>
-          </div>
+          </MainAction>
         }
       >
         <input
@@ -87,7 +87,7 @@ export function TitleScreen() {
           className={INPUT}
           placeholder="Your first name"
         />
-        <h3 className="mb-2 mt-4 text-lg font-bold">Choose your job:</h3>
+        <h3 className="mb-2 mt-4 text-lg font-bold short:mb-1 short:mt-2 short:text-base">Choose your job:</h3>
         <div data-testid="oregon-jobs" className="grid gap-2 short:grid-cols-3">
           {OCCUPATIONS.map((o) => (
             <button
@@ -98,11 +98,11 @@ export function TitleScreen() {
               className={choiceClass(occ === o.id)}
             >
               <span className="flex flex-col items-start">
-                <span className="text-lg font-bold">
+                <span className="text-lg font-bold short:text-base">
                   {occ === o.id ? "✓ " : ""}
                   {o.name} · ${o.startingMoney}
                 </span>
-                <span className="text-base font-normal">{o.description}</span>
+                <span className="text-base font-normal short:text-sm">{o.description}</span>
               </span>
             </button>
           ))}

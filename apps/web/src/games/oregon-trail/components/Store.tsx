@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useOregonTrailStore } from "../lib/store";
 import { STORE_PRICES, LANDMARKS } from "../lib/constants";
 import type { Supplies } from "../types";
-import { MAIN_ACTION, Screen } from "./Screen";
+import { MAIN_ACTION, MainAction, Screen } from "./Screen";
 
 type ItemId = keyof typeof STORE_PRICES;
 
@@ -75,16 +75,11 @@ export function Store() {
         (needsOxen ? " You need oxen to pull your wagon." : "")
       }
       actions={
-        <div className="flex flex-col gap-1">
-          {needsOxen && (
-            <p data-testid="oregon-needs-oxen" className="text-center text-base font-bold text-amber-200">
-              🐂 Buy oxen to pull your wagon!
-            </p>
-          )}
+        <MainAction hint={needsOxen ? "🐂 Buy oxen to pull your wagon!" : undefined} hintTestId="oregon-needs-oxen">
           <button type="button" onClick={leaveStore} disabled={needsOxen} className={MAIN_ACTION}>
             🐂 Leave the store
           </button>
-        </div>
+        </MainAction>
       }
     >
       <ul className="grid gap-2 short:grid-cols-2">

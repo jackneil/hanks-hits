@@ -248,6 +248,14 @@ async function journey(page: Page, finger: Finger, screen: Screen) {
 
   // Name and job. The keyboard types the name: that is the one thing the
   // phone's own keyboard is for here.
+  // At open, every job sits above the action bar: on a sideways iPhone SE
+  // the bar's hint row hid them under it (seen on the real phone).
+  const bar = (await page.getByTestId("oregon-actions").boundingBox())!;
+  const jobs = page.getByTestId("oregon-jobs").getByRole("button");
+  for (let i = 0; i < (await jobs.count()); i++) {
+    const job = (await jobs.nth(i).boundingBox())!;
+    expect(job.y + job.height, `${where}: job ${i + 1} is above the action bar at open`).toBeLessThanOrEqual(bar.y + 0.5);
+  }
   await page.getByRole("textbox", { name: "Your name" }).fill("Hank");
   await oneScreen(page);
   noProblems(`${where} jobs`, await page.evaluate(measure, { selector: '[data-testid="oregon-jobs"] button' }));

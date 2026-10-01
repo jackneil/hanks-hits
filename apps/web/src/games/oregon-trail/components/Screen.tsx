@@ -53,7 +53,7 @@ export function Screen({
       )}
       {/* Keyed by the screen: a new screen starts at its top, even when React
           keeps the element (the setup steps are one component). */}
-      <div key={testId} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2">
+      <div key={testId} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2 short:py-1.5">
         {children}
       </div>
       {actions && (
@@ -64,6 +64,26 @@ export function Screen({
           {actions}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The main action and the line that says why it waits ("Type your name to
+ * go on"): stacked upright, side by side on a phone held sideways. The line
+ * on its own row cost 29 px of the 130 px a sideways iPhone SE had left for
+ * the screen, and hid the job buttons under the bar (seen on the real
+ * phone, 2026-09-30).
+ */
+export function MainAction({ hint, hintTestId, children }: { hint?: ReactNode; hintTestId?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 short:flex-row short:items-center short:gap-3">
+      {hint && (
+        <p data-testid={hintTestId} className="text-center text-base font-bold text-amber-200 short:flex-1 short:text-left">
+          {hint}
+        </p>
+      )}
+      <div className={hint ? "short:w-56 short:shrink-0" : "w-full"}>{children}</div>
     </div>
   );
 }
