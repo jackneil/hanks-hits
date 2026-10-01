@@ -45,7 +45,7 @@ describe("Hextris start overlay", () => {
     mockPointer(true);
     render(<HextrisGame />);
 
-    expect(screen.getByText("👈 Tap the left side to spin left")).toBeInTheDocument();
+    expect(screen.getByText("↺ ↻ Tap a spin button, or a side of the hexagon")).toBeInTheDocument();
     expect(
       screen.queryByText("⌨️ Press A or the left arrow to spin left")
     ).not.toBeInTheDocument();
@@ -59,7 +59,7 @@ describe("Hextris start overlay", () => {
       screen.getByText("⌨️ Press A or the left arrow to spin left")
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("👈 Tap the left side to spin left")
+      screen.queryByText("↺ ↻ Tap a spin button, or a side of the hexagon")
     ).not.toBeInTheDocument();
   });
 

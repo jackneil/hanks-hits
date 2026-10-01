@@ -30,8 +30,9 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
   IOSInstallPrompt: () => null,
 }));
 
-import { SnakeGameShell } from "../SnakeGameShell";
+import { SnakeGameShell, WALL_LABELS } from "../SnakeGameShell";
 import { useSnakeStore } from "../lib/store";
+import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 // Snake draws its own DOM "PAUSED" overlay while paused, so we assert the shell
 // pause MENU via its unique "Press ESC to resume" hint instead of "PAUSED".
@@ -43,9 +44,45 @@ describe("SnakeGameShell pause wiring", () => {
   });
 
   afterEach(() => {
+    resetPointerMock();
     act(() => {
       useSnakeStore.setState({ status: "idle" });
     });
+  });
+
+  it("holds the walls setting in the pause menu (it sat in a Settings panel two screens under the board)", () => {
+    act(() => {
+      useSnakeStore.setState({ status: "playing" });
+      useSnakeStore.setState((s) => ({ progress: { ...s.progress, wraparoundWalls: true } }));
+    });
+    render(<SnakeGameShell />);
+    expect(screen.queryByText(WALL_LABELS.wrap)).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    const walls = screen.getByRole("button", { name: WALL_LABELS.wrap });
+    fireEvent.click(walls);
+    expect(useSnakeStore.getState().progress.wraparoundWalls).toBe(false);
+    expect(screen.getByRole("button", { name: WALL_LABELS.solid })).toBeInTheDocument();
+  });
+
+  it("offers the turn control in the pause menu on a touch screen only", () => {
+    mockPointer(true);
+    act(() => {
+      useSnakeStore.setState({ status: "playing" });
+    });
+    const { unmount } = render(<SnakeGameShell />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("button", { name: /Turn: arrows/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Turn: arrows/ }));
+    expect(useSnakeStore.getState().progress.controlMode).toBe("swipe");
+    unmount();
+
+    mockPointer(false);
+    act(() => {
+      useSnakeStore.setState({ status: "playing" });
+    });
+    render(<SnakeGameShell />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: /Turn:/ })).not.toBeInTheDocument();
   });
 
   it("hides the shell pause button on the idle screen (canPause is gated)", () => {

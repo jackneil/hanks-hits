@@ -7,9 +7,28 @@
 // crashing) behind it. The store now carries a transient "paused" state that
 // freezes the game loop; the wiring belongs here, not in the thin route page.
 
+//
+// The sound switch lives in the pause menu and on the result chip (phone UX
+// audit 2026-09-29), so the play screen is all sky for the tap-to-bomb.
+
 import { GameShell } from "@/shared/components";
-import { BlitzBomberGame } from "./Game";
+import { BlitzBomberGame, SOUND_LABELS } from "./Game";
 import { useBlitzBomberStore } from "./lib/store";
+
+/** The look of a pause-menu button (PauseMenu's own MENU_BUTTON). */
+const MENU_BUTTON =
+  "btn btn-lg text-xl gap-3 shadow-lg hover:scale-105 transition-transform w-full short:h-11 short:min-h-11 short:text-lg";
+
+function BlitzBomberPauseSettings() {
+  const soundEnabled = useBlitzBomberStore((s) => s.progress.settings.soundEnabled);
+  const setSoundEnabled = useBlitzBomberStore((s) => s.setSoundEnabled);
+  return (
+    <button type="button" onClick={() => setSoundEnabled(!soundEnabled)} className={MENU_BUTTON}>
+      <span className="text-2xl" aria-hidden="true">{soundEnabled ? "🔊" : "🔇"}</span>
+      {soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off}
+    </button>
+  );
+}
 
 export function BlitzBomberGameShell() {
   const gameState = useBlitzBomberStore((s) => s.gameState);
@@ -31,6 +50,7 @@ export function BlitzBomberGameShell() {
       onPause={pauseGame}
       onResume={resumeGame}
       onRestart={resetGame}
+      pauseMenuChildren={<BlitzBomberPauseSettings />}
     >
       <BlitzBomberGame />
     </GameShell>

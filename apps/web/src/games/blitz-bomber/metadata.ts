@@ -5,5 +5,6 @@ export const metadata: GameMetadata = {
   name: "Blitz Bomber",
   emoji: "✈️",
   category: "action",
-  description: "WWII bombing run",
+  description: "Flatten the cartoon city and land your plane",
+  clips: true,
 };

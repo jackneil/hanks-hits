@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import { useBombermanStore, type BombermanProgress } from "./lib/store";
+import { useEffect, useRef, useCallback } from "react";
+import { useBombermanStore } from "./lib/store";
 import {
   GRID_WIDTH,
   GRID_HEIGHT,
@@ -11,36 +11,95 @@ import {
   POWER_UPS,
   type Direction,
 } from "./lib/constants";
+import { CANVAS_HEIGHT, CANVAS_WIDTH, layoutBomberman, padSize } from "./lib/layout";
+import { BOMBERMAN_AUDIO_ID, releaseSounds } from "./lib/sounds";
+import { useBombermanClips } from "./lib/useBombermanClips";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
-import { usePointerHold } from "@/shared/hooks/useTouchInput";
+import { useGameLoop } from "@/shared/hooks/useGameLoop";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { useTouchInput } from "@/shared/hooks/useTouchInput";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
-import { usePointerTap } from "@/shared/lib/input";
+import { usePointerTap, useRestartGrace } from "@/shared/lib/input";
+import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
 
-const CANVAS_WIDTH = GRID_WIDTH * TILE_SIZE;
-const CANVAS_HEIGHT = GRID_HEIGHT * TILE_SIZE;
+/** ms between moves while a key or a d-pad key is held (at speed 1). */
+export const MOVE_RATE = 120;
+
+export const SOUND_LABELS = { on: "Sound on", off: "Sound off" } as const;
+
+/** The result in kid words, read aloud by the result chip. */
+export function gameOverText(input: { score: number; level: number; best: number; newBest: boolean }): string {
+  const points = input.score === 1 ? "1 point" : `${input.score} points`;
+  const record = input.newBest ? "That is a new best!" : `Your best is ${input.best}.`;
+  return `Game over! You got ${points} and reached level ${input.level}. ${record}`;
+}
+
+export function levelDoneText(input: { score: number; level: number; newBest: boolean }): string {
+  const points = input.score === 1 ? "1 point" : `${input.score} points`;
+  return `Level ${input.level} done! You have ${points}.${input.newBest ? " That is a new best!" : ""}`;
+}
+
+/** The d-pad keys, in a plus: up on top, left and right in the middle row, down at the bottom. */
+const PAD_KEYS: { dir: Direction; label: string; glyph: string; area: string }[] = [
+  { dir: "UP", label: "Move up", glyph: "▲", area: "up" },
+  { dir: "LEFT", label: "Move left", glyph: "◀", area: "left" },
+  { dir: "RIGHT", label: "Move right", glyph: "▶", area: "right" },
+  { dir: "DOWN", label: "Move down", glyph: "▼", area: "down" },
+];
+
+/** The key under a touch: from the element the finger is on, or the point (a slide). */
+function directionAt(target: EventTarget | null, x: number, y: number): Direction | null {
+  const fromTarget = (target as Element | null)?.closest?.("[data-dir]") ?? null;
+  const element =
+    fromTarget ??
+    (typeof document.elementFromPoint === "function"
+      ? document.elementFromPoint(x, y)?.closest("[data-dir]") ?? null
+      : null);
+  const dir = element?.getAttribute("data-dir") as Direction | null | undefined;
+  return dir ?? null;
+}
 
 export function BombermanGame() {
-  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number>(0);
-  const lastTimeRef = useRef<number | null>(null);
+  const padRef = useRef<HTMLDivElement>(null);
   const keysRef = useRef<Set<string>>(new Set());
   // The d-pad key a thumb holds right now. The game loop reads it like
-  // keysRef, so a held button keeps moving at the key repeat rate.
+  // keysRef, so a held key keeps moving at the key repeat rate.
   const heldDirectionRef = useRef<Direction | null>(null);
-  // Set to Infinity by a d-pad press so the next frame moves at once.
+  // Set to Infinity by a d-pad press so the next step moves at once.
   const moveTimerRef = useRef(0);
 
   const store = useBombermanStore();
   const isCoarse = useCoarsePointer();
-  // Touch controls default ON: a coarse-pointer kid needs the D-pad to move.
-  // The isCoarse gate (below) is what keeps the D-pad off fine-pointer desktops,
-  // so this default no longer leaks controls onto every viewport; the 🎮 toggle
-  // then lets touch users hide them.
-  const [showControls, setShowControls] = useState(true);
+
+  // The arena fits the play box on both axes, with room for the controls.
+  const box = usePlayBox({ fit: true });
+  const layout = layoutBomberman(box, isCoarse);
+
+  // Gameplay clips: the canvas, the run phases, the new-best and level moments.
+  useBombermanClips(canvasRef, {
+    gameState: store.gameState,
+    score: store.score,
+    level: store.level,
+    highScore: store.progress.highScore,
+    runId: store.runId,
+  });
+
+  // Sound: the first tap starts the shared game-audio bus, the sound switch
+  // is this game's speaker (also after the saved setting loads), and the
+  // game's channel leaves the bus when the game unmounts.
+  useEffect(() => wantGameAudio(), []);
+  const soundEnabled = store.progress.settings.soundEnabled;
+  useEffect(() => {
+    setGameSpeakerEnabled(BOMBERMAN_AUDIO_ID, soundEnabled);
+  }, [soundEnabled]);
+  useEffect(() => () => releaseSounds(), []);
 
   // Auth sync
   const { forceSync } = useAuthSync({
@@ -58,31 +117,36 @@ export function BombermanGame() {
     }
   }, [store.gameState, forceSync]);
 
+  // Space or Enter on the result screens waits out the result grace, so a
+  // kid still mashing the bomb key at the last life sees the card first.
+  const grace = useRestartGrace(undefined, store.gameState);
+
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // A focused button or link owns its own Space and Enter: never swallow them.
       if (keyBelongsToTarget(e)) return;
+      const state = useBombermanStore.getState();
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
-      if (store.gameState === "menu") return;
+      if (state.gameState === "menu") return;
       keysRef.current.add(e.key.toLowerCase());
 
-      if (store.gameState === "playing") {
+      if (state.gameState === "playing") {
         // Pause (ESC) is owned by the GameShell now (it binds ESC and shows the
         // pause button). Double-handling ESC/P here is what desynced the shell's
         // pause menu from the game's own paused state.
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
-          store.placeBomb();
+          state.placeBomb();
         }
-      } else if (store.gameState === "won") {
-        if (e.key === " " || e.key === "Enter") {
-          store.nextLevel();
+      } else if (state.gameState === "won") {
+        if ((e.key === " " || e.key === "Enter") && grace.accept(e)) {
+          state.nextLevel();
         }
-      } else if (store.gameState === "lost") {
-        if (e.key === " " || e.key === "Enter") {
-          store.resetGame();
+      } else if (state.gameState === "lost") {
+        if ((e.key === " " || e.key === "Enter") && grace.accept(e)) {
+          state.startGame();
         }
       }
     };
@@ -97,11 +161,12 @@ export function BombermanGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [store]);
+  }, [grace]);
 
   // Movement from keys
   const moveFromKeys = useCallback(() => {
-    if (store.gameState !== "playing" || !store.player.alive) return;
+    const state = useBombermanStore.getState();
+    if (state.gameState !== "playing" || !state.player.alive) return;
 
     const keys = keysRef.current;
     let direction: Direction | null = null;
@@ -113,9 +178,9 @@ export function BombermanGame() {
     else direction = heldDirectionRef.current;
 
     if (direction) {
-      store.movePlayer(direction);
+      state.movePlayer(direction);
     }
-  }, [store]);
+  }, []);
 
   // Draw game
   const draw = useCallback(() => {
@@ -290,78 +355,72 @@ export function BombermanGame() {
         }
       }
     }
-  }, [store.grid, store.bombs, store.explosions, store.enemies, store.player]);
 
-  // Game loop
-  useEffect(() => {
-    const MOVE_RATE = 120; // ms between moves
+    // The result only dims the arena: the words are a ResultCard over it
+    // (canvas text drawn for a 600 px arena was 12 px on a phone, and it sat
+    // under the result chip).
+    if (store.gameState === "won" || store.gameState === "lost") {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    }
+  }, [store.grid, store.bombs, store.explosions, store.enemies, store.player, store.gameState]);
 
-    const gameLoop = (timestamp: number) => {
-      // The first frame only sets the clock. Seeding it from
-      // performance.now() mixed two clocks, so the first delta was wrong
-      // (negative in a browser, huge under a test clock).
-      if (lastTimeRef.current === null) lastTimeRef.current = timestamp;
-      const deltaTime = timestamp - lastTimeRef.current;
-      lastTimeRef.current = timestamp;
-
-      if (store.gameState === "playing") {
-        // Update game state
-        store.update(deltaTime);
-
-        // Handle held movement (keys or d-pad) with rate limiting
-        moveTimerRef.current += deltaTime;
-        if (moveTimerRef.current >= MOVE_RATE / store.player.speed) {
-          moveFromKeys();
-          moveTimerRef.current = 0;
-        }
+  // The game loop: the shared fixed-step loop (pause-aware, clamped, no
+  // effect restarts). Each step moves the world by one step of game time
+  // and consumes a held key or d-pad key at the move rate. The old loop
+  // effect restarted on every store change, so its move timer never
+  // reached the rate and a held key barely moved.
+  const update = useCallback(
+    (stepMs: number) => {
+      const state = useBombermanStore.getState();
+      if (state.gameState !== "playing") return;
+      state.update(stepMs);
+      moveTimerRef.current += stepMs;
+      if (moveTimerRef.current >= MOVE_RATE / state.player.speed) {
+        moveFromKeys();
+        moveTimerRef.current = 0;
       }
+    },
+    [moveFromKeys]
+  );
+  useGameLoop({ update, render: draw }, { running: true, paused: store.gameState !== "playing" });
 
-      draw();
-      animationRef.current = requestAnimationFrame(gameLoop);
-    };
-
-    // lastTimeRef keeps the last frame's timestamp across restarts of this
-    // effect (it restarts when the store changes), so no frame loses time.
-    animationRef.current = requestAnimationFrame(gameLoop);
-
-    return () => {
-      cancelAnimationFrame(animationRef.current);
-    };
-  }, [store, draw, moveFromKeys]);
-
-  // Touch D-pad: a held button moves the player at the key repeat rate (the
-  // loop consumes heldDirectionRef the same way it consumes keysRef). Each
-  // button used to move exactly one tile per touchstart, so crossing the
-  // arena took about twenty taps. The first move happens on the next frame.
+  // Touch d-pad: ONE surface for the four keys. A held key moves the player
+  // at the key repeat rate (the loop consumes heldDirectionRef like keysRef),
+  // and a thumb that slides from one key onto another changes direction
+  // without lifting, like a real pad. The last finger to press or slide
+  // wins; a lift, a cancel, a blur or a hidden page lets go.
   const pressDirection = useCallback((direction: Direction) => {
+    if (heldDirectionRef.current === direction) return;
     heldDirectionRef.current = direction;
     moveTimerRef.current = Number.POSITIVE_INFINITY;
   }, []);
-  const releaseDirection = useCallback((direction: Direction) => {
-    if (heldDirectionRef.current === direction) heldDirectionRef.current = null;
+  const releaseDirection = useCallback((direction: Direction | undefined) => {
+    if (direction && heldDirectionRef.current === direction) heldDirectionRef.current = null;
   }, []);
-  const upHold = usePointerHold<HTMLButtonElement>(
-    () => pressDirection("UP"),
-    () => releaseDirection("UP")
-  );
-  const downHold = usePointerHold<HTMLButtonElement>(
-    () => pressDirection("DOWN"),
-    () => releaseDirection("DOWN")
-  );
-  const leftHold = usePointerHold<HTMLButtonElement>(
-    () => pressDirection("LEFT"),
-    () => releaseDirection("LEFT")
-  );
-  const rightHold = usePointerHold<HTMLButtonElement>(
-    () => pressDirection("RIGHT"),
-    () => releaseDirection("RIGHT")
-  );
+  useTouchInput<Direction>(padRef, {
+    onStart: (touch) => {
+      const dir = directionAt(touch.target, touch.x, touch.y);
+      if (!dir) return;
+      touch.tag = dir;
+      pressDirection(dir);
+    },
+    onMove: (touch) => {
+      const dir = directionAt(null, touch.x, touch.y);
+      if (!dir || dir === touch.tag) return;
+      releaseDirection(touch.tag);
+      touch.tag = dir;
+      pressDirection(dir);
+    },
+    onEnd: (touch) => releaseDirection(touch.tag),
+  });
 
   // Touch bomb button: one tap = one bomb. The button used to carry
   // onTouchStart AND onClick, so a finger tap called placeBomb twice.
   const bombTap = usePointerTap<HTMLButtonElement>(() => {
-    if (store.gameState === "playing") {
-      store.placeBomb();
+    const state = useBombermanStore.getState();
+    if (state.gameState === "playing") {
+      state.placeBomb();
     }
   });
 
@@ -374,119 +433,152 @@ export function BombermanGame() {
       },
     });
   };
+  const soundLabel = soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off;
+
+  const pad = isCoarse ? (
+    <div
+      ref={padRef}
+      data-testid="bomberman-dpad"
+      className="grid shrink-0 gap-1 touch-none select-none [-webkit-touch-callout:none]"
+      style={{
+        gridTemplateAreas: '". up ." "left . right" ". down ."',
+        gridTemplateColumns: `repeat(3, ${layout.padKey}px)`,
+        gridTemplateRows: `repeat(3, ${layout.padKey}px)`,
+        width: padSize(layout.padKey),
+        height: padSize(layout.padKey),
+      }}
+    >
+      {PAD_KEYS.map((key) => (
+        <button
+          key={key.dir}
+          type="button"
+          data-dir={key.dir}
+          aria-label={key.label}
+          className="bg-gray-700 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none [-webkit-touch-callout:none]"
+          style={{ gridArea: key.area, width: layout.padKey, height: layout.padKey }}
+        >
+          {key.glyph}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  const bomb = isCoarse ? (
+    <button
+      type="button"
+      {...bombTap}
+      aria-label="Drop a bomb"
+      data-testid="bomberman-bomb"
+      className="shrink-0 bg-red-600 active:bg-red-400 rounded-full text-5xl shadow-lg touch-manipulation select-none [-webkit-touch-callout:none]"
+      style={{ width: layout.bombButton, height: layout.bombButton }}
+    >
+      💣
+    </button>
+  ) : null;
+
+  // Sideways on a touch screen the HUD wraps into the right gutter under
+  // the bomb button; otherwise it is one row over the arena.
+  const hudInGutter = layout.sideways && isCoarse;
+  const hud = (
+    <div
+      data-testid="bomberman-hud"
+      className={
+        hudInGutter
+          ? "flex w-full shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-base font-bold text-white"
+          : "flex h-8 shrink-0 items-center justify-center gap-3 whitespace-nowrap text-base font-bold text-white"
+      }
+      style={hudInGutter ? undefined : { width: layout.fit.width || undefined }}
+    >
+      <span>Lv {store.level}</span>
+      <span>{store.score} pts</span>
+      <span aria-label={`${store.lives} lives`}>{"❤️".repeat(store.lives)}</span>
+      <span>💣 {Math.max(0, store.player.maxBombs - store.player.bombCount)}</span>
+      <span>🔥 {store.player.blastRange}</span>
+      {store.player.hasKick && <span>🦶</span>}
+      {store.player.hasShield && <span>🛡️</span>}
+    </div>
+  );
+
+  const isOver = store.gameState === "lost";
+  const isWon = store.gameState === "won";
+
+  const arena = (
+    <div data-testid="bomberman-arena" className="relative shrink-0">
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        className="block rounded-lg shadow-2xl"
+        style={{
+          width: layout.fit.width || undefined,
+          height: layout.fit.height || undefined,
+          touchAction: "none",
+        }}
+      />
+      {isOver && (
+        <ResultCard testId="bomberman-result-card" title="Game over!">
+          <ResultLine big>Score {store.score}</ResultLine>
+          <ResultLine>{store.isNewHighScore ? "🏆 New best!" : `Level ${store.level} · Best ${store.progress.highScore}`}</ResultLine>
+        </ResultCard>
+      )}
+      {isWon && (
+        <ResultCard testId="bomberman-result-card" title={`Level ${store.level} done!`}>
+          <ResultLine big>Score {store.score}</ResultLine>
+          {store.isNewHighScore && <ResultLine>🏆 New best!</ResultLine>}
+        </ResultCard>
+      )}
+    </div>
+  );
 
   return (
     <div
-      ref={containerRef}
-      className="relative flex flex-col items-center min-h-full bg-gray-900 p-4 select-none"
+      data-testid="bomberman-game"
+      className={`relative h-full w-full bg-gray-900 p-2 select-none [-webkit-touch-callout:none] flex items-center justify-center gap-2 ${
+        layout.sideways ? "flex-row" : "flex-col"
+      }`}
     >
-      {/* HUD */}
-      <div className="w-full max-w-[624px] flex justify-between items-center mb-2 text-white">
-        <div className="flex gap-4">
-          <span>Level: {store.level}</span>
-          <span>Score: {store.score}</span>
-        </div>
-        <div className="flex gap-4">
-          <span>Lives: {"❤️".repeat(store.lives)}</span>
-          <span>💣 x{store.player.maxBombs - store.player.bombCount}</span>
-        </div>
-      </div>
-
-      {/* Power-up indicators */}
-      <div className="w-full max-w-[624px] flex gap-2 mb-2">
-        <div className="bg-gray-800 px-2 py-1 rounded text-white text-sm">
-          🔥 {store.player.blastRange}
-        </div>
-        {store.player.hasKick && (
-          <div className="bg-gray-800 px-2 py-1 rounded text-white text-sm">🦶</div>
-        )}
-        {store.player.hasShield && (
-          <div className="bg-gray-800 px-2 py-1 rounded text-white text-sm">🛡️</div>
-        )}
-      </div>
-
-      {/* Canvas */}
-      <div className="relative">
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          className="rounded-lg shadow-2xl"
-          style={{
-            maxWidth: "100%",
-            height: "auto",
-            touchAction: "none",
-          }}
-        />
-
-        {/* Paused/won/lost overlays are FIXED viewport modals, not pinned to
-            the canvas box: the canvas is 528px tall and the pause/dpad
-            controls live below it, so on a phone the player is usually
-            scrolled past the canvas when these fire — a canvas-pinned overlay
-            renders entirely above the fold and the game just looks frozen. */}
-        {store.gameState === "paused" && (
-          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
-            <h2 className="text-4xl font-bold text-white mb-8">⏸️ PAUSED</h2>
-            <button
-              onClick={() => store.resumeGame()}
-              className="bg-blue-500 hover:bg-blue-400 text-white px-8 py-4 rounded-xl text-xl font-bold mb-4"
-            >
-              RESUME
-            </button>
-            <button
-              onClick={() => store.resetGame()}
-              className="bg-gray-600 hover:bg-gray-500 text-white px-6 py-2 rounded-lg"
-            >
-              Quit to Menu
-            </button>
+      {/* Sideways: the d-pad in the left gutter, the HUD and the arena in
+          the middle, the bomb button in the right gutter. Upright: the HUD
+          row, the arena, then the d-pad (left) and the bomb (right). */}
+      {layout.sideways ? (
+        <>
+          <div className="flex shrink-0 items-center justify-center" data-testid="bomberman-left-gutter">
+            {pad}
           </div>
-        )}
-
-        {/* Won overlay */}
-        {store.gameState === "won" && (
-          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
-            <h2 className="text-4xl font-bold text-green-400 mb-4">🎉 LEVEL COMPLETE!</h2>
-            <p className="text-white text-xl mb-8">Score: {store.score}</p>
-            <button
-              onClick={() => store.nextLevel()}
-              className="bg-green-500 hover:bg-green-400 text-white px-8 py-4 rounded-xl text-xl font-bold mb-4"
-            >
-              NEXT LEVEL
-            </button>
+          <div className="flex min-w-0 flex-col items-center gap-2">
+            {!hudInGutter && hud}
+            {arena}
           </div>
-        )}
-
-        {/* Lost overlay */}
-        {store.gameState === "lost" && (
-          <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
-            <h2 className="text-4xl font-bold text-red-400 mb-4">💀 GAME OVER</h2>
-            <p className="text-white text-xl mb-2">Score: {store.score}</p>
-            <p className="text-gray-400 mb-8">Level reached: {store.level}</p>
-            {store.score > 0 && store.score === store.progress.highScore && (
-              <p className="text-yellow-400 text-xl mb-4">🏆 NEW HIGH SCORE!</p>
-            )}
-            <button
-              onClick={() => store.resetGame()}
-              className="bg-red-500 hover:bg-red-400 text-white px-8 py-4 rounded-xl text-xl font-bold"
-            >
-              TRY AGAIN
-            </button>
+          <div
+            className="flex shrink-0 flex-col items-center justify-center gap-3"
+            data-testid="bomberman-right-gutter"
+            style={hudInGutter ? { width: Math.max(padSize(layout.padKey), layout.bombButton) } : undefined}
+          >
+            {bomb}
+            {hudInGutter && hud}
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <>
+          {hud}
+          {arena}
+          {isCoarse && (
+            <div className="flex w-full shrink-0 items-center justify-between px-2" data-testid="bomberman-control-row">
+              {pad}
+              {bomb}
+            </div>
+          )}
+        </>
+      )}
 
-      {/* Menu overlay: shared DOM start screen. On a small phone the canvas
-          shrinks to ~300px tall, and an overlay pinned to that box clipped
-          the Play button below the fold. The shared overlay now portals to
-          document.body and covers the viewport, with Play pinned in the
-          card, so the start card is not tied to the canvas box. */}
+      {/* Menu overlay: shared DOM start screen (it portals to document.body). */}
       {store.gameState === "menu" && (
         <GameStartOverlay
           title="Bomberman"
           emoji="💣"
           subtitle="Destroy blocks. Defeat enemies. Find the exit!"
           keyboardHints={["WASD or Arrows to move", "SPACE to drop bombs"]}
-          touchHints={["Tap the arrows to move", "Tap 💣 to drop bombs"]}
+          touchHints={["👉 Hold an arrow to move", "💣 Tap the bomb to drop one"]}
           onStart={() => store.startGame()}
         >
           <div className="text-base font-medium opacity-90">
@@ -495,92 +587,62 @@ export function BombermanGame() {
         </GameStartOverlay>
       )}
 
-      {/* Mobile controls — touch (coarse-pointer) viewports only */}
-      {isCoarse && showControls && (
-        <div className="mt-4 flex justify-between items-center w-full max-w-[624px]">
-          {/* D-Pad */}
-          <div className="relative w-36 h-36">
-            {/* Up */}
-            <button
-              type="button"
-              {...upHold}
-              className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none"
-            >
-              ▲
-            </button>
-            {/* Down */}
-            <button
-              type="button"
-              {...downHold}
-              className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none"
-            >
-              ▼
-            </button>
-            {/* Left */}
-            <button
-              type="button"
-              {...leftHold}
-              className="absolute left-0 top-1/2 -translate-y-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none"
-            >
-              ◀
-            </button>
-            {/* Right */}
-            <button
-              type="button"
-              {...rightHold}
-              className="absolute right-0 top-1/2 -translate-y-1/2 w-12 h-12 bg-gray-700 hover:bg-gray-600 active:bg-gray-500 rounded-lg text-white text-2xl touch-none select-none"
-            >
-              ▶
-            </button>
-          </div>
+      <IOSInstallPrompt />
 
-          {/* Bomb button */}
+      {/* The result chip under the game-over or level-done picture: read it
+          to me, Play again or Next level, the leaderboard, the sound switch,
+          and with clips on the clip buttons. */}
+      {isOver && (
+        <ResultChip
+          resultText={gameOverText({
+            score: store.score,
+            level: store.level,
+            best: store.progress.highScore,
+            newBest: store.isNewHighScore,
+          })}
+          appId="bomberman"
+          onRestart={store.startGame}
+          spokenExtras={[soundLabel]}
+          keyboardHint="Space"
+        >
+          <SoundButton label={soundLabel} enabled={soundEnabled} onToggle={toggleSound} />
+        </ResultChip>
+      )}
+      {isWon && (
+        <ResultChip
+          resultText={levelDoneText({ score: store.score, level: store.level, newBest: store.isNewHighScore })}
+          appId="bomberman"
+          spokenExtras={["Next level", soundLabel]}
+          keyboardHint="Space"
+        >
           <button
             type="button"
-            {...bombTap}
-            className="w-24 h-24 bg-red-600 hover:bg-red-500 active:bg-red-400 rounded-full text-5xl shadow-lg touch-manipulation select-none"
+            onClick={store.nextLevel}
+            className={`btn btn-primary gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} active:scale-[0.97] touch-manipulation`}
           >
-            💣
+            <span aria-hidden="true">▶</span>
+            Next level
           </button>
-        </div>
+          <SoundButton label={soundLabel} enabled={soundEnabled} onToggle={toggleSound} />
+        </ResultChip>
       )}
-
-      {/* Control row */}
-      <div className="mt-4 flex items-center gap-4">
-        <button
-          onClick={toggleSound}
-          className="w-12 h-12 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center text-white"
-        >
-          {store.progress.settings.soundEnabled ? "🔊" : "🔇"}
-        </button>
-        {isCoarse && (
-          <button
-            onClick={() => setShowControls(!showControls)}
-            className="w-12 h-12 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center text-white"
-          >
-            🎮
-          </button>
-        )}
-        {store.gameState === "playing" && (
-          <button
-            onClick={() => store.pauseGame()}
-            className="w-12 h-12 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center text-white"
-          >
-            ⏸️
-          </button>
-        )}
-        <IOSInstallPrompt />
-      </div>
-
-      {/* Stats */}
-      <div className="mt-4 text-gray-400 text-sm">
-        <span>High Score: {store.progress.highScore}</span>
-        <span className="mx-4">|</span>
-        <span>Best Level: {store.progress.highestLevel}</span>
-        <span className="mx-4">|</span>
-        <span>Enemies Defeated: {store.progress.totalEnemiesDefeated}</span>
-      </div>
     </div>
+  );
+}
+
+function SoundButton({ label, enabled, onToggle }: { label: string; enabled: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      data-testid="result-chip-sound"
+      onClick={onToggle}
+      // A pointer press leaves no focus here, so Space still means "play again".
+      onMouseDown={(event) => event.preventDefault()}
+      className={`btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`}
+    >
+      <span aria-hidden="true">{enabled ? "🔊" : "🔇"}</span>
+      {label}
+    </button>
   );
 }
 

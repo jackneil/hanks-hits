@@ -6,4 +6,5 @@ export const metadata: GameMetadata = {
   emoji: "⬡",
   category: "puzzle",
   description: "Hexagon color matching",
+  clips: true,
 };

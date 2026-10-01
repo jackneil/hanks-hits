@@ -59,10 +59,10 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     name: "Blitz Bomber",
     icon: "✈️",
     color: "cyan",
-    description: "WWII bombing run",
+    description: "Flatten the cartoon city and land your plane",
     category: "action",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "bomberman": {
     name: "Bomberman",
@@ -71,7 +71,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Grid-based bomb action",
     category: "action",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "breakout": {
     name: "Breakout",
@@ -164,7 +164,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Hexagon color matching",
     category: "puzzle",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "hill-climb": {
     name: "Hill Climb",

@@ -9,11 +9,8 @@ import {
   DEFAULT_BLAST_RANGE,
   DEFAULT_SPEED,
   STARTING_LIVES,
-  POWERUP_CHANCE,
   ENEMY_MOVE_INTERVAL,
   type Tile,
-  type TileType,
-  type PowerUpType,
   type EnemyType,
   type Direction,
   DIRECTIONS,
@@ -23,6 +20,7 @@ import {
   inBounds,
   isWalkable,
 } from "./constants";
+import { playSound } from "./sounds";
 
 // Bomb
 interface Bomb {
@@ -98,6 +96,15 @@ export type BombermanState = {
   score: number;
   lives: number;
   exitRevealed: boolean;
+
+  // The run: startGame counts it up (a restart during a run is a new run,
+  // for the clips), and keeps the saved best from BEFORE the run. The store
+  // raises highScore at each level win, so a compare at game over against
+  // the saved best always read as a record (and a tie read as one too).
+  runId: number;
+  bestBeforeRun: number;
+  /** True when this run beat the best from before it (set at a win and at game over). */
+  isNewHighScore: boolean;
 
   // Timing
   lastUpdate: number;
@@ -256,89 +263,24 @@ function generateLevel(level: number): { grid: Tile[][]; enemies: Enemy[]; exitX
   return { grid, enemies, exitX, exitY };
 }
 
-// Audio
-let audioContext: AudioContext | null = null;
-
-function getAudioContext(): AudioContext {
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
-  }
-  return audioContext;
+/**
+ * A cleared level: the score is banked into the saved best right away, so
+ * a kid who quits after a win keeps the record. Both win paths (walking
+ * onto the exit, and the frame check) come through here.
+ */
+function winLevel(state: BombermanState, progress: BombermanProgress) {
+  return {
+    gameState: "won" as const,
+    isNewHighScore: state.score > state.bestBeforeRun,
+    progress: {
+      ...progress,
+      highScore: Math.max(progress.highScore, state.score),
+      lastModified: Date.now(),
+    },
+  };
 }
 
-function playSound(type: "place" | "explode" | "powerup" | "death" | "win" | "step", enabled: boolean) {
-  if (!enabled) return;
-
-  try {
-    const ctx = getAudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    switch (type) {
-      case "place":
-        osc.frequency.value = 200;
-        osc.type = "square";
-        gain.gain.value = 0.1;
-        osc.start();
-        osc.stop(ctx.currentTime + 0.1);
-        break;
-      case "explode":
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(150, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.3);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.3);
-        break;
-      case "powerup":
-        osc.frequency.value = 600;
-        osc.type = "sine";
-        gain.gain.value = 0.1;
-        osc.frequency.setValueAtTime(600, ctx.currentTime);
-        osc.frequency.setValueAtTime(800, ctx.currentTime + 0.1);
-        osc.frequency.setValueAtTime(1000, ctx.currentTime + 0.15);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.2);
-        break;
-      case "death":
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(400, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.5);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.5);
-        break;
-      case "win":
-        osc.frequency.value = 523;
-        osc.type = "sine";
-        gain.gain.value = 0.1;
-        const now = ctx.currentTime;
-        osc.frequency.setValueAtTime(523, now);
-        osc.frequency.setValueAtTime(659, now + 0.15);
-        osc.frequency.setValueAtTime(784, now + 0.3);
-        osc.frequency.setValueAtTime(1047, now + 0.45);
-        osc.start();
-        osc.stop(now + 0.6);
-        break;
-      case "step":
-        osc.frequency.value = 100;
-        osc.type = "sine";
-        gain.gain.value = 0.03;
-        osc.start();
-        osc.stop(ctx.currentTime + 0.05);
-        break;
-    }
-  } catch {
-    // Audio not supported
-  }
-}
-
-function createInitialState(): Omit<BombermanState, "progress"> {
+function createInitialState(): Omit<BombermanState, "progress" | "runId"> {
   return {
     grid: createEmptyGrid(),
     bombs: [],
@@ -361,6 +303,8 @@ function createInitialState(): Omit<BombermanState, "progress"> {
     score: 0,
     lives: STARTING_LIVES,
     exitRevealed: false,
+    bestBeforeRun: 0,
+    isNewHighScore: false,
     lastUpdate: Date.now(),
   };
 }
@@ -369,6 +313,7 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
   persist(
     (set, get) => ({
       ...createInitialState(),
+      runId: 0,
       progress: defaultProgress,
 
       startGame: () => {
@@ -380,6 +325,8 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
           grid,
           enemies,
           gameState: "playing",
+          runId: get().runId + 1,
+          bestBeforeRun: progress.highScore,
           lastUpdate: Date.now(),
           progress: {
             ...progress,
@@ -401,8 +348,6 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
         const state = get();
         const nextLevel = state.level + 1;
         const { grid, enemies } = generateLevel(nextLevel);
-
-        playSound("win", state.progress.settings.soundEnabled);
 
         set({
           grid,
@@ -473,7 +418,7 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
 
         if (!isWalkable(tile)) return;
 
-        playSound("step", state.progress.settings.soundEnabled);
+        playSound("step");
 
         // Check for power-up collection
         let newProgress = state.progress;
@@ -481,7 +426,7 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
         const newGrid = state.grid.map(row => row.map(t => ({ ...t })));
 
         if (tile.powerUp) {
-          playSound("powerup", state.progress.settings.soundEnabled);
+          playSound("powerup");
 
           switch (tile.powerUp) {
             case "bomb":
@@ -509,15 +454,15 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
           };
         }
 
-        // Check for exit
+        // Check for exit: the same win as the frame check (the best is banked).
         if (tile.type === "exit" && tile.revealed && state.exitRevealed) {
           const allEnemiesDead = state.enemies.every(e => !e.alive);
           if (allEnemiesDead) {
+            playSound("win");
             set({
               player: newPlayer,
               grid: newGrid,
-              progress: newProgress,
-              gameState: "won",
+              ...winLevel(state, newProgress),
             });
             return;
           }
@@ -541,7 +486,7 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
         // Check if there's already a bomb here
         if (state.bombs.some(b => b.x === state.player.x && b.y === state.player.y)) return;
 
-        playSound("place", state.progress.settings.soundEnabled);
+        playSound("place");
 
         const newBomb: Bomb = {
           id: `bomb-${Date.now()}`,
@@ -568,7 +513,9 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
         let newBombs = [...state.bombs];
         let newExplosions = [...state.explosions];
         const newGrid = state.grid.map(row => row.map(t => ({ ...t })));
-        const newEnemies = [...state.enemies];
+        // Copies: the enemies below are moved and killed in place, and the
+        // old state (a React render in flight) must not see it.
+        const newEnemies = state.enemies.map(e => ({ ...e }));
         let newPlayer = { ...state.player };
         let newScore = state.score;
         const newProgress = { ...state.progress };
@@ -591,7 +538,7 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
 
         // Process explosions
         for (const bomb of explodingBombs) {
-          playSound("explode", state.progress.settings.soundEnabled);
+          playSound("explode");
 
           // Create explosion at bomb center
           newExplosions.push({ x: bomb.x, y: bomb.y, timer: EXPLOSION_DURATION });
@@ -659,7 +606,7 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
             if (newPlayer.hasShield) {
               newPlayer.hasShield = false;
             } else {
-              playSound("death", state.progress.settings.soundEnabled);
+              playSound("death");
               newPlayer.alive = false;
             }
           }
@@ -735,7 +682,7 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
             if (newPlayer.hasShield) {
               newPlayer.hasShield = false;
             } else {
-              playSound("death", state.progress.settings.soundEnabled);
+              playSound("death");
               newPlayer.alive = false;
             }
           }
@@ -744,12 +691,14 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
         // Handle player death
         let newLives = state.lives;
         let newGameState: "menu" | "playing" | "paused" | "won" | "lost" = state.gameState;
+        let isNewHighScore = state.isNewHighScore;
 
         if (!newPlayer.alive) {
           newLives--;
 
           if (newLives <= 0) {
             newGameState = "lost";
+            isNewHighScore = newScore > state.bestBeforeRun;
             newProgress.highScore = Math.max(newProgress.highScore, newScore);
           } else {
             // Respawn player
@@ -775,9 +724,20 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
           newGrid[newPlayer.y][newPlayer.x].revealed;
 
         if (allEnemiesDead && playerOnExit && newPlayer.alive) {
-          newGameState = "won";
-          newProgress.highScore = Math.max(newProgress.highScore, newScore);
+          playSound("win");
+          const won = winLevel({ ...state, score: newScore }, newProgress);
+          newGameState = won.gameState;
+          isNewHighScore = won.isNewHighScore;
+          newProgress.highScore = won.progress.highScore;
         }
+
+        // Stamp the progress only when a counter changed: a stamp on every
+        // frame made the persist middleware write storage sixty times a
+        // second and cloud sync see a change with nothing in it.
+        const progressChanged =
+          newProgress.totalBlocksDestroyed !== state.progress.totalBlocksDestroyed ||
+          newProgress.totalEnemiesDefeated !== state.progress.totalEnemiesDefeated ||
+          newProgress.highScore !== state.progress.highScore;
 
         set({
           bombs: newBombs,
@@ -789,11 +749,9 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
           lives: newLives,
           exitRevealed: newExitRevealed,
           gameState: newGameState,
+          isNewHighScore,
           lastUpdate: now,
-          progress: {
-            ...newProgress,
-            lastModified: Date.now(),
-          },
+          progress: progressChanged ? { ...newProgress, lastModified: Date.now() } : state.progress,
         });
       },
 

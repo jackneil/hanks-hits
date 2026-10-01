@@ -1,4 +1,4 @@
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // useAuthSync -> useSession needs a SessionProvider we don't mount in tests.
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("next-auth/react", () => ({
   useSession: () => ({ data: null, status: "unauthenticated" }),
 }));
+vi.mock("@/shared/components/Leaderboard", () => ({ Leaderboard: () => <div>Leaderboard content</div> }));
 
 import BombermanGame from "../Game";
 import { useBombermanStore } from "../lib/store";
@@ -60,37 +61,50 @@ describe("Bomberman start overlay", () => {
     mockPointer(true);
     render(<BombermanGame />);
 
-    expect(screen.getByText("Tap the arrows to move")).toBeInTheDocument();
-    expect(screen.getByText("Tap 💣 to drop bombs")).toBeInTheDocument();
+    expect(screen.getByText("👉 Hold an arrow to move")).toBeInTheDocument();
+    expect(screen.getByText("💣 Tap the bomb to drop one")).toBeInTheDocument();
     // Keyboard copy must not show to touch users.
     expect(
       screen.queryByText("WASD or Arrows to move")
     ).not.toBeInTheDocument();
   });
 
-  it("renders paused/won/lost overlays as fixed viewport modals, not canvas-pinned", () => {
-    // Regression: these overlays were absolute-positioned inside the 528px
-    // canvas wrapper. On a phone the pause/dpad controls sit BELOW the canvas,
-    // so the player is scrolled past it when these fire and the overlay
-    // rendered entirely above the fold — pausing made the game look frozen.
-    // Fixed positioning centers them in the visible viewport regardless of
-    // scroll.
-    const states = [
-      { gameState: "paused" as const, heading: /PAUSED/ },
-      { gameState: "won" as const, heading: /LEVEL COMPLETE/ },
-      { gameState: "lost" as const, heading: /GAME OVER/ },
-    ];
-    for (const { gameState, heading } of states) {
-      act(() => {
-        useBombermanStore.setState({ gameState });
-      });
-      const { unmount } = render(<BombermanGame />);
-      const overlay = screen.getByRole("heading", { name: heading }).parentElement;
-      expect(overlay?.className).toContain("fixed");
-      expect(overlay?.className).toContain("inset-0");
-      expect(overlay?.className).not.toContain("absolute");
-      unmount();
-    }
+  it("has no modal of its own while paused (the shell's pause menu is the one pause surface)", () => {
+    // Regression: the game drew its own fixed PAUSED modal with a second
+    // Resume, beside the shell's pause menu, and an in-game pause button
+    // under the fold (phone UX audit 2026-09-29).
+    act(() => {
+      useBombermanStore.getState().startGame();
+      useBombermanStore.getState().pauseGame();
+    });
+    render(<BombermanGame />);
+    expect(screen.queryByRole("heading", { name: /PAUSED/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /RESUME/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "⏸️" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "🎮" })).not.toBeInTheDocument();
+  });
+
+  it("mounts the shared result chip at game over and at a cleared level, and never its own modal", () => {
+    act(() => {
+      useBombermanStore.getState().startGame();
+      useBombermanStore.setState({ gameState: "lost" });
+    });
+    const { unmount } = render(<BombermanGame />);
+    expect(screen.queryByRole("button", { name: /TRY AGAIN/ })).not.toBeInTheDocument();
+    let chip = screen.getByTestId("result-chip");
+    expect(within(chip).getByRole("button", { name: /play again/i })).toBeInTheDocument();
+    expect(within(chip).getByRole("button", { name: /leaderboard/i })).toBeInTheDocument();
+    expect(within(chip).getByTestId("result-chip-sound")).toBeInTheDocument();
+    unmount();
+
+    act(() => {
+      useBombermanStore.setState({ gameState: "won" });
+    });
+    render(<BombermanGame />);
+    expect(screen.queryByRole("button", { name: /NEXT LEVEL/ })).not.toBeInTheDocument();
+    chip = screen.getByTestId("result-chip");
+    expect(within(chip).getByRole("button", { name: /next level/i })).toBeInTheDocument();
+    expect(within(chip).queryByRole("button", { name: /play again/i })).not.toBeInTheDocument();
   });
 
   it("hides the D-pad on fine (desktop) pointers while playing", () => {
@@ -101,11 +115,11 @@ describe("Bomberman start overlay", () => {
     render(<BombermanGame />);
 
     expect(useBombermanStore.getState().gameState).toBe("playing");
-    // ▲ is unique to the D-pad up button.
-    expect(screen.queryByText("▲")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("bomberman-dpad")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("bomberman-bomb")).not.toBeInTheDocument();
   });
 
-  it("shows the D-pad on coarse (touch) pointers while playing", () => {
+  it("shows the D-pad and the bomb button on coarse (touch) pointers while playing", () => {
     mockPointer(true);
     act(() => {
       useBombermanStore.getState().startGame();
@@ -113,6 +127,7 @@ describe("Bomberman start overlay", () => {
     render(<BombermanGame />);
 
     expect(useBombermanStore.getState().gameState).toBe("playing");
-    expect(screen.getByText("▲")).toBeInTheDocument();
+    expect(screen.getByTestId("bomberman-dpad")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Drop a bomb" })).toBeInTheDocument();
   });
 });

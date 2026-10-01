@@ -57,7 +57,7 @@ describe("Blitz Bomber start overlay", () => {
 
     const easy = screen.getByRole("button", { name: /Easy/ });
     const board = container.querySelector("canvas")!.parentElement!;
-    expect(board.className).toContain("aspect-[4/3]");
+    expect(board).toHaveAttribute("data-testid", "blitz-bomber-field");
     expect(board).not.toContainElement(easy);
     expect(screen.getByTestId("game-start-overlay").parentElement).toBe(document.body);
     expect(screen.getByTestId("start-card-actions")).toContainElement(easy);
