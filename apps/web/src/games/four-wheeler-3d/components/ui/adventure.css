@@ -57,6 +57,12 @@
   font: inherit;
   min-height: 44px;
 }
+/* The background shorthand above wipes the shared select arrow (the
+   select has no native look, so iOS keeps its 44 px): draw it again. */
+.fw-ui select {
+  background: #111915 var(--select-arrow) no-repeat right 12px center / 12px;
+  padding-right: 36px;
+}
 .fw-ui label {
   display: block;
   margin: 12px 0;
