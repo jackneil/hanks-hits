@@ -140,6 +140,49 @@ export interface Geometry {
  * Two boxes overlap when they share more than 4 px2 and neither holds the
  * other.
  */
+/**
+ * The buttons, links and selects on the screen whose own words are cut: text
+ * wider than its box under an ellipsis or a clipped overflow, or taller than
+ * a line clamp. Run it in the page (page.evaluate(cutLabels)). The phone
+ * gate's cut-label check and pages.spec use it. ("Download" read "Do..." on
+ * an upright iPhone SE, Cookie Clicker's upgrades "Adamantium Mo...", and
+ * the home header "Hank's H...", 2026-09-30 and 10-01.)
+ */
+export function cutLabels(): string[] {
+  const vw = innerWidth;
+  const vh = innerHeight;
+  const visible = (el: Element) => {
+    const style = getComputedStyle(el);
+    if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) < 0.01) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 1 && r.height > 1 && r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+  };
+  const out: string[] = [];
+  for (const control of document.querySelectorAll<HTMLElement>('button, [role="button"], a[href], select, h1, h2')) {
+    if (!visible(control)) continue;
+    for (const el of [control, ...control.querySelectorAll<HTMLElement>("*")]) {
+      if (!visible(el)) continue;
+      const ownText = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim());
+      if (!ownText) continue;
+      const style = getComputedStyle(el);
+      const clipsX = style.textOverflow === "ellipsis" || style.overflowX === "hidden" || style.overflowX === "clip";
+      const clamped = style.webkitLineClamp !== "" && style.webkitLineClamp !== "none";
+      const cutWide = clipsX && el.scrollWidth > el.clientWidth + 1;
+      const cutTall = clamped && el.scrollHeight > el.clientHeight + 2;
+      if (cutWide || cutTall) {
+        const name = (control.getAttribute("aria-label") ?? control.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 30);
+        out.push(
+          cutWide
+            ? `"${name}" shows ${el.clientWidth} of ${el.scrollWidth} px wide`
+            : `"${name}" shows ${el.clientHeight} of ${el.scrollHeight} px tall`
+        );
+        break;
+      }
+    }
+  }
+  return [...new Set(out)];
+}
+
 export function measure({ selector, extra = [] }: { selector: string; extra?: string[] }): Geometry {
   const shows = (el: Element) => {
     const s = getComputedStyle(el);
