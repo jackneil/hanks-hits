@@ -117,6 +117,23 @@ describe("Memory Match on screen", () => {
     expect(useMemoryMatchStore.getState().moves).toBe(0);
   });
 
+  it("keeps one clock interval through a round (it was re-made on every tick and flip)", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval", "clearInterval", "Date"] });
+    const made = vi.spyOn(globalThis, "setInterval");
+    const keys = vi.spyOn(window, "addEventListener");
+    render(<MemoryMatchGame />);
+    fireEvent.click(within(screen.getByTestId("game-start-overlay")).getByRole("button", { name: /play/i }));
+    const clocksAtStart = made.mock.calls.filter(([, ms]) => ms === 100).length;
+    const keyHandlersAtStart = keys.mock.calls.filter(([type]) => type === "keydown").length;
+    act(() => {
+      useMemoryMatchStore.getState().flipCard(0);
+    });
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(useMemoryMatchStore.getState().currentTime).toBeGreaterThan(0);
+    expect(made.mock.calls.filter(([, ms]) => ms === 100).length).toBe(clocksAtStart);
+    expect(keys.mock.calls.filter(([type]) => type === "keydown").length).toBe(keyHandlersAtStart);
+  });
+
   it("says the win in whole sentences", () => {
     expect(winText({ moves: 8, time: 30_000, stars: 3, newBest: true })).toMatch(/^You won! 8 moves in .+\. You got 3 stars\. That is a new best time!$/);
     expect(winText({ moves: 12, time: 45_000, stars: 1, newBest: false })).toMatch(/You got 1 star\.$/);

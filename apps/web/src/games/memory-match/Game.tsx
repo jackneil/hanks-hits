@@ -239,12 +239,15 @@ export function MemoryMatchGame() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Timer tick
+  // Timer tick: one interval for the life of the game. It reads the store's
+  // action on each tick, because `store` (the whole state) is a new object
+  // after every set, and depending on it cleared and re-made the interval
+  // on every tick and every flip.
   useEffect(() => {
     if (!isClient) return;
-    const interval = setInterval(() => store.tick(), 100);
+    const interval = setInterval(() => useMemoryMatchStore.getState().tick(), 100);
     return () => clearInterval(interval);
-  }, [isClient, store]);
+  }, [isClient]);
 
   // The shell holds the game under an overlay (the leaderboard, a clip
   // sheet, the install steps, the orientation tip) and in a hidden tab: the
@@ -274,7 +277,7 @@ export function MemoryMatchGame() {
 
   // A new deal at once: Play again on the result chip, or N on a keyboard
   // (the header's restart asks first in the middle of a round).
-  const playAgain = useCallback(() => store.newGame(), [store]);
+  const playAgain = useCallback(() => useMemoryMatchStore.getState().newGame(), []);
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       // A focused button or link owns its own Space and Enter: never swallow them.
