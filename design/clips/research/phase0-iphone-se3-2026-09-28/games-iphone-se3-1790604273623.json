@@ -1,0 +1,17 @@
+[
+ {
+  "id": "breakout",
+  "params": "",
+  "error": "no state"
+ },
+ {
+  "id": "monster-truck",
+  "params": "",
+  "error": "click intercepted: "
+ },
+ {
+  "id": "flappy-bird",
+  "params": "",
+  "error": "no state"
+ }
+]

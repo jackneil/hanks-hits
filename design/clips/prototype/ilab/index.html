@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>clips lab</title>
+<style>
+ body{margin:0;font:15px -apple-system,system-ui,sans-serif;background:#111;color:#eee}
+ #bar{padding:8px;display:flex;gap:8px;flex-wrap:wrap}
+ button{font:600 16px -apple-system,system-ui;min-height:44px;padding:0 14px;border-radius:10px;border:0;background:#2d6cdf;color:#fff}
+ #stage{position:relative;width:100vw;height:62vh;background:#000}
+ #stage canvas{position:absolute;inset:0;width:100%;height:100%}
+ pre{white-space:pre-wrap;margin:0;padding:8px;font:12px ui-monospace,Menlo,monospace;max-height:30vh;overflow:auto}
+</style></head><body>
+<div id="bar"><button id="run">Run capture tests</button><button id="probe">Capability probe</button><button id="proto">Ring and clip test</button></div>
+<div id="stage"></div>
+<pre id="out"></pre>
+<script src="paths.js"></script>
+</body></html>

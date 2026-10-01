@@ -1,0 +1,278 @@
+{
+ "screen": "375x667",
+ "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1",
+ "dpr": 2,
+ "runs": [
+  {
+   "captureFps": 30,
+   "src": "2d",
+   "fpsLossPct": 0,
+   "capCostP50": 4,
+   "capFps": 60,
+   "game": "750x730",
+   "codec": "avc1.64001f",
+   "baseFps": 60,
+   "path": "D",
+   "longFramesPct": 0,
+   "fps": 30,
+   "capErr": null,
+   "enc": {
+    "errors": [],
+    "keys": 7,
+    "bytes": 2118253,
+    "submitted": 210,
+    "outputs": 210,
+    "firstEncodeAt": 5334,
+    "ttfcMs": 32,
+    "outOfOrder": 0,
+    "workerMsP95": 9,
+    "deltaTypes": {
+     "key": 7,
+     "delta": 203
+    },
+    "workerMsP50": 7,
+    "dropsQueue": 0,
+    "firstOutputAt": 5366,
+    "sizes": [
+     "750x730"
+    ],
+    "lastOutTs": 6966667
+   },
+   "dropsInFlight": 0,
+   "lat": "quality",
+   "baseP95": 17,
+   "capP95": 17,
+   "captured": 210,
+   "encSize": "720x1280",
+   "capCostP95": 6,
+   "capCostMax": 8
+  },
+  {
+   "captureFps": 60,
+   "src": "2d",
+   "fpsLossPct": 0,
+   "capCostP50": 3,
+   "capFps": 60,
+   "game": "750x730",
+   "codec": "avc1.640020",
+   "baseFps": 60,
+   "path": "D",
+   "longFramesPct": 0,
+   "fps": 60,
+   "capErr": null,
+   "enc": {
+    "errors": [],
+    "keys": 7,
+    "bytes": 2933571,
+    "submitted": 420,
+    "outputs": 420,
+    "firstEncodeAt": 17352,
+    "ttfcMs": 28,
+    "outOfOrder": 0,
+    "workerMsP95": 6,
+    "deltaTypes": {
+     "key": 7,
+     "delta": 413
+    },
+    "workerMsP50": 4,
+    "dropsQueue": 0,
+    "firstOutputAt": 17380,
+    "sizes": [
+     "750x730"
+    ],
+    "lastOutTs": 6983333
+   },
+   "dropsInFlight": 0,
+   "lat": "quality",
+   "baseP95": 17,
+   "capP95": 17,
+   "captured": 420,
+   "encSize": "720x1280",
+   "capCostP95": 3,
+   "capCostMax": 8
+  },
+  {
+   "captureFps": 30.14,
+   "src": "2d",
+   "fpsLossPct": 0.02,
+   "capCostP50": 6,
+   "capFps": 59.99,
+   "game": "750x730",
+   "codec": "avc1.64001f",
+   "baseFps": 60,
+   "path": "A",
+   "longFramesPct": 0,
+   "fps": 30,
+   "capErr": null,
+   "enc": {
+    "errors": [],
+    "keys": 8,
+    "bytes": 2140465,
+    "submitted": 211,
+    "outputs": 211,
+    "firstEncodeAt": 29360,
+    "ttfcMs": 34,
+    "outOfOrder": 0,
+    "workerMsP95": 1,
+    "deltaTypes": {
+     "key": 8,
+     "delta": 203
+    },
+    "workerMsP50": 0,
+    "dropsQueue": 0,
+    "firstOutputAt": 29394,
+    "sizes": [
+     "720x1280"
+    ],
+    "lastOutTs": 7000000
+   },
+   "dropsInFlight": 0,
+   "lat": "quality",
+   "baseP95": 17,
+   "capP95": 17,
+   "captured": 211,
+   "encSize": "720x1280",
+   "capCostP95": 9,
+   "capCostMax": 13
+  },
+  {
+   "captureFps": 30.14,
+   "src": "gl15k",
+   "fpsLossPct": 0.07,
+   "capCostP50": 10,
+   "capFps": 59.96,
+   "game": "750x730",
+   "codec": "avc1.64001f",
+   "baseFps": 60,
+   "path": "D",
+   "longFramesPct": 0.71,
+   "fps": 30,
+   "capErr": null,
+   "enc": {
+    "errors": [],
+    "keys": 8,
+    "bytes": 6927924,
+    "submitted": 211,
+    "outputs": 211,
+    "firstEncodeAt": 41717,
+    "ttfcMs": 37,
+    "outOfOrder": 0,
+    "workerMsP95": 22,
+    "deltaTypes": {
+     "key": 8,
+     "delta": 203
+    },
+    "workerMsP50": 8,
+    "dropsQueue": 0,
+    "firstOutputAt": 41754,
+    "sizes": [
+     "750x730"
+    ],
+    "lastOutTs": 7000000
+   },
+   "dropsInFlight": 0,
+   "lat": "quality",
+   "baseP95": 17,
+   "capP95": 20,
+   "captured": 211,
+   "encSize": "720x1280",
+   "capCostP95": 15,
+   "capCostMax": 17
+  },
+  {
+   "captureFps": 26.14,
+   "src": "gl15k",
+   "fpsLossPct": 0.25,
+   "capCostP50": 11,
+   "capFps": 59.85,
+   "game": "750x730",
+   "codec": "avc1.64001f",
+   "baseFps": 60,
+   "path": "B",
+   "longFramesPct": 0.24,
+   "fps": 30,
+   "capErr": null,
+   "enc": {
+    "errors": [],
+    "keys": 8,
+    "bytes": 10032780,
+    "submitted": 183,
+    "outputs": 183,
+    "firstEncodeAt": 54688,
+    "ttfcMs": 45,
+    "outOfOrder": 0,
+    "workerMsP95": 1,
+    "deltaTypes": {
+     "key": 8,
+     "delta": 175
+    },
+    "workerMsP50": 0,
+    "dropsQueue": 0,
+    "firstOutputAt": 54733,
+    "sizes": [
+     "750x730"
+    ],
+    "lastOutTs": 7000000
+   },
+   "dropsInFlight": 28,
+   "lat": "quality",
+   "baseP95": 17,
+   "capP95": 17,
+   "captured": 183,
+   "encSize": "720x1280",
+   "capCostP95": 12,
+   "capCostMax": 13
+  },
+  {
+   "captureFps": 30,
+   "src": "gl",
+   "fpsLossPct": 6.32,
+   "capCostP50": 17,
+   "capFps": 52.74,
+   "game": "750x730",
+   "codec": "avc1.64001f",
+   "baseFps": 56.3,
+   "path": "D",
+   "longFramesPct": 2.44,
+   "fps": 30,
+   "capErr": null,
+   "enc": {
+    "errors": [],
+    "keys": 7,
+    "bytes": 3992490,
+    "submitted": 210,
+    "outputs": 210,
+    "firstEncodeAt": 66131,
+    "ttfcMs": 36,
+    "outOfOrder": 0,
+    "workerMsP95": 25,
+    "deltaTypes": {
+     "key": 7,
+     "delta": 203
+    },
+    "workerMsP50": 11,
+    "dropsQueue": 0,
+    "firstOutputAt": 66167,
+    "sizes": [
+     "750x730"
+    ],
+    "lastOutTs": 6966667
+   },
+   "dropsInFlight": 0,
+   "lat": "quality",
+   "baseP95": 22,
+   "capP95": 24,
+   "captured": 210,
+   "encSize": "720x1280",
+   "capCostP95": 21,
+   "capCostMax": 25
+  }
+ ],
+ "when": "2026-09-28T13:59:19.564Z",
+ "lat": "realtime",
+ "stage": "375x365",
+ "hz": {
+  "snapped": 60,
+  "measured": 58.82
+ }
+}

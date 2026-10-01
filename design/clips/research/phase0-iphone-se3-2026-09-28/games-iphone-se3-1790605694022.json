@@ -1,0 +1,12 @@
+[
+ {
+  "id": "hill-climb",
+  "params": "path=D&fps=30",
+  "error": "canvas 300x150 (webgl2) in page; canvases=1\nencoder ready\n"
+ },
+ {
+  "id": "four-wheeler-adventure",
+  "params": "path=D&fps=30",
+  "error": "no canvas\n"
+ }
+]

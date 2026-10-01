@@ -1,0 +1,408 @@
+[
+ {
+  "key": "traceability",
+  "findings": [
+   {
+    "severity": "critical",
+    "section": "8.3 Session timeline / 8.4 Record mode / 6.6 epoch policy / 20",
+    "problem": "The epoch policy covers only 'Clip it!' at clip time. The session timeline and Record have no rule for an avcC change. 8.3 says 'The encode worker tees the same encoded packets into a fragmented-MP4 journal in OPFS', and 8.4 says 'Record keeps the timeline segment'. Nothing says what the journal does when the encoder is re-created. Rev 2 adds more epoch sources: section 7 closes the live encoder for every editor export ('play resumes on a new epoch'), plus iOS resume, recovery and the Chromium bridge. mediabunny freezes the track config at the first packet, which is the defect wave-1 [31] cited. So 'Save the whole run (4:12)' or a Record video that crosses an epoch with a different avcC is either decoded against the wrong SPS/PPS or cut short without warning. Section 20 still claims 'All 5 critical findings are fixed above'.",
+    "fix": "Add a journal/Record epoch rule to 8.3/8.4, as wave-1 [31] item (3) asked. At every avcC or coded-size change, roll the journal to a new part, using the same byte-compare classification as 6.6. At 'Save the whole run' or Record finalize, splice identical parts by packet copy. Re-encode the smaller different part, or cut and state the real length. Never write one track across two configs. Add a Node fixture: a journal with a different-avcC epoch in mid-run must decode in ffmpeg and AVFoundation. Correct the section 20 claim.",
+    "waveOneRef": "engine-correctness [31] critical: 'Record mode ... tees the same encoded packets into a fragmented MP4 across these same epochs, with no rule for how the parts join'"
+   },
+   {
+    "severity": "major",
+    "section": "10 (Names written into kid-built games) / 14",
+    "problem": "The fail-closed gate is a one-time literal that is not tied to the game's content. 'It writes the literal clipsScrubbed: true, and clips stay off for a madeByKid game until that literal exists.' After the first scrub, a later change-a-game edit that adds 'Beat Liam!' leaves clipsScrubbed: true unchanged, so clips stay on. Only the skill instruction to re-run the scrub stands in the way. Built-in games that a kid changes through change-a-game are not madeByKid, so no code gate applies at all. The section 10 source-scan test catches only '<input> -> fillText' flows, not literals that Claude writes. The settled rule 'No real names in clips', with open sharing, therefore rests on Claude following a skill.",
+    "fix": "Bind the attestation to content, for example clipsScrubbed: '<sha256 of the module's source tree>'. Make the coverage test recompute the hash and turn clips off on any mismatch, so any edit after the scrub needs a new scrub. Apply the same hash gate to any built-in module that change-a-game or remix-a-game touches (for example, a kidChanged literal that the skill writes). Or add the wave-1 literal-allowlist source scan (fillText/CanvasTexture/clipRenderer string literals outside an allowlist of game and UI words) for every clip-enabled module. Extend the Phase 8 test: scrub, then change, then add a name, then assert clips are off.",
+    "waveOneRef": "kid-ux-a11y [47] critical: 'a literal like \"Beat Liam!\" ... that Claude writes into a canvas passes'"
+   },
+   {
+    "severity": "major",
+    "section": "8.4 Record mode / 11.1 / 11.4 stacking / 11.2 header budget",
+    "problem": "The recording state still adds a second 44 px control to the header row. 8.4: 'Bookmarks drop through a star in the in-play confirmation'. 11.1/11.4: the in-play confirmation is 'anchored to the clip button inside the header row' at 'header row, z-1000'. Take a guest game that cannot pause (flappy: Leaderboard, Fullscreen and Restart stay, because step 3 applies only to pausable games). Using GameShell.tsx widths (px-3, 44 px home, px-2 title, 44 px controls, gap 0): idle is 24+44+32+5x44 = 320. Recording is stop plus star, which adds 44, for 364 px. That overflows at 320 and 360 even after every step in 11.2. At 320 px, the 'visible overflow button' only replaces Fullscreen one for one, so it saves nothing. Wave-1 [50] asked for the star in the toast lane or under the header, not in the header row.",
+    "fix": "Put the bookmark star next to the timer pill under the header (the toast lane), and keep the header to exactly one clip slot in every state. Or have the overflow button absorb Leaderboard and Restart below 400 px for games that cannot pause. Add the recording-state width sum to 11.2 so the budget is designed, not only tested.",
+    "waveOneRef": "kid-ux-a11y [50] major: 'Keep recording within one slot ... bookmarks go on a separate star button in the toast lane'"
+   },
+   {
+    "severity": "major",
+    "section": "11.6 Glossary / 11.3 / 6.6 / 8.4 / 12",
+    "problem": "'Save' still means four different things, which breaks the STE one-word-one-meaning rule that wave-1 [55] raised. The glossary bans 'Save' only for Keep. The plan still uses it for creating a clip in My Clips ('Save the last 30 s', 'Clip saved! (longer)', 'Video saved!', 'Save the whole run'), for extracting a still ('Save a picture'), for downloading (section 12 Firefox row primary 'Save', 'Type rejection: fall back to Save', 'a coached \"Save to Files\" download'), and for the Photos app ('Save to Photos'). The glossary says downloading is 'Save to phone / Save to computer' and 'Never: Download', but 8.4 says 'download'. The planned copy test would pass, because the glossary has no row for 'create a clip'.",
+    "fix": "Add a glossary row for creating a clip, for example 'Clip it!' / 'Clip made!' ('Video made!' for Record, 'Make the whole run into a video'). Reserve 'Save' only for copies that leave the site ('Save to Photos', 'Save to phone', 'Save to computer'). Rename the Firefox primary action and the type-rejection fallback to 'Save to computer'. Rename 'Save a picture' to 'Take a picture'. Make the copy test assert that the word 'save' appears only in those three phrases.",
+    "waveOneRef": "kid-ux-a11y [55] major: '\"Save\" means saving to the library, downloading, iOS Save Video and Keep'"
+   },
+   {
+    "severity": "major",
+    "section": "1 (What only Jack can do)",
+    "problem": "The per-phase Jack table still leaves out actions on the critical path that wave-1 [95] named. (1) The CLIPS_MODE=dogfood production variable write: 4.1 says the flag is 'off in production unless the variable is set', and Phases 2-6 are dogfooded on hankshits.com, but only the Phase 6 'on' write is listed. The way the signed dogfood cookie reaches Jack's devices is also not specified. (2) Decisions that block specific PRs: decision 3 (speed) blocks PR 1.2 ('decision 3 sets the half-speed games' targets'), decision 10 (outfit presets) blocks PR 1.6, decision 2 (#25i) blocks the PR 3.4 allowlist, decision 8 (#26i) blocks Phase 7, and decision 4 gates PR 5.5. None of these appears in the 'Blocks' column.",
+    "fix": "Add rows: Phase 1 decisions 3 and 10 (block PR 1.2 and PR 1.6); Phase 2 'grant CLIPS_MODE=dogfood write, and mint the dogfood cookie on each device through <named admin route>'; Phase 3 decision 2 (blocks the PR 3.4 allowlist); Phase 5 decision 4 (PR 5.5); Phase 7 decision 8. Specify the dogfood-cookie mint path (an admin-only route behind the existing auth, and the cookie's signing secret).",
+    "waveOneRef": "sequencing-feasibility [95] major: 'CLIPS_MODE dogfood and on writes ... and the #25i and speed decisions'"
+   },
+   {
+    "severity": "major",
+    "section": "13.1 cost table (Screener CPU, abuse column) / 13.2 Identity and caps / 1 Summary",
+    "problem": "The '$34 stated ceiling' has no stated inputs. The screener abuse cell says 'fixed concurrency x per-job CPU cap: about $16', but the plan never gives the concurrency or the CPU cap. 'concurrency' appears only in this cell. At the research's concurrency of 2 with a 1 vCPU cap, the formula gives 2 x $20.3 = about $40.6/month, so the total is about $58, not $34. The $16 actually matches wave-1 [78]'s daily-bytes-cap derivation (1,144 long clips/day x 60 vCPU-s), but rev 2 never states the daily count or byte caps ('counts against the daily caps', 'The long tier has its own lower quota' with no numbers). The per-link '2-6 vCPU-s' was the verifier's estimate for faces, nudity and VAD only. Rev 2 adds an ONNX text detector, per-frame game-likeness embeddings, QR detection and server-side WebM-to-H.264 transcoding, and none of these is in the CPU or RAM rows. The summary still says 'reserved pools and per-offender caps hold the worst case to a stated ceiling (about $34/month)' and 'only unestablished identities pause', but no test proves that established identities keep making links while the pools are saturated, and N (the age for 'established') is unspecified.",
+    "fix": "State the numbers: screener concurrency, the per-job cgroup CPU and memory cap, daily count and byte caps per pool and per long tier, and the protected-pool size and N. Compute the CPU ceiling as min(concurrency x cap x 730 h x $20.3, daily caps x per-clip vCPU-s x 30), and show both terms. Add the OCR, embedding and transcode stages to the per-link estimate, marked 'to be measured' in the PR 7.2 staging gate. Add an abuse test: saturate the unestablished pool and assert that an established identity still gets a grant.",
+    "waveOneRef": "hosted-cost-legal [78] major ('Write down the hard bound: fixed concurrency x per-job CPU cap ... x 730 h') and [80] major ('Delete the \"never latch off for everyone\" sentence unless the tests prove it')"
+   },
+   {
+    "severity": "major",
+    "section": "13.1 Origin lock / 13.2 School networks / 13.1 Upload / Appendix B",
+    "problem": "The school-network fallback contradicts the origin lock, and its cost row does not exist. 13.1: 'middleware rejects /c/* and /api/clips* without [the Cloudflare secret header]'. 13.2: 'a capped grey-cloud proxy is used only after a failed direct load, with its own cost row'. A grey-cloud (DNS-only) host bypasses Cloudflare, so its requests carry no secret header and the lock rejects them. If the lock exempts that host, the direct-origin bypass that [79] closed comes back. The 13.1 table has no grey-cloud row. The proxy also contradicts 'No video byte crosses hankshits.com' (13.1) and the Appendix B rejection of serving clip bytes through the site ('no Range support in a simple proxy'), which Safari playback needs.",
+    "fix": "Specify the fallback as its own route family (for example /api/clips/fallback/*) on a named grey-cloud host. It needs its own authentication (a short-lived HMAC token issued from the Cloudflare-fronted page, not the header secret), Range support, and a per-identity and global byte cap on the /c breaker. getClientIP on that host must use x-real-ip only. Add the cost row (service egress at $0.05/GB x the cap). Reword 'No video byte crosses hankshits.com' to name the exception, and update the Appendix B row.",
+    "waveOneRef": "hosted-cost-legal [88] minor ('design a capped grey-cloud playback proxy ... add its cost row'); collides with [79] origin lock; dropped-findings [25]"
+   },
+   {
+    "severity": "minor",
+    "section": "17 Pre-existing defects / 16 PR 3.1",
+    "problem": "Some of the research's file-as-issue items are still neither filed nor scheduled. Appendix A (DOM group note, (a), (c), (d)) lists 'chess, checkers and quoridor pass canPause with no onPause, so AI moves land under the pause menu', the checkers first-valid-move ambiguity (store.ts:154), and the unreachable 'draw' status that recordWin counts as a black win (store.ts:186). None of these is in section 17, in any prerequisite list, or among #22i-#34i (gh issue list). Separately, PR 3.1 says 'one horn owner (closes #18i)', but #18i is the pedal passive-listener preventDefault bug, whose fix is pointer events plus touch-action: none on the pedals. That fix appears nowhere, and the pointer-events row in section 17 lists only hextris, oregon-trail and space-invaders. As written, #18i would be closed without its fix.",
+    "fix": "File (a), (c) and (d) with file:line, or add them to the PR 4.x prerequisite lists and section 17. Add 'monster-truck pedals to pointer events plus touch-action: none (#18i)' to PR 1.3's double-input class (or to PR 3.1), and move 'closes #18i' onto that item.",
+    "waveOneRef": "sequencing-feasibility [101] major (mostly fixed): 'chess, checkers and quoridor AI moving under pause' listed as unfiled"
+   },
+   {
+    "severity": "minor",
+    "section": "13.4 retention list / 13.1 cost table (Send to a phone)",
+    "problem": "13.3 and PR 7.5 now make Send to a phone a hosted object type with a 48-hour life. The 312.10 retention list in 13.4 has no line for it, and the 13.1 cost table has no row for it. Wave-1 [82] asked for both.",
+    "fix": "Add 'Send-to-a-phone transfers: 48 hours (purpose: one private transfer)' to the 13.4 list, and add a row (or a note in the storage and screener rows) to the 13.1 table.",
+    "waveOneRef": "hosted-cost-legal [82] major (core fixed): 'It gets a cost row and a 312.10 retention line'"
+   },
+   {
+    "severity": "minor",
+    "section": "13.2 Reports vs 13.4 retention",
+    "problem": "The two sections contradict each other. 13.2 says 'Nudity holds are never auto-deleted before a human has looked'. The 13.4 retention list says 'Held clips: 7 days, or on confirmation of PI', which would delete an unreviewed nudity hold on day 7 (the research sweeper rule). 2258A preservation needs the carve-out stated.",
+    "fix": "Change the list to: 'Held clips: 7 days after review, or at once on confirmation of PI; nudity holds are kept until a human decides, then either deleted or moved to a 1-year legal hold.' Make the sweeper test assert that a nudity hold older than 7 days is not deleted.",
+    "waveOneRef": "hosted-cost-legal [81] major (core fixed): 'Never auto-delete nudity holds before a human has looked'"
+   },
+   {
+    "severity": "minor",
+    "section": "16 PR 0.3 / 1 Jack actions / 13.4 Mailing address",
+    "problem": "PR 0.3 (Phase 0) ships /privacy with 'a non-home operator address', but the only step that secures one is the Phase 7 'if yes' row ('file the Copyright Office PO-box waiver'). If Jack declines Phase 7, /privacy still needs a non-home address, and the Phase 0 row does not list getting one (a PO box has a cost, which section 2 does not account for). 312.4(d)(1) also requires the operator's telephone number, and the plan gives no safe option for publishing a phone number next to a child-named site.",
+    "fix": "Add a Phase 0 Jack row: 'provide a non-home mailing address and a non-personal phone number (for example a Google Voice number, which is free) for /privacy'. Note the PO box cost as an owner expense outside guardrail 3, which applies to kids.",
+    "waveOneRef": "hosted-cost-legal [84] major (core fixed)"
+   },
+   {
+    "severity": "minor",
+    "section": "13.2 Page text / 10 brand row / 15.1",
+    "problem": "Some brand strings are still literals. The hosted page text is 'the game name and \"a Hank's Hits player\"', and no source-scan test bans the literal 'hankshits' in shared/clips, which wave-1 [57] asked for. Frames and file names now come from the origin, but nothing enforces that.",
+    "fix": "Use SITE.siteName-free generic text on the page ('a player on <host>'), or read it from config. Add the source-scan test that bans 'hankshits' and \"Hank's Hits\" literals under shared/clips and the /c route.",
+    "waveOneRef": "kid-ux-a11y [57] major (mostly fixed)"
+   },
+   {
+    "severity": "minor",
+    "section": "11.1 Every drag has a tap twin",
+    "problem": "Rev 2 keeps the incorrect rationale that wave-1 [67] pointed out: 'NN/g's 2 cm guidance ... (about 120 CSS px) does not fit two handles on a 390 px screen'. Two 120 px handles take 240 px and fit. The real constraint is overlap on short clips (3 s minimum), which the new merge rule already handles. The handle and filmstrip tap twins are also not added to the mobile-playability gate.",
+    "fix": "Replace the sentence with the overlap rationale. Add 'trim handles 48x96 px and tap-a-frame playhead' to the mobile-playability checklist in section 14.",
+    "waveOneRef": "kid-ux-a11y [67] minor"
+   },
+   {
+    "severity": "minor",
+    "section": "6.4 Clip bounds / Appendix B (edit-list row)",
+    "problem": "The plan keeps an audio edit list ('Audio keeps an edit list plus roll groups') with one extra pre-roll packet. It does not add the check that wave-1 [44] option (b) requires, a player that ignores elst. The 15.2 5 ms gate uses only ffmpeg and AVFoundation, and both honor elst. So audio that plays about 21-65 ms early in elst-ignoring players (older ExoPlayer, some upload transcoders) goes untested and can pass the BT.1359 +45 ms bound unnoticed.",
+    "fix": "Either rebase both tracks so that no audio elst is written (wave-1 option a), or add an elst-ignoring decode row (for example ExoPlayer 2.x in the Android emulator, or ffprobe with -ignore_editlist 1) with an explicit tolerance to 15.2.",
+    "waveOneRef": "engine-correctness [44] minor"
+   },
+   {
+    "severity": "minor",
+    "section": "1 Summary / 13.1 Sizes / 5 Tier V",
+    "problem": "The summary still says every save is 'a real MP4 (H.264 video, AAC audio). It plays and saves in iPhone Photos, iMessage...', but Tier V saves WebM. Also, 13.1 says 'The client re-encodes [link copies to 9 MB] with the game paused', and Tier V has no H.264 encoder (Firefox 111-129 has no WebCodecs at all). The 9 MB inline-play target for Tier V links is therefore undefined: the server transcode is described only as a format change, not a size fit.",
+    "fix": "Qualify the summary ('an MP4, or WebM on older Firefox and 32-bit Android'). State that for Tier V, the screener's transcode also targets the 9 MB inline size, or that the client re-encodes VP8 through MediaRecorder to fit.",
+    "waveOneRef": "completeness-critic [118] major (core fixed): 'correct the summary's \"MP4 ... everywhere\"'"
+   },
+   {
+    "severity": "minor",
+    "section": "7 Export sessions / 6.6 epoch re-encode",
+    "problem": "The export-memory budget per device class that wave-1 [6] and [40] asked for is still missing. The 'a phone never needs three codec sessions' guarantee also covers only editor exports. 6.6 re-encodes 'the older part ... through the current encoder at clip time, in the IO worker' during live play. That needs a VideoDecoder and a second encoder beside the live one (three sessions), or it feeds old frames into the live encoder (which corrupts the ring). The design relies on the 'no second encoder session available' fallback without saying how that is detected before Chromium codec reclamation hits the live encoder. There is no Android E2E test for an export during a pause.",
+    "fix": "Budget export memory (NV12 decode frames plus a second encoder) per memory class. State that a clip-time epoch re-encode is deferred to the next break, or runs only when the Phase 0 concurrent-session probe allows three sessions, and otherwise cuts. Add the Android export-during-pause E2E test to 15.1.",
+    "waveOneRef": "dropped-findings [6] major / engine-correctness [40] major (core fixed)"
+   },
+   {
+    "severity": "minor",
+    "section": "6.1 Auto-discovery",
+    "problem": "'lint bans setInterval rendering under src/games/**' cannot be implemented as written. A lint rule cannot tell a render interval from a timer, and src/games already uses setInterval legitimately (snake/Game.tsx:537 game loop, space-invaders/Game.tsx:767-797 movement repeat, monster-truck/Game.tsx:163, cookie-clicker/Game.tsx:76, memory-match/Game.tsx:357). No PR owns the rule. A blanket ban breaks lint on existing games, and a narrow one catches nothing.",
+    "fix": "Drop the lint and rely on the game-contract test's 'fails on zero captured frames', which the plan already has. Or scope the lint to madeByKid modules through an override glob that the make-a-game scaffold writes, and assign it to a PR (Phase 2 with auto-discovery).",
+    "waveOneRef": "dropped-findings [23] minor"
+   },
+   {
+    "severity": "minor",
+    "section": "11.1 One tap, instant",
+    "problem": "Because the clip fires on pointerdown, every hold that opens the Capture menu also saves a 30 s clip first. A kid who holds to choose 'Record a video' or 'Take a picture' gets an unwanted clip, a 'new clip' badge, and library growth (explicit clips are never auto-deleted). The wave-1 fix brought in this side effect, and the plan does not handle it.",
+    "fix": "Build the clip at pointerdown but commit it only on pointerup before 500 ms, or on menu dismissal. If the hold opens the menu, discard the pending clip, or show it as the pre-selected 'Clip the last 30 seconds' row. Add a unit test: a hold that picks Record leaves no new clip row.",
+    "waveOneRef": "kid-ux-a11y [51] major (fix side effect)"
+   },
+   {
+    "severity": "minor",
+    "section": "16 Phases (PR sizes)",
+    "problem": "Rev 2 states 'At most 2-3 games per game PR' but violates it. PR 4.6 bundles Oregon Trail (36 h, hunt rewrite), Trivia, Drum Machine and Virtual Pet (4 modules, 3 with no spec yet). Phase 1 class PRs touch far more: PR 1.2 migrates 7+ games, PR 1.3 mounts the result chip on every game plus four issue fixes, PR 1.4a-c covers 17 silent modules in 3 PRs, and PR 1.7 covers most canvas games. There is no stated exemption, which is the review-sprawl class that wave-1 [99] raised.",
+    "fix": "Split PR 4.6 (Oregon Trail alone; Trivia with Drum Machine and Virtual Pet as a second PR). Either state that Phase 1 class-fix PRs are exempt, with the reason (one mechanical change per game, shared tests), or split them into 2-3-game waves.",
+    "waveOneRef": "sequencing-feasibility [99] major (named PRs fixed)"
+   },
+   {
+    "severity": "minor",
+    "section": "1 Phases at a glance (Phase 4 row) vs 6.1 / 14 / PR 4.6",
+    "problem": "The game counts still disagree. The Phase 4 row says '9 games (Oregon Trail included) plus Trivia and Drum Machine', but 6.1's DOM list, section 14 ('Virtual Pet: on (care moments)') and PR 4.6 also include Virtual Pet. The Phase 4 gate ('Renderer parity test passes for every DOM game') does not say whether Virtual Pet counts.",
+    "fix": "Change the row to 'plus Trivia, Drum Machine and Virtual Pet', and make the gate list the 12 DOM modules.",
+    "waveOneRef": "sequencing-feasibility [109] minor"
+   },
+   {
+    "severity": "minor",
+    "section": "16 PR 3.4 / 18 Risk register",
+    "problem": "The Retro Arcade iPhone fallback is defined, but not the exit criterion or the owner that wave-1 [124] asked for. EmulatorJS is pinned at 4.2.3 (PR 0.2), so an upstream fix for #1143 needs a deliberate pin bump that no process triggers. The fallback could become permanent without anyone noticing.",
+    "fix": "State the exit: the weekly local launchd matrix watches EmulatorJS releases for #1143. On a fix, bump the pin in a PR that re-runs the 15-minute iPhone soak, and turn replay on if the soak passes. Link this from #28i.",
+    "waveOneRef": "completeness-critic [124] minor"
+   },
+   {
+    "severity": "minor",
+    "section": "6.3 / 15.1 (ringer switch) / 8.2 (new device)",
+    "problem": "Two kid-facing states that the wave-1 fixes required are still undefined. (1) The ringer-switch row is measured, but the plan does not say what the kid sees if WebKit delivers silence under the switch ([117]: 'the clip is labeled as having no game sounds, with a one-tap music bed'). (2) There is no new-device empty state in My Clips that points to Photos or gallery copies ([115]). A kid on a new phone sees an empty library with no explanation, because the eviction notice fires only on eviction.",
+    "fix": "Add both states to 11.4 or 11.3, with copy and read-aloud: a silent-clip label plus a music-bed offer, and a first-visit empty state ('Clips live on the device you played on. Saved ones are in your Photos.').",
+    "waveOneRef": "completeness-critic [117] major and [115] major (cores fixed)"
+   },
+   {
+    "severity": "minor",
+    "section": "19 decision 3 / 16 PR 1.2",
+    "problem": "Decision 3 offers to 'restore the designed speed' and notes that 'every stored best was earned at that speed', but PR 1.2 has no best-score continuity step if Jack picks 1.0. Wave-1 [90] asked for one.",
+    "fix": "Add to PR 1.2: 'If decision 3 is 1.0: mark pre-change bests per game (a bestsEra literal) and show them as \"old speed\" on the leaderboard, or reset those four boards with a notice.'",
+    "waveOneRef": "sequencing-feasibility [90] major (core fixed)"
+   },
+   {
+    "severity": "minor",
+    "section": "1 Summary / 1 Phases (Phase 5 row) vs 19 decision 4",
+    "problem": "The summary presents an open owner decision as settled: 'The board and tile games get a \"Watch the run\" button next to leaderboard scores.' The Phase 5 row lists 'Watch the run' as reaching kids. It is decision 4(a) ('Recommend yes'), and PR 5.5 runs only 'if decision 4 is yes'. Section 2 promises that proposals are marked as proposals.",
+    "fix": "Reword the summary line as a proposal ('If Jack approves decision 4, ...'), and mark it in the Phase 5 row the same way.",
+    "waveOneRef": "completeness-critic [113] major (deferred correctly in 19, but stated as settled in 1)"
+   },
+   {
+    "severity": "minor",
+    "section": "5.1 Color / 15.2 / 13.2 / 13.3",
+    "problem": "Several pass thresholds and security parameters are still placeholders, so their gates cannot be tested. 'within a stated delta-E' and 'Color delta-E within the stated bound' give no number. 'a device cookie at least N days old' has no N. 'restored after a set number of hours' has no number. 'Published review time' has no value. There is still no takedown-to-404 SLA through Cloudflare, which wave-1 [25] asked for.",
+    "fix": "Write the numbers now, as proposals where they are Jack's call: for example delta-E 2000 of 3 or less on the bars, N = 7 days, auto-restore after 24 h, a review SLA of 48 h, and a takedown 404 at the edge within 5 minutes (matching the 5-minute edge cache).",
+    "waveOneRef": "dropped-findings [9] major (core fixed), [25] minor; hosted-cost-legal [80]/[81]"
+   },
+   {
+    "severity": "minor",
+    "section": "15.1 Verification tiers / 16 Phase 7 gates",
+    "problem": "Several named tests from the wave-1 fixes were dropped from 15.1 and the gates: the largest-clip-a-kid-can-make share test on iPhone ([4]); the 't=0 beep present at full length' test for the 1024-sample pre-pad on WebKit rows ([18]); the start-surface hint contract check for four-wheeler-3d and retro-arcade ([69]); '5 taps in 10 s gives one library row' ([70]); the Pushover alert-payload unit test ([87]); and the edge assertions (cf-cache-status on /c/*, 410 after expiry, takedown 404 within the SLA, zero video bytes through the service), which are reduced to 'edge tests through hankshits.com' ([25]).",
+    "fix": "Add each one by name to the 15.1 unit, E2E and real-device rows and to the Phase 7 gate list, so the mechanisms that rev 2 adds are proven, not only described.",
+    "waveOneRef": "dropped-findings [4], [18], [25]; kid-ux-a11y [69], [70]; hosted-cost-legal [87]"
+   }
+  ],
+  "summary": "I checked all 125 wave-1 findings (5 critical, 73 major, 47 minor; the counts match section 20) against rev 2 sections 1-20 and Appendix B. I also checked the repo (GameShell.tsx widths, setInterval uses) and the GitHub issues (#18i-#34i exist; the #29i body specifies the Cloudflare-range validation and the spoof tests, so wave-1 [1] is fixed). 91 findings are fixed in the body or properly deferred to Jack in section 19 (decisions 2-11) or Appendix B. 34 are not fully addressed; each one appears above.\n\nThe biggest problem is the critical [31] residual. The epoch policy covers only 'Clip it!', but rev 2's new session timeline and Record journal have no rule for an avcC change. Rev 2 adds epochs (every editor export closes the live encoder), so a 'Save the whole run' across one can be corrupt. That makes section 20's 'All 5 critical findings are fixed' false.\n\nMajor residuals:\n- The clipsScrubbed literal is not tied to content, so a later kid edit that adds a name keeps clips on, and built-in games that a kid changes have no code gate.\n- The recording star sits in the header row, so the header still overflows at 320-360 px.\n- 'Save' still has four meanings.\n- The Jack action table omits the CLIPS_MODE=dogfood write and the decisions that block PRs 1.2, 1.6, 3.4 and 5.5 and Phase 7.\n- The '$34 abuse ceiling' has no stated concurrency, CPU cap or daily-cap numbers, and leaves out the new OCR, embedding and transcode stages.\n- The grey-cloud school fallback contradicts the new origin lock and claims a cost row that does not exist.\n\nThe rest are minor:\n- Unfiled AI-under-pause defects, and #18i marked as closed by the wrong fix.\n- Send-to-a-phone retention and cost rows are missing.\n- Retention conflicts with the rule that nudity holds are never auto-deleted.\n- Phase 0 has no step to get a non-home address or phone number.\n- A brand literal is still on the hosted page.\n- The wrong NN/g rationale is kept.\n- There is no check for players that ignore the audio edit list.\n- The summary claims 'MP4 everywhere'.\n- There is no export memory budget.\n- The setInterval lint cannot be implemented.\n- A hold that opens the menu also saves a clip.\n- PR 4.6 breaks the plan's own 2-3 games per PR rule.\n- The Phase 4 row leaves out Virtual Pet.\n- Retro Arcade has no exit criterion.\n- The ringer and new-device kid states are undefined.\n- There is no best-score continuity step if speed is restored.\n- 'Watch the run' is stated as settled in the summary.\n- Several thresholds are placeholders.\n- Named tests were dropped.\n\nNo finding contradicts the settled decisions (open sharing with no gate, 10/10, low server cost).",
+  "unaddressedCount": 34
+ },
+ {
+  "key": "consistency",
+  "summary": "Rev 2 fixed most of the wave-1 items as written, but several of those fixes collide with other sections or with the repo, and it misses one real leak.\n\nCritical: Four-Wheeler Adventure draws a word the kid types into the live game canvas. The input is clothInput (\"...or type your own word\"). The text goes to fillText on the #game canvas at public/games/four-wheeler-adventure/index.html:3398-3404, and the plan never mentions it. Section 10 lists only the Four-Wheeler 3D outfit text.\n\nContradictions rev 2 introduced:\n- Both four-wheelers are madeByKid: true in the repo. The new clipsScrubbed fail-closed gate therefore keeps their clips off, which breaks the Phase 3 gate.\n- The new badge rule (\"tapping the badged button opens the newest clip\") collides with one-tap clipping and with mash-extend. Firing the clip on pointerdown means every hold for the Capture menu also saves a clip that is never deleted.\n- The \"visible Capture entries\" do not exist for the 4 games that cannot pause and have no result card.\n- The header \"keys on capability\" rule leaves the leaderboard with no way in at game over below 400 px for 6 games.\n- The state machine has no exits from RECORDING (hidden, error, governor, source lost). 11.3 has no button looks for 5 of its states.\n- The new scene-text HOLD would hold the compositor's own result cards, end cards, 3D signs and 2048 digits.\n- The copy glossary bans words (\"camera\", bare \"Save\", \"send\") that the plan's own strings use.\n- \"Works for 30 days\" from one constant conflicts with the shorter unestablished-identity life. Retention says held clips go at 7 days, but also says nudity holds are never auto-deleted.\n- The school grey-cloud proxy cannot pass the origin lock, and the cost row it cites does not exist.\n- The no-store flag route stops My Clips from working offline.\n- The screener CPU row matches neither the research's per-frame basis nor its own inputs.\n- PR 0.3 needs a non-home address and phone number that only Phase 7 provides.\n- The #26i fix that gates Phase 7 has no PR.\n\nArithmetic:\n- The 13.1 storage and egress rows and every total add up (storage $0.17/$1.62/$6, egress $0.02/$0.21/$0.78, totals within their stated ranges).\n- The CPU row does not follow from its own per-link inputs. The research also finds the workspace already looks like Pro.\n- The 6.2 rung table matches k = ceil(Hz/(target+1)) in every listed value. It skips 17.1 fps (120/60 row) and 18 fps (144/60 row), and it includes 12.5 fps at 50 Hz below the implied 15 fps floor.\n- Phase hours sum correctly to 1,920. Phase 4 cannot absorb Appendix A's 213 h plus the kit and the three unspecced apps, and PR 4.6 breaks the 2-3 modules rule.\n\nStale references: sections 3 and 15.3 name PR 0.4 for the lab, which is now PR 0.6.\n\nunaddressedCount is the number of wave-1 findings whose rev-2 fix I found incomplete, regressed, or colliding with another section. Full evidence is in the findings.",
+  "unaddressedCount": 18,
+  "findings": [
+   {
+    "severity": "critical",
+    "section": "10 Privacy by construction (row 'Kid-typed text drawn into a capturable surface'); 16 PR 1.6; 1 Summary",
+    "problem": "Four-Wheeler Adventure (the srcdoc iframe game, captured through the canvas prelude in 6.1) lets a kid type a free word on the shirt, and that word is painted into the captured game canvas. Evidence: public/games/four-wheeler-adventure/index.html:529 is <input id=\"clothInput\" maxlength=\"10\" placeholder=\"...or type your own word\">. :5725 sets playerShirt.text from that input. :3398-3404 draws it with ctx.fillText above the player, on ctx = #game (:658-659), the canvas the clip captures. The plan never mentions this. Section 10's Found-in cell lists only four-wheeler-3d (OutfitText.tsx), and PR 1.6 only converts 'Four-wheeler-3d outfit presets'. The Summary even says 'one game leaks a name'. Under 'open sharing for everyone', a kid types a full name, school or town (10 characters is plenty) and shares it through the share sheet, which has no screening. The source-scan test ('any string that flows from an <input> reaches fillText ... in a clip-enabled module') is not scoped to public/games/**/*.html, and no PR fixes this instance.",
+    "fix": "Add four-wheeler-adventure to the section 10 row and to PR 1.6. Remove clothInput and keep the existing SHIRT_WORDS preset buttons, the same fix as decision 10. Scope the input-to-fillText source scan explicitly to public/games/**/*.html, with this file as the regression fixture. Also state that both four-wheelers paint first-name world signs (\"HANK'S GARAGE\" and \"HANK'S HOUSE\" at index.html:4289/4414; Buildings.tsx:53/86/97 in four-wheeler-3d), which guardrail 7 allows. Correct the Summary's 'one game leaks a name'.",
+    "waveOneRef": "sequencing-feasibility: 'PR 1.6 ... misses that Four-Wheeler 3D outfit text is the same class'"
+   },
+   {
+    "severity": "major",
+    "section": "10 / 14 (clipsScrubbed fail-closed) vs 1 Phase 3 gate, 16 PR 3.2-3.3, 13.2 per-game hosting policy",
+    "problem": "Rev 2's gate says 'clips stay off for a madeByKid game until that literal [clipsScrubbed: true] exists (fail closed)'. It also says 'Kid-built games must use useGameLoop', and hosting kid-built games needs 'clipsScrubbed plus an automated calibration run ... zero holds'. In the repo, both four-wheeler-3d/metadata.ts and four-wheeler-adventure/metadata.ts are 'madeByKid: true'. They are Phase 3's own games (R3F and a srcdoc iframe), and neither can use useGameLoop. No PR runs the identity scrub on them or writes clipsScrubbed. As written, both games ship with clips off and the Phase 3 exit gate ('iPhone soak passes for Monster Truck and both Four-Wheelers') cannot pass. If someone hand-writes clipsScrubbed: true to unblock it, the shirt-text leak above goes straight through.",
+    "fix": "Add a PR 3.2/3.3 step that runs the real put-it-online scrub on both four-wheelers and writes clipsScrubbed from its result. Scope the useGameLoop rule to kid-built 2D canvas games (not R3F or iframe). State whether the hosting calibration run applies to these two games.",
+    "waveOneRef": "kid-ux-a11y critical: 'Clips of kid-built and kid-changed games skip the identity scrub'"
+   },
+   {
+    "severity": "major",
+    "section": "11.1 Principles vs 11.3 Button states vs 6.6 Mash protection vs 12 Sharing",
+    "problem": "The tap meanings contradict each other. 11.1 says 'The clip fires on pointerdown' and 'After a manual clip, the clip button wears a persistent \"new clip\" badge until the clip is watched. Tapping the badged button opens the newest clip at any time.' 11.3 Ready says 'Save the last 30 s (or extend the last clip if within 5 s)', while Saved (1.2 s) says 'Opens the newest clip'. 6.6 says 'taps within 5 s of the last clip extend that clip'. After the first manual clip the button is either Saved or badged until watched, so the next tap opens the viewer instead of clipping. Mash-extend can never fire, and a second one-tap clip needs a detour through the viewer first. Opening the viewer mid-run also breaks 'Never interrupt play'. For the 8+ canPause={false} games (flappy-bird, dino-runner, endless-runner, hill-climb, cookie-clicker, monster-truck, both four-wheelers, retro-arcade), 11.1 only 'freezes input', so a Flappy Bird run dies under the sheet. That contradicts 12's 'The game pauses before the share sheet opens'.",
+    "fix": "Make a tap always clip or extend during active play. Show the badge as a separate 44 px chip next to the button, or honor it only between runs. Define pause for games that cannot pause (a shell-level sim freeze), or open the newest clip only at breaks. Add a unit test: tap, tap within 5 s, tap after 6 s gives two library rows, and no viewer opens during play.",
+    "waveOneRef": "kid-ux-a11y major: 'The Watch button ... only appear at a natural break' (fix adopted) + minor 'Kids mash buttons'"
+   },
+   {
+    "severity": "major",
+    "section": "11.1 One tap, instant / 11.4 Capture menu / 8.1 No time-based deletion",
+    "problem": "'The clip fires on pointerdown ... The Capture menu opens only on a real hold (500 ms without movement).' By the time a hold is recognized, pointerdown has already saved a 30 s manual clip. Every trip to Record a video, Take a picture, My clips or Clip settings by hold therefore leaves a clip the kid did not ask for. 8.1 says 'Explicit clips ... are never auto-deleted', so these pile up forever. It also triggers the Saved state or badge, which (per the finding above) changes the next tap's meaning.",
+    "fix": "On pointerdown, snapshot the ring bounds only. Commit the clip on pointerup before 500 ms, or at 500 ms if the pointer is still down with no menu intent. Cancel the commit when the hold opens the menu. Add a test that a 600 ms hold opens the menu and leaves zero new library rows.",
+    "waveOneRef": "kid-ux-a11y major: 'Capture menu ... hidden 500 ms long-press' (fix text: 'Fire Clip it on pointerdown')"
+   },
+   {
+    "severity": "major",
+    "section": "11.4 Capture menu / Result chip / PauseMenu vs Appendix A group note (canPause={false})",
+    "problem": "Rev 2 says Capture entries are visible through 'hold, right-click, pause menu, result chip' and that the result chip 'is the visible home of the Capture actions for games that cannot pause'. Monster Truck, Four-Wheeler 3D, Four-Wheeler Adventure and Retro Arcade (on devices that do not hit the fallback) all pass canPause={false}, so PauseMenu never mounts. They are open-world or emulator games with no result or game-over card to hang a chip on. For these four games, Record a video, Take a picture, My clips from this game and Clip settings can still only be reached by the hidden 500 ms hold, which is the exact wave-1 defect. The overflow button in 11.2 appears only below 340 px.",
+    "fix": "Give canPause={false} games a visible entry at all widths. For example, the 11.2 overflow button always present for them, holding the Capture menu, or a Capture row in their own panels (4W3D/4WA already have in-game menus). Add a mobile-playability check that Record is reachable by visible taps in every clip-enabled game.",
+    "waveOneRef": "kid-ux-a11y major: 'Record a video, Take a photo ... can only be reached with a hidden 500 ms long-press'"
+   },
+   {
+    "severity": "major",
+    "section": "7 state diagram / 7.1 Lifecycle rules / 11.3 Button states / 16 PR 3.4 fallback",
+    "problem": "The state machine is incomplete where it matters most:\n(1) RECORDING has only 'Stop' as an exit. There is no edge for hidden or iOS background (7.1 requires 'iOS hidden: flush and close immediately'), encoder error, 'governor severe', 'canvas gone' or the Record budget limit. Those events are most likely during a long Record run.\n(2) 'RESTING --> RECORDING: Record (low-power rung)' followed by 'RECORDING --> BUFFERING: Stop' returns a rested session to full capture with no probe.\n(3) SOURCE_LOST has no exit after its '1.5 s grace' other than re-registration, so a ring whose game unmounted stays held indefinitely.\n(4) 11.3 defines looks only for Warming, Ready, Saving, Saved, Recording, Resting and Error. It has none for SUSPENDED, SOURCE_LOST, RECOVERING, EXPORTING or DISABLED. Section 7 promises the crash breaker turns clips off 'with a visible reason', but no button state exists for it.\n(5) The Retro Arcade iPhone fallback 'shows Resting'. The Resting tap action is 'Capture menu, \"Turn clip camera on\" first', which re-arms the capture that the failed soak ruled out.",
+    "fix": "Add edges for RECORDING -> SUSPENDED (finalize a fragment), RECOVERING, RESTING (continue at the low-power rung) and SOURCE_LOST (finalize). Add RECORDING -> RESTING on Stop when the session was rested. Add SOURCE_LOST -> IDLE after grace, with purge rules. Add 11.3 rows for each state, including DISABLED ('Clips are off for this game: <reason>'). Give Retro Arcade's fallback its own state without 'Turn clip camera on'.",
+    "waveOneRef": "kid-ux-a11y minor: 'resting copy says You can still Record, but the state machine allows Record only from BUFFERING'; completeness-critic minor on the Retro Arcade iPhone state"
+   },
+   {
+    "severity": "major",
+    "section": "13.2 Screening ('Scene text outside the game's registered HUD regions') vs 11.4 end card, Appendix A paintResult, 9 renderers, 14 calibration run",
+    "problem": "The new text HOLD will hold legitimate clips from our own compositor and games:\n- Every result card the kit paints into the game rect (Appendix A arkanoid: paintArkanoidResult fills the game rect with 'Game Over!' and 'Score: ...'), and auto-highlights and 'Save the whole run' end on these cards.\n- Every end card with the gamer tag (11.4 Style tab).\n- World-space signs in the 3D and iframe games (\"HANK'S GARAGE\", \"HANK'S HOUSE\", \"HANK'S FARM\"), which move and cannot be a fixed 'registered region'.\n- 2048 tile digits and Math Attack problems in the scene.\nFor kid-built games, 'zero holds are required' in the calibration run, which becomes unattainable for any game with in-scene text. Wordle alone gets a mitigation (mystery tiles).",
+    "fix": "Exempt compositor-painted regions by construction: the compositor knows the result-card and end-card rectangles per frame, so it sends them as metadata the screener verifies against the band layout. Let games register dynamic text boxes (from their draw calls) or declared glyph sets, such as digits for 2048 and Math Attack. Calibrate the text detector per game on real clips before the HOLD is live.",
+    "waveOneRef": "hosted-cost-legal critical: 'Nothing checks that a clip is really our game' (fix adopted: scene-text detection)"
+   },
+   {
+    "severity": "major",
+    "section": "11.6 Glossary and copy rules vs 7, 11.3, 12, 8.4, 11.4, 13.3",
+    "problem": "The copy test ('fails on banned synonyms') fails on the plan's own strings:\n- 'camera' is banned for the clip button, but 7 uses 'This clip is from before the clip camera rested.' and 11.3 Resting uses 'Turn clip camera on'.\n- Bare 'Save' is banned for Keep and for Save to Photos, and downloads must say 'Save to phone / Save to computer'. Yet 12's table uses 'Save' as the primary label (Firefox, Linux Chrome), along with 'Type rejection: fall back to Save', PR 2.5's 'Share/Save', 'Save the whole run', 'Clip saved! (longer)', 'Video saved!', 'Save a picture' and 'Share it or save it now!'.\n- 'send' is banned for the share sheet, but the product has 'Send to a phone' and a 'sending' link state.\nThe copy is also still ambiguous in exactly the way the glossary was meant to prevent ('Save' means library, download or keep).",
+    "fix": "Rewrite the glossary as phrase-level rules with an allowlist ('Save to Photos', 'Save to phone/computer', 'Save the whole run', 'Send to a phone'). Pick one verb for 'goes into My Clips' (for example 'Clip saved!'), and replace 'clip camera' with 'clip button'. Make the copy test run against the actual string table, so the plan's own strings are the fixture.",
+    "waveOneRef": "kid-ux-a11y major: 'The copy uses one word for two different things'"
+   },
+   {
+    "severity": "major",
+    "section": "13.3 Link experience vs 13.2 Identity and caps vs 13.4 retention",
+    "problem": "13.3 says '\"Works for 30 days\" (one constant feeds the copy, the notice and the renew route; decision 5)'. 13.2 says 'Unestablished grants carry ... a shorter default life and no renew', and 13.4's 312.10 list says 'Unestablished-identity links: shorter.' Every brand-new kid is unestablished ('a device cookie at least N days old'). So is every iPhone kid who follows the plan's own Home Screen nudge (8.2 IOSInstallPrompt reason='clips'), because the Home Screen app has a separate cookie jar. All of them are told 30 days for a link that dies sooner, which is the same class of defect as wave-1's 90-vs-30. 'Shorter' is also not a deletion time, and 312.10 requires one. N is never defined.",
+    "fix": "Define two constants (established and unestablished life, plus N) and drive the sender copy, recipient countdown, renew route and the 312.10 list from the grant's actual expires_at. Note in 13.2 that Home Screen installs reset establishment, and decide whether that is acceptable.",
+    "waveOneRef": "completeness-critic major: 'Kids will be told their link lasts 90 days when it dies at 30'"
+   },
+   {
+    "severity": "major",
+    "section": "13.4 312.10 retention list vs 13.2 Reports",
+    "problem": "The written retention policy that gates the flag says 'Held clips: 7 days, or on confirmation of PI.' 13.2 says 'A hold that expires unreviewed tells the kid ...' (holds auto-expire) and also 'Nudity holds are never auto-deleted before a human has looked.' So the published 312.10 policy is false for nudity holds, which are the ones that may carry 2258A preservation duties (1 year). The 7-day rule and the never-auto-delete rule cannot both be implemented.",
+    "fix": "Split the retention item. Face, voice and text holds are deleted at 7 days unreviewed or on confirmation. Nudity holds are kept until reviewed, then deleted, or moved to legal hold for 1 year if reported to NCMEC. Add a review-age alarm so nudity holds cannot sit indefinitely.",
+    "waveOneRef": "hosted-cost-legal major: 'Reports and moderation load' (fix: never auto-delete nudity holds)"
+   },
+   {
+    "severity": "major",
+    "section": "13.2 School networks vs 13.1 Origin lock, Page CSP and cost table",
+    "problem": "'the managed-Chromebook gate covers upload and playback. If *.t3.storageapi.dev is blocked, a capped grey-cloud proxy is used ... with its own cost row'. The mechanism conflicts with the rest of the design:\n(a) The 13.1 table has no such row, and its 'Video delivery | $0' row becomes false. A playback proxy is the $0.05/GB service-egress path the plan itself rejects (about $112/month at 10k). The research proposed the grey-cloud proxy for uploads only.\n(b) A grey-cloud (DNS-only) request never passes through Cloudflare, so it never carries the Transform Rule secret header, yet 'middleware rejects /c/* and /api/clips* without it'.\n(c) The /c/ CSP names only the bucket host in media-src, so proxied playback is also CSP-blocked.",
+    "fix": "Give the proxy its own path outside /c/* and /api/clips* (for example /s/<slug>), authenticated by a short-lived signed token instead of the edge header. Add it to the /c/ page media-src. Add a 13.1 row with the cap and its dollar ceiling, including the playback bytes.",
+    "waveOneRef": "hosted-cost-legal minor: 'The school-filter fallback covers uploads only'"
+   },
+   {
+    "severity": "major",
+    "section": "11.2 Header ('Below 400 px ... keys on capability, not the current canPause') vs 11.4 Result chip",
+    "problem": "Below 400 px (375 and 390 px phones included), 'games that support pause at all: Leaderboard and Restart leave the header for the pause menu'. In the repo, arkanoid, breakout, asteroids, bomberman, blitz-bomber and hextris gate canPause to playing or paused (for example ArkanoidGameShell.tsx:22), and GameShell mounts PauseMenu only when canPause. At game over there is therefore no pause menu, and the header no longer has the Leaderboard icon. None of these six games has its own leaderboard button (grep shows no 'Leaderboard' under their folders). The 11.4 result chip holds read-aloud, Watch, Save the whole run and Record/Picture, but no Leaderboard. On most phones, the leaderboard becomes unreachable in-game at exactly the moment a kid wants it.",
+    "fix": "Put Leaderboard (and Restart when the game has no own button) in the result chip. Alternatively, keep the pause menu openable at game over for capability-pause games. Add a mobile-playability check that Leaderboard is reachable by tap at game over at 375 and 390 px.",
+    "waveOneRef": "kid-ux-a11y minor: 'Six games switch canPause between play and game over'"
+   },
+   {
+    "severity": "major",
+    "section": "4.1 config.ts runtime flag vs 8.1 Offline vs 13.1 Origin lock",
+    "problem": "4.1: 'The route is dynamic (no-store) ... Clip UI and workers load only through dynamic import() when it says enabled.' 8.1: 'Offline: ... My Clips plays, trims and shares offline.' When the device is offline, the flag fetch fails, so the clip UI never loads, and a kid in the car cannot open clips already on the phone. Separately, the Phase 7 origin lock ('middleware rejects /c/* and /api/clips* without it') also matches /api/clips/config. Local dev and kid clones have no Cloudflare Transform Rule, so once PR 7.1 lands their clips switch off. That contradicts 4.1 ('kid clones and local dev see clips').",
+    "fix": "Let the service worker cache the last flag verdict with a TTL, and always allow the local library UI; the kill switch should stop capture, not hide the kid's own files. Move the config route outside the locked prefix, or enable the lock only when the secret env var is set.",
+    "waveOneRef": "completeness-critic minor: 'The on-device library is not reachable offline'"
+   },
+   {
+    "severity": "major",
+    "section": "13.1 cost table, Screener CPU row",
+    "problem": "The row says '2-6 vCPU-s per standard link, about 60 per long link'.\n(a) Against the research basis: its 2 vCPU-s budget covered 6-12 keyframes ('Measured prototype cost ... for 6-12 keyframes. Budget 2 vCPU-s per 30 s clip'). Rev 2 decodes every frame and samples '2-4 fps plus scene changes' over standard clips up to 60.5 s (60-240 frames). It also adds a scene-text detector, game-likeness embeddings and QR detection. At the research's own rate of about 0.17-0.33 vCPU-s per frame, that is roughly 10-80 vCPU-s per standard link.\n(b) Against its own inputs: at the research's price ($0.15 for 20,000 vCPU-s) and 5% long links, the stated inputs give about $0.04-0.07 at 1k, not the row's $0.05-0.15.\nThe 10k and 37k totals ('$7-10', '$14-20') are therefore not supported; with (a) they come out at about $8-15 and $15-36. Also, 'the 100k case also needs a Railway Pro workspace' conflicts with the research, which found Jack (PERSONAL) already appears to be on Pro. The Hobby 1 TB is combined with the ROM and PITR buckets.",
+    "fix": "Recompute the row from a per-sampled-frame cost times the frames per link, with the model set listed. Show the arithmetic in the assumptions cell, and carry the ranges into the Summary and decision 1. Replace the Pro sentence with 'the workspace appears to be Pro (research); confirm'.",
+    "waveOneRef": "hosted-cost-legal major: 'The screener row still uses the research's 2 vCPU-s per clip'"
+   },
+   {
+    "severity": "major",
+    "section": "16 PR 0.3 vs 1 Jack actions vs 13.4 Mailing address; 2 'No new paid outside services'",
+    "problem": "PR 0.3 (Phase 0) ships a /privacy notice that 'Uses a non-home operator address'. The only step that procures one is Phase 7's 'file the Copyright Office PO-box waiver', and 13.4 says 'use a PO box or other non-home address'. The Phase 0 Jack row lists only 'Review the privacy notice wording'. So PR 0.3 is blocked on an item scheduled about 8 phases later. A PO box is also a recurring paid outside service that appears in no cost row. COPPA 312.4(d)(1) also requires a business telephone number and email, which the plan never sources; a home phone has the same exposure as a home address.",
+    "fix": "Add a Phase 0 Jack action: obtain the non-home mailing address and a non-personal phone number and email before PR 0.3, with their yearly cost. Keep the Copyright Office waiver in Phase 7. Add the PO box cost to 13.1 or to a site-wide fixed-cost line.",
+    "waveOneRef": "hosted-cost-legal major: 'Both registrations publish a mailing address next to a site named after a child'"
+   },
+   {
+    "severity": "major",
+    "section": "13.4 Legal checklist (#26i) / 17 / 16 Phase 7 / 19 decisions 6 and 8",
+    "problem": "The flag cannot turn on until '#26i resolved: signup stops collecting a child's email ... and existing child emails are deleted or consented', and decision 6 ('Keep in my account') is 'Blocked on #26i'. No PR in section 16 builds the signup change or the email migration. Section 17's row has no phase ('#26i (owner decision 8)'). Phase 7's 330 h do not include it. The Jack table has no grant for the production write that deletes or flags existing child emails. Phase 7 therefore cannot launch as sequenced.",
+    "fix": "Add a PR (Phase 5 or early 7): the signup rework for decision 8, plus a reviewed single-transaction production write with before and after counts. Add its hours and a Jack grant row. Make it an explicit Phase 7 predecessor.",
+    "waveOneRef": "hosted-cost-legal critical: 'Hosted links for signed-in kids are built on accounts that already hold a child's email'"
+   },
+   {
+    "severity": "major",
+    "section": "16 Phase 4; 1 Phases at a glance; 1 Summary; Appendix A table",
+    "problem": "Several numbers and groupings do not hold together:\n- 'PR 4.2-4.6, 2-3 modules each' is broken by the plan's own list. Quoridor is alone. The last PR has 4 modules: Oregon Trail (36 h, the largest island, with a 'hunt loop rewrite'), Trivia, Drum Machine and Virtual Pet. The last three have 'specs ... written in PR 4.6 (they were not in the research round)'. This violates 16's 'At most 2-3 games per game PR' gate.\n- Phase 4's 'about 240 h' must cover Appendix A's 213 h for the 9 DOM islands, the PR 4.1 kit (which the appendix says its 177 h 'excludes') and three unspecced modules at the appendix's 19-27 h each.\n- The glance table ('9 games ... plus Trivia and Drum Machine') omits Virtual Pet.\n- The Summary says 'Every game got a code-level integration spec' and 'about 45 pull requests', but the listed PRs number about 48-50.",
+    "fix": "Split PR 4.6 into Oregon Trail alone and then Trivia plus Drum Machine plus Virtual Pet, with a spec step. Re-derive Phase 4 hours from Appendix A plus the kit plus the three apps (net of the SFX moved to PR 1.4). Add Virtual Pet to the glance table. Correct the PR count and the spec claim.",
+    "waveOneRef": "sequencing-feasibility minor: 'The estimates are not honest enough to plan against'"
+   },
+   {
+    "severity": "major",
+    "section": "4.1 config.ts ('off in production unless the variable is set. It stays after release as the kill switch') vs 14 put-it-online edits",
+    "problem": "After release, the code default stays off for NODE_ENV=production. hankshits.com gets clips because Jack sets CLIPS_MODE=on. Every kid clone deployed to Railway through put-it-online is a production build with no such variable, so their online site silently has no clip button. Section 14's put-it-online edits cover the scrub and calibration but never the flag. This conflicts with the kid-built goal ('Canvas games need no clip code') and the 10/10 decision.",
+    "fix": "After Phase 6, flip the code default to on (with CLIPS_MODE=off as the kill switch), or have put-it-online set CLIPS_MODE=on as part of its Railway setup. Add a test that a production build with no env shows the clip button after release."
+   },
+   {
+    "severity": "minor",
+    "section": "6.2 rung table vs 'k = ceil(Hz / (targetFps + 1))'",
+    "problem": "Every listed value matches fps = Hz/k, but the rows enumerate inconsistently:\n- The 120 Hz, 60-target row lists '60, 40, 30, 24, 20, 15' and skips 17.1 (k=7). The 30-target row includes 17.1.\n- The 144 Hz, 60-target row skips 18 (k=8). The 30-target row includes it.\n- The 50 Hz, 30-target row includes 12.5 (k=4), below the 15-16 floor every other row stops at, while the 50 Hz, 60-target row stops at 16.7.\n- There is no 165 Hz row, although 15.1 tests 165 Hz.\n- Path C's '20 or 15 fps' is not a rung at 90 or 144 Hz.\n- 'so capture never exceeds the target' is false by up to 1 fps, since fps = Hz/k <= target+1; for example, 61 Hz measured with a 60 target gives k=1 and 61 fps.",
+    "fix": "State the floor (for example, the lowest k with Hz/k >= 15) and generate the table from the formula, including 165 Hz. Reword the guarantee to '<= target + 1 fps', or use ceil(Hz/target) with a jitter tolerance on the measured Hz.",
+    "waveOneRef": "engine-correctness major: 'muxer time scale is 120 ... contradicts the stride rule'"
+   },
+   {
+    "severity": "minor",
+    "section": "3 (evidence intro) and 15.3 Pre-push",
+    "problem": "There are stale PR numbers from the rev-1 numbering. Section 3 says 'All \"proven\" rows get re-run on current releases ... in PR 0.4', and 15.3 says 'The gate's measured duration is recorded here after PR 0.4'. PR 0.4 is now the getClientIP fix. The lab that re-runs the rows and brings in Playwright is PR 0.6 ('It re-runs every \"proven\" row on Chrome 155 and Safari/iOS 27').",
+    "fix": "Change both references to PR 0.6."
+   },
+   {
+    "severity": "minor",
+    "section": "Appendix A callout vs 16 PR 3.1/3.3/1.4 and 17",
+    "problem": "The callout says 'Prerequisite fixes that belong to a Phase 1 class (loops, input, restart grace, new best, sound, read-aloud, hi-DPI) land in Phase 1'. Yet PR 3.1 keeps Monster Truck's 'engine sound', 'records' and the pointer-events move for #18i, which are the sound, new-best and input classes. Section 17 also assigns 'dead music toggle' to PR 3.1, while PR 1.4 claims 'every sound toggle wired to the speaker gain or deleted (#24i)'. PR 3.3 carries 'per-vehicle race best' (new-best class). The same work is assigned to two PRs in different phases.",
+    "fix": "Either move these items into PR 1.3/1.4 or list them as named exceptions in the callout. Remove the double assignment of the Monster Truck music toggle."
+   },
+   {
+    "severity": "minor",
+    "section": "5.1 Encoder configuration (bridge, keyframe fallback) / 6.1 path B",
+    "problem": "There are three conflicts with 'The coded frame size is constant for the whole session':\n(a) The cold-start bridge runs 'at the software preset', which 5.1 defines as 'one size step down'. The research's verified bridge ran 'at the same dims'.\n(b) The keyframe fallback 'forces a new session with reset() plus configure()', which is an encoder recreation but is missing from 6.6's epoch list ('recovery, iOS resume, bridge hand-over, or editor export').\n(c) For path B, 'shape follows the WebGL canvas', and there is no compositor to letterbox a rotation. A rotated R3F canvas either gets stretched by the encoder's scaler or forces a reconfigure and a new epoch.",
+    "fix": "Run the bridge at the session's coded size (software preset caps fps only). Add forced-keyframe sessions to the epoch list, with the avcC compare. For path B, state that a rotation starts a new epoch or routes through path D."
+   },
+   {
+    "severity": "minor",
+    "section": "6.5 Memory class (WebKit)",
+    "problem": "The rule \"the 'AudioEncoder' in self proxy (true means iOS 26+, which means an A13 chip or newer)\" is wrong for iPads. iPadOS 26 also runs on A12 iPads (iPad 8th generation, iPad mini 5, iPad Air 3; MacRumors: 'iOS 26 is available on 8th gen and up iPads'). Those models have 2-3 GB of RAM and would get the higher memory class. Section 15.1 lists 'An iPad' among the real devices.",
+    "fix": "Key WebKit memory class on the Phase 0 soak by device class, and treat iPadOS 26 with a small screen class or an A12 signature (for example, the absence of an A13+ feature probe) as the lowest class."
+   },
+   {
+    "severity": "minor",
+    "section": "11.4 Stacking contract / 11.3 in-play toasts",
+    "problem": "The contract ('written into ARCHITECTURE.md') has four gaps:\n- It omits two existing layers: LeaderboardModal z-[1500] (LeaderboardModal.tsx:31) and OrientationWarning z-[100]. The toast lane (1100) and result chip (1200) would float over the rotate-your-device screen.\n- 'Toast lane: z-1100, only between runs' conflicts with 11.3's toasts that 'take taps even during play' (warming, error, resting) and with 8.4's spoken Record budget warning. The plan gives those no layer, and the header row has no width budget for a text toast plus a 44 px \ud83d\udd0a.\n- The GameShell header is 'z-[1000] ... backdrop-blur-md' (GameShell.tsx:69), so it creates both a stacking context and a containing block for fixed descendants. Sheets opened from the in-header clip button stay under PauseMenu and the result chip, and are clipped to the header, unless they portal to document.body.\n- The contract never mentions portaling.",
+    "fix": "Add OrientationWarning and LeaderboardModal to the contract. Define an in-play toast slot (below the header, z-1050, excluded from control areas). State that every layer above z-1000 portals to document.body."
+   },
+   {
+    "severity": "minor",
+    "section": "8.4 Record mode / 11.3 Recording vs 11.2 (TILT/CALIBRATE) and 16 PR 1.5",
+    "problem": "8.4 says 'A timer pill sits under the header.' PR 1.5 moves Monster Truck's 'TILT and CALIBRATE ... below the header', the same strip. The mobile-playability rule protects only against 'the in-play confirmation', not the Record pill. Separately, PR 1.5 (Phase 1) must test 'The header width budget in all three states', but the clip button arrives in PR 2.5 and Record in PR 5.2, and no placeholder slot is defined.",
+    "fix": "Give the Record pill a reserved position that per-game controls declare against, and extend the mobile-playability rule to the pill. Have PR 1.5 add a sized clip slot prop (rendered empty while the flag is off) so the three header states are testable in Phase 1."
+   },
+   {
+    "severity": "minor",
+    "section": "7.1 Owner changes vs 11.6 / 11.4 (no sign-in nudges)",
+    "problem": "7.1 says 'keep the guest ring only when sign-in starts from that run's result screen or pause menu'. No sign-in control exists on either surface: the only in-game entry is the header 'Sign In' link (LoginButton.tsx:69-70). The plan forbids adding one, since 'A copy test fails on ... sign-in prompts on clip surfaces' and 'Guests see \"No name\", with no sign-in nudge'. The keep-ring rule can therefore never fire, and every guest ring is purged at sign-in.",
+    "fix": "Key the rule on 'sign-in started within N seconds of this run's end from this tab' (any entry point), or delete the rule and state that a guest's pre-sign-in clips go through the 8.1 'Which of these are yours?' grid."
+   },
+   {
+    "severity": "minor",
+    "section": "13.3 'My links' vs 8.1 Owner partitions",
+    "problem": "'\"My links\" is listed from GET /api/clips/mine by the device cookie'. Because hosted routes are session-blind, every kid on a shared device sees, and can renew or delete, every link made on that device. That undermines 8.1's owner partitions ('a sibling's guest clips never land on the wrong shelf'). The iOS Home Screen app also has its own cookie jar, so links made in Safari do not appear there.",
+    "fix": "Store the link id in the local owner partition when the link is made, and filter the server list to ids the current partition knows (the device cookie stays the auth basis). Document the Home Screen split in the eviction copy."
+   },
+   {
+    "severity": "minor",
+    "section": "1 'What only Jack can do' / 4.1 dogfood mode",
+    "problem": "Phases 2-5 run as 'clip UI dogfood only' on production with 'iPhone live smoke after each clips deploy'. That requires setting CLIPS_MODE=dogfood on Railway production and a secret for the 'signed dogfood cookie'. Both are production writes that need Jack's grant, and neither is in the table, which lists only the Phase 6 CLIPS_MODE=on write. No route or procedure mints the dogfood cookie on Jack's phone. Phase 1 device work is also missing from the table: PR 1.1b-d 'iPhone smoke: drum-machine and virtual-pet', and the Phase 1 gate's frame-time runs 'on a low-end Android and a Chromebook'.",
+    "fix": "Add a Phase 2 row (grant CLIPS_MODE=dogfood plus the cookie secret; about 0.2 h) and a Phase 1 device row. Specify the cookie-minting route (admin-only, TOTP) in PR 2.1."
+   },
+   {
+    "severity": "minor",
+    "section": "14 Kid-built games / 6.1 Auto-discovery / 10",
+    "problem": "Some rev-2 work has no PR:\n- The skill edits that make make-a-game, change-a-game and remix-a-game run the scrub and write clipsScrubbed.\n- The scripts/generate-game-metadata.ts parser for 'clips, clipsScrubbed and hosting-policy literals'.\n- The put-it-online scrub extension to canvas and clipRenderer text.\nNone of these appears in the 'Edits land with the code they describe' list or in section 16. Also, 'lint bans setInterval rendering under src/games/**' cannot be expressed in ESLint, which cannot tell rendering from timers. The repo has 12 setInterval sites under src/games, including snake's game loop and cookie-clicker's tick, which the plan keeps, so the rule either bans too much or cannot be enforced.",
+    "fix": "Assign the skill and parser edits to PR 2.x (the literal parser) and Phase 4 or 8 (the scrub writer), with tests. Replace the lint rule with the game-contract test's 'zero captured frames' failure plus a targeted rule (for example, no canvas draw calls inside setInterval callbacks) or drop the lint claim."
+   },
+   {
+    "severity": "minor",
+    "section": "19 Decisions for Jack / 1 Summary",
+    "problem": "Two recommended-yes items have no PR, phase or hours: 4(d) 'Owner-only reactions on hosted pages. Recommend yes' (PR 7.1-7.5 contain no reactions) and 6 'Keep in my account ... Recommend yes, after #26i'. Reactions from strangers on a child-directed site also need their own moderation and COPPA note. Separately, the Summary states 'The board and tile games get a \"Watch the run\" button' as settled, but PR 5.5 is '(if decision 4 is yes)'.",
+    "fix": "Add conditional PRs with hours for 4(d) and 6 (behind their decisions), or drop the recommendation. Mark Watch the run as 'if decision 4a' in the Summary."
+   },
+   {
+    "severity": "minor",
+    "section": "13.1 Page headers ('the global /:path* header rule gets a negative lookahead that excludes /c/')",
+    "problem": "In next.config.ts, the global rule is the only source of Strict-Transport-Security, X-Content-Type-Options, Referrer-Policy and Permissions-Policy (camera=(), microphone=(), and, after PR 0.2, display-capture=()). Excluding /c/ removes all of them from the public recipient page, the embed and v.mp4, unless the new /c/ rules re-declare them. The plan specifies only 'exactly one CSP each' and the frame headers, and section 10's Permissions-Policy header test is global.",
+    "fix": "List the full header set for /c/:slug, /c/:slug/embed and /c/:slug/v.mp4, and extend the header tests to assert HSTS, nosniff and Permissions-Policy on each."
+   },
+   {
+    "severity": "minor",
+    "section": "9 DOM-replay ('The last 10 games per id are kept') / 8.3 timeline ('smaller of 20 minutes') vs 2 settled constraint",
+    "problem": "Section 2 says 'Every cap is justified by a real constraint (storage, memory, cost) and is visible to the kid.' The 10-game Recent games cap drops move logs that are kilobytes each, which no storage constraint justifies. They are the only source for 'whole game, sped up' replays and Watch the run, and the kid never sees the cap. The 20-minute session-timeline ceiling is likewise a fixed number beside the real constraint (library headroom). Its only visibility is a settings line, so a 25-minute open-world run silently loses its start.",
+    "fix": "Bound Recent games by bytes (or by the library budget) and show the count in My Clips. Make the timeline budget headroom-only (or justify 20 minutes by the Phase 0 flash-write measurement), and have 'Save the whole run' state its true start."
+   }
+  ]
+ }
+]
