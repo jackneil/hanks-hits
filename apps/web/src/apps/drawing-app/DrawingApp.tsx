@@ -176,16 +176,23 @@ export function DrawingApp() {
         <span aria-hidden="true">{a.icon}</span>
       </button>
     ) : (
+      // Under 400 px wide the four words do not fit a row ("Download" was
+      // cut to "Do..." on an iPhone SE): the icon alone shows, the name
+      // stays for a screen reader and the tooltip.
       <button
         key={a.key}
         type="button"
         onClick={() => runAction(a.key)}
+        aria-label={a.label}
+        title={a.label}
         className={`flex h-12 min-w-0 items-center justify-center gap-1 rounded-xl px-2 font-bold text-white shadow-lg transition-all touch-manipulation ${a.color}`}
       >
-        <span aria-hidden="true" className="text-lg">
+        <span aria-hidden="true" className="text-lg max-[399px]:text-2xl">
           {a.icon}
         </span>
-        <span className="truncate text-base">{a.label}</span>
+        <span aria-hidden="true" className="truncate text-base max-[399px]:hidden">
+          {a.label}
+        </span>
       </button>
     )
   );
