@@ -47,6 +47,13 @@
  *   keyboard-copy       no visible text says a keyboard phrase (Press
  *                       SPACE, arrow keys, WASD, Escape, Click ...) on a
  *                       coarse pointer, at the start card or in play.
+ *   cut-label           no visible button, link or select shows its words
+ *                       cut: text wider than its box under an ellipsis or a
+ *                       clipped overflow, or past a line clamp, at the
+ *                       start card or in play. ("Download" read "Do..." on
+ *                       an upright iPhone SE, and Cookie Clicker's upgrades
+ *                       read "Adamantium Mo..." on every screen, 2026-09-30:
+ *                       the other checks passed both.)
  *   button-size         every visible button is at least 44x44 px, at the
  *                       start card and in play. A cell of a game board
  *                       (inside an element marked data-game-board: a chess
@@ -95,6 +102,7 @@ type Check =
   | "fixed-over-play"
   | "tip-holds-game"
   | "keyboard-copy"
+  | "cut-label"
   | "button-size"
   | "prevent-default";
 
@@ -106,6 +114,7 @@ const CHECKS: Check[] = [
   "fixed-over-play",
   "tip-holds-game",
   "keyboard-copy",
+  "cut-label",
   "button-size",
   "prevent-default",
 ];
@@ -359,6 +368,8 @@ interface PageProbe {
   scrollHeight: number;
   innerHeight: number;
   keyboardCopy: string[];
+  /** Buttons, links and selects whose words are cut. */
+  cutLabels: string[];
   smallButtons: string[];
   /** Visible buttons inside the play box: the game's own controls. */
   playButtons: number;
@@ -418,6 +429,30 @@ function probePage(page: Page): Promise<PageProbe> {
         keyboardCopy.push(text.slice(0, 60));
       }
 
+      const cutLabels: string[] = [];
+      for (const control of document.querySelectorAll<HTMLElement>('button, [role="button"], a[href], select')) {
+        if (!visible(control) || settling(control)) continue;
+        for (const el of [control, ...control.querySelectorAll<HTMLElement>("*")]) {
+          if (!visible(el)) continue;
+          const ownText = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim());
+          if (!ownText) continue;
+          const style = getComputedStyle(el);
+          const clipsX = style.textOverflow === "ellipsis" || style.overflowX === "hidden" || style.overflowX === "clip";
+          const clamped = style.webkitLineClamp !== "" && style.webkitLineClamp !== "none";
+          const cutWide = clipsX && el.scrollWidth > el.clientWidth + 1;
+          const cutTall = clamped && el.scrollHeight > el.clientHeight + 2;
+          if (cutWide || cutTall) {
+            const name = (control.getAttribute("aria-label") ?? control.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 30);
+            cutLabels.push(
+              cutWide
+                ? `"${name}" shows ${el.clientWidth} of ${el.scrollWidth} px wide`
+                : `"${name}" shows ${el.clientHeight} of ${el.scrollHeight} px tall`
+            );
+            break;
+          }
+        }
+      }
+
       const smallButtons: string[] = [];
       for (const button of document.querySelectorAll<HTMLElement>('button, [role="button"]')) {
         if (!visible(button) || settling(button)) continue;
@@ -435,6 +470,7 @@ function probePage(page: Page): Promise<PageProbe> {
         scrollHeight: document.scrollingElement?.scrollHeight ?? document.documentElement.scrollHeight,
         innerHeight: vh,
         keyboardCopy: [...new Set(keyboardCopy)],
+        cutLabels: [...new Set(cutLabels)],
         smallButtons: [...new Set(smallButtons)],
         playButtons,
       };
@@ -608,6 +644,7 @@ async function checkRoute(
       problems["page-height-start"] = `page ${start.scrollHeight} px tall on a ${start.innerHeight} px screen at the start`;
     }
     if (start.keyboardCopy.length) problems["keyboard-copy"] = `at the start: ${start.keyboardCopy.map((s) => `"${s}"`).join(", ")}`;
+    if (start.cutLabels.length) problems["cut-label"] = `at the start: ${start.cutLabels.join(", ")}`;
     if (start.smallButtons.length) problems["button-size"] = `at the start: ${start.smallButtons.join(", ")}`;
 
     // The start control, and a touch on it.
@@ -713,6 +750,9 @@ async function checkRoute(
           }
           if (play.keyboardCopy.length) {
             problems["keyboard-copy"] = [problems["keyboard-copy"], `in play: ${play.keyboardCopy.map((s) => `"${s}"`).join(", ")}`].filter(Boolean).join("; ");
+          }
+          if (play.cutLabels.length) {
+            problems["cut-label"] = [problems["cut-label"], `in play: ${play.cutLabels.join(", ")}`].filter(Boolean).join("; ");
           }
         }
       }
