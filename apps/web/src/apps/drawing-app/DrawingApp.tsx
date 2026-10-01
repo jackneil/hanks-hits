@@ -10,6 +10,8 @@ import { Gallery } from "./components/Gallery";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
+import { AppNotesSlot } from "@/shared/components/AppNotesSlot";
+import { useShortViewport } from "@/shared/hooks/useShortViewport";
 import { DRAWING_APP_INSTRUCTIONS } from "./lib/readAloud";
 import type { useCanvas } from "./hooks/useCanvas";
 
@@ -88,11 +90,11 @@ export function DrawingApp() {
   const handleSave = useCallback(() => {
     const dataUrl = canvasControlsRef.current?.getDataUrl();
     if (dataUrl) {
-      store.saveArtwork(dataUrl);
+      useDrawingStore.getState().saveArtwork(dataUrl);
       setShowSaveSuccess(true);
       setTimeout(() => setShowSaveSuccess(false), 2000);
     }
-  }, [store]);
+  }, []);
 
   // Download artwork
   const handleDownload = useCallback(() => {
@@ -110,162 +112,176 @@ export function DrawingApp() {
     canvasControlsRef.current?.loadImage(artwork.dataUrl);
   }, []);
 
+  const short = useShortViewport();
+  const round = (on = true) =>
+    `flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl shadow-lg transition-all touch-manipulation ${
+      on ? "bg-white/90 text-gray-700 hover:bg-white" : "cursor-not-allowed bg-white/30 text-white/50"
+    }`;
+
+  const undoButton = (
+    <button type="button" onClick={handleUndo} disabled={!canUndo} className={round(canUndo)} aria-label="Undo" title="Undo">
+      {"\u21A9\uFE0F"}
+    </button>
+  );
+  const redoButton = (
+    <button type="button" onClick={handleRedo} disabled={!canRedo} className={round(canRedo)} aria-label="Redo" title="Redo">
+      {"\u21AA\uFE0F"}
+    </button>
+  );
+  const galleryButton = (
+    <button type="button" onClick={() => setShowGallery(true)} className={round()} aria-label="Gallery" title="My Gallery">
+      {"\uD83D\uDDBC\uFE0F"}
+    </button>
+  );
+  const settingsButton = (
+    <button
+      type="button"
+      onClick={() => setShowSettings(!showSettings)}
+      aria-pressed={showSettings}
+      className={`flex shrink-0 items-center justify-center rounded-xl text-2xl shadow-lg transition-all touch-manipulation ${
+        short ? "h-11 w-11" : "h-16 w-16 flex-col text-2xl"
+      } ${showSettings ? "bg-blue-500 text-white" : "bg-white/90 text-gray-700"}`}
+      aria-label="Colors and brush"
+    >
+      <span aria-hidden="true">{"\uD83C\uDFA8"}</span>
+      {!short && <span className="text-sm font-medium">Colors</span>}
+    </button>
+  );
+
+  // The four actions. Upright they have words; in the side rail they are
+  // round icons with the words as their names.
+  type ActionKey = "clear" | "save" | "download" | "print";
+  const actions: { key: ActionKey; label: string; icon: string; color: string }[] = [
+    { key: "clear", label: "Clear", icon: "\uD83D\uDDD1\uFE0F", color: "bg-red-500 hover:bg-red-600" },
+    { key: "save", label: "Save", icon: "\uD83D\uDCBE", color: "bg-green-600 hover:bg-green-700" },
+    { key: "download", label: "Download", icon: "\u2B07\uFE0F", color: "bg-blue-600 hover:bg-blue-700" },
+    { key: "print", label: "Print", icon: "\uD83D\uDDA8\uFE0F", color: "bg-purple-600 hover:bg-purple-700" },
+  ];
+  const runAction = (key: ActionKey) => {
+    if (key === "clear") setShowClearConfirm(true);
+    else if (key === "save") handleSave();
+    else if (key === "download") handleDownload();
+    else handlePrint();
+  };
+  const actionButtons = actions.map((a) =>
+    short ? (
+      <button
+        key={a.key}
+        type="button"
+        onClick={() => runAction(a.key)}
+        aria-label={a.label}
+        title={a.label}
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl text-white shadow-lg transition-all touch-manipulation ${a.color}`}
+      >
+        <span aria-hidden="true">{a.icon}</span>
+      </button>
+    ) : (
+      <button
+        key={a.key}
+        type="button"
+        onClick={() => runAction(a.key)}
+        className={`flex h-12 min-w-0 items-center justify-center gap-1 rounded-xl px-2 font-bold text-white shadow-lg transition-all touch-manipulation ${a.color}`}
+      >
+        <span aria-hidden="true" className="text-lg">
+          {a.icon}
+        </span>
+        <span className="truncate text-base">{a.label}</span>
+      </button>
+    )
+  );
+
+  // Colors and brush: a panel over the canvas that closes when a color is
+  // picked. It used to push the canvas down to a 15 px sliver upright.
+  const settingsPanel = showSettings && (
+    <div
+      data-testid="drawing-settings"
+      className={`absolute z-20 flex flex-col gap-2 overflow-y-auto rounded-2xl bg-white/95 p-2 shadow-2xl ${
+        short ? "bottom-2 right-2 top-2 w-[min(22rem,calc(100%-1rem))]" : "inset-x-2 bottom-2 max-h-[calc(100%-1rem)]"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-base font-bold text-gray-800">🎨 Colors and brush</span>
+        <button
+          type="button"
+          onClick={() => setShowSettings(false)}
+          className="h-11 min-w-11 rounded-xl bg-blue-500 px-3 font-bold text-white"
+        >
+          Done
+        </button>
+      </div>
+      <ColorPicker onPicked={() => setShowSettings(false)} />
+      <BrushSettings />
+    </div>
+  );
+
+  const canvasArea = (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2">
+      {/* The install pill and a trophy show here, as rows of the page, never
+          over the tools (as a child of the sideways row, the pill stretched
+          into a column half the screen wide). */}
+      <IOSInstallPrompt />
+      <AppNotesSlot />
+      <div data-testid="drawing-canvas-area" className="relative min-h-0 flex-1">
+        <Canvas onCanvasReady={handleCanvasReady} />
+        {settingsPanel}
+      </div>
+    </div>
+  );
+
   return (
-    // min-h-full, not h-full: the root fills the GameShell play box, and
-    // grows past it when the box is squeezed (the install sheet takes the
-    // bottom of the screen, bottomSheetSpace.ts) so the box scrolls and
-    // the bottom toolbar stays reachable. An h-full root with
-    // overflow-hidden clipped the colors and the actions under the sheet
-    // on a phone held sideways.
+    // h-full: the root is the GameShell play box (which already leaves room
+    // for an install sheet), and nothing is ever laid over the canvas. The
+    // canvas takes what the tools leave; sideways the tools are a rail on
+    // the right (they sat on the canvas sideways, so a stroke drew nothing:
+    // phone UX audit 2026-09-29).
     <div
       data-testid="drawing-app-root"
-      className="min-h-full bg-gradient-to-b from-blue-400 via-purple-400 to-pink-400 flex flex-col overflow-hidden"
+      className={`flex h-full overflow-hidden bg-gradient-to-b from-blue-400 via-purple-400 to-pink-400 ${
+        short ? "flex-row" : "flex-col"
+      }`}
     >
-      {/* iOS install prompt */}
-      <IOSInstallPrompt />
-
-      {/* Toolbar (home + title now live in the shared app shell header).
-          No full-width tinted band: with the title gone, right-aligned
-          buttons on a 1366px band read as a leftover header. */}
-      <div className="flex-shrink-0 flex justify-end items-center gap-2 p-2 md:p-3">
-        <div className="flex shrink-0 items-center gap-1 md:gap-2">
-          {/* Undo */}
-          <button
-            onClick={handleUndo}
-            disabled={!canUndo}
-            className={`
-              w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center
-              text-xl md:text-2xl transition-all touch-manipulation
-              ${
-                canUndo
-                  ? "bg-white/90 hover:bg-white text-gray-700 shadow-lg"
-                  : "bg-white/30 text-white/50 cursor-not-allowed"
-              }
-            `}
-            aria-label="Undo"
-            title="Undo"
+      {short ? (
+        <>
+          {canvasArea}
+          <div
+            data-testid="drawing-rail"
+            className="grid shrink-0 grid-cols-3 content-center gap-1.5 overflow-y-auto p-2 pl-0"
           >
-            {"\u21A9\uFE0F"}
-          </button>
+            <ReadAloudButton text={DRAWING_APP_INSTRUCTIONS} variant="icon" />
+            {undoButton}
+            {redoButton}
+            <Toolbar compact />
+            {settingsButton}
+            {galleryButton}
+            {actionButtons[1]}
+            {actionButtons[0]}
+            {actionButtons[2]}
+            {actionButtons[3]}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Read it to me, then undo, redo and the gallery. */}
+          <div className="flex shrink-0 items-center gap-2 p-2">
+            <ReadAloudButton text={DRAWING_APP_INSTRUCTIONS} variant="icon" />
+            <div className="flex-1" />
+            {undoButton}
+            {redoButton}
+            {galleryButton}
+          </div>
 
-          {/* Redo */}
-          <button
-            onClick={handleRedo}
-            disabled={!canRedo}
-            className={`
-              w-11 h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center
-              text-xl md:text-2xl transition-all touch-manipulation
-              ${
-                canRedo
-                  ? "bg-white/90 hover:bg-white text-gray-700 shadow-lg"
-                  : "bg-white/30 text-white/50 cursor-not-allowed"
-              }
-            `}
-            aria-label="Redo"
-            title="Redo"
-          >
-            {"\u21AA\uFE0F"}
-          </button>
+          {canvasArea}
 
-          {/* Gallery */}
-          <button
-            onClick={() => setShowGallery(true)}
-            className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/90 hover:bg-white flex items-center justify-center text-xl md:text-2xl shadow-lg transition-all touch-manipulation"
-            aria-label="Gallery"
-            title="My Gallery"
-          >
-            {"\uD83D\uDDBC\uFE0F"}
-          </button>
-
-        </div>
-      </div>
-
-      {/* Read it to me — its own full-width row directly under the tight
-          toolbar, so it covers no control and stays above the fold. */}
-      <div className="flex-shrink-0 px-2 pb-2 md:px-3">
-        <ReadAloudButton
-          text={DRAWING_APP_INSTRUCTIONS}
-        />
-      </div>
-
-      {/* Main canvas area */}
-      <div className="flex-1 p-2 md:p-4 min-h-0">
-        <Canvas onCanvasReady={handleCanvasReady} />
-      </div>
-
-      {/* Bottom toolbar */}
-      <div className="flex-shrink-0 p-2 md:p-4 bg-white/10 backdrop-blur-sm space-y-2 md:space-y-3">
-        {/* Tools row */}
-        <div className="flex gap-2 md:gap-4 items-start flex-wrap justify-center">
-          <Toolbar />
-
-          {/* Settings toggle (mobile) */}
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={`
-              md:hidden w-14 h-14 rounded-xl flex items-center justify-center text-2xl
-              transition-all touch-manipulation
-              ${
-                showSettings
-                  ? "bg-blue-500 text-white shadow-lg"
-                  : "bg-white/90 text-gray-700 shadow-lg"
-              }
-            `}
-            aria-label="Settings"
-          >
-            {"\u2699\uFE0F"}
-          </button>
-        </div>
-
-        {/* Color picker - always visible on desktop, toggleable on mobile */}
-        <div className={`${showSettings ? "block" : "hidden"} md:block`}>
-          <ColorPicker />
-        </div>
-
-        {/* Brush settings - always visible on desktop, toggleable on mobile */}
-        <div className={`${showSettings ? "block" : "hidden"} md:block`}>
-          <BrushSettings />
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex gap-2 md:gap-3 justify-center flex-wrap">
-          {/* Clear */}
-          <button
-            onClick={() => setShowClearConfirm(true)}
-            className="py-2 px-4 md:py-3 md:px-6 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg transition-all touch-manipulation flex items-center gap-1 md:gap-2"
-          >
-            <span className="text-lg md:text-xl">{"\uD83D\uDDD1\uFE0F"}</span>
-            <span className="text-sm md:text-base">Clear</span>
-          </button>
-
-          {/* Save */}
-          <button
-            onClick={handleSave}
-            className="py-2 px-4 md:py-3 md:px-6 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold shadow-lg transition-all touch-manipulation flex items-center gap-1 md:gap-2"
-          >
-            <span className="text-lg md:text-xl">{"\uD83D\uDCBE"}</span>
-            <span className="text-sm md:text-base">Save</span>
-          </button>
-
-          {/* Download */}
-          <button
-            onClick={handleDownload}
-            className="py-2 px-4 md:py-3 md:px-6 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold shadow-lg transition-all touch-manipulation flex items-center gap-1 md:gap-2"
-          >
-            <span className="text-lg md:text-xl">{"\u2B07\uFE0F"}</span>
-            <span className="text-sm md:text-base">Download</span>
-          </button>
-
-          {/* Print */}
-          <button
-            onClick={handlePrint}
-            className="py-2 px-4 md:py-3 md:px-6 rounded-xl bg-purple-500 hover:bg-purple-600 text-white font-bold shadow-lg transition-all touch-manipulation flex items-center gap-1 md:gap-2"
-          >
-            <span className="text-lg md:text-xl">{"\uD83D\uDDA8\uFE0F"}</span>
-            <span className="text-sm md:text-base">Print</span>
-          </button>
-        </div>
-      </div>
+          {/* The tools, then the actions. */}
+          <div data-testid="drawing-tools" className="shrink-0 space-y-2 p-2 pt-0">
+            <div className="flex items-start justify-center gap-2">
+              <Toolbar />
+              {settingsButton}
+            </div>
+            <div className="mx-auto grid max-w-xl grid-cols-4 gap-2">{actionButtons}</div>
+          </div>
+        </>
+      )}
 
       {/* Clear confirmation modal */}
       {showClearConfirm && (
