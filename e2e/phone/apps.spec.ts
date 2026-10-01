@@ -67,6 +67,10 @@ for (const screen of SCREENS) {
           await dismissTip(page);
           await oneScreen(page);
           await uncovered(frame, `${screen.name} canvas frame`);
+          // Wholly on the screen: a 240 px minimum pushed it past the bottom
+          // under the install pill, which the play box clips, so nothing
+          // else here saw it (found on the real iPhone SE).
+          await wholeOnScreen(page, frame, `${screen.name} canvas frame`);
           const before = await canvas.evaluate((c: HTMLCanvasElement) => c.toDataURL());
           const box = (await frame.boundingBox())!;
           expect(box.width * box.height, `${screen.name}: the canvas gets most of the room`).toBeGreaterThan(

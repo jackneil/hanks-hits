@@ -32,7 +32,10 @@ export function Canvas({ onCanvasReady }: CanvasProps) {
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full min-h-[240px] bg-white rounded-lg overflow-hidden shadow-inner"
+      // No min-height: the app's flex column sizes the frame. A 240 px
+      // minimum pushed the frame 49 px past the bottom of a sideways iPhone
+      // SE once the install pill showed (seen on the real phone).
+      className="relative w-full h-full bg-white rounded-lg overflow-hidden shadow-inner"
     >
       {/* Optional grid overlay */}
       {settings.showGrid && (

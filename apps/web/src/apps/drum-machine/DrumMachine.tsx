@@ -335,7 +335,7 @@ export function DrumMachine() {
         value={store.currentKitId}
         onChange={(e) => store.setKit(e.target.value)}
         aria-label="Drum kit"
-        className="min-h-11 rounded-lg bg-slate-700 px-3 text-base font-bold text-white"
+        className="min-h-11 rounded-lg bg-slate-700 pl-3 pr-9 text-base font-bold text-white"
       >
         {DRUM_KITS.map(k => (
           <option key={k.id} value={k.id}>{k.name}</option>
