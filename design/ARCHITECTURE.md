@@ -700,6 +700,25 @@ two bullets, Bomberman placed two bombs. A handler that reads
   their taps.
 - A drag is not a tap. On a surface where a drag steers (Breakout), act
   only on a finger that lifts within a few pixels of where it landed.
+- A decision about where a pointer let go reads
+  `createPointerTrail().release(event)` from `@/shared/lib/input`. It
+  never reads the position of the `pointerup` event. Reason: iPhone Safari
+  can send a `pointerup` at (0, 0). On an iPhone SE (iOS 27) on
+  2026-10-01, one tap on the clip button gave `pointerdown` at (585, 22),
+  `pointerup` at (0, 0), and `touchend` and the click at (585, 22). The
+  clip button took each tap for a drag off and did nothing. Call
+  `trail.down` on `pointerdown`, `trail.move` on `pointermove`,
+  `trail.release` on `pointerup`, and `trail.forget` on `pointercancel`.
+  The browser captures a touch to its `pointerdown` target, so that
+  element gets each move of the finger. On a React Three Fiber object, use
+  `onClick` or `onPointerDown`, not `onPointerUp`: R3F finds the object
+  from the position of the `pointerup`. To end a drag on an R3F object,
+  capture the pointer in `onPointerDown`
+  (`e.target.setPointerCapture(e.pointerId)`). A captured object gets its
+  `pointerup` at any position. In that `onPointerUp`, do not read
+  `point`, `pointer`, `ray`, `unprojectedPoint` or `intersections`: they
+  come from the `pointerup` position or from the `pointerdown`. Keep the
+  last point from `onPointerMove`.
 - Show a touch control when `useCoarsePointer()` is true, never behind a
   width breakpoint such as `md:hidden`. A phone held sideways is 667 to
   932 px wide and has no keyboard. Branch each keyboard phrase ("Press
@@ -714,6 +733,40 @@ two bullets, Bomberman placed two bombs. A handler that reads
   `preventDefault()` call written inside an inline `onTouch*` handler.
   `src/shared/lib/input/touchInputRule.mjs` holds the selectors. Tests
   are exempt.
+- The local ESLint rule `hanks-hits/no-pointerup-position` blocks a read
+  of a `pointerup` position in all of `src`.
+  `src/shared/lib/input/pointerReleaseRule.mjs` holds the rule. It is a
+  plugin rule, not `no-restricted-syntax`, so the audio and touch blocks
+  cannot replace it. Tests are exempt.
+  - Bindings that it finds: a JSX `onPointerUp` or `onPointerUpCapture`;
+    an object key or a class member `onPointerUp`;
+    `addEventListener("pointerup", ...)` (also with a template literal);
+    an `onpointerup` property.
+  - Handlers that it follows: an inline function; a name bound to a
+    function, a `useCallback` or a `useMemo` in the same file; a member
+    of an object literal or of the class (`this.handleUp`); both sides of
+    a `?:` or `&&`. It also checks a function with a release-handler name
+    (`handlePointerUp`, `onSurfacePointerUp`, `onPointerEnd`,
+    `endPointer`), for a handler that another module binds.
+  - Reads that it blocks, on the event parameter with any name:
+    `clientX`, `clientY`, `pageX`, `pageY`, `screenX`, `screenY`,
+    `offsetX`, `offsetY`, `layerX`, `layerY`, `x` and `y`. It also blocks
+    the same reads on `nativeEvent`, on an alias of the event, in a
+    destructuring, and in a function of the same file that gets the
+    event as an argument.
+  - React Three Fiber: it blocks `onPointerUp` on a three.js element
+    (`mesh`, `group`, `sprite` and others) and on a component from
+    `@react-three/drei` or `@react-three/fiber` (not `Canvas`), unless the
+    element's `onPointerDown` calls `setPointerCapture`. In such a
+    handler it also blocks `point`, `pointer`, `ray`, `unprojectedPoint`
+    and `intersections`.
+  - Limits: the rule does not follow the event into another module (for
+    example the `onRelease` callback of `usePointerHold`), into a stored
+    event, or through an event name in a variable. It does not see an R3F
+    component that another file wraps. ESLint does not read the static
+    HTML games: the second-finger script in
+    `public/games/four-wheeler-adventure/index.html` obeys the rule, and
+    `secondFingerClicks.test.ts` in that game's tests checks it.
 - `src/shared/lib/input/__tests__/keyboardCopySources.test.ts` reads every
   file in `src/games` and `src/apps`. It fails on a keyboard phrase that
   is not inside a branch on a coarse-pointer value, or inside a
@@ -726,6 +779,9 @@ order: the pointer event, then the native touch event, then (on
 `fingerUp`) the compatibility mouse events and the click, but only when
 no touch event was default-prevented. A test that taps an element with
 `fingerTap` and expects one action fails on the old double path.
+`fingerUp(element, finger, { pointerUpAt: { x: 0, y: 0 } })` sends the
+`pointerup` at that point, and the `touchend` and the click at the real
+point, as the iPhone SE did.
 
 ---
 

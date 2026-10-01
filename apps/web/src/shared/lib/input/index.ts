@@ -1,7 +1,7 @@
 // Shared input guards for games: one action per tap, a button that works
 // for a second finger, a short lockout on restart input after the game
-// changes state, and the presses that a control over the game may keep
-// from it.
+// changes state, the presses that a control over the game may keep from
+// it, and the point where a pointer lets go.
 export {
   COMPAT_CLICK_WINDOW_MS,
   createPointerTap,
@@ -30,3 +30,5 @@ export type {
 } from "./useSecondFingerClick";
 export { createPressOwnership } from "./pressOwnership";
 export type { PressOwnership } from "./pressOwnership";
+export { createPointerTrail } from "./pointerTrail";
+export type { PointerTrail, TrailPoint, TrailPointerEvent } from "./pointerTrail";

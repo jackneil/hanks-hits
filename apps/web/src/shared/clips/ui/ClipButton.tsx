@@ -10,7 +10,10 @@
  * - Tap semantics (pressGesture.ts): pointerdown calls beginPress, the
  *   release calls endPress; a hold of 500 ms opens the Capture menu and
  *   commits nothing. A release more than 48 px outside the button commits
- *   nothing either (drag off to cancel, like a native iOS button). Each
+ *   nothing either (drag off to cancel, like a native iOS button). The
+ *   release point is the last pointermove of the press (pointerTrail.ts),
+ *   never the pointerup's own point: iPhone Safari can send a pointerup at
+ *   (0, 0), which made every tap a drag off. Each
  *   press acts once: the compatibility click after a pointer press is
  *   ignored, and a held Enter does not repeat.
  * - Every finger counts: a kid who holds a gas pedal with one thumb can
@@ -41,6 +44,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type React from "react";
 
+import { createPointerTrail } from "@/shared/lib/input/pointerTrail";
 import { createPressOwnership } from "@/shared/lib/input/pressOwnership";
 
 import { useClipService, useClipSnapshot } from "../service/context";
@@ -337,6 +341,8 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
   const activePointer = useRef<{ key: string; type: string; hadFocus: boolean } | null>(null);
   /** The presses that started on the button: only their events stop here. */
   const [owned] = useState(createPressOwnership);
+  /** Where the press's pointer is now: the release point for drag off to cancel. */
+  const [trail] = useState(createPointerTrail);
 
   if (!visible) return null;
 
@@ -363,6 +369,7 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
     const hadFocus = event.currentTarget.ownerDocument.activeElement === event.currentTarget;
     if (!press || !press.down(key, event.clientX, event.clientY, "pointer")) return;
     activePointer.current = { key, type: event.pointerType, hadFocus };
+    trail.down(event);
     try {
       event.currentTarget.setPointerCapture?.(event.pointerId);
     } catch {
@@ -373,6 +380,7 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
     // A pointer that went down on the game passes over: the game still hears it.
     if (!owned.owns(event.pointerId)) return;
     event.stopPropagation();
+    trail.move(event);
     pressRef.current?.move(pointerKey(event), event.clientX, event.clientY);
   };
   const endPointer = (event: React.PointerEvent<HTMLButtonElement>, how: "up" | "cancel") => {
@@ -388,12 +396,20 @@ export function ClipButton({ keyboardShortcuts = true, gamepad = true }: ClipBut
       activePointer.current = null;
       dropPointerFocus(event.currentTarget, pointer.hadFocus);
     }
-    // Drag off to cancel: a release far outside the button commits nothing.
-    // The button keeps pointer capture, so it hears that release.
-    if (how === "up" && !releasedOff(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY)) {
-      pressRef.current?.up(key);
-    } else {
+    if (how === "cancel") {
+      trail.forget(event.pointerId);
       pressRef.current?.cancel(key);
+      return;
+    }
+    // Drag off to cancel: a release far outside the button commits nothing.
+    // The button keeps pointer capture, so it hears every move of the press.
+    // The release point is the last of those moves, never the pointerup's
+    // own point (iPhone Safari can send a pointerup at (0, 0)).
+    const at = trail.release(event);
+    if (releasedOff(event.currentTarget.getBoundingClientRect(), at.x, at.y)) {
+      pressRef.current?.cancel(key);
+    } else {
+      pressRef.current?.up(key);
     }
   };
   const onPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => endPointer(event, "up");

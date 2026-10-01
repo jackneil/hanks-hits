@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { fingerDown, fingerUp } from "@/__tests__/finger-mock";
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
@@ -260,6 +261,8 @@ describe("ClipButton taps (plan 11.1)", () => {
     const { fake } = renderWithClips(<ClipButton />, { snapshot: { button: "recording", engine: "recording" } });
     placeButton();
     fireEvent.pointerDown(button(), pointer({ clientX: 322, clientY: 26 }));
+    // The button has pointer capture, so it gets the moves of the drag.
+    fireEvent.pointerMove(button(), pointer({ clientX: 322, clientY: 200 }));
     fireEvent.pointerUp(button(), pointer({ clientX: 322, clientY: 200 }));
     await flush();
     expect(fake.service.stopRecording).not.toHaveBeenCalled();
@@ -267,6 +270,44 @@ describe("ClipButton taps (plan 11.1)", () => {
     fireEvent.pointerUp(button(), pointer({ clientX: 322, clientY: 26 }));
     await flush();
     expect(fake.service.stopRecording).toHaveBeenCalledTimes(1);
+  });
+
+  describe("a pointerup at (0, 0) (iPhone SE, iOS 27 Safari, 2026-10-01)", () => {
+    // Measured: pointerdown at (585, 22), pointerup at (0, 0), touchend and
+    // the compatibility click at (585, 22). The release point must come
+    // from the press's moves (pointerTrail.ts), not from the pointerup.
+
+    it("clips a finger tap on the button", async () => {
+      const { fake } = renderWithClips(<ClipButton />);
+      vi.spyOn(button(), "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 563, y: 0, width: 44, height: 44 }));
+      fingerDown(button(), { id: 1, x: 585, y: 22 });
+      await act(async () => {
+        vi.advanceTimersByTime(120);
+      });
+      fingerUp(button(), { id: 1 }, { pointerUpAt: { x: 0, y: 0 } });
+      await flush();
+      expect(fake.service.beginPress).toHaveBeenCalledTimes(1);
+      expect(fake.records).toHaveLength(1);
+      expect(vi.mocked(fake.service.endPress).mock.calls[0][1]).not.toHaveProperty("cancelled");
+      expect(screen.getByTestId("clip-button-announcer")).toHaveTextContent(RESULT_COPY.clip);
+    });
+
+    it("commits nothing for a drag off a button in the top-left corner, where (0, 0) is on the button", async () => {
+      const { fake } = renderWithClips(<ClipButton />);
+      vi.spyOn(button(), "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: 0, y: 0, width: 44, height: 44 }));
+      fireEvent.pointerDown(button(), pointer({ clientX: 22, clientY: 22 }));
+      fireEvent.pointerMove(button(), pointer({ clientX: 120, clientY: 300 }));
+      fireEvent.pointerMove(button(), pointer({ clientX: 180, clientY: 600 }));
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+      fireEvent.pointerUp(button(), pointer({ clientX: 0, clientY: 0 }));
+      await flush();
+      expect(fake.records).toHaveLength(0);
+      expect(fake.service.endPress).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(fake.service.endPress).mock.calls[0][1]).toMatchObject({ cancelled: true });
+      expect(menu()).toBeNull();
+    });
   });
 
   it("commits a 300 ms press and announces the result", async () => {

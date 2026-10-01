@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import type React from "react";
 
+import { createPointerTrail } from "./pointerTrail";
 import { COMPAT_CLICK_WINDOW_MS } from "./usePointerTap";
 
 /**
@@ -19,6 +20,10 @@ import { COMPAT_CLICK_WINDOW_MS } from "./usePointerTap";
  * no click follows within SECOND_FINGER_WAIT_MS, the action runs then. A
  * click that comes late after that (a slow phone) is ignored, so one tap
  * never runs the action twice.
+ *
+ * A finger that slides off the button before it lifts is not a tap. The
+ * check reads the finger's last pointermove (createPointerTrail), not the
+ * pointerup point: iPhone Safari can send a pointerup at (0, 0).
  *
  * Use it for a button that opens or closes something (Pause, Map, a
  * panel). A click is dispatched at the finger after the action runs, so
@@ -40,6 +45,7 @@ export const SECOND_FINGER_WAIT_MS = 250;
 export interface SecondFingerClickHandlers<T extends Element = Element> {
   onClick: (event: React.MouseEvent<T>) => void;
   onPointerDown: (event: React.PointerEvent<T>) => void;
+  onPointerMove: (event: React.PointerEvent<T>) => void;
   onPointerUp: (event: React.PointerEvent<T>) => void;
   onPointerCancel: (event: React.PointerEvent<T>) => void;
 }
@@ -64,6 +70,8 @@ export function createSecondFingerClick<T extends Element = Element>(
   let action = initial;
   /** Touch pointers that went down on the button and are still down. */
   const pressed = new Set<number>();
+  /** Where each of those fingers is now (the release point). */
+  const trail = createPointerTrail();
   let waiting: ReturnType<typeof setTimeout> | null = null;
   /** When the wait ran the action; a click soon after is the late browser click. */
   let firedAt = Number.NEGATIVE_INFINITY;
@@ -84,17 +92,22 @@ export function createSecondFingerClick<T extends Element = Element>(
       action();
     },
     onPointerDown(event) {
-      if (event.pointerType === "touch") pressed.add(event.pointerId);
+      if (event.pointerType !== "touch") return;
+      pressed.add(event.pointerId);
+      trail.down(event);
+    },
+    onPointerMove(event) {
+      // The browser captures a touch to the button it went down on, so the
+      // button gets every move of that finger.
+      if (pressed.has(event.pointerId)) trail.move(event);
     },
     onPointerUp(event) {
       if (event.pointerType !== "touch" || !pressed.delete(event.pointerId)) return;
       // A finger that slid off the button before it lifted is not a tap.
+      // The point comes from the finger's moves, never from the pointerup.
+      const at = trail.release(event);
       const box = (event.currentTarget as Element).getBoundingClientRect();
-      const inside =
-        event.clientX >= box.left &&
-        event.clientX <= box.right &&
-        event.clientY >= box.top &&
-        event.clientY <= box.bottom;
+      const inside = at.x >= box.left && at.x <= box.right && at.y >= box.top && at.y <= box.bottom;
       if (!inside) return;
       stopWaiting();
       waiting = setTimeout(() => {
@@ -105,6 +118,7 @@ export function createSecondFingerClick<T extends Element = Element>(
     },
     onPointerCancel(event) {
       pressed.delete(event.pointerId);
+      trail.forget(event.pointerId);
     },
   };
 
@@ -115,6 +129,7 @@ export function createSecondFingerClick<T extends Element = Element>(
     },
     dispose() {
       stopWaiting();
+      for (const pointerId of pressed) trail.forget(pointerId);
       pressed.clear();
     },
   };
