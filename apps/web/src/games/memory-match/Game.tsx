@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from "react";
 import { useMemoryMatchStore } from "./lib/store";
+import { CARD_GAP, EDGE, GAP, STATS_COLUMN, STATS_ROW, memoryLayout } from "./lib/layout";
+import { MEMORY_MATCH_AUDIO_ID, releaseSounds } from "./lib/sounds";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
 import {
   type Difficulty,
   type ThemeId,
@@ -16,7 +24,6 @@ import {
   GameStartOverlay,
   GameStartOverlayButton,
 } from "@/shared/components/GameStartOverlay";
-import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
 // Card component with flip animation
@@ -26,26 +33,28 @@ function Card({
   isMatched,
   onClick,
   disabled,
+  size,
 }: {
   imageId: string;
   isFlipped: boolean;
   isMatched: boolean;
   onClick: () => void;
   disabled: boolean;
+  size: number;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled || isFlipped || isMatched}
       className={`
-        relative aspect-square w-full min-h-[60px]
+        relative shrink-0 touch-manipulation
         perspective-1000 cursor-pointer
         transition-transform duration-200
         ${!disabled && !isFlipped && !isMatched ? "hover:scale-105 active:scale-95" : ""}
         ${isMatched ? "opacity-80" : ""}
         disabled:cursor-default
       `}
-      style={{ perspective: "1000px" }}
+      style={{ perspective: "1000px", width: size, height: size }}
       aria-label={isFlipped || isMatched ? imageId : "Hidden card"}
     >
       <div
@@ -71,7 +80,7 @@ function Card({
           `}
           style={{ backfaceVisibility: "hidden" }}
         >
-          <span className="text-4xl md:text-5xl opacity-30">?</span>
+          <span className="opacity-30" style={{ fontSize: Math.round(size * 0.4) }}>?</span>
         </div>
 
         {/* Card Front */}
@@ -89,7 +98,7 @@ function Card({
             transform: "rotateY(180deg)",
           }}
         >
-          <span className="text-4xl md:text-6xl select-none">{imageId}</span>
+          <span className="select-none" style={{ fontSize: Math.round(size * 0.5) }}>{imageId}</span>
           {isMatched && (
             <div className="absolute top-1 right-1 text-green-500 text-xl">
               &#10003;
@@ -108,29 +117,37 @@ function Card({
   );
 }
 
-// Stats bar component
+// Stats: moves, time and pairs. A row over the cards upright, a column
+// beside them sideways.
 function StatsBar({
   moves,
   time,
   matchedPairs,
   totalPairs,
+  column,
 }: {
   moves: number;
   time: number;
   matchedPairs: number;
   totalPairs: number;
+  column: boolean;
 }) {
+  const pill = "flex items-center gap-2 rounded-full bg-black/30 px-3 py-1.5";
   return (
-    <div className="flex justify-center gap-4 md:gap-8 text-white text-lg md:text-xl font-bold">
-      <div className="flex items-center gap-2 bg-black/30 px-4 py-2 rounded-full">
+    <div
+      data-testid="memory-stats"
+      className={`flex shrink-0 justify-center gap-2 text-base font-bold text-white ${column ? "flex-col items-stretch" : "items-center"}`}
+      style={column ? { width: STATS_COLUMN } : { height: STATS_ROW }}
+    >
+      <div className={pill}>
         <span className="text-amber-400">&#128064;</span>
-        <span>{moves} moves</span>
+        <span>{movesText(moves)}</span>
       </div>
-      <div className="flex items-center gap-2 bg-black/30 px-4 py-2 rounded-full">
+      <div className={pill}>
         <span className="text-blue-400">&#9203;</span>
         <span>{formatTime(time)}</span>
       </div>
-      <div className="flex items-center gap-2 bg-black/30 px-4 py-2 rounded-full">
+      <div className={pill}>
         <span className="text-green-400">&#10003;</span>
         <span>
           {matchedPairs}/{totalPairs}
@@ -140,188 +157,67 @@ function StatsBar({
   );
 }
 
-// Difficulty selector
-function DifficultySelector({
-  current,
-  onChange,
-  disabled,
-}: {
-  current: Difficulty;
-  onChange: (d: Difficulty) => void;
-  disabled: boolean;
-}) {
-  const difficulties: Difficulty[] = ["easy", "medium", "hard", "expert"];
-
-  return (
-    <div className="flex flex-wrap justify-center gap-2">
-      {difficulties.map((d) => (
-        <button
-          key={d}
-          onClick={() => onChange(d)}
-          disabled={disabled}
-          className={`
-            px-5 py-3 rounded-full font-bold text-sm md:text-base touch-manipulation
-            transition-all duration-200
-            ${
-              current === d
-                ? "bg-amber-400 text-black scale-105"
-                : "bg-black/30 text-white hover:bg-black/50"
-            }
-            disabled:opacity-50 disabled:cursor-not-allowed
-          `}
-        >
-          {DIFFICULTIES[d].name}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// Theme selector
-function ThemeSelector({
+/** The card pictures a kid can pick, with how to unlock the locked ones (in words, not a tooltip). */
+function ThemePicker({
   current,
   onChange,
   unlockedThemes,
   totalWins,
-  disabled,
 }: {
   current: ThemeId;
   onChange: (t: ThemeId) => void;
   unlockedThemes: ThemeId[];
   totalWins: number;
-  disabled: boolean;
 }) {
   const themes: ThemeId[] = ["animals", "vehicles", "emojis", "dinosaurs"];
-
   return (
-    <div className="flex flex-wrap justify-center gap-2">
+    <div data-testid="theme-picker" className="grid grid-cols-2 gap-2">
       {themes.map((t) => {
         const theme = THEMES[t];
         const isUnlocked = unlockedThemes.includes(t);
-        const winsNeeded = theme.unlockCondition - totalWins;
-
+        const winsNeeded = Math.max(0, theme.unlockCondition - totalWins);
         return (
-          <button
+          <GameStartOverlayButton
             key={t}
             onClick={() => isUnlocked && onChange(t)}
-            disabled={disabled || !isUnlocked}
-            className={`
-              px-5 py-3 rounded-full font-bold text-sm md:text-base touch-manipulation
-              transition-all duration-200 flex items-center gap-2
-              ${
-                current === t
-                  ? "bg-amber-400 text-black scale-105"
-                  : isUnlocked
-                  ? "bg-black/30 text-white hover:bg-black/50"
-                  : "bg-black/50 text-gray-500 cursor-not-allowed"
-              }
-            `}
-            title={
-              isUnlocked
-                ? theme.name
-                : `Win ${winsNeeded} more game${winsNeeded !== 1 ? "s" : ""} to unlock`
-            }
+            disabled={!isUnlocked}
+            aria-pressed={current === t}
+            className={current === t ? "btn-primary" : ""}
           >
-            <span>{theme.emoji}</span>
-            <span>{theme.name}</span>
-            {!isUnlocked && <span className="text-xs">&#128274;</span>}
-          </button>
+            <span className="flex flex-col items-center leading-tight">
+              <span>
+                {theme.emoji} {theme.name}
+              </span>
+              {!isUnlocked && (
+                <span className="text-xs font-normal">
+                  &#128274; Win {winsNeeded} more
+                </span>
+              )}
+            </span>
+          </GameStartOverlayButton>
         );
       })}
     </div>
   );
 }
 
-// Win modal
-function WinModal({
-  moves,
-  time,
-  pairs,
-  bestTime,
-  isNewBest,
-  onNewGame,
-}: {
-  moves: number;
-  time: number;
-  pairs: number;
-  bestTime: number | null;
-  isNewBest: boolean;
-  onNewGame: () => void;
-}) {
-  const stars = calculateStars(moves, pairs);
+/** The result chip's words, read out loud first. */
+/** "1 move", "2 moves": the counter said "1 moves" after the first turn. */
+export function movesText(moves: number): string {
+  return moves === 1 ? "1 move" : `${moves} moves`;
+}
 
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-gradient-to-br from-purple-600 to-blue-600 rounded-3xl p-8 max-w-md w-full text-center shadow-2xl animate-bounce-in">
-        {/* Celebration header */}
-        <div className="text-6xl mb-4">&#127881;</div>
-        <h2 className="text-3xl md:text-4xl font-bold text-white mb-2">
-          You Won!
-        </h2>
-
-        {isNewBest && (
-          <div className="bg-amber-400 text-black px-4 py-2 rounded-full inline-block mb-4 font-bold animate-pulse">
-            &#11088; New Best Time! &#11088;
-          </div>
-        )}
-
-        {/* Stars */}
-        <div className="text-5xl mb-4">
-          {[1, 2, 3].map((s) => (
-            <span
-              key={s}
-              className={s <= stars ? "text-amber-400" : "text-gray-500"}
-            >
-              &#11088;
-            </span>
-          ))}
-        </div>
-
-        {/* Stats */}
-        <div className="bg-black/30 rounded-xl p-4 mb-6 text-white">
-          <div className="flex justify-around text-lg">
-            <div>
-              <div className="text-3xl font-bold">{moves}</div>
-              <div className="text-sm opacity-80">Moves</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold">{formatTime(time)}</div>
-              <div className="text-sm opacity-80">Time</div>
-            </div>
-          </div>
-          {bestTime !== null && !isNewBest && (
-            <div className="mt-3 text-sm opacity-70">
-              Best: {formatTime(bestTime)}
-            </div>
-          )}
-        </div>
-
-        {/* Play again button */}
-        <button
-          onClick={onNewGame}
-          className="bg-green-500 hover:bg-green-600 text-white font-bold text-xl px-8 py-4 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg"
-        >
-          &#128260; Play Again
-        </button>
-      </div>
-    </div>
-  );
+export function winText({ moves, time, stars, newBest }: { moves: number; time: number; stars: number; newBest: boolean }): string {
+  const starWords = stars === 1 ? "1 star" : `${stars} stars`;
+  return `You won! ${movesText(moves)} in ${formatTime(time)}. You got ${starWords}.${newBest ? " That is a new best time!" : ""}`;
 }
 
 // Main game component
 export function MemoryMatchGame() {
   const store = useMemoryMatchStore();
   // The board is live from mount, so a local gate holds the cards still until
-  // the player presses Play on the shared start overlay. Header restart keeps
-  // its old behavior and does not send the player back to the start card.
+  // the player presses Play on the shared start overlay.
   const [hasStarted, setHasStarted] = useState(false);
-  const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
-  const restartTriggerRef = useRef<HTMLButtonElement>(null);
-  const requestNewGame = useCallback(() => setIsRestartConfirmationOpen(true), []);
-  const confirmNewGame = useCallback(() => {
-    setIsRestartConfirmationOpen(false);
-    store.newGame();
-  }, [store]);
   const isClient = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -329,7 +225,7 @@ export function MemoryMatchGame() {
   );
 
   // Auth sync
-  const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
+  const { forceSync } = useAuthSync({
     appId: "memory-match",
     localStorageKey: "memory-match-progress",
     getState: () => store.getProgress(),
@@ -339,45 +235,73 @@ export function MemoryMatchGame() {
 
   // Force save immediately on win
   useEffect(() => {
-    if (store.isWon) {
-      forceSync();
-    }
+    if (store.isWon) forceSync();
   }, [store.isWon, forceSync]);
 
-  // Client-side hydration
+  // Start a new game on first load to ensure cards are shuffled
   useEffect(() => {
-    // Start a new game on first load to ensure cards are shuffled
     store.newGame();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Timer tick
+  // Timer tick: one interval for the life of the game. It reads the store's
+  // action on each tick, because `store` (the whole state) is a new object
+  // after every set, and depending on it cleared and re-made the interval
+  // on every tick and every flip.
   useEffect(() => {
     if (!isClient) return;
-
-    const interval = setInterval(() => {
-      store.tick();
-    }, 100);
-
+    const interval = setInterval(() => useMemoryMatchStore.getState().tick(), 100);
     return () => clearInterval(interval);
-  }, [isClient, store]);
+  }, [isClient]);
 
-  // Keyboard support
+  // The shell holds the game under an overlay (the leaderboard, a clip
+  // sheet, the install steps, the orientation tip) and in a hidden tab: the
+  // round's clock stops there, like under the pause menu. Only a stop the
+  // hold made is undone when it ends (the pause menu owns its own).
+  const held = useShellHold();
+  const pausedByHold = useRef(false);
+  useEffect(() => {
+    const state = useMemoryMatchStore.getState();
+    if (held && state.isPlaying && !state.isWon && state.pausedAt === null) {
+      state.pauseTimer();
+      pausedByHold.current = true;
+    } else if (!held && pausedByHold.current) {
+      pausedByHold.current = false;
+      state.resumeTimer();
+    }
+  }, [held]);
+
+  // Sound: the first tap starts the shared game-audio bus, the sound switch
+  // is this game's speaker, and the channel leaves the bus on unmount.
+  useEffect(() => wantGameAudio(), []);
+  const soundEnabled = store.progress.soundEnabled;
+  useEffect(() => {
+    setGameSpeakerEnabled(MEMORY_MATCH_AUDIO_ID, soundEnabled);
+  }, [soundEnabled]);
+  useEffect(() => () => releaseSounds(), []);
+
+  // A new deal at once: Play again on the result chip, or N on a keyboard
+  // (the header's restart asks first in the middle of a round).
+  const playAgain = useCallback(() => useMemoryMatchStore.getState().newGame(), []);
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-    // A focused button or link owns its own Space and Enter: never swallow them.
-    if (keyBelongsToTarget(e)) return;
-      if (e.key === "n" || e.key === "N") {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      if ((e.key === "n" || e.key === "N") && useMemoryMatchStore.getState().isWon) {
         e.preventDefault();
-        requestNewGame();
+        playAgain();
       }
     },
-    [requestNewGame]
+    [playAgain]
   );
-
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
+
+  const config = DIFFICULTIES[store.difficulty];
+  const box = usePlayBox({ fit: true });
+  const layout = memoryLayout(box, { rows: config.rows, cols: config.cols });
 
   if (!isClient) {
     return (
@@ -387,45 +311,38 @@ export function MemoryMatchGame() {
     );
   }
 
-  const config = DIFFICULTIES[store.difficulty];
   const totalPairs = config.pairs;
   const previousBestTime = store.progress.bestTimes[store.difficulty];
   const isNewBest =
-    store.isWon &&
-    store.currentTime > 0 &&
-    (previousBestTime === null ||
-      store.currentTime <= previousBestTime);
+    store.isWon && store.currentTime > 0 && (previousBestTime === null || store.currentTime <= previousBestTime);
+  const stars = calculateStars(store.moves, totalPairs);
 
   return (
-    <div className="relative min-h-full bg-gradient-to-b from-blue-800 to-purple-900 p-4 flex flex-col items-center gap-3">
+    <div
+      data-testid="memory-root"
+      data-layout={layout.sideways ? "sideways" : "upright"}
+      className={`relative flex h-full w-full items-center justify-center bg-gradient-to-b from-blue-800 to-purple-900 ${
+        layout.sideways ? "flex-row" : "flex-col"
+      }`}
+      style={{ padding: EDGE, gap: GAP }}
+    >
       {/* Shared start screen. It covers the page (it portals to
-          document.body), so the card and its picker never clip on a phone. */}
+          document.body): the number of cards and the pictures are picked
+          here, so the play screen is all cards. */}
       {!hasStarted && (
         <GameStartOverlay
           title="Memory Match"
           emoji="🃏"
           subtitle="Find the two cards that match!"
-          touchHints={[
-            "👆 Tap a card to flip it",
-            "🎯 Find two cards that look the same",
-            "⏱️ Match them all as fast as you can",
-          ]}
-          keyboardHints={[
-            "🖱️ Click a card to flip it",
-            "🎯 Find two cards that look the same",
-            "⏱️ Match them all as fast as you can",
-          ]}
-          spokenChoices={`Pick how many cards: ${(
-            Object.keys(DIFFICULTIES) as Difficulty[]
-          )
+          touchHints={["👆 Tap a card to flip it", "🎯 Find two cards that look the same", "⏱️ Match them all as fast as you can"]}
+          keyboardHints={["🖱️ Click a card to flip it", "🎯 Find two cards that look the same", "⏱️ Match them all as fast as you can"]}
+          spokenChoices={`Pick how many cards: ${(Object.keys(DIFFICULTIES) as Difficulty[])
             .map((level) => DIFFICULTIES[level].name)
-            .join(", ")}.`}
+            .join(", ")}. Then pick the pictures.`}
           onStart={() => setHasStarted(true)}
         >
           {previousBestTime !== null && (
-            <div className="text-base font-medium opacity-90">
-              🏆 Best Time: {formatTime(previousBestTime)}
-            </div>
+            <div className="text-base font-medium opacity-90">🏆 Best Time: {formatTime(previousBestTime)}</div>
           )}
           <div className="text-sm font-bold opacity-80">How many cards?</div>
           <div className="grid grid-cols-2 gap-2">
@@ -440,49 +357,35 @@ export function MemoryMatchGame() {
               </GameStartOverlayButton>
             ))}
           </div>
+          <div className="text-sm font-bold opacity-80">Which pictures?</div>
+          <ThemePicker
+            current={store.theme}
+            onChange={(t) => store.setTheme(t)}
+            unlockedThemes={store.progress.unlockedThemes}
+            totalWins={store.progress.gamesWon}
+          />
         </GameStartOverlay>
       )}
 
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-      {/* Difficulty selector */}
-      <DifficultySelector
-        current={store.difficulty}
-        onChange={(d) => store.setDifficulty(d)}
-        disabled={store.isPlaying && !store.isWon}
-      />
-
-      {/* Theme selector */}
-      <ThemeSelector
-        current={store.theme}
-        onChange={(t) => store.setTheme(t)}
-        unlockedThemes={store.progress.unlockedThemes}
-        totalWins={store.progress.gamesWon}
-        disabled={store.isPlaying && !store.isWon}
-      />
-
-      {/* Stats bar */}
       <StatsBar
         moves={store.moves}
         time={store.currentTime}
         matchedPairs={store.matchedPairs}
         totalPairs={totalPairs}
+        column={layout.sideways}
       />
 
-      {/* Card grid. The square grid's width IS its height, so capping width
-          against viewport height keeps the default 4x4 board + New Game
-          button on-screen at 1366x900 with no page scroll. 27rem ~= the
-          chrome stacked around the grid: shell header offset (3.5rem) +
-          difficulty row + theme row + stats bar + New Game button + summary
-          line + the gap-3 gaps and p-4 padding. Re-derive if rows are
-          added or removed around the grid. */}
+      {/* The cards, sized from the play box (memoryLayout). */}
       <div
-        className="w-full max-w-2xl md:max-w-[min(42rem,calc(100vh_-_27rem))] mx-auto"
+        data-testid="memory-board"
+        className="shrink-0"
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${config.cols}, 1fr)`,
-          gap: "0.5rem",
+          gridTemplateColumns: `repeat(${config.cols}, ${layout.card}px)`,
+          gap: CARD_GAP,
         }}
       >
         {store.cards.map((card, index) => (
@@ -493,70 +396,44 @@ export function MemoryMatchGame() {
             isMatched={card.isMatched}
             onClick={() => hasStarted && store.flipCard(index)}
             disabled={store.isProcessing || !hasStarted}
+            size={layout.card}
           />
         ))}
       </div>
 
-      {/* New game button */}
-      <button
-        ref={restartTriggerRef}
-        onClick={requestNewGame}
-        className="bg-amber-400 hover:bg-amber-500 text-black font-bold text-lg px-6 py-3 rounded-full transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg"
-      >
-        &#128260; New Game
-      </button>
-
-      {/* Stats summary */}
-      <div className="text-white/70 text-sm text-center">
-        <div>
-          Games played: {store.progress.gamesPlayed} | Wins:{" "}
-          {store.progress.gamesWon}
-        </div>
-        {previousBestTime !== null && (
-          <div>Best time ({config.name}): {formatTime(previousBestTime)}</div>
-        )}
-      </div>
-
-      {/* Win modal */}
       {store.isWon && (
-        <WinModal
-          moves={store.moves}
-          time={store.currentTime}
-          pairs={totalPairs}
-          bestTime={previousBestTime}
-          isNewBest={isNewBest}
-          onNewGame={requestNewGame}
-        />
+        <ResultCard testId="memory-result-card" title="🎉 You won!">
+          <ResultLine big>
+            {movesText(store.moves)} · {formatTime(store.currentTime)}
+          </ResultLine>
+          <ResultLine>
+            {"⭐".repeat(stars)}
+            {isNewBest ? " New best time!" : previousBestTime !== null ? ` Best ${formatTime(previousBestTime)}` : ""}
+          </ResultLine>
+        </ResultCard>
       )}
 
-      <RestartConfirmationDialog
-        isOpen={isRestartConfirmationOpen}
-        gameName="Memory Match"
-        message="Start a new Memory Match game? Your current round will be lost."
-        triggerRef={restartTriggerRef}
-        onCancel={() => setIsRestartConfirmationOpen(false)}
-        onConfirm={confirmNewGame}
-      />
-
-      {/* Sync status */}
-      {isAuthenticated && (
-        <div className="fixed bottom-2 right-2 text-xs text-white/40">
-          {syncStatus === "syncing"
-            ? "Saving..."
-            : syncStatus === "synced"
-            ? "Saved"
-            : ""}
-        </div>
+      {/* The result chip: read it to me, Play again (a new deal at once, no
+          question: the round is over), the leaderboard, the sound switch. */}
+      {store.isWon && (
+        <ResultChip
+          resultText={winText({ moves: store.moves, time: store.currentTime, stars, newBest: isNewBest })}
+          appId="memory-match"
+          onRestart={playAgain}
+          keyboardHint="N"
+        >
+          <button
+            type="button"
+            data-testid="result-chip-sound"
+            onClick={() => store.toggleSound()}
+            onMouseDown={(event) => event.preventDefault()}
+            className={`btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`}
+          >
+            <span aria-hidden="true">{soundEnabled ? "🔊" : "🔇"}</span>
+            {soundEnabled ? "Sound on" : "Sound off"}
+          </button>
+        </ResultChip>
       )}
-
-      {/* Sound toggle (placeholder for future) */}
-      <button
-        onClick={() => store.toggleSound()}
-        className="fixed bottom-2 left-2 inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-2xl opacity-50 hover:opacity-100 transition-opacity"
-        title={store.progress.soundEnabled ? "Sound On" : "Sound Off"}
-      >
-        {store.progress.soundEnabled ? "\u{1F50A}" : "\u{1F507}"}
-      </button>
     </div>
   );
 }

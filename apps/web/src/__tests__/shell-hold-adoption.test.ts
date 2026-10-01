@@ -136,7 +136,8 @@ describe("every own-loop game behind a canPause={false} GameShell reads the shel
     for (const id of [
       "games/flappy-bird",
       "games/endless-runner",
-      "games/math-attack",
+      // Math Attack left the list in PR-G5: it pauses through the shell now
+      // (and still reads the hold).
       "games/dino-runner",
       "games/hill-climb",
       "games/monster-truck",

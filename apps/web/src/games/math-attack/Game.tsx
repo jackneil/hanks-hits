@@ -1,31 +1,84 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { useMathAttackStore, type MathAttackProgress } from "./lib/store";
-import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { useShellHold } from "@/shared/hooks/useShellHold";
-import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { PICKER_GRID, pickerCellClass } from "@/shared/lib/pickerGrid";
-import {
-  GameStartOverlay,
-  GameStartOverlayButton,
-} from "@/shared/components/GameStartOverlay";
-import {
-  DIFFICULTY_SETTINGS,
-  getDifficultySettings,
-  POINTS,
-  GAME,
-  type Difficulty,
-  type Operation,
-} from "./lib/constants";
-import { generateProblem, findMatchingProblem, type Problem } from "./lib/problems";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-/**
- * The most 60 fps frames one loop step may cover. A frame after a stall
- * (a throttled tab, a slow phone) moves the problems by this much at
- * most, never by the whole stall.
- */
-export const MAX_FRAME_STEP = 3;
+import { GameStartOverlay, GameStartOverlayButton } from "@/shared/components/GameStartOverlay";
+import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
+import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { useGameLoop } from "@/shared/hooks/useGameLoop";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+import { setGameSpeakerEnabled, wantGameAudio } from "@/shared/lib/audio";
+import { usePointerTap, useRestartGrace } from "@/shared/lib/input";
+import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
+import { PICKER_GRID, pickerCellClass } from "@/shared/lib/pickerGrid";
+
+import { DIFFICULTY_SETTINGS, GAME, getDifficultySettings, POINTS, type Difficulty, type Operation } from "./lib/constants";
+import { EDGE, GAP, HUD_COLUMN, HUD_ROW, KEY_GAP, mathAttackLayout } from "./lib/layout";
+import { findMatchingProblem, generateProblem, type Problem } from "./lib/problems";
+import { MATH_ATTACK_AUDIO_ID, playSound, releaseSounds } from "./lib/sounds";
+import { useMathAttackStore, type MathAttackProgress } from "./lib/store";
+import { useMathAttackClips } from "./lib/useMathAttackClips";
+
+/** One step of the shared fixed-step loop is one 60 fps frame of the old speeds. */
+const FRAME_MS = 1000 / 60;
+/** The longest answer a kid can type (the biggest answer is 198). */
+export const MAX_ANSWER_DIGITS = 4;
+/** The sound switch: the words say what the kid hears now. */
+export const SOUND_LABELS = { on: "Sound on", off: "Sound off" } as const;
+/** The spoken names of the pad's action keys. */
+export const PAD_LABELS = { delete: "Delete", send: "Send the answer" } as const;
+
+/** The result chip's words, read out loud first. */
+export function gameOverText({ score, best, newBest }: { score: number; best: number; newBest: boolean }): string {
+  const points = score === 1 ? "1 point" : `${score} points`;
+  return newBest ? `Game over! You got ${points}. That is a new best!` : `Game over! You got ${points}. Your best is ${best}.`;
+}
+
+function drawSky(ctx: CanvasRenderingContext2D, problems: Problem[], explosions: { x: number; y: number; time: number }[], bubbleSize: number) {
+  ctx.fillStyle = "#1e1b4b"; // Dark indigo
+  ctx.fillRect(0, 0, GAME.width, GAME.height);
+
+  // The danger zone
+  ctx.fillStyle = "rgba(239, 68, 68, 0.2)";
+  ctx.fillRect(0, GAME.height - GAME.bottomZone, GAME.width, GAME.bottomZone);
+
+  // The problems, as bubbles
+  for (const problem of problems) {
+    const textLen = problem.text.length;
+    // Bigger bubbles for longer text (e.g., "99 + 99")
+    const size = textLen > 11 ? bubbleSize * 1.4 : textLen > 7 ? bubbleSize * 1.2 : bubbleSize;
+    ctx.beginPath();
+    ctx.arc(problem.x, problem.y, size / 2, 0, Math.PI * 2);
+    ctx.fillStyle = problem.color;
+    ctx.fill();
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    const scaledFontSize = Math.min(size / 3, (size * 0.8) / (textLen * 0.5));
+    ctx.fillStyle = "white";
+    ctx.font = `bold ${Math.max(12, scaledFontSize)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(problem.text, problem.x, problem.y);
+  }
+
+  // The pops of right answers
+  for (const exp of explosions) {
+    ctx.beginPath();
+    ctx.arc(exp.x, exp.y, 40, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 215, 0, 0.6)";
+    ctx.fill();
+    ctx.font = "bold 30px sans-serif";
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("✓", exp.x, exp.y);
+  }
+}
 
 export function MathAttackGame() {
   const store = useMathAttackStore();
@@ -39,14 +92,16 @@ export function MathAttackGame() {
     longestCombo,
     gamesPlayed,
     settings,
+    runId,
+    lastRunNewBest,
     startGame,
     addScore,
     recordAnswerAttempt,
     incrementCombo,
     resetCombo,
-    loseLife,
     reset,
     setDifficulty,
+    setSoundEnabled,
   } = store;
 
   // Auth sync
@@ -60,256 +115,266 @@ export function MathAttackGame() {
 
   // Force save immediately when game ends
   useEffect(() => {
-    if (gameState === "gameOver") {
-      forceSync();
-    }
+    if (gameState === "gameOver") forceSync();
   }, [gameState, forceSync]);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const problemsRef = useRef<Problem[]>([]);
-  const lastSpawnRef = useRef<number>(0);
-  const animationFrameRef = useRef<number>(0);
-  const explosionsRef = useRef<{ x: number; y: number; id: string; time: number }[]>([]);
-  const [inputValue, setInputValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const gameStateRef = useRef(gameState); // Track gameState in ref for animation loop
-  // The shell holds the game under an overlay and in a hidden tab: the
-  // loop below does not run while it is true, so no problem falls and no
-  // life is lost (a 25 s background lost two lives).
+  /** Game time since the last problem, in ms (it counts only while the loop steps). */
+  const spawnClockRef = useRef(0);
+  const explosionsRef = useRef<{ x: number; y: number; time: number }[]>([]);
+  const [answer, setAnswer] = useState("");
+  // The shell holds the game under an overlay and in a hidden tab: no game
+  // time passes, so no problem falls and no life is lost.
   const held = useShellHold();
 
   const diffSettings = getDifficultySettings(settings.difficulty);
+  const playing = gameState === "playing";
+  const over = gameState === "gameOver";
 
-  // Start game
-  const handleStartGame = () => {
+  // The play box, fitted: the sky, the HUD and the pad share it.
+  const box = usePlayBox({ fit: true });
+  const layout = mathAttackLayout(box);
+
+  // Gameplay clips: the canvas, the run phases and the new-best moment.
+  useMathAttackClips(canvasRef, { gameState, score, highScore, runId });
+
+  // Sound: the first tap starts the shared game-audio bus, the sound switch
+  // is this game's speaker, and the channel leaves the bus on unmount.
+  useEffect(() => wantGameAudio(), []);
+  const soundEnabled = settings.soundEnabled;
+  useEffect(() => {
+    setGameSpeakerEnabled(MATH_ATTACK_AUDIO_ID, soundEnabled);
+  }, [soundEnabled]);
+  useEffect(() => () => releaseSounds(), []);
+
+  const beginRun = useCallback(() => {
     problemsRef.current = [];
-    lastSpawnRef.current = 0;
-    setInputValue("");
-    startGame(diffSettings.lives);
-    inputRef.current?.focus();
-  };
+    explosionsRef.current = [];
+    // The first problem comes at once.
+    spawnClockRef.current = Number.POSITIVE_INFINITY;
+    setAnswer("");
+    startGame(getDifficultySettings(useMathAttackStore.getState().settings.difficulty).lives);
+  }, [startGame]);
 
-  // Handle answer submission
-  const handleSubmit = useCallback(() => {
-    if (gameState !== "playing") return;
-
-    const answer = parseInt(inputValue, 10);
-    if (isNaN(answer)) {
-      setInputValue("");
-      return;
-    }
-
-    const match = findMatchingProblem(problemsRef.current, answer);
-
+  // Send the typed answer.
+  const submit = useCallback(() => {
+    if (useMathAttackStore.getState().gameState !== "playing") return;
+    const value = parseInt(answer, 10);
+    setAnswer("");
+    if (Number.isNaN(value)) return;
+    const match = findMatchingProblem(problemsRef.current, value);
     if (match) {
-      // Correct answer!
-      const speedBonus = Math.floor((GAME.height - match.y) * POINTS.speedBonus / GAME.height);
-      const comboBonus = combo * POINTS.comboBonus;
-      const points = POINTS.correct + speedBonus + comboBonus;
-
-      // Use operation stored on problem
+      const speedBonus = Math.floor(((GAME.height - match.y) * POINTS.speedBonus) / GAME.height);
+      const points = POINTS.correct + speedBonus + useMathAttackStore.getState().combo * POINTS.comboBonus;
       addScore(points, match.operation as Operation);
       incrementCombo();
-
-      // Remove problem
       problemsRef.current = problemsRef.current.filter((p) => p.id !== match.id);
-
-      // Add explosion effect (using ref to avoid re-triggering game loop)
-      explosionsRef.current.push({ x: match.x, y: match.y, id: match.id, time: Date.now() });
+      explosionsRef.current.push({ x: match.x, y: match.y, time: Date.now() });
+      playSound("pop");
     } else {
-      // Wrong answer
       recordAnswerAttempt();
       resetCombo();
+      playSound("wrong");
     }
+  }, [answer, addScore, incrementCombo, recordAnswerAttempt, resetCombo]);
 
-    setInputValue("");
-  }, [gameState, inputValue, combo, addScore, recordAnswerAttempt, incrementCombo, resetCombo]);
-
-  // Keyboard input
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        handleSubmit();
-      }
+  const press = useCallback(
+    (key: string) => {
+      if (useMathAttackStore.getState().gameState !== "playing") return;
+      if (key === "⌫") setAnswer((a) => a.slice(0, -1));
+      else if (key === "⚡") submit();
+      else setAnswer((a) => (a.length >= MAX_ANSWER_DIGITS ? a : a + key));
     },
-    [handleSubmit]
+    [submit]
   );
 
-  // Keep gameStateRef in sync
-  useEffect(() => {
-    gameStateRef.current = gameState;
-  }, [gameState]);
-
-  // Game loop. Not while the shell holds the game: the effect ends (the
-  // frame chain stops) and starts again with a fresh clock when the hold
-  // ends, so the time under the overlay never reaches the problems.
-  useEffect(() => {
-    if (gameState !== "playing" || held) return;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let lastTime = 0;
-    let isRunning = true;
-
-    const gameLoop = (time: number) => {
-      if (!isRunning) return;
-
-      // Normalize to ~60fps, and never more than MAX_FRAME_STEP frames at
-      // once: a throttled or resumed requestAnimationFrame must not drop
-      // every problem to the ground in one step.
-      const delta = Math.min(lastTime ? (time - lastTime) / 16.67 : 1, MAX_FRAME_STEP);
-      lastTime = time;
-
-      // Check if game is still playing (use ref for fresh value)
-      if (gameStateRef.current !== "playing") {
-        return;
-      }
-
-      // Spawn new problems
-      if (time - lastSpawnRef.current >= diffSettings.spawnRateMs) {
-        const problem = generateProblem(
-          diffSettings.operations,
-          diffSettings.numberRange,
-          diffSettings.fallSpeed,
-          diffSettings.bubbleSize
+  // One step of game time: spawn, fall, lose a life at the ground.
+  const update = useCallback(
+    (stepMs: number) => {
+      const state = useMathAttackStore.getState();
+      if (state.gameState !== "playing") return;
+      const settingsNow = getDifficultySettings(state.settings.difficulty);
+      spawnClockRef.current += stepMs;
+      if (spawnClockRef.current >= settingsNow.spawnRateMs) {
+        problemsRef.current.push(
+          generateProblem(settingsNow.operations, settingsNow.numberRange, settingsNow.fallSpeed, settingsNow.bubbleSize)
         );
-        problemsRef.current.push(problem);
-        lastSpawnRef.current = time;
+        spawnClockRef.current = 0;
       }
-
-      // Update problem positions and check for bottom
-      const newProblems: Problem[] = [];
-      for (const problem of problemsRef.current) {
-        problem.y += problem.speed * delta;
-
-        // Check if reached bottom (only lose life once per problem)
+      const frames = stepMs / FRAME_MS;
+      const kept: Problem[] = [];
+      for (const before of problemsRef.current) {
+        const problem = { ...before, y: before.y + before.speed * frames };
         if (problem.y >= GAME.height - GAME.bottomZone) {
           if (!problem.reachedBottom) {
-            problem.reachedBottom = true;
-            recordAnswerAttempt();
-            loseLife();
+            state.recordAnswerAttempt();
+            const livesBefore = useMathAttackStore.getState().lives;
+            useMathAttackStore.getState().loseLife();
+            playSound(livesBefore <= 1 ? "game-over" : "lose-life");
           }
-          // Remove problem after it's processed
         } else {
-          newProblems.push(problem);
+          kept.push(problem);
         }
       }
-      problemsRef.current = newProblems;
-
-      // Clean up old explosions (500ms lifetime)
+      problemsRef.current = kept;
       const now = Date.now();
-      explosionsRef.current = explosionsRef.current.filter(e => now - e.time < 500);
+      explosionsRef.current = explosionsRef.current.filter((e) => now - e.time < 500);
+    },
+    []
+  );
 
-      // Clear canvas
-      ctx.fillStyle = "#1e1b4b"; // Dark indigo
-      ctx.fillRect(0, 0, GAME.width, GAME.height);
+  const draw = useCallback(() => {
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const difficulty = useMathAttackStore.getState().settings.difficulty;
+    drawSky(ctx, problemsRef.current, explosionsRef.current, getDifficultySettings(difficulty).bubbleSize);
+  }, []);
 
-      // Draw danger zone
-      ctx.fillStyle = "rgba(239, 68, 68, 0.2)";
-      ctx.fillRect(0, GAME.height - GAME.bottomZone, GAME.width, GAME.bottomZone);
+  // The shared loop: a fixed 60 Hz step of game time and the sky drawn every
+  // frame; no game time between runs, under the pause or under a hold.
+  useGameLoop({ update, render: draw }, { running: true, paused: !playing || held });
 
-      // Draw problems as bubbles
-      for (const problem of problemsRef.current) {
-        const baseSize = diffSettings.bubbleSize;
-        const textLen = problem.text.length;
-        // Scale bubble up for longer text (e.g., "99 + 99 = 198")
-        const size = textLen > 11 ? baseSize * 1.4 : textLen > 7 ? baseSize * 1.2 : baseSize;
+  // Play again waits out the chip's grace (an Enter that sent the last
+  // answer must not skip the result), and a held key's repeats never count.
+  const grace = useRestartGrace(undefined, gameState);
 
-        // Bubble
-        ctx.beginPath();
-        ctx.arc(problem.x, problem.y, size / 2, 0, Math.PI * 2);
-        ctx.fillStyle = problem.color;
-        ctx.fill();
-        ctx.strokeStyle = "white";
-        ctx.lineWidth = 3;
-        ctx.stroke();
-
-        // Text - scale font to fit inside bubble
-        const maxFontSize = size / 3;
-        const scaledFontSize = Math.min(maxFontSize, (size * 0.8) / (textLen * 0.5));
-        ctx.fillStyle = "white";
-        ctx.font = `bold ${Math.max(12, scaledFontSize)}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(problem.text, problem.x, problem.y);
-      }
-
-      // Draw explosions from ref
-      for (const exp of explosionsRef.current) {
-        ctx.beginPath();
-        ctx.arc(exp.x, exp.y, 40, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255, 215, 0, 0.6)";
-        ctx.fill();
-
-        ctx.font = "bold 30px sans-serif";
-        ctx.fillStyle = "white";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("✓", exp.x, exp.y);
-      }
-
-      if (isRunning && gameStateRef.current === "playing") {
-        animationFrameRef.current = requestAnimationFrame(gameLoop);
-      }
-    };
-
-    animationFrameRef.current = requestAnimationFrame(gameLoop);
-
-    return () => {
-      isRunning = false;
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [gameState, held, diffSettings, loseLife]);
-
-  // Focus input when game starts
+  // A physical keyboard types too (a computer).
   useEffect(() => {
-    if (gameState === "playing") {
-      inputRef.current?.focus();
-    }
-  }, [gameState]);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (keyBelongsToTarget(e)) return;
+      const state = useMathAttackStore.getState().gameState;
+      if (state === "gameOver") {
+        if ((e.key === "Enter" || e.key === " ") && grace.accept(e)) {
+          e.preventDefault();
+          reset();
+          beginRun();
+        }
+        return;
+      }
+      if (state !== "playing") return;
+      if (/^[0-9]$/.test(e.key)) press(e.key);
+      else if (e.key === "Backspace") press("⌫");
+      else if (e.key === "Enter") press("⚡");
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [grace, press, reset, beginRun]);
+
+  // The pad: one handler, on pointerdown, so two thumbs type fast (a second
+  // finger's tap makes no click) and one tap is one digit.
+  const padTap = usePointerTap<HTMLDivElement>((event) => {
+    const key = (event.target as Element | null)?.closest?.("[data-key]")?.getAttribute("data-key");
+    if (key) press(key);
+  });
+
+  const hud = (
+    <div
+      data-testid="math-attack-hud"
+      className={`flex shrink-0 items-center gap-2 px-1 text-lg font-bold ${layout.sideways ? "flex-col justify-center" : "justify-between"}`}
+      style={layout.sideways ? { width: HUD_COLUMN } : { height: HUD_ROW, width: layout.sky.width }}
+    >
+      <span aria-label={`${lives} lives`}>❤️ {lives}</span>
+      <span
+        data-testid="math-attack-answer"
+        aria-live="polite"
+        className="min-w-[5ch] rounded-lg border-2 border-purple-400 bg-white/10 px-3 text-center text-2xl tabular-nums"
+      >
+        {answer || "?"}
+      </span>
+      <span aria-label={`Score ${score}`}>
+        ⭐ {score}
+        {combo > 1 && <span className="ml-2 text-yellow-400">🔥x{combo}</span>}
+      </span>
+    </div>
+  );
+
+  const pad = (
+    <div
+      data-testid="math-attack-pad"
+      {...padTap}
+      {...(playing ? {} : ({ "aria-hidden": true, inert: true } as const))}
+      className={`grid shrink-0 touch-none select-none [-webkit-touch-callout:none] ${playing ? "" : "invisible"}`}
+      style={{
+        gridTemplateColumns: `repeat(${layout.pad[0].length}, ${layout.key}px)`,
+        gridAutoRows: `${layout.key}px`,
+        gap: KEY_GAP,
+      }}
+    >
+      {layout.pad.flat().map((key) => (
+        <button
+          key={key}
+          type="button"
+          data-key={key}
+          aria-label={key === "⌫" ? PAD_LABELS.delete : key === "⚡" ? PAD_LABELS.send : key}
+          className={`flex items-center justify-center rounded-xl text-2xl font-bold text-white shadow ${
+            key === "⚡" ? "bg-yellow-500 text-slate-900" : key === "⌫" ? "bg-slate-600" : "bg-purple-600 active:bg-purple-800"
+          }`}
+        >
+          <span aria-hidden="true">{key}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const sky = (
+    <div data-testid="math-attack-sky" className="relative shrink-0 overflow-hidden rounded-xl border-4 border-purple-500">
+      <canvas
+        ref={canvasRef}
+        width={GAME.width}
+        height={GAME.height}
+        className="block"
+        style={{ width: layout.sky.width, height: layout.sky.height }}
+      />
+    </div>
+  );
 
   return (
-    <div className="relative min-h-full bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white">
+    <div
+      data-testid="math-attack-root"
+      data-layout={layout.sideways ? "sideways" : "upright"}
+      className={`relative flex h-full w-full items-center justify-center bg-gradient-to-b from-indigo-950 via-purple-950 to-indigo-950 text-white ${
+        layout.sideways ? "flex-row" : "flex-col"
+      }`}
+      style={{ padding: EDGE, gap: GAP }}
+    >
       <IOSInstallPrompt />
 
-      {/* Shared start screen. It covers the page (it portals to
-          document.body), so the card, the age picker and the Play button
-          never clip on a phone. */}
+      {/* One stable tree on every screen: the sky (with the HUD over it)
+          first, the pad second (under it upright, beside it sideways), so
+          a turn of the phone never remounts the canvas or the pad. */}
+      <div className={`flex shrink-0 items-center ${layout.sideways ? "flex-row" : "flex-col"}`} style={{ gap: GAP }}>
+        {hud}
+        {sky}
+      </div>
+      {pad}
+
+      {over && (
+        <ResultCard testId="math-attack-result-card" title="💥 Game over!">
+          <ResultLine big>{score} points</ResultLine>
+          <ResultLine>{lastRunNewBest ? "🏆 New best!" : `Best ${highScore} · Best combo ${Math.max(longestCombo, combo)}x`}</ResultLine>
+        </ResultCard>
+      )}
+
       {gameState === "ready" && (
         <GameStartOverlay
           title="Math Attack"
           emoji="🔢"
           subtitle="Solve the problems before they hit the ground!"
-          touchHints={[
-            "🔢 Tap the box and type the answer",
-            "⚡ Tap the zap button to send it",
-            "❤️ Do not let a problem land",
-          ]}
-          keyboardHints={[
-            "⌨️ Type the answer with the number keys",
-            "↩️ Press Enter to send it",
-            "❤️ Do not let a problem land",
-          ]}
+          touchHints={["🔢 Tap the numbers of the answer", "⚡ Tap the yellow key to send it", "❤️ Do not let a problem land"]}
+          keyboardHints={["⌨️ Type the answer with the number keys", "↩️ Press Enter to send it", "❤️ Do not let a problem land"]}
           startLabel="🎮 Start Game!"
-          spokenChoices={`Pick how old you are: ${(
-            Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]
-          )
+          spokenChoices={`Pick how old you are: ${(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[])
             .map((diff) => DIFFICULTY_SETTINGS[diff].label)
             .join(", ")}.`}
-          onStart={handleStartGame}
+          onStart={beginRun}
         >
           {gamesPlayed > 0 && (
             <div className="text-base font-medium opacity-90">
               🏆 High Score: {highScore} · 🔥 Best Combo: {longestCombo}
-              <div className="text-sm opacity-80">
-                {totalCorrect} problems solved
-              </div>
+              <div className="text-sm opacity-80">{totalCorrect} problems solved</div>
             </div>
           )}
           <div className="text-sm font-bold opacity-80">How old are you?</div>
@@ -329,98 +394,45 @@ export function MathAttackGame() {
             ))}
           </div>
           <div className="text-xs opacity-70">
-            Operations: {diffSettings.operations.join(", ")} | Lives:{" "}
-            {diffSettings.lives}
+            Operations: {diffSettings.operations.join(", ")} | Lives: {diffSettings.lives}
           </div>
         </GameStartOverlay>
       )}
 
-      <div className="container mx-auto px-4 py-6 max-w-lg flex flex-col items-center">
-        {/* Playing Screen */}
-        {gameState === "playing" && (
-          <div className="w-full space-y-4">
-            {/* HUD */}
-            <div className="flex justify-between items-center text-lg">
-              <div>❤️ {lives}</div>
-              <div className="font-bold">Score: {score}</div>
-              {combo > 1 && (
-                <div className="text-yellow-400 animate-pulse">
-                  🔥 x{combo}
-                </div>
-              )}
-            </div>
-
-            {/* Game Canvas */}
-            <canvas
-              ref={canvasRef}
-              width={GAME.width}
-              height={GAME.height}
-              className="border-4 border-purple-500 rounded-xl mx-auto block"
-              style={{ maxWidth: "100%", height: "auto" }}
-            />
-
-            {/* Input */}
-            <div className="flex gap-2">
-              <input
-                ref={inputRef}
-                type="number"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Type answer..."
-                className="flex-1 input input-bordered input-lg text-center text-2xl bg-white/10 border-purple-500"
-                autoFocus
-              />
-              <button
-                onClick={handleSubmit}
-                className="btn btn-primary btn-lg text-xl"
-              >
-                ⚡
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Game Over Screen */}
-        {gameState === "gameOver" && (
-          <div className="text-center space-y-8 w-full">
-            <h1 className="text-5xl font-bold text-red-400">💥 Game Over!</h1>
-
-            <div className="bg-white/10 rounded-2xl p-6 space-y-4">
-              <div className="text-4xl font-bold text-yellow-400">
-                {score} points
-              </div>
-              {score >= highScore && score > 0 && (
-                <div className="text-green-400 font-bold animate-bounce">
-                  🏆 NEW HIGH SCORE!
-                </div>
-              )}
-              <div className="text-lg">
-                Best combo: {Math.max(longestCombo, combo)}x
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                reset();
-                handleStartGame();
-              }}
-              className="btn btn-primary btn-lg text-xl px-8 rounded-full"
-            >
-              🔄 Play Again
-            </button>
-
-            <button
-              onClick={reset}
-              className="btn btn-ghost text-purple-300"
-            >
-              Change Difficulty
-            </button>
-          </div>
-        )}
-      </div>
+      {/* The result chip: read it to me, Play again (the same age, no start
+          card), the leaderboard, a way back to the ages, the sound switch,
+          and with clips on the clip buttons. */}
+      {over && (
+        <ResultChip
+          resultText={gameOverText({ score, best: highScore, newBest: lastRunNewBest })}
+          appId="math-attack"
+          onRestart={() => {
+            reset();
+            beginRun();
+          }}
+          keyboardHint="Enter"
+        >
+          <button
+            type="button"
+            data-testid="math-attack-change-age"
+            onClick={reset}
+            className={`btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`}
+          >
+            <span aria-hidden="true">🎂</span>
+            Change age
+          </button>
+          <button
+            type="button"
+            data-testid="result-chip-sound"
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            onMouseDown={(event) => event.preventDefault()}
+            className={`btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation`}
+          >
+            <span aria-hidden="true">{soundEnabled ? "🔊" : "🔇"}</span>
+            {soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off}
+          </button>
+        </ResultChip>
+      )}
     </div>
   );
 }

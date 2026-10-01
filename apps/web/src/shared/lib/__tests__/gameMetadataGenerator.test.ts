@@ -66,6 +66,7 @@ describe("game metadata generator", () => {
     // dino-runner, endless-runner, flappy-bird, platformer: PR-G2 (phone UX, runners).
     // arkanoid, breakout, space-invaders: PR-G3 (phone UX, shooters).
     // blitz-bomber, bomberman, hextris: PR-G4 (phone UX, grid).
+    // math-attack: PR-G5 (phone UX, puzzle).
     expect(Object.entries(GAME_METADATA).filter(([, m]) => m.clips).map(([id]) => id)).toEqual([
       "arkanoid",
       "asteroids",
@@ -77,6 +78,7 @@ describe("game metadata generator", () => {
       "flappy-bird",
       "hextris",
       "hill-climb",
+      "math-attack",
       "platformer",
       "space-invaders",
     ]);

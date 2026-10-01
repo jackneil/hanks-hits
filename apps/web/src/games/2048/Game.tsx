@@ -1,48 +1,53 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
-import { use2048Store } from "./lib/store";
-import { getTileColors, GRID_SIZE, TIMINGS, type Direction } from "./lib/constants";
-import { useAuthSync } from "@/shared/hooks/useAuthSync";
-import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
-import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
-import { RestartConfirmationDialog } from "@/shared/components/RestartConfirmationDialog";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
+import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { ResultCard, ResultLine } from "@/shared/components/ResultCard";
+import { ResultChip } from "@/shared/components/ResultChip";
+import { RESULT_CHIP_BUTTON } from "@/shared/components/buttonStyles";
+import { useAuthSync } from "@/shared/hooks/useAuthSync";
+import { usePlayBox } from "@/shared/hooks/usePlayBox";
+import { useTouchInput } from "@/shared/hooks/useTouchInput";
 import { keyBelongsToTarget } from "@/shared/lib/keyboardTarget";
 
-// Tile component with animations
-function Tile({
-  value,
-  isNew,
-  isMerged,
-}: {
-  value: number;
-  isNew: boolean;
-  isMerged: boolean;
-}) {
-  const colors = getTileColors(value);
-  const fontSize = value >= 1000 ? "text-2xl" : value >= 100 ? "text-3xl" : "text-4xl";
+import { getTileColors, GRID_SIZE, TIMINGS, type Direction } from "./lib/constants";
+import { boardLayout, EDGE, GAP, SCORE_ROW, SIDE_COLUMN } from "./lib/layout";
+import { use2048Store } from "./lib/store";
 
+/** A swipe turns into a move once the finger has gone this far (a kid's short flick counts). */
+export const SWIPE_PX = 24;
+/** The board's padding and the gap between cells, in CSS px. */
+const BOARD_PAD = 8;
+const CELL_GAP = 8;
+
+/** The result chip's words, read out loud first. */
+export function resultText({ won, score, best }: { won: boolean; score: number; best: number }): string {
+  if (won) return `You made 2048! Your score is ${score}. Keep going for more, or play again.`;
+  return `No more moves! Your score is ${score}. Your best is ${best}.`;
+}
+
+// Tile component with animations. Only transform and opacity animate (the
+// real iPhone SE dropped frames to 56 ms during swipes with transition-all).
+function Tile({ value, isNew, isMerged, cell }: { value: number; isNew: boolean; isMerged: boolean; cell: number }) {
+  const colors = getTileColors(value);
+  const digits = String(value).length;
+  const fontSize = Math.round(cell * (digits >= 4 ? 0.3 : digits === 3 ? 0.36 : 0.45));
   return (
     <div
-      className={`
-        absolute inset-1 rounded-lg flex items-center justify-center font-bold
-        transition-all duration-150 ease-out
-        ${isNew ? "animate-spawn" : ""}
-        ${isMerged ? "animate-pop" : ""}
-      `}
-      style={{
-        backgroundColor: colors.bg,
-        color: colors.text,
-      }}
+      className={`absolute inset-0 flex items-center justify-center rounded-lg font-bold will-change-transform ${isNew ? "animate-spawn" : ""} ${
+        isMerged ? "animate-pop" : ""
+      }`}
+      style={{ backgroundColor: colors.bg, color: colors.text }}
     >
-      {value > 0 && <span className={fontSize}>{value}</span>}
+      {value > 0 && <span style={{ fontSize }}>{value}</span>}
     </div>
   );
 }
 
 // Grid component
-function Grid() {
+function Grid({ size }: { size: number }) {
   const grid = use2048Store((s) => s.grid);
   const newTilePosition = use2048Store((s) => s.newTilePosition);
   const mergedPositions = use2048Store((s) => s.mergedPositions);
@@ -51,41 +56,26 @@ function Grid() {
   // Clear animation state after animations complete
   useEffect(() => {
     if (newTilePosition || mergedPositions.length > 0) {
-      const timer = setTimeout(() => {
-        clearAnimationState();
-      }, TIMINGS.MERGE_POP);
+      const timer = setTimeout(() => clearAnimationState(), TIMINGS.MERGE_POP);
       return () => clearTimeout(timer);
     }
   }, [newTilePosition, mergedPositions, clearAnimationState]);
 
-  const isMerged = (row: number, col: number) =>
-    mergedPositions.some((p) => p.row === row && p.col === col);
-
-  const isNew = (row: number, col: number) =>
-    newTilePosition?.row === row && newTilePosition?.col === col;
+  const isMerged = (row: number, col: number) => mergedPositions.some((p) => p.row === row && p.col === col);
+  const isNew = (row: number, col: number) => newTilePosition?.row === row && newTilePosition?.col === col;
+  const cell = (size - 2 * BOARD_PAD - (GRID_SIZE - 1) * CELL_GAP) / GRID_SIZE;
 
   return (
-    <div className="relative bg-[#bbada0] rounded-lg p-2 w-full max-w-[400px] aspect-square">
-      {/* Background grid cells */}
-      <div className="grid grid-cols-4 gap-2 w-full h-full">
-        {Array.from({ length: GRID_SIZE * GRID_SIZE }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-[rgba(238,228,218,0.35)] rounded-lg"
-          />
-        ))}
-      </div>
-
-      {/* Tiles layer */}
-      <div className="absolute inset-2 grid grid-cols-4 gap-2">
+    <div
+      data-testid="game-2048-board"
+      className="relative shrink-0 rounded-lg bg-[#bbada0]"
+      style={{ width: size, height: size, padding: BOARD_PAD }}
+    >
+      <div className="grid h-full w-full grid-cols-4" style={{ gap: CELL_GAP }}>
         {grid.map((row, rowIndex) =>
           row.map((value, colIndex) => (
-            <div key={`${rowIndex}-${colIndex}`} className="relative">
-              <Tile
-                value={value}
-                isNew={isNew(rowIndex, colIndex)}
-                isMerged={isMerged(rowIndex, colIndex)}
-              />
+            <div key={`${rowIndex}-${colIndex}`} className="relative rounded-lg bg-[rgba(238,228,218,0.35)]">
+              <Tile value={value} isNew={isNew(rowIndex, colIndex)} isMerged={isMerged(rowIndex, colIndex)} cell={cell} />
             </div>
           ))
         )}
@@ -94,272 +84,62 @@ function Grid() {
   );
 }
 
-// Score display
-function ScoreBoard() {
+// The score, the best and Undo: a row over the board upright, a column beside it sideways.
+function ScorePanel({ column }: { column: boolean }) {
   const score = use2048Store((s) => s.score);
   const highScore = use2048Store((s) => s.highScore);
-
-  return (
-    <div className="flex gap-4 justify-center mb-4">
-      <div className="bg-[#655c52] rounded-lg px-6 py-3 text-center min-w-[100px]">
-        <div className="text-[#eee4da] text-xs uppercase font-bold">Score</div>
-        <div className="text-white text-2xl font-bold">{score}</div>
-      </div>
-      <div className="bg-[#655c52] rounded-lg px-6 py-3 text-center min-w-[100px]">
-        <div className="text-[#eee4da] text-xs uppercase font-bold">Best</div>
-        <div className="text-white text-2xl font-bold">{highScore}</div>
-      </div>
-    </div>
-  );
-}
-
-// Controls
-function Controls({ onNewGame, restartTriggerRef }: { onNewGame: () => void; restartTriggerRef: React.RefObject<HTMLButtonElement | null> }) {
-  const newGame = onNewGame;
   const undo = use2048Store((s) => s.undo);
   const canUndo = use2048Store((s) => s.canUndo);
-
+  const box = "rounded-lg bg-[#655c52] px-3 py-1 text-center";
   return (
-    <div className="flex gap-4 justify-center mt-4">
+    <div
+      data-testid="game-2048-score"
+      className={`flex shrink-0 gap-2 ${column ? "flex-col items-stretch justify-center" : "items-center justify-center"}`}
+      style={column ? { width: SIDE_COLUMN } : { height: SCORE_ROW }}
+    >
+      <div className={box}>
+        <div className="text-xs font-bold uppercase text-[#eee4da]">Score</div>
+        <div className="text-xl font-bold text-white">{score}</div>
+      </div>
+      <div className={box}>
+        <div className="text-xs font-bold uppercase text-[#eee4da]">Best</div>
+        <div className="text-xl font-bold text-white">{highScore}</div>
+      </div>
       <button
+        type="button"
         onClick={undo}
         disabled={!canUndo}
-        className={`
-          px-6 py-3 rounded-lg font-bold text-white text-lg
-          min-w-[100px] min-h-[50px]
-          transition-all duration-150
-          ${canUndo
-            ? "bg-[#8f7a66] hover:bg-[#7a6658] active:scale-95 shadow-md"
-            : "bg-[#8f7a66] opacity-40 cursor-not-allowed"
-          }
-        `}
+        className="min-h-11 rounded-lg bg-[#8f7a66] px-4 font-bold text-white shadow-md active:scale-95 disabled:opacity-40 touch-manipulation"
       >
-        Undo
-      </button>
-      <button
-        ref={restartTriggerRef}
-        onClick={newGame}
-        className="px-6 py-3 rounded-lg font-bold text-white text-lg bg-[#8f7a66] hover:bg-[#7a6658] active:scale-95 transition-all duration-150 min-w-[120px] min-h-[50px]"
-      >
-        New Game
+        ↶ Undo
       </button>
     </div>
   );
-}
-
-// Game Over overlay
-function GameOverOverlay({ onNewGame }: { onNewGame: () => void }) {
-  const status = use2048Store((s) => s.status);
-  const newGame = onNewGame;
-
-  if (status !== "game-over") return null;
-
-  return (
-    <div className="absolute inset-0 bg-[rgba(238,228,218,0.73)] rounded-lg flex flex-col items-center justify-center z-10">
-      <div className="text-5xl font-bold text-[#776e65] mb-4">Game Over!</div>
-      <button
-        onClick={newGame}
-        className="px-8 py-4 rounded-lg font-bold text-white text-xl bg-[#8f7a66] hover:bg-[#7a6658] active:scale-95 transition-all duration-150"
-      >
-        Try Again
-      </button>
-    </div>
-  );
-}
-
-// Win overlay
-function WinOverlay({ onNewGame }: { onNewGame: () => void }) {
-  const status = use2048Store((s) => s.status);
-  const keepPlaying = use2048Store((s) => s.keepPlaying);
-  const continueAfterWin = use2048Store((s) => s.continueAfterWin);
-  const newGame = onNewGame;
-
-  if (status !== "won" || keepPlaying) return null;
-
-  return (
-    <div className="absolute inset-0 bg-[rgba(237,194,46,0.5)] rounded-lg flex flex-col items-center justify-center z-10">
-      <div className="text-5xl font-bold text-white mb-2 drop-shadow-lg">You Win!</div>
-      <div className="text-xl text-white mb-6 drop-shadow">You reached 2048!</div>
-      <div className="flex gap-4">
-        <button
-          onClick={continueAfterWin}
-          className="px-6 py-3 rounded-lg font-bold text-white text-lg bg-[#8f7a66] hover:bg-[#7a6658] active:scale-95 transition-all duration-150"
-        >
-          Keep Going
-        </button>
-        <button
-          onClick={newGame}
-          className="px-6 py-3 rounded-lg font-bold text-[#776e65] text-lg bg-white hover:bg-gray-100 active:scale-95 transition-all duration-150"
-        >
-          New Game
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// Hook for keyboard controls
-function useKeyboardControls(onNewGame: () => void, enabled: boolean) {
-  const move = use2048Store((s) => s.move);
-  const undo = use2048Store((s) => s.undo);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-    // A focused button or link owns its own Space and Enter: never swallow them.
-    if (keyBelongsToTarget(e)) return;
-      // Nothing responds to keys before the player presses Play.
-      if (!enabled) return;
-
-      // Ignore if modifier keys are pressed (except for undo)
-      if (e.metaKey || e.altKey) return;
-
-      // Undo with Z or Ctrl+Z
-      if (e.key === "z" || e.key === "Z") {
-        e.preventDefault();
-        undo();
-        return;
-      }
-
-      // New game with N
-      if (e.key === "n" || e.key === "N") {
-        e.preventDefault();
-        onNewGame();
-        return;
-      }
-
-      // Arrow keys and WASD for movement
-      let direction: Direction | null = null;
-
-      switch (e.key) {
-        case "ArrowUp":
-        case "w":
-        case "W":
-          direction = "up";
-          break;
-        case "ArrowDown":
-        case "s":
-        case "S":
-          direction = "down";
-          break;
-        case "ArrowLeft":
-        case "a":
-        case "A":
-          direction = "left";
-          break;
-        case "ArrowRight":
-        case "d":
-        case "D":
-          direction = "right";
-          break;
-      }
-
-      if (direction) {
-        e.preventDefault();
-        move(direction);
-      }
-    },
-    [enabled, move, undo, onNewGame]
-  );
-
-  useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
-}
-
-// Hook for swipe controls
-function useSwipeControls(
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  enabled: boolean
-) {
-  const move = use2048Store((s) => s.move);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-
-  const handleTouchStart = useCallback(
-    (e: TouchEvent) => {
-      // Swipes do nothing before the player presses Play.
-      if (!enabled) return;
-      const touch = e.touches[0];
-      touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-    },
-    [enabled]
-  );
-
-  const handleTouchEnd = useCallback(
-    (e: TouchEvent) => {
-      if (!enabled) return;
-      if (!touchStartRef.current) return;
-
-      const touch = e.changedTouches[0];
-      const deltaX = touch.clientX - touchStartRef.current.x;
-      const deltaY = touch.clientY - touchStartRef.current.y;
-
-      const minSwipeDistance = 30;
-      const absDeltaX = Math.abs(deltaX);
-      const absDeltaY = Math.abs(deltaY);
-
-      // Need minimum swipe distance
-      if (Math.max(absDeltaX, absDeltaY) < minSwipeDistance) {
-        touchStartRef.current = null;
-        return;
-      }
-
-      let direction: Direction;
-
-      if (absDeltaX > absDeltaY) {
-        // Horizontal swipe
-        direction = deltaX > 0 ? "right" : "left";
-      } else {
-        // Vertical swipe
-        direction = deltaY > 0 ? "down" : "up";
-      }
-
-      move(direction);
-      touchStartRef.current = null;
-    },
-    [enabled, move]
-  );
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    container.addEventListener("touchstart", handleTouchStart, { passive: true });
-    container.addEventListener("touchend", handleTouchEnd, { passive: true });
-
-    return () => {
-      container.removeEventListener("touchstart", handleTouchStart);
-      container.removeEventListener("touchend", handleTouchEnd);
-    };
-  }, [containerRef, handleTouchStart, handleTouchEnd]);
 }
 
 // Main Game component
 export function Game2048() {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const store = use2048Store();
-  const { status } = store;
-  const [isRestartConfirmationOpen, setIsRestartConfirmationOpen] = useState(false);
-  const restartTriggerRef = useRef<HTMLButtonElement>(null);
-  const requestNewGame = useCallback(() => setIsRestartConfirmationOpen(true), []);
-  const confirmNewGame = useCallback(() => {
-    setIsRestartConfirmationOpen(false);
-    store.newGame();
-  }, [store]);
-  // Touch viewports must not see keyboard-only copy (2026-07-10 audit)
-  const isCoarse = useCoarsePointer();
+  const { status, keepPlaying } = store;
+  const move = use2048Store((s) => s.move);
+  const undo = use2048Store((s) => s.undo);
+  const newGame = use2048Store((s) => s.newGame);
+  const continueAfterWin = use2048Store((s) => s.continueAfterWin);
 
   // The board is live from mount, so a local gate gives the player a real
   // start moment. The header restart keeps its own behavior and does not
   // bring the start card back.
   const [hasStarted, setHasStarted] = useState(false);
 
-  // Set up controls (dead until the player presses Play)
-  useKeyboardControls(requestNewGame, hasStarted);
-  useSwipeControls(containerRef, hasStarted);
+  const box = usePlayBox({ fit: true });
+  const layout = boardLayout(box);
+
+  const over = status === "game-over";
+  const wonCard = status === "won" && !keepPlaying;
 
   // Sync with auth system
-  const { isAuthenticated, syncStatus, forceSync } = useAuthSync({
+  const { forceSync } = useAuthSync({
     appId: "2048",
     localStorageKey: "2048-game-state",
     getState: () => store.getProgress(),
@@ -369,112 +149,147 @@ export function Game2048() {
 
   // Force save immediately on game end (won or game-over)
   useEffect(() => {
-    if (status === "won" || status === "game-over") {
-      forceSync();
-    }
+    if (status === "won" || status === "game-over") forceSync();
   }, [status, forceSync]);
 
+  // Keys: arrows or WASD slide, Z undoes, N is a new game at a result (the
+  // header's restart asks first in the middle of a game).
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      // A focused button or link owns its own Space and Enter: never swallow them.
+      if (keyBelongsToTarget(e)) return;
+      if (!hasStarted || e.metaKey || e.altKey) return;
+      const state = use2048Store.getState();
+      if (e.key === "z" || e.key === "Z") {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if ((e.key === "n" || e.key === "N") && (state.status === "game-over" || (state.status === "won" && !state.keepPlaying))) {
+        e.preventDefault();
+        newGame();
+        return;
+      }
+      const direction: Direction | null =
+        e.key === "ArrowUp" || e.key === "w" || e.key === "W"
+          ? "up"
+          : e.key === "ArrowDown" || e.key === "s" || e.key === "S"
+            ? "down"
+            : e.key === "ArrowLeft" || e.key === "a" || e.key === "A"
+              ? "left"
+              : e.key === "ArrowRight" || e.key === "d" || e.key === "D"
+                ? "right"
+                : null;
+      if (direction) {
+        e.preventDefault();
+        move(direction);
+      }
+    },
+    [hasStarted, move, undo, newGame]
+  );
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
+  // A swipe anywhere in the play box slides the tiles, once the finger has
+  // gone SWIPE_PX (on the move, not on the lift, so it feels instant). The
+  // listener is native and not passive, so the page never scrolls under a
+  // swipe (a swipe from the scoreboard scrolled 74 to 129 px). Buttons keep
+  // their own taps.
+  useTouchInput<"used">(
+    rootRef,
+    {
+      onMove: (touch) => {
+        if (!hasStarted || touch.tag === "used") return;
+        const dx = touch.x - touch.startX;
+        const dy = touch.y - touch.startY;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) return;
+        touch.tag = "used";
+        move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : dy > 0 ? "down" : "up");
+      },
+    },
+    { ignore: "button" }
+  );
+
   return (
-    <div className="min-h-full bg-[#faf8ef] p-4 flex flex-col items-center justify-center">
+    <div
+      ref={rootRef}
+      data-testid="game-2048-root"
+      data-layout={layout.sideways ? "sideways" : "upright"}
+      className={`relative flex h-full w-full items-center justify-center bg-[#faf8ef] touch-none select-none ${
+        layout.sideways ? "flex-row" : "flex-col"
+      }`}
+      style={{ padding: EDGE, gap: GAP }}
+    >
       {/* iOS install prompt */}
       <IOSInstallPrompt />
 
-
-      {/* Inline styles for animations */}
+      {/* Inline styles for animations (transform and opacity only) */}
       <style>{`
         @keyframes spawn {
-          0% {
-            transform: scale(0);
-            opacity: 0;
-          }
-          100% {
-            transform: scale(1);
-            opacity: 1;
-          }
+          0% { transform: scale(0); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
         }
-
         @keyframes pop {
-          0% {
-            transform: scale(1);
-          }
-          50% {
-            transform: scale(1.15);
-          }
-          100% {
-            transform: scale(1);
-          }
+          0% { transform: scale(1); }
+          50% { transform: scale(1.15); }
+          100% { transform: scale(1); }
         }
-
-        .animate-spawn {
-          animation: spawn ${TIMINGS.SPAWN}ms ease-out forwards;
-        }
-
-        .animate-pop {
-          animation: pop ${TIMINGS.MERGE_POP}ms ease-out forwards;
-        }
+        .animate-spawn { animation: spawn ${TIMINGS.SPAWN}ms ease-out forwards; }
+        .animate-pop { animation: pop ${TIMINGS.MERGE_POP}ms ease-out forwards; }
       `}</style>
 
-      <ScoreBoard />
+      <ScorePanel column={layout.sideways} />
+      <Grid size={layout.board} />
 
-      <div
-        ref={containerRef}
-        data-testid="game-2048-board-wrapper"
-        className="relative w-full max-w-[400px] touch-none select-none"
-      >
-        <Grid />
-        <GameOverOverlay onNewGame={requestNewGame} />
-        <WinOverlay onNewGame={requestNewGame} />
+      {/* Shared DOM start screen (renders the title once) */}
+      {!hasStarted && (
+        <GameStartOverlay
+          title="2048"
+          emoji="🔢"
+          subtitle="Slide the tiles and add them up!"
+          touchHints={["👈👉 Swipe to slide the tiles", "✨ Two of the same number join up"]}
+          keyboardHints={["⬅️➡️ Arrow keys slide the tiles", "✨ Two of the same number join up"]}
+          onStart={() => setHasStarted(true)}
+        >
+          <div className="text-base font-medium opacity-90">🏆 Best: {store.progress.highScore}</div>
+        </GameStartOverlay>
+      )}
 
-        {/* Shared DOM start screen (renders the title once) */}
-        {!hasStarted && (
-          <GameStartOverlay
-            title="2048"
-            emoji="🔢"
-            subtitle="Slide the tiles and add them up!"
-            touchHints={[
-              "👈👉 Swipe to slide the tiles",
-              "✨ Two of the same number join up",
-            ]}
-            keyboardHints={[
-              "⬅️➡️ Arrow keys slide the tiles",
-              "✨ Two of the same number join up",
-            ]}
-            onStart={() => setHasStarted(true)}
-          >
-            <div className="text-base font-medium opacity-90">
-              🏆 Best: {store.progress.highScore}
-            </div>
-          </GameStartOverlay>
-        )}
-      </div>
+      {over && (
+        <ResultCard testId="game-2048-result-card" title="No more moves!">
+          <ResultLine big>Score {store.score}</ResultLine>
+          <ResultLine>Best {store.highScore}</ResultLine>
+        </ResultCard>
+      )}
+      {wonCard && (
+        <ResultCard testId="game-2048-result-card" title="🎉 You made 2048!">
+          <ResultLine big>Score {store.score}</ResultLine>
+        </ResultCard>
+      )}
 
-      <Controls onNewGame={requestNewGame} restartTriggerRef={restartTriggerRef} />
-
-      <RestartConfirmationDialog
-        isOpen={isRestartConfirmationOpen}
-        gameName="2048"
-        message="Start a new 2048 game? Your current board will be lost."
-        triggerRef={restartTriggerRef}
-        onCancel={() => setIsRestartConfirmationOpen(false)}
-        onConfirm={confirmNewGame}
-      />
-
-      <div className="mt-6 text-center text-[#776e65] text-sm max-w-[400px]">
-        {!isCoarse && (
-          <p className="mb-2">
-            <strong>Desktop:</strong> Arrow keys or WASD to move
-          </p>
-        )}
-        <p>
-          <strong>Mobile:</strong> Swipe to move tiles
-        </p>
-      </div>
-
-      {/* Sync status indicator */}
-      {isAuthenticated && (
-        <div className="fixed bottom-2 right-2 text-xs text-[#bbada0]">
-          {syncStatus === "syncing" ? "Saving..." : syncStatus === "synced" ? "Saved" : ""}
-        </div>
+      {/* The result chip: read it to me, Play again (a new board at once:
+          the game is over), the leaderboard; after 2048, Keep going first. */}
+      {(over || wonCard) && (
+        <ResultChip
+          resultText={resultText({ won: wonCard, score: store.score, best: store.highScore })}
+          appId="2048"
+          onRestart={newGame}
+          keyboardHint="N"
+        >
+          {wonCard && (
+            <button
+              type="button"
+              data-testid="game-2048-keep-going"
+              onClick={continueAfterWin}
+              className={`btn btn-primary gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} active:scale-[0.97] touch-manipulation`}
+            >
+              <span aria-hidden="true">▶</span>
+              Keep going
+            </button>
+          )}
+        </ResultChip>
       )}
     </div>
   );

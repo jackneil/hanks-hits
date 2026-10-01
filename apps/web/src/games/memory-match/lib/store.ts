@@ -10,6 +10,7 @@ import {
   createCards,
   calculateStars,
 } from "./constants";
+import { playSound } from "./sounds";
 
 // Progress that gets saved to database
 // Index signature required for AppProgressData compatibility
@@ -136,6 +137,7 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
         const isPlaying = true;
 
         // Flip the card
+        playSound("flip");
         const newCards = [...state.cards];
         newCards[cardIndex] = { ...card, isFlipped: true };
         const newFlippedCards = [...state.flippedCards, cardIndex];
@@ -172,6 +174,7 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
               const totalPairs = DIFFICULTIES[currentState.difficulty].pairs;
               const isWon = newMatchedPairs >= totalPairs;
 
+              playSound(isWon ? "win" : "match");
               if (isWon) {
                 const timeEnded = Date.now();
                 const elapsedTime = timeEnded - (currentState.timeStarted ?? timeEnded);
@@ -228,6 +231,7 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
             }, TIMING.MATCH_CELEBRATION_MS);
           } else {
             // No match - flip cards back after delay
+            playSound("miss");
             setTimeout(() => {
               const currentState = get();
               const resetCards = [...currentState.cards];

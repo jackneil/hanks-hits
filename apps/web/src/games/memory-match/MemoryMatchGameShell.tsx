@@ -11,6 +11,22 @@ import { GameShell } from "@/shared/components";
 import { MemoryMatchGame } from "./Game";
 import { useMemoryMatchStore } from "./lib/store";
 
+/** The look of a pause-menu button (PauseMenu's own MENU_BUTTON). */
+const MENU_BUTTON =
+  "btn btn-lg text-xl gap-3 shadow-lg hover:scale-105 transition-transform w-full short:h-11 short:min-h-11 short:text-lg";
+
+/** The sound switch lives in the pause menu (and on the result chip), not over a card. */
+function MemoryMatchPauseSettings() {
+  const soundEnabled = useMemoryMatchStore((s) => s.progress.soundEnabled);
+  const toggleSound = useMemoryMatchStore((s) => s.toggleSound);
+  return (
+    <button type="button" onClick={toggleSound} className={MENU_BUTTON}>
+      <span className="text-2xl" aria-hidden="true">{soundEnabled ? "🔊" : "🔇"}</span>
+      {soundEnabled ? "Sound on" : "Sound off"}
+    </button>
+  );
+}
+
 export function MemoryMatchGameShell() {
   const isPlaying = useMemoryMatchStore((s) => s.isPlaying);
   const isWon = useMemoryMatchStore((s) => s.isWon);
@@ -32,6 +48,7 @@ export function MemoryMatchGameShell() {
       onRestart={newGame}
       onPause={pauseTimer}
       onResume={resumeTimer}
+      pauseMenuChildren={<MemoryMatchPauseSettings />}
     >
       <MemoryMatchGame />
     </GameShell>

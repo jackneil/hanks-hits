@@ -6,4 +6,5 @@ export const metadata: GameMetadata = {
   emoji: "🔢",
   category: "arcade",
   description: "Solve math problems before they hit the ground",
+  clips: true,
 };

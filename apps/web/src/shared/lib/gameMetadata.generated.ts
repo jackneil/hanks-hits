@@ -182,7 +182,7 @@ export const GAME_METADATA: Record<string, GameMetadata> = {
     description: "Solve math problems before they hit the ground",
     category: "arcade",
     madeByKid: false,
-    clips: false,
+    clips: true,
   },
   "memory-match": {
     name: "Memory Match",
