@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
@@ -21,7 +21,7 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
 });
 
-import { Trivia } from "../Trivia";
+import { Trivia, quizResultText } from "../Trivia";
 import { useTriviaStore } from "../lib/store";
 import { DIFFICULTY_SETTINGS } from "../lib/constants";
 import { mockPointer } from "@/__tests__/pointer-mock";
@@ -89,15 +89,12 @@ describe("trivia start overlay", () => {
     render(<Trivia />);
 
     const target = "12yo";
-    const button = screen.getByRole("button", {
-      name: new RegExp(target, "i"),
-    });
-    fireEvent.click(button);
+    // The choice reads as words ("12 years old"), not the key ("12yo").
+    const name = new RegExp(DIFFICULTY_SETTINGS[target].label, "i");
+    fireEvent.click(screen.getByRole("button", { name }));
 
     expect(useTriviaStore.getState().settings.difficulty).toBe(target);
-    expect(
-      screen.getByRole("button", { name: new RegExp(target, "i") })
-    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("shows a kid-friendly message when the questions fail to load, and Play works again", () => {
@@ -243,18 +240,40 @@ describe("trivia clock under the shell's hold", () => {
     fireEvent.click(screen.getByRole("button", { name: /start quiz/i }));
     expect(useTriviaStore.getState().gameState).toBe("playing");
     const timerSec = DIFFICULTY_SETTINGS[useTriviaStore.getState().settings.difficulty].timerSec;
-    expect(screen.getByText(`${timerSec}s`)).toBeInTheDocument();
+    const clock = () => screen.getByLabelText(/seconds left/).textContent;
+    expect(clock()).toBe(`⏱ ${timerSec}s`);
 
     rerender(<Quiz held />);
     act(() => {
       vi.advanceTimersByTime(5_000);
     });
-    expect(screen.getByText(`${timerSec}s`)).toBeInTheDocument();
+    expect(clock()).toBe(`⏱ ${timerSec}s`);
 
     rerender(<Quiz held={false} />);
     act(() => {
       vi.advanceTimersByTime(2_000);
     });
-    expect(screen.getByText(`${timerSec - 2}s`)).toBeInTheDocument();
+    expect(clock()).toBe(`⏱ ${timerSec - 2}s`);
+  });
+});
+
+describe("trivia result on a phone", () => {
+  it("ends on the shared result chip, and Play again is a new quiz at once, with no start card", () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000_000);
+    render(<Trivia />);
+    fireEvent.click(screen.getByRole("button", { name: /start quiz/i }));
+    act(() => useTriviaStore.setState({ gameState: "finished", currentScore: 30 }));
+    const chip = screen.getByTestId("result-chip");
+    now.mockReturnValue(1_000_000 + 2_000);
+    fireEvent.click(within(chip).getByRole("button", { name: /play again/i }));
+    expect(useTriviaStore.getState().gameState).toBe("playing");
+    expect(screen.queryByTestId("game-start-overlay")).toBeNull();
+    expect(screen.getByTestId("trivia-answers")).toBeInTheDocument();
+  });
+
+  it("says the result in whole sentences", () => {
+    expect(quizResultText({ score: 30, answered: 10, newBest: true })).toBe(
+      "Quiz complete! You got 30 points in 10 questions. That is a new high score!"
+    );
   });
 });
