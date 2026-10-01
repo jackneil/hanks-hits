@@ -21,7 +21,7 @@ import {
 import { getGameAudio, getGameAudioTapPoint } from "@/shared/lib/audio";
 import { DEFAULT_RESTART_GRACE_MS } from "@/shared/lib/input";
 
-import { MemoryMatchGame, winText } from "../Game";
+import { MemoryMatchGame, movesText, winText } from "../Game";
 import { DIFFICULTIES, type Difficulty } from "../lib/constants";
 import { CARD_GAP, EDGE, GAP, STATS_COLUMN, STATS_ROW, memoryLayout } from "../lib/layout";
 import { playSound, releaseSounds, type MemoryMatchSound } from "../lib/sounds";
@@ -132,6 +132,12 @@ describe("Memory Match on screen", () => {
     expect(useMemoryMatchStore.getState().currentTime).toBeGreaterThan(0);
     expect(made.mock.calls.filter(([, ms]) => ms === 100).length).toBe(clocksAtStart);
     expect(keys.mock.calls.filter(([type]) => type === "keydown").length).toBe(keyHandlersAtStart);
+  });
+
+  it("counts one move as 1 move, not 1 moves", () => {
+    expect(movesText(1)).toBe("1 move");
+    expect(movesText(0)).toBe("0 moves");
+    expect(movesText(12)).toBe("12 moves");
   });
 
   it("says the win in whole sentences", () => {

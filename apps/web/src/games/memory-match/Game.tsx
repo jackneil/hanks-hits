@@ -141,7 +141,7 @@ function StatsBar({
     >
       <div className={pill}>
         <span className="text-amber-400">&#128064;</span>
-        <span>{moves} moves</span>
+        <span>{movesText(moves)}</span>
       </div>
       <div className={pill}>
         <span className="text-blue-400">&#9203;</span>
@@ -202,9 +202,14 @@ function ThemePicker({
 }
 
 /** The result chip's words, read out loud first. */
+/** "1 move", "2 moves": the counter said "1 moves" after the first turn. */
+export function movesText(moves: number): string {
+  return moves === 1 ? "1 move" : `${moves} moves`;
+}
+
 export function winText({ moves, time, stars, newBest }: { moves: number; time: number; stars: number; newBest: boolean }): string {
   const starWords = stars === 1 ? "1 star" : `${stars} stars`;
-  return `You won! ${moves} moves in ${formatTime(time)}. You got ${starWords}.${newBest ? " That is a new best time!" : ""}`;
+  return `You won! ${movesText(moves)} in ${formatTime(time)}. You got ${starWords}.${newBest ? " That is a new best time!" : ""}`;
 }
 
 // Main game component
@@ -399,7 +404,7 @@ export function MemoryMatchGame() {
       {store.isWon && (
         <ResultCard testId="memory-result-card" title="🎉 You won!">
           <ResultLine big>
-            {store.moves} moves · {formatTime(store.currentTime)}
+            {movesText(store.moves)} · {formatTime(store.currentTime)}
           </ResultLine>
           <ResultLine>
             {"⭐".repeat(stars)}
