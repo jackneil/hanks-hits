@@ -70,9 +70,7 @@ describe("drum-machine mobile layout", () => {
     mockPointer(true);
     render(<DrumMachine />);
 
-    expect(
-      screen.getByText("Tap the pads to play the drums!")
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Tap the pads to play\./)).toBeInTheDocument();
     expect(screen.queryByText(/Space = Play\/Stop/)).not.toBeInTheDocument();
   });
 
@@ -83,13 +81,19 @@ describe("drum-machine mobile layout", () => {
     expect(screen.getByText(/Space = Play\/Stop/)).toBeInTheDocument();
   });
 
-  it("docks the transport controls so Play never falls below the phone fold", () => {
-    // Regression: in sequencer view the Play button rendered at y=845 on an
-    // 844px viewport — reachable only by discovering scroll.
+  it("docks the transport controls so Play never falls below the phone fold, and never on the pads", () => {
+    // Regressions: in sequencer view the Play button rendered at y=845 on an
+    // 844px viewport, reachable only by discovering scroll; then a sticky
+    // dock sat on the pads sideways, so a tap on Kick hit Stop. The
+    // transport is now its own row of the h-full layout, outside the part
+    // that scrolls.
     render(<DrumMachine />);
-    const play = screen.getByRole("button", { name: "▶" });
-    expect(play.parentElement?.className).toContain("sticky");
-    expect(play.parentElement?.className).toContain("bottom-0");
+    const play = screen.getByRole("button", { name: "Play" });
+    const transport = screen.getByTestId("drum-transport");
+    expect(transport.contains(play)).toBe(true);
+    expect(screen.getByTestId("drum-main").contains(transport)).toBe(false);
+    expect(transport.className).not.toContain("sticky");
+    expect(screen.getByTestId("drum-root")).toHaveClass("h-full");
   });
 });
 
