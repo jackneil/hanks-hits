@@ -110,3 +110,22 @@ describe("Snake touch input", () => {
     expect(screen.getByText(/Use WASD or Arrow Keys/)).toBeInTheDocument();
   });
 });
+
+describe("Snake keys", () => {
+  it("keeps one key listener while the snake moves (it was re-added on every step)", () => {
+    act(() => setPlaying("buttons"));
+    const added = vi.spyOn(window, "addEventListener");
+    const keydowns = () => added.mock.calls.filter(([type]) => type === "keydown").length;
+    render(<SnakeGame />);
+    const atStart = keydowns();
+    act(() => useSnakeStore.getState().tick());
+    act(() => useSnakeStore.getState().tick());
+    expect(keydowns()).toBe(atStart);
+    // The listener reads the store when a key goes down, so it still turns.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
+    });
+    expect(useSnakeStore.getState().nextDirection).toBe("up");
+    added.mockRestore();
+  });
+});

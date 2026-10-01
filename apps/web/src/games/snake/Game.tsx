@@ -259,14 +259,17 @@ export function SnakeGame() {
   // is still pressing keys at the crash sees the result first.
   const grace = useRestartGrace(undefined, status);
 
-  // Keyboard controls
+  // Keyboard controls. The handler reads the store when a key goes down:
+  // `store` is the whole state, new after every set, so depending on it took
+  // the listener off and put it back on every step of the snake.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // A focused button or link owns its own Space and Enter: never swallow them.
       if (keyBelongsToTarget(e)) return;
+      const game = useSnakeStore.getState();
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
-      if (status === "idle") return;
+      if (game.status === "idle") return;
       // Prevent default for arrow keys to avoid scrolling
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
         e.preventDefault();
@@ -276,30 +279,30 @@ export function SnakeGame() {
         case "ArrowUp":
         case "w":
         case "W":
-          setDirection("up");
+          game.setDirection("up");
           break;
         case "ArrowDown":
         case "s":
         case "S":
-          setDirection("down");
+          game.setDirection("down");
           break;
         case "ArrowLeft":
         case "a":
         case "A":
-          setDirection("left");
+          game.setDirection("left");
           break;
         case "ArrowRight":
         case "d":
         case "D":
-          setDirection("right");
+          game.setDirection("right");
           break;
         case " ":
         case "r":
         case "R":
           // Pause is owned by the GameShell (ESC + pause button). Space and R
           // restart from the game-over screen only, after the result grace.
-          if (status === "game-over" && grace.accept(e)) {
-            store.startGame();
+          if (game.status === "game-over" && grace.accept(e)) {
+            game.startGame();
           }
           break;
       }
@@ -307,7 +310,7 @@ export function SnakeGame() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [setDirection, status, store, grace]);
+  }, [grace]);
 
   // The game loop: one shared fixed-step loop, one step per snake move. It
   // is pause-aware and re-seeds its clock after a hidden tab, so no moves
