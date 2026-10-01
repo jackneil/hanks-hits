@@ -62,7 +62,11 @@ export default function RootLayout({
       {/* dvh, not vh (screen): on an iPhone 100vh is the height with the
           Safari toolbars hidden, so a 100vh body scrolled on every page
           while the toolbars showed. dvh is the real screen either way. */}
-      <body className={`${nunito.className} antialiased min-h-dvh bg-base-100`}>
+      {/* bg-slate-950, the colour of <html> and the header bar: Safari on
+          iOS 26+ fills the band under its bottom toolbar from <body>, and
+          the theme's white (bg-base-100) showed a white band under every
+          game in play on a real iPhone SE (2026-10-01). */}
+      <body className={`${nunito.className} antialiased min-h-dvh bg-slate-950`}>
         <AuthProvider>
           {children}
           {/* Trophy Case: global unlock celebrations + achievements cloud sync */}
