@@ -98,6 +98,25 @@ describe("the Asteroids game loop", () => {
     expect(calls.n, "game over: no game time passes").toBe(inPlay + 60);
   });
 
+  it("keeps one key listener through a round (it was re-added on every frame)", () => {
+    const added = vi.spyOn(window, "addEventListener");
+    const keydowns = () => added.mock.calls.filter(([type]) => type === "keydown").length;
+    render(<AsteroidsGame />);
+    act(() => useAsteroidsStore.getState().startGame());
+    act(() => {
+      raf.nextFrame(60);
+    });
+    const atStart = keydowns();
+    raf.runFor(500, 60, act);
+    expect(keydowns()).toBe(atStart);
+    // The listener reads the store when a key goes down, so it still steers.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowLeft" }));
+    });
+    expect(useAsteroidsStore.getState().rotatingLeft).toBe(true);
+    added.mockRestore();
+  });
+
   it("lets go of a held input when the round stops, so the next round starts still", () => {
     render(<AsteroidsGame />);
     act(() => useAsteroidsStore.getState().startGame());

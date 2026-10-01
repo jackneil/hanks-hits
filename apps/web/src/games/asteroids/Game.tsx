@@ -49,8 +49,10 @@ function useCanvasRenderer(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   isCoarse: boolean
 ) {
-  const store = useAsteroidsStore();
-
+  // render reads the store when it draws (getState), never a snapshot from
+  // the last React render: the loop calls it right after its steps, so a
+  // snapshot drew the picture a frame or more behind the game, and `store`
+  // (the whole state, new after every set) re-made render on every set.
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -60,7 +62,7 @@ function useCanvasRenderer(
 
     const copy = getOverlayCopy(isCoarse);
 
-    const { ship, bullets, asteroids, ufo, particles, score, lives, wave, status } = store;
+    const { ship, bullets, asteroids, ufo, particles, score, lives, wave, status } = useAsteroidsStore.getState();
 
     // Clear canvas
     ctx.fillStyle = COLORS.BACKGROUND;
@@ -229,7 +231,7 @@ function useCanvasRenderer(
       ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     }
-  }, [canvasRef, store, isCoarse]);
+  }, [canvasRef, isCoarse]);
 
   return render;
 }
@@ -348,31 +350,34 @@ export function AsteroidsGame() {
   // the run ends sees the card first.
   const grace = useRestartGrace(DEFAULT_RESTART_GRACE_MS, store.status);
 
-  // Keyboard controls
+  // Keyboard controls. The handlers read the store when a key goes down:
+  // `store` is the whole state, new after every set, so depending on it took
+  // the listeners off and put them back on every frame of play.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const game = useAsteroidsStore.getState();
       // A focused button or link owns its own Space and Enter: never swallow them.
       if (keyBelongsToTarget(e)) return;
       // The start card owns the ready state: keys must not act or block the
       // browser's own Space/Enter handling while it is up.
-      if (store.status === "ready") return;
-      if (store.status === "gameOver") {
+      if (game.status === "ready") return;
+      if (game.status === "gameOver") {
         if (e.code === "Space") {
           e.preventDefault();
-          if (grace.accept(e)) store.startGame();
+          if (grace.accept(e)) game.startGame();
         }
         return;
       }
 
-      if (store.status === "waveComplete") {
+      if (game.status === "waveComplete") {
         if (e.code === "Space") {
           e.preventDefault();
-          if (grace.accept(e)) store.nextWave();
+          if (grace.accept(e)) game.nextWave();
         }
         return;
       }
 
-      if (store.status === "paused") {
+      if (game.status === "paused") {
         // Pause/resume is owned by the GameShell now (ESC + pause button), so
         // we ignore game keys while paused instead of double-handling ESC/P.
         return;
@@ -382,47 +387,48 @@ export function AsteroidsGame() {
         case "KeyA":
         case "ArrowLeft":
           e.preventDefault();
-          store.setInput({ rotatingLeft: true });
+          game.setInput({ rotatingLeft: true });
           break;
         case "KeyD":
         case "ArrowRight":
           e.preventDefault();
-          store.setInput({ rotatingRight: true });
+          game.setInput({ rotatingRight: true });
           break;
         case "KeyW":
         case "ArrowUp":
           e.preventDefault();
-          store.setInput({ thrusting: true });
+          game.setInput({ thrusting: true });
           break;
         case "Space":
           e.preventDefault();
-          store.setInput({ shooting: true });
+          game.setInput({ shooting: true });
           break;
         case "ShiftLeft":
         case "ShiftRight":
           e.preventDefault();
-          store.hyperspace();
+          game.hyperspace();
           break;
         // Pause (ESC) is owned by the GameShell now — see the wrapper.
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      const game = useAsteroidsStore.getState();
       switch (e.code) {
         case "KeyA":
         case "ArrowLeft":
-          store.setInput({ rotatingLeft: false });
+          game.setInput({ rotatingLeft: false });
           break;
         case "KeyD":
         case "ArrowRight":
-          store.setInput({ rotatingRight: false });
+          game.setInput({ rotatingRight: false });
           break;
         case "KeyW":
         case "ArrowUp":
-          store.setInput({ thrusting: false });
+          game.setInput({ thrusting: false });
           break;
         case "Space":
-          store.setInput({ shooting: false });
+          game.setInput({ shooting: false });
           break;
       }
     };
@@ -434,7 +440,7 @@ export function AsteroidsGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [store.status, store, grace]);
+  }, [grace]);
 
   // The pad buttons are hold controls through the shared pointer hold: one
   // press per button however many fingers, pointer capture so a thumb that

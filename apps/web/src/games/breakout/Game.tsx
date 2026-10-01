@@ -61,8 +61,10 @@ export function levelCompleteText({ level, score, last }: { level: number; score
 // CANVAS RENDERER
 // ============================================
 function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
-  const store = useBreakoutStore();
-
+  // render reads the store when it draws (getState), never a snapshot from
+  // the last React render: the loop calls it right after its steps, so a
+  // snapshot drew the picture a frame or more behind the game, and `store`
+  // (the whole state, new after every set) re-made render on every set.
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -70,7 +72,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const { paddle, balls, bricks, powerUps, particles, status } = store;
+    const { paddle, balls, bricks, powerUps, particles, status } = useBreakoutStore.getState();
 
     // Clear canvas
     ctx.fillStyle = COLORS.BACKGROUND;
@@ -178,7 +180,7 @@ function useCanvasRenderer(canvasRef: React.RefObject<HTMLCanvasElement | null>)
       ctx.fillStyle = COLORS.LEVEL_COMPLETE_BG;
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     }
-  }, [canvasRef, store]);
+  }, [canvasRef]);
 
   return render;
 }
