@@ -222,12 +222,13 @@ export default function SignUpPage() {
           </button>
         </form>
 
-          {/* Sign In Link */}
+          {/* Sign In Link — padded to a 44px touch target for kid fingers,
+              like the Sign Up link on the login page */}
           <p className="text-center mt-6 text-gray-600">
             Already have an account?{" "}
             <Link
               href="/login"
-              className="text-primary font-bold hover:underline"
+              className="text-primary font-bold hover:underline inline-flex items-center justify-center min-h-[44px] px-3 align-middle"
             >
               Sign In
             </Link>
