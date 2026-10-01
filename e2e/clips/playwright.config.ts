@@ -2,9 +2,8 @@
  * Playwright config for the clips E2E A/V harness (plan 15.3).
  *
  * Run it with `pnpm clips:e2e` from the repo root. The runner
- * (scripts/clips/run-e2e.mjs) uses the Playwright that `npx playwright`
- * finds on this machine: the repo has no Playwright dependency, so a plain
- * `npx playwright test` cannot load "playwright/test" from this file.
+ * (scripts/clips/run-e2e.mjs) uses the Playwright that the root
+ * package.json pins, and gives this file its "playwright/test".
  *
  * The web server: `next dev` for apps/web on CLIPS_E2E_PORT (default 3417),
  * with CLIPS_LAB=1 (the lab route answers 404 without it) and CLIPS_MODE=on.

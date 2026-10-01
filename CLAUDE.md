@@ -614,6 +614,7 @@ step, in order, and STOP on the first failure — never push red:
 pnpm install --frozen-lockfile   # deps match the lockfile
 pnpm --filter web lint           # eslint (0 errors; warnings are OK)
 pnpm --filter web typecheck      # tsc --noEmit
+pnpm e2e:typecheck               # tsc over the Playwright specs in e2e/
 pnpm --filter web test           # vitest run
 pnpm --filter web build          # authoritative typecheck + regenerates game metadata
 ```
