@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CookieClickerGame } from "../Game";
+import { ACHIEVEMENT_NOTICE_MS, CookieClickerGame } from "../Game";
+import { COUNT_BAR } from "../lib/layout";
 import { useCookieClickerStore } from "../lib/store";
 import {
   GAME_CONFIG,
@@ -9,6 +10,7 @@ import {
   type UpgradeId,
 } from "../lib/constants";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
+import { fingerTap } from "@/__tests__/finger-mock";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: vi.fn(),
@@ -120,7 +122,7 @@ describe("CookieClickerGame achievement toast tap-through", () => {
     vi.useRealTimers();
   });
 
-  it("renders the achievement toast with pointer-events-none so taps pass through to the cookie", () => {
+  it("renders the achievement notice with pointer-events-none so taps pass through to the cookie", () => {
     render(<CookieClickerGame />);
 
     // The AchievementPopups effect promotes newAchievements on a setTimeout(0).
@@ -128,15 +130,37 @@ describe("CookieClickerGame achievement toast tap-through", () => {
       vi.advanceTimersByTime(0);
     });
 
-    const toast = screen.getByText("🏆 Achievement Unlocked!").closest("div")
-      ?.parentElement;
-    // Walk up to the fixed positioned wrapper.
-    const wrapper = screen
-      .getByText("🏆 Achievement Unlocked!")
-      .closest(".fixed");
-    expect(wrapper).not.toBeNull();
-    expect(wrapper?.className).toContain("pointer-events-none");
-    expect(toast).toBeTruthy();
+    const notice = screen.getByTestId("cookie-achievement");
+    expect(notice).toHaveTextContent("🏆");
+    expect(notice.className).toContain("pointer-events-none");
+    // It hangs from the bottom edge of the count bar, outside the cookie's area.
+    expect(screen.getByTestId("cookie-area").contains(notice)).toBe(false);
+    expect(notice.style.top).toBe(`${COUNT_BAR - 16}px`);
+  });
+
+  it("the notice goes after 3 seconds while the bakery ticks (it used to stay forever)", () => {
+    render(<CookieClickerGame />);
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(screen.getByTestId("cookie-achievement")).toBeInTheDocument();
+    // The 50 ms tick changes the store 60 times in 3 s.
+    act(() => {
+      vi.advanceTimersByTime(ACHIEVEMENT_NOTICE_MS + 100);
+    });
+    expect(screen.queryByTestId("cookie-achievement")).toBeNull();
+  });
+
+  it("clears each +1 after a second while the bakery ticks (they piled up forever)", () => {
+    render(<CookieClickerGame />);
+    fireEvent.click(screen.getByRole("button", { name: /play/i }));
+    for (let i = 0; i < 5; i++) fingerTap(screen.getByRole("button", { name: "cookie" }), { x: 20, y: 20 });
+    expect(useCookieClickerStore.getState().floatingTexts.length).toBeGreaterThan(0);
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(useCookieClickerStore.getState().floatingTexts).toHaveLength(0);
   });
 
   it("still increments the click counter when the cookie is tapped while a toast shows", () => {
@@ -149,8 +173,8 @@ describe("CookieClickerGame achievement toast tap-through", () => {
       vi.advanceTimersByTime(0);
     });
 
-    // Toast is visible.
-    expect(screen.getByText("🏆 Achievement Unlocked!")).toBeInTheDocument();
+    // The notice is visible.
+    expect(screen.getByTestId("cookie-achievement")).toBeInTheDocument();
 
     const before = useCookieClickerStore.getState().totalClicks;
     fireEvent.click(screen.getByRole("button", { name: "cookie" }));

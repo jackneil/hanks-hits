@@ -65,7 +65,7 @@ describe("Cookie Clicker taps", () => {
     const { unmount } = render(<CookieClickerGame />);
     start();
     expect(screen.getByText(/Tap power: /)).toBeInTheDocument();
-    expect(screen.getByText(/Total taps/)).toBeInTheDocument();
+    expect(screen.getByText(/Taps: /)).toBeInTheDocument();
     expect(screen.queryByText(/Click power/)).not.toBeInTheDocument();
     unmount();
 
@@ -73,6 +73,6 @@ describe("Cookie Clicker taps", () => {
     render(<CookieClickerGame />);
     start();
     expect(screen.getByText(/Click power: /)).toBeInTheDocument();
-    expect(screen.getByText(/Total clicks/)).toBeInTheDocument();
+    expect(screen.getByText(/Clicks: /)).toBeInTheDocument();
   });
 });

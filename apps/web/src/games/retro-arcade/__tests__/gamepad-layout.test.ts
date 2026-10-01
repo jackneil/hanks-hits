@@ -500,6 +500,12 @@ const overlap = (a: Rect, b: Rect) =>
  */
 const PHONES: [string, Viewport][] = [
   ["390x844", { width: 390, height: 792 }],
+  // Safari on a real iPhone SE held upright (a 375x549 page) and a 390x664
+  // page: the emulator box is the page minus the 52 px bar. The SNES R
+  // button and the Game Boy d-pad sat on the picture at 375x497 (phone UX
+  // audit 2026-09-29).
+  ["375x549 Safari", { width: 375, height: 497 }],
+  ["390x664 Safari", { width: 390, height: 612 }],
   ["320x568", { width: 320, height: 516 }],
   ["360x640", { width: 360, height: 588 }],
   ["844x390", { width: 844, height: 338 }],

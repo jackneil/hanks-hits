@@ -290,6 +290,22 @@
       }
     }
 
+    /* Portrait on a short box, such as an iPhone SE in Safari (a 375x549
+       page, a 497 px box): the picture at the full width (328 px tall for
+       the Game Boy) reached down into the d-pad and the shoulder buttons,
+       and the SNES R sat on the picture. There the canvas stops above the
+       controls, and RetroArch fits the picture in the space that is left. A
+       taller box (612 px and more) keeps the whole width for the picture.
+       --hh-pad-portrait is the height the controls of each console need. */
+    #game { --hh-pad-portrait: 248px; }
+    #game:has(.cs_snes) { --hh-pad-portrait: 268px; }
+    #game:has(.cs_n64) { --hh-pad-portrait: 276px; }
+    @media (orientation: portrait) and (max-height: 560px) {
+      #game.hh_gamepad_shown .ejs_canvas_parent {
+        height: calc(100% - var(--hh-pad-portrait));
+      }
+    }
+
     /* Landscape with the on-screen gamepad. The picture is in the middle and
        the controls go in a strip on each side (--hh-side wide), so no
        control covers the picture. On a short phone (568x320, 667x375) the
@@ -617,8 +633,20 @@
       'shader': 'disabled',  // Disable shaders to avoid rendering issues
     };
 
-    // Button configuration with exit callback
+    // The menu a kid sees. EmulatorJS also lists Cheats, Cache Manager,
+    // Export and Import Save File, Screen Record, Screenshot and Quick
+    // Save/Load: grown-up tools, and the first thing a kid saw over Mario
+    // (phone UX audit 2026-09-29). Save State and Load State stay: the
+    // parent page keeps those saves.
     window.EJS_Buttons = {
+      cheat: false,
+      cacheManager: false,
+      saveSavFiles: false,
+      loadSavFiles: false,
+      screenRecord: false,
+      screenshot: false,
+      quickSave: false,
+      quickLoad: false,
       exitEmulation: {
         visible: true,
         callback: function() {
@@ -662,6 +690,14 @@
     // SECURITY: Use specific origin instead of wildcard '*'
     window.EJS_onGameStart = function() {
       document.getElementById('loading').classList.add('hidden');
+      // EmulatorJS opens its menu over the picture for 3 s when a game
+      // starts (on a phone a 300 px grid of buttons). The game starts clean;
+      // the menu button still opens it.
+      try {
+        window.EJS_emulator.menu.close();
+      } catch (e) {
+        console.warn('Could not close the EmulatorJS menu', e);
+      }
       window.parent.postMessage({ type: 'ready' }, PARENT_ORIGIN);
       try {
         trackGamepad();
@@ -749,6 +785,7 @@
     });
 
     // Load the EmulatorJS loader script
+
     const script = document.createElement('script');
     script.src = '/emulator/ejs/4.2.3/loader.js';
     script.async = true;

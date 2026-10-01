@@ -6,4 +6,4 @@
  * that are really on that screen.
  */
 export const RETRO_ARCADE_INSTRUCTIONS =
-  "🕹️ Retro Arcade. Tap a game machine. Then tap a game to play it.";
+  "🕹️ Retro Arcade. Tap a game machine. The Super Nintendo and the Atari have lots of games. Then tap a game to play it.";

@@ -15,6 +15,7 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { AppNotesSlot } from "@/shared/components/AppNotesSlot";
 
 const CONFETTI_SYMBOLS = ["&#x2B50;", "&#x1F389;", "&#x2728;", "&#x1F381;"];
 const CONFETTI_PIECES = Array.from({ length: 20 }, (_, i) => ({
@@ -98,13 +99,26 @@ export function ToyFinder() {
     <div className="min-h-full bg-gradient-to-b from-blue-400 via-blue-500 to-purple-500 p-4 flex flex-col">
       {/* iOS install prompt */}
       <IOSInstallPrompt />
+      {/* A trophy shows here, as part of the page, never over the buttons. */}
+      <AppNotesSlot className="mb-3" />
 
 
-      {/* Toolbar (home + title now live in the shared app shell header) */}
-      <div className="flex justify-end mb-4">
+      {/* The note and the idea list button share one row, so the toys start
+          on the first screen of a phone (the first card was at y=559 on a
+          549 px screen: phone UX audit 2026-09-29). */}
+      <div className="mb-3 flex items-start gap-3">
+        {/* A plain light panel with dark words: easy to read on the blue page. */}
+        <div
+          data-testid="toy-finder-note"
+          className="min-w-0 flex-1 rounded-2xl bg-white/90 px-3 py-2 text-sm leading-snug text-slate-800"
+        >
+          <span aria-hidden="true">💡 </span>
+          <span className="font-bold text-slate-900">Idea list, not a store</span>. Prices are only a rough
+          guide. Nothing can be bought here, and a grown-up should check before any purchase.
+        </div>
         <button
           onClick={() => store.setShowWishlist(true)}
-          className="btn btn-lg bg-pink-500 hover:bg-pink-600 border-none text-white text-xl shadow-lg gap-2"
+          className="btn btn-lg shrink-0 bg-pink-500 hover:bg-pink-600 border-none text-white text-xl shadow-lg gap-2 short:btn-md"
           aria-label="View idea list"
         >
           &#x2764;&#xFE0F;
@@ -116,25 +130,17 @@ export function ToyFinder() {
         </button>
       </div>
 
-      {/* A plain light panel with dark words: easy to read on the blue page. */}
-      <div
-        data-testid="toy-finder-note"
-        className="mb-4 rounded-2xl bg-white/90 px-4 py-3 text-sm leading-relaxed text-slate-800"
-      >
-        <p className="font-bold text-slate-900">Idea list, not a store</p>
-        <p>
-          Prices are only a rough guide. Nothing can be bought here, and a
-          grown-up should check before any purchase.
-        </p>
-      </div>
-
+      {/* The filters: a row for the kinds of toy and a row for the ages, each
+          scrolling sideways (they took four rows and two). On a short screen
+          (a phone held sideways) the two rows share one line. */}
+      <div className="mb-3 flex flex-col gap-1 short:flex-row short:gap-3">
       {/* Category Tabs */}
-      <div className="flex flex-wrap gap-2 justify-center mb-6 overflow-x-auto pb-2">
+      <div data-testid="toy-categories" className="-mx-4 flex min-w-0 gap-2 overflow-x-auto px-4 pb-2 short:mx-0 short:flex-1 short:px-0">
         {TOY_CATEGORIES.map((cat) => (
           <button
             key={cat.id}
             onClick={() => handleCategoryChange(cat.id)}
-            className={`btn btn-md rounded-full font-bold transition-all whitespace-nowrap touch-manipulation ${
+            className={`btn btn-md shrink-0 rounded-full font-bold transition-all whitespace-nowrap touch-manipulation ${
               store.selectedCategory === cat.id
                 ? "bg-yellow-400 text-purple-900 shadow-lg scale-105"
                 : "bg-white/80 text-purple-800 hover:bg-white"
@@ -148,7 +154,8 @@ export function ToyFinder() {
 
       {/* Age Filter */}
       <div
-        className="flex flex-wrap gap-2 justify-center mb-6"
+        data-testid="toy-ages"
+        className="-mx-4 flex min-w-0 gap-2 overflow-x-auto px-4 pb-2 short:mx-0 short:flex-1 short:px-0"
         aria-label="Filter toys by age range"
       >
         {AGE_RANGES.map((ageRange) => (
@@ -157,7 +164,7 @@ export function ToyFinder() {
             type="button"
             onClick={() => handleAgeRangeChange(ageRange.id)}
             aria-pressed={store.selectedAgeRange === ageRange.id}
-            className={`btn btn-sm rounded-full font-bold transition-all whitespace-nowrap touch-manipulation ${
+            className={`btn btn-md shrink-0 rounded-full text-base font-bold transition-all whitespace-nowrap touch-manipulation ${
               store.selectedAgeRange === ageRange.id
                 ? "bg-emerald-300 text-purple-950 shadow-lg scale-105"
                 : "bg-white/80 text-purple-800 hover:bg-white"
@@ -166,6 +173,7 @@ export function ToyFinder() {
             {ageRange.label}
           </button>
         ))}
+      </div>
       </div>
 
       {/* Toy Grid */}
@@ -178,6 +186,7 @@ export function ToyFinder() {
             return (
               <div
                 key={toy.id}
+                data-testid="toy-card"
                 className={`bg-white rounded-2xl shadow-lg overflow-hidden transform transition-all hover:scale-105 ${
                   isJustAdded ? "ring-4 ring-yellow-400 scale-105" : ""
                 }`}
@@ -186,12 +195,12 @@ export function ToyFinder() {
                 <div className="bg-gradient-to-br from-blue-100 to-purple-100 p-6 text-center relative">
                   <span className="text-6xl md:text-7xl">{toy.emoji}</span>
                   {toy.trending && (
-                    <span className="absolute top-2 left-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                    <span className="absolute top-2 left-2 bg-red-500 text-white text-sm font-bold px-2 py-1 rounded-full">
                       &#x1F525; HOT!
                     </span>
                   )}
                   {toy.originalPrice && (
-                    <span className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                    <span className="absolute top-2 right-2 bg-green-500 text-white text-sm font-bold px-2 py-1 rounded-full">
                       SALE!
                     </span>
                   )}

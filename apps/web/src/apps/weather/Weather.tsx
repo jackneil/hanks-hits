@@ -14,6 +14,7 @@ import {
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
+import { AppNotesSlot } from "@/shared/components/AppNotesSlot";
 
 /**
  * Weather App - Kid-friendly weather checker
@@ -230,6 +231,8 @@ export function Weather() {
     >
       {/* iOS install prompt */}
       <IOSInstallPrompt />
+      {/* A trophy shows here, as part of the page, never over the buttons. */}
+      <AppNotesSlot className="mb-3" />
 
 
       {/* Toolbar (home + title now live in the shared app shell header) */}
@@ -237,7 +240,7 @@ export function Weather() {
         {/* Saved Locations Button */}
         <button
           onClick={() => setShowSavedLocations(true)}
-          className="btn btn-circle btn-lg bg-white/20 hover:bg-white/30 border-none text-white text-2xl shadow-lg backdrop-blur-sm"
+          className="btn btn-circle btn-lg bg-white/20 hover:bg-white/30 border-none text-white text-2xl shadow-lg"
           aria-label="View saved locations"
         >
           &#x2B50;
@@ -245,7 +248,7 @@ export function Weather() {
         {/* Settings Button (F/C Toggle) */}
         <button
           onClick={() => store.toggleUnits()}
-          className="btn btn-circle btn-lg bg-white/20 hover:bg-white/30 border-none text-white font-bold text-lg shadow-lg backdrop-blur-sm"
+          className="btn btn-circle btn-lg bg-white/20 hover:bg-white/30 border-none text-white font-bold text-lg shadow-lg"
           aria-label="Toggle temperature units"
         >
           {unitLabel}
@@ -378,7 +381,7 @@ export function Weather() {
           </div>
 
           {/* Main Weather Card */}
-          <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl p-6 md:p-8 max-w-lg w-full mx-auto mb-6">
+          <div className="bg-white/90 rounded-3xl shadow-2xl p-6 md:p-8 max-w-lg w-full mx-auto mb-6">
             {/* Big Weather Icon */}
             <div className="text-center mb-4">
               <div
@@ -432,7 +435,7 @@ export function Weather() {
           </div>
 
           {/* Outfit Recommendations */}
-          <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-xl p-4 md:p-6 max-w-lg w-full mx-auto mb-6">
+          <div className="bg-white/90 rounded-3xl shadow-xl p-4 md:p-6 max-w-lg w-full mx-auto mb-6">
             <h3 className="text-xl font-bold text-gray-800 mb-3 flex items-center gap-2">
               <span className="text-2xl">&#x1F455;</span>
               What to Wear Today
@@ -457,7 +460,7 @@ export function Weather() {
 
           {/* 5-Day Forecast */}
           {store.forecast && (
-            <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-xl p-4 md:p-6 max-w-lg w-full mx-auto mb-6">
+            <div className="bg-white/90 rounded-3xl shadow-xl p-4 md:p-6 max-w-lg w-full mx-auto mb-6">
               <h3 className="text-xl font-bold text-gray-800 mb-3 flex items-center gap-2">
                 <span className="text-2xl">&#x1F4C5;</span>
                 5-Day Forecast
@@ -489,7 +492,7 @@ export function Weather() {
           )}
 
           {/* Fun Fact */}
-          <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-xl p-4 md:p-6 max-w-lg w-full mx-auto mb-6">
+          <div className="bg-white/90 rounded-3xl shadow-xl p-4 md:p-6 max-w-lg w-full mx-auto mb-6">
             <h3 className="text-xl font-bold text-gray-800 mb-2 flex items-center gap-2">
               <span className="text-2xl">&#x1F4A1;</span>
               Fun Weather Fact
