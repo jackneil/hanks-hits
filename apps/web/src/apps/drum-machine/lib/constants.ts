@@ -99,6 +99,15 @@ export const DEFAULT_BPM = 120;
 export const MIN_BPM = 60;
 export const MAX_BPM = 200;
 export const GRID_STEPS = 16;
+/**
+ * The longest pattern that the server takes in a saved beat: 1024 steps
+ * (64 bars of 16 steps), see lib/progress-schemas.ts. The server once took
+ * only 64 steps, but the "+" button (extendPattern) adds 16 steps with no
+ * limit, so a beat of 5 bars or more made the server refuse every save of
+ * the drum machine. 1024 steps keeps the largest drum save (100 beats of
+ * 100 sounds) near the 60 MB of the largest drawing save.
+ */
+export const MAX_PATTERN_STEPS = 1024;
 
 // UI
 export const PAD_SIZE = 80;

@@ -60,6 +60,8 @@ export interface JsonLimits extends BodyLimits {
    * (413) before the parse.
    */
   readonly maxJsonValues: number | null;
+  /** Maximum containers and strings (including object keys), when configured. */
+  readonly maxJsonAllocations?: number | null;
 }
 
 export type BodyFailure =
@@ -122,14 +124,15 @@ export const SMALL_SAVE_BODY: JsonLimits = Object.freeze({
 /**
  * The limits of a progress save (POST /api/progress/[appId]).
  *
- * 100 MiB is over the largest save that the schemas accept. The largest is
- * a Drawing App gallery: 20 drawings, each with a data URL and a thumbnail
- * of up to 1,500,000 characters (60,000,000 characters of image data).
+ * 100 MiB is over the schema-derived game payload fixtures, including the
+ * expanded Drum Machine and a Drawing App gallery with 60,000,000 base64
+ * image characters. Arbitrary Unicode in image fields is not game output.
  *
- * 2,000,000 JSON values is more than 3 times the most values in a valid
- * save (the Drum Machine's largest save has 661,328 marks). Without the
- * count, one body of 100 MiB of empty objects made JSON.parse use about
- * 3.7 GB.
+ * 12,000,000 JSON marks permits the expanded Drum Machine save (10,261,528
+ * marks, mostly booleans). A separate 1,000,000-unit budget counts each
+ * container and string, including property names, before parsing. It keeps
+ * the old empty-object ceiling without rejecting long boolean patterns.
+ * These limits bound inputs, not exact peak memory.
  *
  * The test "the largest valid save of every game" (route.test.ts) builds
  * the largest save of every schema, checks both limits against it, and
@@ -145,7 +148,8 @@ export const SMALL_SAVE_BODY: JsonLimits = Object.freeze({
 export const PROGRESS_SAVE_BODY: JsonLimits = Object.freeze({
   maxBytes: 100 * 1024 * 1024,
   timeoutMs: null,
-  maxJsonValues: 2_000_000,
+  maxJsonValues: 12_000_000,
+  maxJsonAllocations: 1_000_000,
 });
 
 /** Throw on limits that a caller wrote wrong. A route must not run with a limit it did not choose. */
@@ -169,11 +173,14 @@ function assertLimits(limits: BodyLimits): void {
 function assertJsonLimits(limits: JsonLimits): void {
   assertLimits(limits);
   const { maxJsonValues } = limits;
-  if (maxJsonValues === null) return;
-  if (!Number.isSafeInteger(maxJsonValues) || maxJsonValues <= 0) {
+  if (maxJsonValues !== null && (!Number.isSafeInteger(maxJsonValues) || maxJsonValues <= 0)) {
     throw new TypeError(
       "read-body: maxJsonValues must be a positive whole number, or null for no count."
     );
+  }
+  const { maxJsonAllocations } = limits;
+  if (maxJsonAllocations != null && (!Number.isSafeInteger(maxJsonAllocations) || maxJsonAllocations <= 0)) {
+    throw new TypeError("read-body: maxJsonAllocations must be a positive whole number, or null for no count.");
   }
 }
 
@@ -201,6 +208,8 @@ const BACKSLASH = 0x5c; // \
 export class JsonValueCounter {
   /** The marks so far. */
   count = 0;
+  /** Containers and strings, including object keys, seen so far. */
+  allocations = 0;
   private inString = false;
   private escaped = false;
 
@@ -232,8 +241,13 @@ export class JsonValueCounter {
         continue;
       }
       const byte = chunk[i++];
-      if (byte === QUOTE) this.inString = true;
-      else if (byte === 0x7b || byte === 0x5b || byte === 0x2c || byte === 0x3a) this.count++; // { [ , :
+      if (byte === QUOTE) {
+        this.inString = true;
+        this.allocations++;
+      } else if (byte === 0x7b || byte === 0x5b) {
+        this.count++;
+        this.allocations++;
+      } else if (byte === 0x2c || byte === 0x3a) this.count++; // , :
     }
   }
 }
@@ -340,13 +354,14 @@ export async function readBody(request: Request, limits: BodyLimits): Promise<Bo
 export async function readJson(request: Request, limits: JsonLimits): Promise<JsonRead> {
   assertJsonLimits(limits);
   const progress = { received: 0 };
-  const { maxJsonValues } = limits;
+  const { maxJsonValues, maxJsonAllocations } = limits;
   let inspect: ((chunk: Uint8Array) => boolean) | null = null;
-  if (maxJsonValues !== null) {
+  if (maxJsonValues !== null || maxJsonAllocations != null) {
     const counter = new JsonValueCounter();
     inspect = (chunk) => {
       counter.add(chunk);
-      return counter.count <= maxJsonValues;
+      return (maxJsonValues === null || counter.count <= maxJsonValues) &&
+        (maxJsonAllocations == null || counter.allocations <= maxJsonAllocations);
     };
   }
   const raw = await readStream(request, limits, progress, inspect);

@@ -303,4 +303,67 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     expect(log).not.toContain("params");
     expect(log).not.toContain("Failed query");
   });
+
+  // A merge save whose merged blob breaks the schema: the route once stored
+  // the incoming save whole, so an older save replaced a newer row.
+  async function putRow(appId: string, data: Record<string, unknown>, at: Date) {
+    const { db, appProgress } = scratch!;
+    await db.insert(appProgress).values({
+      id: crypto.randomUUID(),
+      userId: ids.user,
+      appId,
+      data,
+      lastSyncedAt: at,
+      updatedAt: at,
+    });
+  }
+
+  async function rowOf(appId: string) {
+    const { db, appProgress, and, eq } = scratch!;
+    const rows = await db
+      .select()
+      .from(appProgress)
+      .where(and(eq(appProgress.userId, ids.user), eq(appProgress.appId, appId)));
+    return rows[0];
+  }
+
+  it("keeps a newer row as the base when the merge is too long, and folds in the older save's record", async () => {
+    const list = (prefix: string) => Array.from({ length: 300 }, (_, i) => `${prefix}${i}`);
+    const now = Date.now();
+    await putRow(
+      "cookie-clicker",
+      { ...(await cookieClickerBlob(1_000)), cookies: 7_000, unlockedAchievements: list("row-"), lastModified: now - 60_000 },
+      new Date(now - 60_000)
+    );
+    const older = { ...(await cookieClickerBlob(5_000)), cookies: 3, unlockedAchievements: list("dev-"), lastModified: now - 3_600_000 };
+
+    const res = await save("cookie-clicker", older);
+
+    expect(res.status).toBe(200);
+    const stored = await progressOf("cookie-clicker");
+    expect(stored?.cookies).toBe(7_000);
+    expect(stored?.totalCookiesBaked).toBe(5_000);
+    expect(stored?.unlockedAchievements).toEqual(list("row-"));
+  });
+
+  it("answers 409 and leaves a newer row that the schema refuses untouched", async () => {
+    const { useMathAttackStore } = await import("@/games/math-attack/lib/store");
+    const now = Date.now();
+    const rowData = {
+      ...useMathAttackStore.getState().getProgress(),
+      highScore: 900,
+      settings: { soundEnabled: true, difficulty: "13yo" },
+      lastModified: now - 60_000,
+    };
+    await putRow("math-attack", rowData, new Date(now - 60_000));
+    const before = await rowOf("math-attack");
+    const older = { ...useMathAttackStore.getState().getProgress(), highScore: 100, lastModified: now - 3_600_000 };
+
+    const res = await save("math-attack", older);
+
+    expect(res.status).toBe(409);
+    const after = await rowOf("math-attack");
+    expect(after?.data).toEqual(rowData);
+    expect(after?.updatedAt.getTime()).toBe(before?.updatedAt.getTime());
+  });
 });

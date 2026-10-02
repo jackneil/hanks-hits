@@ -184,7 +184,7 @@ describe("readBody: the time limit", () => {
   });
 
   it("no save has a time limit of its own (Node's requestTimeout still ends a request); only the routes with no sign-in have 30 s", () => {
-    expect(PROGRESS_SAVE_BODY).toEqual({ maxBytes: 100 * 1024 * 1024, timeoutMs: null, maxJsonValues: 2_000_000 });
+    expect(PROGRESS_SAVE_BODY).toEqual({ maxBytes: 100 * 1024 * 1024, timeoutMs: null, maxJsonValues: 12_000_000, maxJsonAllocations: 1_000_000 });
     expect(SMALL_SAVE_BODY).toEqual({ maxBytes: 64 * 1024, timeoutMs: null, maxJsonValues: null });
     expect(SMALL_JSON_BODY).toEqual({ maxBytes: 64 * 1024, timeoutMs: 30_000, maxJsonValues: null });
   });
@@ -309,8 +309,8 @@ describe("readJson: the JSON value count (maxJsonValues)", () => {
     const result = await readJson(request, PROGRESS_SAVE_BODY);
     expect(result.ok).toBe(false);
     expect(!result.ok && result.why).toBe("too_many_values");
-    // 2,000,000 marks are in the 4th chunk: about 4 MiB read, not 100 MiB.
-    expect(seen.pulled).toBe(1 + 4 * chunk.byteLength);
+    // The 12,000,000-mark budget is reached in the 23rd 1 MiB chunk.
+    expect(seen.pulled).toBe(1 + 23 * chunk.byteLength);
     expect(seen.cancelled).toBe(true);
   });
 
@@ -357,5 +357,63 @@ describe("the failure answers (refuseBody)", () => {
       "[read-body] POST /api/fixture: refused a request body (broken; declared no bytes, received 512 bytes)"
     );
     vi.restoreAllMocks();
+  });
+});
+
+
+describe("readJson: allocation units", () => {
+  const encode = (value: string) => new TextEncoder().encode(value);
+  const units = (value: unknown): number => {
+    if (typeof value === "string") return 1;
+    if (Array.isArray(value)) return 1 + value.reduce((n, child) => n + units(child), 0);
+    if (value && typeof value === "object") return 1 + Object.entries(value).reduce((n, [, child]) => n + 1 + units(child), 0);
+    return 0;
+  };
+
+  it("matches a parsed-tree oracle at every byte split, including escaped quotes and UTF-8", () => {
+    const value = { 'key\"\\': [true, false, null, 12, "é🛻\\\"{[,:", { child: "value" }], empty: [] };
+    const input = encode(JSON.stringify(value));
+    for (let i = 0; i <= input.length; i++) {
+      const counter = new JsonValueCounter();
+      counter.add(input.subarray(0, i));
+      counter.add(input.subarray(i));
+      expect(counter.allocations).toBe(units(value));
+    }
+  });
+
+  it.each([
+    [{ a: 1, b: 2, c: 3 }],
+    [["first", "second", "third"]],
+    [[{}, {}, {}]],
+  ])("accepts the exact allocation boundary and cancels one unit beyond it (%#)", async (value) => {
+    const input = encode(JSON.stringify(value));
+    const count = units(value);
+    const limits = { maxBytes: 1000, timeoutMs: null, maxJsonValues: null, maxJsonAllocations: count };
+    expect(await readJson(chunked([input]), limits)).toEqual({ ok: true, value });
+    let pulls = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) { pulls++; controller.enqueue(input); },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    const request = new Request("http://localhost/fixture", { method: "POST", body: stream, duplex: "half" } as RequestInit);
+    const parsed = vi.spyOn(JSON, "parse");
+    const result = await readJson(request, { ...limits, maxJsonAllocations: count - 1 });
+    expect(result).toMatchObject({ ok: false, why: "too_many_values" });
+    expect(parsed).not.toHaveBeenCalled();
+    parsed.mockRestore();
+    expect(pulls).toBe(1);
+    expect(cancelled).toBe(true);
+  });
+
+  it("permits many booleans without treating them as separate allocations", async () => {
+    const value = Array.from({ length: 500 }, (_, i) => i % 2 === 0);
+    expect(await readJson(chunked([encode(JSON.stringify(value))]), {
+      maxBytes: 4000, timeoutMs: null, maxJsonValues: 600, maxJsonAllocations: 1,
+    })).toEqual({ ok: true, value });
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity])("rejects an invalid allocation budget %s even without a total-mark limit", async (limit) => {
+    await expect(readJson(chunked([]), { ...JSON_LIMIT, maxJsonAllocations: limit })).rejects.toThrow("maxJsonAllocations");
   });
 });

@@ -851,6 +851,70 @@ save.
 - The next save writes the board row again, because the route reads the
   score from the full saved blob.
 
+**How the server merges a save.** The client (`useAuthSync`) sends
+`merge: true` with each save after the first sync. The route merges the
+save with the stored row in `src/lib/progress-merge.ts`.
+
+- The newer blob is the base. The route compares the `lastModified` value
+  of each blob (last write wins). The row's `updatedAt` is used only when a
+  blob has no time.
+- Each field then follows the reviewed table of its game in
+  `src/lib/progress-field-rules.ts`:
+  - `max`: keep the larger value. Use it for a field that only grows (a
+    high score, a total, a level reached, an upgrade level). A flag that
+    only turns on (a level completed) keeps `true`.
+  - `minPositive`: keep the smaller value that is more than zero. Use it
+    for a best time or a fewest-moves win. Zero or `null` means "no record".
+  - `earliest`: keep the earlier time (a trophy unlock).
+  - `union`: keep the items of both lists (things that the kid unlocked).
+  - `neither`: keep the value of the base. Use it for a wallet that the
+    kid spends, a value that goes down in play, a setting, a time, text,
+    and a list that the kid edits.
+- A record (a key such as a level id or a stage id) that only the older
+  blob has is copied into the result.
+- A list of objects (saved drawings, beats, wishes) is one field with
+  `neither`. A merge of list items by id is part of the conflict protocol
+  (#69i).
+
+**Add a field or a game.** Add an entry for each schema field to
+`progress-field-rules.ts`. Read the store first. Use `max` only when no
+code path makes the field smaller, except a full reset. Cite the store
+line (`file:line` and the code in backticks).
+`src/lib/__tests__/progress-field-rules.test.ts` fails when a schema field
+has no entry, when an entry has no schema field, when a cited file no
+longer has its code, and when a field that the profile page or a
+leaderboard reads has no entry.
+
+Oregon Trail's `currentEvent` is a bounded event snapshot: it preserves authored
+events, choices, effects, and generated river results, while rejecting unknown
+fields and arbitrary nested JSON (#72). The merge keeps the newer event as a
+whole. Validation messages omit unknown property names so rejected body content
+is not copied into logs.
+
+**A merged blob that breaks the schema.** The route checks the merged blob
+with the schema again (two valid blobs can make a list that is too long).
+When the check fails:
+
+1. The route starts again from the newer blob alone. Then it adds the
+   merged fields one at a time, and keeps each field only when the blob
+   still passes. An older save never replaces a newer row.
+2. When the newer blob is the stored row and the schema of today refuses
+   the row itself, the route stores nothing and sends 409. The client
+   keeps its save on the device. Its next change is newer than the row, so
+   the next save is stored.
+
+The route logs the fields that it left out and the reason, with no values.
+
+**The schema must take every value that the client makes.** The server
+sends 400 for a save that its schema refuses, and the client does not
+send that save again. `src/lib/__tests__/progress-schema-types.test.ts`
+compares the type of each store's `getProgress()` with the type of its
+schema. It fails to compile when the schema refuses a value that the
+store's type allows (an age in a picker) or drops a field that the store
+sends (z.object() removes an unknown field). Change the SCHEMA, not the
+test. The types do not show number limits, so check a limit against the
+store's code before you set it.
+
 **Board scores are whole numbers.** `leaderboard_entries.score` is a
 Postgres `bigint`. Some games keep fractions (the Hill Climb distance,
 the Cookie Clicker cookie count).
@@ -938,7 +1002,7 @@ sign-in: one 300 MiB POST raised the memory of the server (RSS) to about
 | `POST /api/auth/signup` | `SMALL_JSON_BODY` | A form of three fields. No sign-in is needed. |
 | `PATCH /api/profile` | `SMALL_SAVE_BODY`: 64 KiB, no time limit | One name. A save of a signed-in player. |
 | `PATCH /api/gaming-profile` | `SMALL_SAVE_BODY` | One switch. A save of a signed-in player. |
-| `POST /api/progress/[appId]` | `PROGRESS_SAVE_BODY`: 100 MiB and 2,000,000 JSON values, no time limit | Over the largest valid save (see below). |
+| `POST /api/progress/[appId]` | `PROGRESS_SAVE_BODY`: 100 MiB, 12,000,000 JSON marks and 1,000,000 allocation units, no time limit | Over the largest valid save (see below). |
 
 **Auth.js.** `src/app/api/auth/[...nextauth]/route.ts` exports Auth.js's
 GET as it is (Next.js gives a GET handler no body). Its POST reads the body
@@ -985,24 +1049,30 @@ passes" (`src/app/api/progress/[appId]/__tests__/route.test.ts`) builds the
 upper-bound payloads from the schema (`largestSave.ts` in
 the same folder). Typed text uses a 3-byte character, and image data URLs
 use 1 byte a character (base64). Each save goes through the route and gets
-200. The largest is the Drawing App gallery: 20 drawings with a data URL
-and a thumbnail of 1,500,000 characters each, 60,063,790 bytes as a save
-body. The next largest are the Joke Generator (12.3 MB) and the Drum
-Machine (11.8 MB). The test also builds the save with the most JSON values
-of every schema. The most is the Drum Machine: 661,328 marks, under a third
-of 2,000,000. The test names the fields that a schema does not bound
-(today: `currentEvent` of Oregon Trail, a `z.any()`). For that field, the
-test sends every event that the game writes (fewer than 1,000 marks). This
-is evidence for game-produced payloads, not every value accepted by Zod:
-image fields also accept arbitrary Unicode, and Oregon currentEvent is
-unbounded until issue #72i is fixed. Route exports must be explicit
+200. The expanded Drum Machine schema now produces the largest fixture,
+with 10,261,528 JSON marks (mostly booleans), below the 12,000,000-mark
+budget. The Drawing App gallery still contributes about 60 MB of base64
+image data. A separate streamed budget counts containers and strings,
+including object keys, and stops at 1,000,000 units. The maximum fixture
+of every schema must fit both budgets. This retains the former
+empty-object ceiling while admitting long boolean patterns; wide objects
+and arrays of strings also consume allocation units.
+
+Oregon Trail events are now bounded; the route also accepts every authored
+event and the generated river result. Image fields still accept arbitrary
+Unicode at the schema level, so the byte proof applies to the base64 that
+the game produces, not every Unicode value accepted by Zod.
+Route exports must be explicit
 functions; the inventory rejects factory results whose body handling
 cannot be inspected. Dynamic evaluation is forbidden in server code.
 
 **Residual risk.** A signed-in account can still send several 100 MiB
 bodies at the same time. Each one holds up to 100 MiB of bytes, and more
-while the route decodes, parses, validates and writes it. Measured on the
-standalone server:
+while the route decodes, parses, validates and writes it. The budgets bound
+inputs, not exact peak memory. Historical measurements below used the
+original 2,000,000-mark limit before B0 widened Drum Machine saves; the
+byte/timer results remain relevant, while count-specific byte and memory
+measurements are not measurements of the new allocation budget:
 
 - A 300 MiB chunked POST to the save route from one account stopped at
   100 MiB (413). The RSS of the server went from 106 MiB to 295 MiB until
