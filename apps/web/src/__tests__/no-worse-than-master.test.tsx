@@ -43,6 +43,7 @@ import {
   beforeCell,
   createContext,
   harnessHash,
+  lostValues,
   type CellResult,
   type Family,
   type Inputs,
@@ -128,5 +129,18 @@ describe("per family", () => {
     for (const [family, sum] of totals) {
       expect(sum.here, `${family}: values lost here, against master`).toBeLessThan(sum.master);
     }
+  });
+});
+
+
+describe("loss comparison follows field meaning", () => {
+  it("does not call a reversed purchase preserved because the wallet grew", () => {
+    expect(lostValues("cookie-clicker", { kid: { cookies: 13 } }, { cookies: 83 }, { cookies: 0 }))
+      .toEqual(["kid:cookies=13"]);
+  });
+  it("keeps higher scores and lower positive best times", () => {
+    expect(lostValues("snake", { kid: { highScore: 13 } }, { highScore: 83 }, { highScore: 0 })).toEqual([]);
+    expect(lostValues("memory-match", { kid: { bestTimes: { easy: 13 } } }, { bestTimes: { easy: 10 } }, { bestTimes: { easy: null } })).toEqual([]);
+    expect(lostValues("memory-match", { kid: { bestTimes: { easy: 13 } } }, { bestTimes: { easy: 20 } }, { bestTimes: { easy: null } })).toEqual(["kid:bestTimes.easy=13"]);
   });
 });

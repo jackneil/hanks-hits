@@ -50,9 +50,8 @@
  * progress) is lost when the account's final row does not hold it and no
  * other source holds the same value at the same place (the last-write rule
  * keeps one of two different values; that is not a loss of this code). A
- * number counts as kept when the final row holds a larger number at its
- * place (a counter or a record that grew), except where a lower number is
- * better (a best time).
+ * numeric improvement counts as kept only when the reviewed field table
+ * defines its direction. Wallets and other state require exact equality.
  *
  * The inputs pass the server schema of master: a save that master's server
  * refuses (and the server of this checkout takes, part B0) would compare
@@ -67,6 +66,7 @@ import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
 import { useAuthSync, __unsafeResetForeignPurgeLockForTests } from "@/shared/hooks/useAuthSync";
 import { PROGRESS_OWNER_KEY, SIGNOUT_BROADCAST_KEY } from "@/lib/storage-keys";
 import { validateProgress } from "@/lib/progress-schemas";
+import { PROGRESS_FIELD_RULES, type FieldDirection } from "@/lib/progress-field-rules";
 import { installAudioMock } from "@/__tests__/audio-mock";
 import { createProgressServer } from "../fake-progress-server";
 import { SYNCED_STORES, type SyncedStoreEntry } from "../synced-stores";
@@ -219,8 +219,6 @@ export function leaves(value: unknown, skip: ReadonlySet<string> = TIME_KEYS, pa
   return out;
 }
 
-/** Places where a lower number is better (a best time): a larger one is no gain. */
-const LOWER_IS_BETTER = /(fastest|bestTime|TimeMs)/i;
 
 /** A number that is a date in epoch ms (2017 to 2100). */
 function isTime(value: unknown): boolean {
@@ -266,19 +264,30 @@ export function lostValues(
     const value = Number(leaf.slice(leaf.indexOf("=") + 1));
     if (!leaf.includes("[]=") && Number.isFinite(value)) numbers.set(placeOf(`x:${leaf}`), value);
   }
-  /** A number that the final row holds as a larger number at its place. */
-  const grew = (leaf: string) => {
+  /** An improvement only for a field whose reviewed direction permits it. */
+  const improved = (leaf: string) => {
     if (leaf.includes("[]=")) return false;
     const place = placeOf(`x:${leaf}`);
     const value = Number(leaf.slice(leaf.indexOf("=") + 1));
     const now = numbers.get(place);
-    return Number.isFinite(value) && now !== undefined && now >= value && !LOWER_IS_BETTER.test(place);
+    if (!Number.isFinite(value) || now === undefined) return false;
+    const table = (PROGRESS_FIELD_RULES as Record<string, Record<string, FieldDirection>>)[appId] ?? {};
+    const path = place.split(".");
+    const direction = Object.entries(table).find(([pattern, spec]) => {
+      const parts = pattern.split(".");
+      return (parts.length === path.length || (spec.subtree && parts.length < path.length)) &&
+        parts.every((part, i) => part === "*" || part === path[i]);
+    })?.[1].rule;
+    if (direction === "max") return now >= value;
+    if (direction === "minPositive") return now > 0 && (value <= 0 || now <= value);
+    if (direction === "earliest") return now <= value;
+    return false;
   };
   const all = Object.fromEntries(Object.entries(sources).map(([name, progress]) => [name, leaves(progress, skip)]));
   const out: string[] = [];
   for (const [name, mine] of Object.entries(all)) {
     for (const leaf of mine) {
-      if (base.has(leaf) || have.has(leaf) || grew(leaf)) continue;
+      if (base.has(leaf) || have.has(leaf) || improved(leaf)) continue;
       if (Object.entries(all).some(([other, theirs]) => other !== name && theirs.has(leaf))) continue;
       out.push(`${name}:${leaf}`);
     }

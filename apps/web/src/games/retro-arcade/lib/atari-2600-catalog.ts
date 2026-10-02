@@ -431,6 +431,13 @@ export const ATARI_2600_CATALOG: CatalogGame[] = [
     favorite: false,
   },
   {
+    id: "atari2600-bloodyhumanfreeway-ntsc",
+    displayName: "BloodyHumanFreeway_NTSC",
+    filename: "bloodyhumanfreeway_ntsc.bin",
+    genre: "action",
+    favorite: false,
+  },
+  {
     id: "atari2600-blueprint",
     displayName: "Blueprint",
     filename: "blueprint.bin",
@@ -1743,6 +1750,13 @@ export const ATARI_2600_CATALOG: CatalogGame[] = [
     id: "atari2600-hero",
     displayName: "H.E.R.O.",
     filename: "hero.bin",
+    genre: "action",
+    favorite: false,
+  },
+  {
+    id: "atari2600-halloween",
+    displayName: "Halloween",
+    filename: "halloween.bin",
     genre: "action",
     favorite: false,
   },
@@ -4663,6 +4677,20 @@ export const ATARI_2600_CATALOG: CatalogGame[] = [
     displayName: "Tetris 2600",
     filename: "tetris_2600.bin",
     genre: "puzzle",
+    favorite: false,
+  },
+  {
+    id: "atari2600-texas-chainsaw-massacre",
+    displayName: "Texas Chainsaw Massacre",
+    filename: "texas_chainsaw_massacre.bin",
+    genre: "action",
+    favorite: false,
+  },
+  {
+    id: "atari2600-texas-chainsaw-massacre-the",
+    displayName: "Texas Chainsaw Massacre, The",
+    filename: "texas_chainsaw_massacre_the.bin",
+    genre: "action",
     favorite: false,
   },
   {

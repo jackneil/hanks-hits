@@ -134,20 +134,30 @@ describe("ROM proxy route", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("404s a ROM that the content blocklist removed, without touching the network", async () => {
-    // Guardrail 1, issue #25: the objects stay in the bucket, so the old URL
-    // of a removed title must not play.
+  it("404s every ROM that a block rule matches (sexual content), without touching the network", async () => {
+    // Guardrail 1, issue #25: the objects stay in the bucket until Jack
+    // deletes them, so the URL of an adult cartridge must not play.
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const blocked: [string[], string][] = [
-      [["snes", "mortal_kombat_1.smc"], "mortal-kombat"],
-      [["snes", "doom.smc"], "doom"],
-      [["atari2600", "custers_revenge.bin"], "custers-revenge"],
+      [["atari2600", "bachelor.bin"], "bachelor-party"],
+      [["atari2600", "bachelor_party.bin"], "bachelor-party"],
+      [["atari2600", "bachelorette_party.bin"], "bachelor-party"],
+      [["atari2600", "beat_em_and_eat_em.bin"], "beat-em-and-eat-em"],
+      [["atari2600", "burning_desire.bin"], "burning-desire"],
+      [["atari2600", "cathouse_blues.bin"], "cathouse-blues"],
       [["atari2600", "custerev.bin"], "custers-revenge"],
+      [["atari2600", "custers_revenge.bin"], "custers-revenge"],
+      [["atari2600", "general_re_treat.bin"], "general-re-treat"],
+      [["atari2600", "gigolo.bin"], "gigolo"],
+      [["atari2600", "harem.bin"], "harem"],
+      [["atari2600", "jungle_fever.bin"], "jungle-fever"],
+      [["atari2600", "knight_on_the_town.bin"], "knight-on-the-town"],
+      [["atari2600", "lady_in_wading.bin"], "lady-in-wading"],
+      [["atari2600", "philly_flasher.bin"], "philly-flasher"],
       [["atari2600", "x_man.bin"], "x-man-universal-gamex"],
-      [["atari2600", "halloween.bin"], "halloween-wizard-video"],
     ];
     for (const [segments, ruleId] of blocked) {
       const res = await GET(req(), params(segments));
@@ -157,6 +167,41 @@ describe("ROM proxy route", () => {
       );
     }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("serves every ROM that a notice rule matches (violent classics, Jack 2026-10-02)", async () => {
+    // The arcade shows the heads-up card before it asks for the ROM, so the
+    // proxy does not refuse these files.
+    const rom = new Uint8Array(16).fill(2);
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(new Response(bodyStream([rom]), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const notice: string[][] = [
+      ["snes", "alien_3.smc"],
+      ["snes", "alien_vs_predator.smc"],
+      ["snes", "cannon_fodder.smc"],
+      ["snes", "doom.smc"],
+      ["snes", "killer_instinct.smc"],
+      ["snes", "mortal_kombat_1.smc"],
+      ["snes", "mortal_kombat_2.smc"],
+      ["snes", "mortal_kombat_3.smc"],
+      ["snes", "samurai_showdown.smc"],
+      ["snes", "super_fire_pro_wrestling_x_premium.smc"],
+      ["snes", "super_smash_tv.smc"],
+      ["snes", "wolfenstein_3d.smc"],
+      ["atari2600", "bloodyhumanfreeway_ntsc.bin"],
+      ["atari2600", "halloween.bin"],
+      ["atari2600", "texas_chainsaw_massacre.bin"],
+      ["atari2600", "texas_chainsaw_massacre_the.bin"],
+    ];
+    for (const segments of notice) {
+      expect((await GET(req(), params(segments))).status, segments.join("/")).toBe(200);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(notice.length);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it("still serves a kid-safe ROM whose name looks like a blocked title", async () => {

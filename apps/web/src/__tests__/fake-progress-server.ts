@@ -1,12 +1,12 @@
 /**
  * A fake /api/progress for sync tests: one row per user and app, with the
- * REAL validateProgress and mergeForSave of the route
+ * REAL validateProgress and resolveMergedSave of the route
  * (app/api/progress/[appId]/route.ts). Install it with
  * vi.stubGlobal("fetch", server.fetch).
  */
 import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
 import { validateProgress } from "@/lib/progress-schemas";
-import { mergeForSave } from "@/lib/progress-merge";
+import { resolveMergedSave } from "@/lib/progress-merge";
 
 type Session = { current: { data: null | { user: { id: string } } } };
 
@@ -54,8 +54,9 @@ export function createProgressServer(session: Session) {
     let final = valid.data as AppProgressData;
     const existing = rows.get(key);
     if (merge && existing) {
-      const merged = validateProgress(appId, mergeForSave(final, existing).data);
-      if (merged.success) final = merged.data as AppProgressData;
+      const merged = resolveMergedSave(final, existing, appId, (value) => validateProgress(appId, value));
+      if (merged.kind === "keepExisting") return respond({ error: merged.error, kept: "existing" }, 409);
+      final = merged.data;
     }
     rows.set(key, { data: JSON.parse(JSON.stringify(final)), updatedAt: new Date() });
     return respond({ success: true, updatedAt: new Date().toISOString() });

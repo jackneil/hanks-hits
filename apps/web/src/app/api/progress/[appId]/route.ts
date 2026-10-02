@@ -9,7 +9,7 @@ import {
   type ValidAppId,
   type AppProgressData,
 } from "@hank-neil/db/schema";
-import { mergeForSave } from "@/lib/progress-merge";
+import { resolveMergedSave } from "@/lib/progress-merge";
 import { validateProgress } from "@/lib/progress-schemas";
 import { checkProgressDeleteRateLimit, checkProgressRateLimit } from "@/lib/rate-limit";
 import { generateUniqueHandle } from "@/lib/handle-generator";
@@ -20,6 +20,7 @@ import {
 } from "@/lib/leaderboard-extractors";
 import { leaderboardEntrySchema } from "@/lib/leaderboard-schemas";
 import { describeError } from "@/lib/describe-error";
+import { PROGRESS_SAVE_BODY, readJson, refuseBody } from "@/lib/read-body";
 
 type RouteContext = {
   params: Promise<{ appId: string }>;
@@ -280,9 +281,17 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    const body = await request.json();
-    const { data, merge = false } = body as {
-      data: AppProgressData;
+    // A bounded read: 100 MiB, 12M JSON marks and 1M allocation units, counted while the
+    // bytes arrive, and no time limit of our own (see PROGRESS_SAVE_BODY in
+    // src/lib/read-body.ts and design/ARCHITECTURE.md, section "Request
+    // bodies"). A refused body writes one log line with no value in it.
+    const read = await readJson(request, PROGRESS_SAVE_BODY);
+    if (!read.ok) return refuseBody(`POST /api/progress/${appId}`, read, request);
+    const body = read.value;
+    // A body that is not an object (null, a number) has no data: the check
+    // below answers 400. Destructuring null threw, and the route answered 500.
+    const { data, merge = false } = (typeof body === "object" && body !== null ? body : {}) as {
+      data?: AppProgressData;
       merge?: boolean;
     };
 
@@ -318,8 +327,9 @@ export async function POST(request: Request, context: RouteContext) {
     // If merging, fetch existing first and merge. Ordering comes from the
     // progress blobs' own lastModified (validated + bounded by the zod schema);
     // the row's updatedAt only breaks ties when a blob carries no timestamp.
-    // Field-aware reconcile means a stale/default blob can never erase earned
-    // monotonic progress (see mergeForSave + the wipe regression tests).
+    // Field-aware reconcile (the app's reviewed table in
+    // progress-field-rules.ts) means a stale/default blob can never erase
+    // earned records (see mergeForSave + the wipe regression tests).
     if (merge) {
       const existing = await db.query.appProgress.findFirst({
         where: and(
@@ -329,52 +339,74 @@ export async function POST(request: Request, context: RouteContext) {
       });
 
       if (existing) {
-        const mergeResult = mergeForSave(validation.data as AppProgressData, {
-          data: existing.data as AppProgressData,
-          updatedAt: existing.updatedAt,
-        });
-        // SECURITY: re-validate the MERGED blob before persisting — max() and
-        // array-union combine two individually-valid blobs, and the result
-        // must still satisfy the schema's bounds. If it doesn't, fall back to
-        // the incoming validated payload rather than storing an unvalidated
-        // shape (both inputs passed validation at their own write time).
-        const mergedValidation = validateProgress(
-          appId as ValidAppId,
-          mergeResult.data
+        // SECURITY: the merged blob is re-validated before it is stored —
+        // max() and array-union combine two individually-valid blobs, and the
+        // result must still satisfy the schema's bounds. When it does not,
+        // resolveMergedSave starts again from the NEWER side alone and adds
+        // each merged field that keeps the blob valid. An older save never
+        // replaces a newer row.
+        const outcome = resolveMergedSave(
+          validation.data as AppProgressData,
+          {
+            data: existing.data as AppProgressData,
+            updatedAt: existing.updatedAt,
+          },
+          appId,
+          (blob) => validateProgress(appId as ValidAppId, blob)
         );
-        if (mergedValidation.success) {
-          finalData = mergedValidation.data as AppProgressData;
-          conflicts = mergeResult.conflicts;
 
-          // TRIPWIRE: a merge must never SHRINK an unlockable set — the
-          // reconciler unions them (arrays and id->timestamp records). If
-          // this ever logs, trophies/unlocks are being dropped and the 3am
-          // "my kid's trophies vanished" report has its trail.
-          if (appId === "achievements") {
-            const count = (blob: AppProgressData | undefined | null) => {
-              const u = blob?.unlocked;
-              return u && typeof u === "object" && !Array.isArray(u)
-                ? Object.keys(u).length
-                : 0;
-            };
-            const merged = count(finalData);
-            const inputs = Math.max(
-              count(validation.data as AppProgressData),
-              count(existing.data as AppProgressData)
-            );
-            if (merged < inputs) {
-              console.warn(
-                `[achievements] merge SHRANK unlocked set for user ${userId}: ` +
-                  `incoming=${count(validation.data as AppProgressData)} ` +
-                  `existing=${count(existing.data as AppProgressData)} merged=${merged}`
-              );
-            }
-          }
-        } else {
+        if (outcome.kind === "keepExisting") {
+          // The stored row is newer, and the schema of today refuses it, so
+          // no valid blob can keep it as the base. Store nothing: the client
+          // keeps this save on the device and sends it again with its next
+          // change (which is newer than the row). Values-free log.
           console.warn(
-            `Merged progress for ${appId} failed re-validation; persisting incoming payload instead:`,
-            mergedValidation.error
+            `[progress] ${appId}: kept the newer stored row for user ${userId}; ` +
+              `it fails the schema of today, so the older save was not merged into it: ${outcome.error}`
           );
+          return NextResponse.json(
+            {
+              error:
+                "This save is older than the saved progress. The saved progress was kept.",
+              kept: "existing",
+            },
+            { status: 409 }
+          );
+        }
+
+        finalData = outcome.data;
+        conflicts = outcome.conflicts;
+        if (outcome.mergeError) {
+          console.warn(
+            `[progress] ${appId}: the merged save failed re-validation for user ${userId}; ` +
+              `kept the newer side (${outcome.base === "local" ? "incoming save" : "stored row"}) ` +
+              `and left out [${outcome.leftOut.join(", ")}]: ${outcome.mergeError}`
+          );
+        }
+
+        // TRIPWIRE: a merge must never SHRINK an unlockable set — the
+        // reconciler unions them (arrays and id->timestamp records). If
+        // this ever logs, trophies/unlocks are being dropped and the 3am
+        // "my kid's trophies vanished" report has its trail.
+        if (appId === "achievements") {
+          const count = (blob: AppProgressData | undefined | null) => {
+            const u = blob?.unlocked;
+            return u && typeof u === "object" && !Array.isArray(u)
+              ? Object.keys(u).length
+              : 0;
+          };
+          const merged = count(finalData);
+          const inputs = Math.max(
+            count(validation.data as AppProgressData),
+            count(existing.data as AppProgressData)
+          );
+          if (merged < inputs) {
+            console.warn(
+              `[achievements] merge SHRANK unlocked set for user ${userId}: ` +
+                `incoming=${count(validation.data as AppProgressData)} ` +
+                `existing=${count(existing.data as AppProgressData)} merged=${merged}`
+            );
+          }
         }
       }
     }

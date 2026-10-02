@@ -37,6 +37,9 @@ import {
 import { useSaveOwner } from "./hooks/useSaveOwner";
 import { SaveNotice, type Notice, type NoticeTone } from "./components/SaveNotice";
 import { SavedGames } from "./components/SavedGames";
+import { ContentNoticeCard } from "./components/ContentNoticeCard";
+import { findOpenNoticeRule } from "./lib/contentNotice";
+import type { TitleCandidate } from "./lib/content-match";
 
 // Recently Played shows only games that a catalog still lists (or that the
 // player uploaded), so a removed title's name does not stay on screen.
@@ -577,6 +580,16 @@ function EmulatorView({
   );
 }
 
+/** A game that a player asked to open. */
+interface OpenRequest {
+  rom: RomSource;
+  /** The name for the store, the saves and the bar over the emulator. */
+  name: string;
+  system: SystemType;
+  /** What the content rules read: the catalog entry, or the uploaded file name. */
+  title: TitleCandidate;
+}
+
 // Main game component
 export function RetroArcadeGame() {
   const store = useRetroArcadeStore();
@@ -592,6 +605,16 @@ export function RetroArcadeGame() {
   // next screen, so it is never silent.
   const [exitNotice, setExitNotice] = useState<Notice | null>(null);
   const dismissExitNotice = useCallback(() => setExitNotice(null), []);
+  // A mainstream violent classic that waits behind the heads-up card.
+  const [pendingOpen, setPendingOpen] = useState<OpenRequest | null>(null);
+
+  // A visit to the arcade never resumes a game that it did not start. The
+  // store lives in memory for the whole tab, so without this a game left
+  // running by the browser's back button (iOS swipe-back) came back on the
+  // next visit with no heads-up card: an older kid plays Mortal Kombat,
+  // swipes back, and a younger kid opens Retro Arcade. Each new visit
+  // starts at the list, and every game opens through openGame.
+  useEffect(() => () => useRetroArcadeStore.getState().stopGame(), []);
 
   // Auth sync
   const { isAuthenticated, syncStatus } = useAuthSync({
@@ -606,22 +629,61 @@ export function RetroArcadeGame() {
     store.setCurrentSystem(system);
   };
 
+  // The one place that starts a game. Only openGame and the card's Play
+  // button call it (content-notice.test.ts fails on a second caller). A
+  // start drops a card that waits for another game, so that card never
+  // comes back by itself after this game.
+  const launchGame = (request: OpenRequest) => {
+    setPendingOpen(null);
+    store.startGame(request.rom, request.name, request.system);
+  };
+
+  // The one gate in front of launchGame. Every way to open a game comes
+  // here: a catalog card (all, a genre, favorites, a search), a new upload,
+  // and "Your ROMs". A title that a notice rule matches (Jack, 2026-10-02)
+  // waits behind the heads-up card. The card shows each time.
+  const openGame = (request: OpenRequest) => {
+    if (findOpenNoticeRule(request.title)) {
+      setPendingOpen(request);
+      return;
+    }
+    launchGame(request);
+  };
+
   const handleRomLoaded = (rom: Blob, name: string) => {
     if (store.currentSystem) {
-      store.startGame(rom, name, store.currentSystem);
+      openGame({
+        rom,
+        name,
+        system: store.currentSystem,
+        title: { displayName: name, filename: name },
+      });
     }
   };
 
   const handleBack = () => {
+    setPendingOpen(null);
     store.setCurrentSystem(null);
     setShowUploader(false);
   };
 
   const handleGameSelect = (game: CatalogGame, romUrl: string) => {
-    if (store.currentSystem) {
-      store.startGame(romUrl, game.displayName, store.currentSystem);
+    // The console now, not the console of the render that made this handler.
+    const system = useRetroArcadeStore.getState().currentSystem;
+    if (system) {
+      openGame({ rom: romUrl, name: game.displayName, system, title: game });
     }
   };
+
+  const noticeCard = pendingOpen ? (
+    <ContentNoticeCard
+      onPlay={() => {
+        setPendingOpen(null);
+        launchGame(pendingOpen);
+      }}
+      onPickAnother={() => setPendingOpen(null)}
+    />
+  ) : null;
 
   const handleToggleFavorite = (gameId: string) => {
     if (store.isFavorite(gameId)) {
@@ -701,6 +763,7 @@ export function RetroArcadeGame() {
           className={`flex h-full flex-col bg-gradient-to-b ${system.bgGradient} p-3 sm:p-6 short:p-2`}
         >
           {exitNoticeView}
+          {noticeCard}
           {/* One row: Back, the console and its count. The games scroll
               under it (the search stays at their top). */}
           <header className="mb-2 flex shrink-0 items-center gap-2 sm:mb-4 short:mb-1">
@@ -753,10 +816,12 @@ export function RetroArcadeGame() {
         className={`min-h-full bg-gradient-to-b ${system.bgGradient} p-3 sm:p-6 flex flex-col`}
       >
         {exitNoticeView}
+        {noticeCard}
         <header className="mb-3 flex items-center gap-2">
           <button
             type="button"
             onClick={() => {
+              setPendingOpen(null);
               if (hasCatalog && showUploader) {
                 setShowUploader(false);
               } else {

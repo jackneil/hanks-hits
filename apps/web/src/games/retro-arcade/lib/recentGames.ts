@@ -8,8 +8,10 @@ export type CatalogNamesBySystem = Partial<Record<SystemType, ReadonlySet<string
  * Returns the recently played games that the arcade can still offer.
  *
  * The saved list (local and cloud) can keep the name of a game that a
- * catalog no longer lists, for example a title that the content blocklist
- * removed (issue #25). The Recently Played list must not show that name.
+ * catalog no longer lists, for example a title that a block rule removed
+ * (sexual content, lib/content-rules.json). The Recently Played list must
+ * not show that name. A notice title (a violent classic, Jack 2026-10-02)
+ * is in its catalog, so it shows like every other game.
  *
  * - A console with no catalog plays only uploaded ROMs, so all of its
  *   entries stay.

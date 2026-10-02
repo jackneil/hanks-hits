@@ -255,7 +255,12 @@ tip) only on a page with no play. An app with no start card puts an
 `AppNotesSlot` (`src/shared/components/AppNotesSlot.tsx`) in its own
 layout: an inline slot that holds a trophy for its 4 s show window as
 part of the page, so the fixed strip never covers the app's buttons. An
-inline slot is not a break, so the install pill still shows. The body shows a soft shadow
+inline slot is not a break, so the install pill still shows.
+`GameNoticeOverlay` (the same file) is a question before a game starts, not
+a break (Retro Arcade's heads-up card). It has no slot, so a nudge waits for
+the next break, and its read-aloud text is the card's words only. On a
+keyboard it is a modal dialog: focus goes to the first choice, Tab stays in
+the card, and Escape calls `onDismiss`. The body shows a soft shadow
 at an edge only while there is more content past that edge (`useScrollCue`).
 The check in `e2e/start-cards` tests this contract on real screens for each
 route that the home page lists. Run it with `pnpm e2e:start-cards
@@ -846,6 +851,70 @@ save.
 - The next save writes the board row again, because the route reads the
   score from the full saved blob.
 
+**How the server merges a save.** The client (`useAuthSync`) sends
+`merge: true` with each save after the first sync. The route merges the
+save with the stored row in `src/lib/progress-merge.ts`.
+
+- The newer blob is the base. The route compares the `lastModified` value
+  of each blob (last write wins). The row's `updatedAt` is used only when a
+  blob has no time.
+- Each field then follows the reviewed table of its game in
+  `src/lib/progress-field-rules.ts`:
+  - `max`: keep the larger value. Use it for a field that only grows (a
+    high score, a total, a level reached, an upgrade level). A flag that
+    only turns on (a level completed) keeps `true`.
+  - `minPositive`: keep the smaller value that is more than zero. Use it
+    for a best time or a fewest-moves win. Zero or `null` means "no record".
+  - `earliest`: keep the earlier time (a trophy unlock).
+  - `union`: keep the items of both lists (things that the kid unlocked).
+  - `neither`: keep the value of the base. Use it for a wallet that the
+    kid spends, a value that goes down in play, a setting, a time, text,
+    and a list that the kid edits.
+- A record (a key such as a level id or a stage id) that only the older
+  blob has is copied into the result.
+- A list of objects (saved drawings, beats, wishes) is one field with
+  `neither`. A merge of list items by id is part of the conflict protocol
+  (#69i).
+
+**Add a field or a game.** Add an entry for each schema field to
+`progress-field-rules.ts`. Read the store first. Use `max` only when no
+code path makes the field smaller, except a full reset. Cite the store
+line (`file:line` and the code in backticks).
+`src/lib/__tests__/progress-field-rules.test.ts` fails when a schema field
+has no entry, when an entry has no schema field, when a cited file no
+longer has its code, and when a field that the profile page or a
+leaderboard reads has no entry.
+
+Oregon Trail's `currentEvent` is a bounded event snapshot: it preserves authored
+events, choices, effects, and generated river results, while rejecting unknown
+fields and arbitrary nested JSON (#72). The merge keeps the newer event as a
+whole. Validation messages omit unknown property names so rejected body content
+is not copied into logs.
+
+**A merged blob that breaks the schema.** The route checks the merged blob
+with the schema again (two valid blobs can make a list that is too long).
+When the check fails:
+
+1. The route starts again from the newer blob alone. Then it adds the
+   merged fields one at a time, and keeps each field only when the blob
+   still passes. An older save never replaces a newer row.
+2. When the newer blob is the stored row and the schema of today refuses
+   the row itself, the route stores nothing and sends 409. The client
+   keeps its save on the device. Its next change is newer than the row, so
+   the next save is stored.
+
+The route logs the fields that it left out and the reason, with no values.
+
+**The schema must take every value that the client makes.** The server
+sends 400 for a save that its schema refuses, and the client does not
+send that save again. `src/lib/__tests__/progress-schema-types.test.ts`
+compares the type of each store's `getProgress()` with the type of its
+schema. It fails to compile when the schema refuses a value that the
+store's type allows (an age in a picker) or drops a field that the store
+sends (z.object() removes an unknown field). Change the SCHEMA, not the
+test. The types do not show number limits, so check a limit against the
+store's code before you set it.
+
 **Board scores are whole numbers.** `leaderboard_entries.score` is a
 Postgres `bigint`. Some games keep fractions (the Hill Climb distance,
 the Cookie Clicker cookie count).
@@ -1022,6 +1091,194 @@ selection, refused guest-fold recovery, lineage/base-version handling,
 missing-owner guest classification, the signout-broadcast transition gap,
 and no-time legacy loads remain part of B2. Preserve `wip/sync-stamps-full`
 until that work is complete.
+
+---
+
+## Request bodies
+
+CAUTION: Do not read a request body with `request.json()`, `request.text()`,
+`request.formData()`, `request.arrayBuffer()`, `request.blob()` or
+`request.bytes()`. Do not give the request to a library that reads it.
+Read the body with `readJson()` or `readBody()` from
+`src/lib/read-body.ts`.
+
+**Why.** A Next.js route handler has no body limit of its own. This app
+has no middleware. The Railway service domain answers with no Cloudflare
+in front of it, so the Cloudflare body limit does not protect the server.
+`request.json()` holds the whole body in memory before the route can check
+it, also a chunked body with no `Content-Length`. Auth.js read every POST
+to `/api/auth/*` in the same way, before its CSRF check and with no
+sign-in: one 300 MiB POST raised the memory of the server (RSS) to about
+1.1 GB.
+
+**How the reader works.**
+
+- The caller gives the limits as `{ maxBytes, timeoutMs }`, and
+  `readJson()` also needs `maxJsonValues`. `timeoutMs` is a number of
+  milliseconds, or `null` for no time limit. `maxJsonValues` is a number,
+  or `null` for no count. Only `null` turns a limit off. A missing value
+  throws, so no default can turn a limit on or off by accident.
+- A declared `Content-Length` over `maxBytes` gets 413 at once. The reader
+  reads no byte of that body.
+- The reader does not trust `Content-Length` for the rest. It counts the
+  bytes while they arrive. At the first chunk over `maxBytes`, it cancels
+  the stream and the route answers 413. The server holds at most the limit
+  and one chunk.
+- With `maxJsonValues`, `readJson()` also counts the JSON marks `{ [ , :`
+  outside strings while the bytes arrive. Each value or key after the
+  first value comes just after one of these marks. `JSON.parse` makes one
+  object for each value, so a body of many small values uses much more
+  memory than its bytes. A body with more marks than `maxJsonValues` gets
+  413 before the parse.
+- `readJson()` answers 400 for an empty body or for text that is not JSON.
+  The failure never holds the body text.
+- The route answers a failed read with `refuseBody()`. It writes one log
+  line: the route, the reason (`too_big`, `too_many_values`, `timeout`,
+  `bad_json` or `broken`), the declared `Content-Length` and the bytes that
+  arrived. The line has no value from the body and no user id. So a refused
+  body is never silent, also a save that a phone cut off part-way.
+
+**The limits.**
+
+| Route | Limits | Why |
+| --- | --- | --- |
+| `POST /api/auth/*` (Auth.js) | `SMALL_JSON_BODY`: 64 KiB in 30 s | A sign-in form is a few hundred bytes. No sign-in is needed, so the 30 s limit ends a connection that is held open. |
+| `POST /api/auth/signup` | `SMALL_JSON_BODY` | A form of three fields. No sign-in is needed. |
+| `PATCH /api/profile` | `SMALL_SAVE_BODY`: 64 KiB, no time limit | One name. A save of a signed-in player. |
+| `PATCH /api/gaming-profile` | `SMALL_SAVE_BODY` | One switch. A save of a signed-in player. |
+| `POST /api/progress/[appId]` | `PROGRESS_SAVE_BODY`: 100 MiB, 12,000,000 JSON marks and 1,000,000 allocation units, no time limit | Over the largest valid save (see below). |
+
+**Auth.js.** `src/app/api/auth/[...nextauth]/route.ts` exports Auth.js's
+GET as it is (Next.js gives a GET handler no body). Its POST reads the body
+with `SMALL_JSON_BODY`, then gives Auth.js a new request with the same
+bytes and the same headers. An empty body stays an empty body (not `null`),
+so Auth.js answers an empty JSON sign-in with its own 400, as before. CSRF,
+sign-in, sign-out and the callbacks work as before. The test runs the real
+Auth.js.
+
+**Auth.js logs.** The default Auth.js logger printed `error.message`. For a
+JSON body that does not parse, that message is V8's `SyntaxError` text,
+and it quotes the body near the bad token (part of a password). The app's
+logger (`src/lib/auth-logger.ts`) logs the Auth.js error type and kind and
+`describeError()` of the error and its cause. It logs no message.
+
+**Saves have no gates.** A save (a progress save, a name, the leaderboard
+switch) has limits that no valid save can reach, and nothing more. It has
+no time limit of its own, no speed floor, no limit on the saves of one
+account at the same time, and no memory budget for the process. A first
+design had all four. Review found that each one refused or lost real
+saves:
+
+- A limit on saves in flight answered 429 to the overlapping saves of a
+  drawing gallery, and the kid lost the drawings.
+- A time limit answered 408 to a phone that paused for 30 s.
+- A memory budget let one slow account make every save answer 503.
+
+The byte limit and the JSON value count are not gates of this kind. Each
+one is over the largest valid save of every game, and the test of the
+largest save (below) proves it.
+
+Node's own `requestTimeout` (300 s) still ends a request that does not
+finish in time, as before this change. At 1 Mbit/s, 300 s carries about
+37 MB. Measured on the standalone server (2026-10-02):
+
+- The largest drawing save (60 MB) at 2 Mbit/s got 200 after 243 s.
+- A save of 11 drawings (33 MB) at 1 Mbit/s got 200 after 267 s.
+- A small save that paused for 35 s in the middle got 200.
+- The largest drawing save at 1 Mbit/s got Node's own 408 after 310 s, at
+  38 MB. The server on master does the same, because the limit is Node's.
+
+**Largest game-produced saves.** The test "the largest valid save of every game
+passes" (`src/app/api/progress/[appId]/__tests__/route.test.ts`) builds the
+upper-bound payloads from the schema (`largestSave.ts` in
+the same folder). Typed text uses a 3-byte character, and image data URLs
+use 1 byte a character (base64). Each save goes through the route and gets
+200. The expanded Drum Machine schema now produces the largest fixture,
+with 10,261,528 JSON marks (mostly booleans), below the 12,000,000-mark
+budget. The Drawing App gallery still contributes about 60 MB of base64
+image data. A separate streamed budget counts containers and strings,
+including object keys, and stops at 1,000,000 units. The maximum fixture
+of every schema must fit both budgets. This retains the former
+empty-object ceiling while admitting long boolean patterns; wide objects
+and arrays of strings also consume allocation units.
+
+Oregon Trail events are now bounded; the route also accepts every authored
+event and the generated river result. Image fields still accept arbitrary
+Unicode at the schema level, so the byte proof applies to the base64 that
+the game produces, not every Unicode value accepted by Zod.
+Route exports must be explicit
+functions; the inventory rejects factory results whose body handling
+cannot be inspected. Dynamic evaluation is forbidden in server code.
+
+**Residual risk.** A signed-in account can still send several 100 MiB
+bodies at the same time. Each one holds up to 100 MiB of bytes, and more
+while the route decodes, parses, validates and writes it. The budgets bound
+inputs, not exact peak memory. Historical measurements below used the
+original 2,000,000-mark limit before B0 widened Drum Machine saves; the
+byte/timer results remain relevant, while count-specific byte and memory
+measurements are not measurements of the new allocation budget:
+
+- A 300 MiB chunked POST to the save route from one account stopped at
+  100 MiB (413). The RSS of the server went from 106 MiB to 295 MiB until
+  the garbage collector freed it.
+- A 60 MB save and a 33 MB save that ended 25 s apart raised the RSS from
+  about 120 MiB to 753 MiB.
+- Before the JSON value count, ONE save body of 100 MiB of empty objects
+  (`[{},{},...]`, 35 million values) raised the RSS from 827 MiB to
+  3,761 MiB, and a GET of another player waited 3.4 s. With the count, the
+  route refuses that body with 413 after 3,036,208 bytes (69 ms), and the
+  RSS went from 80 MiB to 115 MiB. A body of 100 MiB of zeros
+  (`[0,0,...]`, 52 million values) gets 413 after 4,062,288 bytes. The
+  largest valid Drum Machine save (661,328 marks) still gets 200.
+- For comparison, a 300 MiB chunked POST to `/api/auth/callback/credentials`
+  with no sign-in raised the RSS of the server on master from 123 MiB to
+  1,128 MiB. With the wrapper, it gets 413 after the limit and one chunk
+  (130,885 bytes), and the RSS does not grow (50 MiB before, 50 MiB at the
+  peak).
+
+The real fix is to make the saves small. Part C of #26i (planned,
+`design/LOCAL_WORDS.html` on branch `fix/coppa-accounts`) keeps drawings
+and typed words on the device and out of the synced progress. After part
+C, lower `PROGRESS_SAVE_BODY.maxBytes` and `maxJsonValues` to the new
+largest valid save. The test of the largest save shows the new numbers.
+
+**The checks.**
+
+- The ESLint rule `hanks-hits/bounded-request-body`
+  (`src/lib/boundedBodyRule.mjs`) covers `src/app`, `src/lib`, and a
+  `src/middleware.ts` or `src/proxy.ts` file if one is added. It finds
+  the request (the first parameter of a route handler, also out of line or
+  in a wrapper; a value typed `Request` or `NextRequest`; a name of a value
+  that ends in "request" or "req"). It follows the request through
+  aliases, casts, destructuring, arrays and objects, the functions of the
+  file and the constructors of its classes. It reports a body member. It
+  fails closed: it reports every other use of a request that is not on its
+  list of safe uses (a member that is not a body member, a test, a
+  comparison, an untagged template). So it reports a request that goes to
+  code outside the file (a package, another module, a global such as
+  `fetch`, a callback, or a method of another object), a request that a
+  function returns or throws, and a request that goes into a member, a
+  class field or a default value. Only `@/lib/read-body` and the helpers in
+  `REQUEST_HELPERS` can get the request. The inventory test checks that
+  each helper takes the request in a parameter typed `Request`, so the rule
+  checks the helper in its own file.
+- The rule's test fails on an `eslint-disable` comment that turns the rule
+  off in its files (also a comment with no rule list, which turns every
+  rule off). The one exception is the bounded reader itself, in
+  `src/lib/read-body.ts`.
+- The route inventory test (`src/app/api/__tests__/body-inventory.test.ts`)
+  lists every route file with its body methods and the limits that it
+  reads with. A new route fails the test until it is in the list. These
+  fail the test:
+  - a POST, PUT, PATCH, DELETE or OPTIONS that is not a function of the
+    route file (an export of a library's handler, such as
+    `export const { POST } = handlers`);
+  - an `export let` or `export var` handler, and a handler whose name the
+    file assigns again (`POST = handlers.POST`);
+  - limits that are not a preset imported from `@/lib/read-body` (a
+    constant of the route with the name of a preset);
+  - a Pages Router folder (`src/pages` or `pages`), or an `app` folder
+    outside `src`. Their API routes are outside the rule and the inventory.
 
 ---
 

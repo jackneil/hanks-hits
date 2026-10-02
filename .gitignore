@@ -38,7 +38,7 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 
-# Python bytecode (the scripts/ catalog generators import scripts/retro_blocklist.py)
+# Python bytecode (the scripts/ catalog generators import scripts/retro_content_rules.py)
 __pycache__/
 
 # Vercel

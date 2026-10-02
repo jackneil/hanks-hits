@@ -1,10 +1,11 @@
 {
-  "$comment": "Retro Arcade titles that must never be in a catalog (Guardrail 1: kid-safe for ages 6-14, no blood, gore or sexual content). Each rule is a case-insensitive regular expression. The same rules are read by src/games/retro-arcade/lib/content-blocklist.ts (the catalog test) and by scripts/retro_blocklist.py (the catalog generators). Write each pattern so that JavaScript and Python read it the same way. Match text is lowercase, with '_' and '-' changed to spaces. A rule is checked against the display name, the ROM file name without its extension, and the id. Put a title in safeTitles when it looks like a blocked title but is kid-safe.",
+  "$comment": "Retro Arcade content rules. Each rule has an action (decision of Jack, 2026-10-02). \"block\" is for sexual content: a catalog must not list the title, the ROM proxy returns 404 for its ROM file, and the catalog generators do not upload it. \"notice\" is for mainstream violent classics: the title stays in the catalog with no label in the list, and the arcade shows a heads-up card each time a player opens it. When a title matches a block rule and a notice rule, the block rule applies. Each rule is a case-insensitive regular expression. src/games/retro-arcade/lib/content-rules.ts (the catalog test and the ROM proxy) and scripts/retro_content_rules.py (the catalog generators) read this file. The browser gets only the notice rules, from lib/content-notice.generated.ts. After you change a notice rule, run pnpm --filter web generate:content-notice. Write each pattern so that JavaScript and Python read it the same way. Match text is lowercase, with '_' and '-' changed to spaces. A rule is checked against the display name, the ROM file name without its extension, and the id. Put a title in safeTitles when it looks like a matched title but no rule may match it.",
   "rules": [
     {
       "id": "mortal-kombat",
       "pattern": "mortal\\s*kombat",
       "category": "gore",
+      "action": "notice",
       "reason": "Fatalities with blood and gore. The ESRB rates Mortal Kombat 3 on Super Nintendo M for Realistic Blood and Gore. Decision 2, issue #25.",
       "source": "https://www.esrb.org/search/?searchKeyword=mortal%20kombat%203",
       "examples": [
@@ -19,6 +20,7 @@
       "id": "doom",
       "pattern": "^(?:the\\s+)?(?:ultimate\\s+|final\\s+|brutal\\s+)?doom(?!\\w)",
       "category": "gore",
+      "action": "notice",
       "reason": "A first-person shooter with blood and gore. The ESRB rates the Doom games M for Blood and Gore. Decision 2, issue #25.",
       "source": "https://www.esrb.org/search/?searchKeyword=doom",
       "examples": [
@@ -34,6 +36,7 @@
       "id": "killer-instinct",
       "pattern": "killer\\s*instinct",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates Killer Instinct on Super Nintendo for Animated Blood and Gore. Decision 2, issue #25.",
       "source": "https://www.esrb.org/ratings/584/killer-instinct/",
       "examples": [
@@ -45,6 +48,7 @@
       "id": "wolfenstein",
       "pattern": "wolfenstein",
       "category": "gore",
+      "action": "notice",
       "reason": "A first-person shooter where the player shoots human soldiers. Decision 2, issue #25.",
       "source": "https://en.wikipedia.org/wiki/Wolfenstein_3D",
       "examples": [
@@ -56,6 +60,7 @@
       "id": "alien-3",
       "pattern": "^aliens?\\s*(?:3|³|iii)(?!\\w)",
       "category": "gore",
+      "action": "notice",
       "reason": "A game of the R-rated Alien 3 horror film. Decision 2, issue #25.",
       "source": "https://en.wikipedia.org/wiki/Alien_3_(video_game)",
       "examples": [
@@ -68,6 +73,7 @@
       "id": "alien-vs-predator",
       "pattern": "aliens?\\s*(?:vs\\.?|versus)\\s*predator",
       "category": "gore",
+      "action": "notice",
       "reason": "A game of the Alien and Predator horror films. Decision 2, issue #25.",
       "source": "https://en.wikipedia.org/wiki/Alien_vs_Predator_(SNES_video_game)",
       "examples": [
@@ -80,6 +86,7 @@
       "id": "samurai-shodown",
       "pattern": "samurai\\s*show?down",
       "category": "gore",
+      "action": "notice",
       "reason": "Sword fights that spray blood. On Super Nintendo the blood is only recolored orange. The ESRB rates the series for Blood and Gore.",
       "source": "https://en.wikipedia.org/wiki/Samurai_Shodown_(1993_video_game)",
       "examples": [
@@ -92,6 +99,7 @@
       "id": "super-fire-pro-wrestling-x",
       "pattern": "super\\s*fire\\s*pro\\s*wrestling\\s*x(?!\\w)",
       "category": "gore",
+      "action": "notice",
       "reason": "Wrestlers bleed, and some wrestlers stab the opponent with a spike until the opponent bleeds.",
       "source": "https://www.blogofdoom.com/2023/08/16/mike-reviews-super-fire-pro-wrestling-x-premium/",
       "examples": [
@@ -103,6 +111,7 @@
       "id": "smash-tv",
       "pattern": "smash\\s*t\\.?\\s*v(?!\\w)",
       "category": "gore",
+      "action": "notice",
       "reason": "Every human enemy that the player shoots bursts into blood, also in the Super Nintendo version.",
       "source": "https://www.resetera.com/threads/wait-what-huh-super-smash-tv-on-the-snes-had-blood-this-is-1992.678883/",
       "examples": [
@@ -114,6 +123,7 @@
       "id": "total-carnage",
       "pattern": "total\\s*carnage",
       "category": "gore",
+      "action": "notice",
       "reason": "The sequel to Smash TV. Shot soldiers burst into blood (green blood on Super Nintendo).",
       "source": "https://www.resetera.com/threads/wait-what-huh-super-smash-tv-on-the-snes-had-blood-this-is-1992.678883/",
       "examples": [
@@ -124,6 +134,7 @@
       "id": "cannon-fodder",
       "pattern": "cannon\\s*fodder",
       "category": "gore",
+      "action": "notice",
       "reason": "A war game where the player shoots human soldiers, who scream and bleed. Graves show each dead soldier. The Super Nintendo version keeps the blood.",
       "source": "https://gamefaqs.gamespot.com/snes/575218-cannon-fodder/faqs/11474",
       "examples": [
@@ -135,6 +146,7 @@
       "id": "halloween-wizard-video",
       "pattern": "^halloween$",
       "category": "gore",
+      "action": "notice",
       "reason": "The 1983 Wizard Video slasher game. A killer with a knife chases children. When the babysitter dies, her head disappears and blood pulses from her neck.",
       "source": "https://en.wikipedia.org/wiki/Halloween_(video_game)",
       "examples": [
@@ -145,6 +157,7 @@
       "id": "texas-chainsaw-massacre",
       "pattern": "chain\\s*saw\\s*massacre",
       "category": "gore",
+      "action": "notice",
       "reason": "The 1983 Wizard Video slasher game. The player is a killer with a chainsaw, and the goal is to kill people.",
       "source": "https://en.wikipedia.org/wiki/The_Texas_Chainsaw_Massacre_(video_game)",
       "examples": [
@@ -156,6 +169,7 @@
       "id": "bloody-human-freeway",
       "pattern": "bloody\\s*human",
       "category": "gore",
+      "action": "notice",
       "reason": "An Activision prototype of Freeway where cars hit people instead of chickens.",
       "source": "http://www.atariprotos.com/2600/software/freeway/freeway.htm",
       "examples": [
@@ -167,6 +181,7 @@
       "id": "splatterhouse",
       "pattern": "splatterhouse",
       "category": "gore",
+      "action": "notice",
       "reason": "A horror game about gore. The ESRB rates Splatterhouse for Blood and Gore.",
       "source": "https://www.esrb.org/search/?searchKeyword=splatterhouse",
       "examples": [
@@ -178,6 +193,7 @@
       "id": "primal-rage",
       "pattern": "primal\\s*rage",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates Primal Rage on Super Nintendo and Genesis for Animated Blood and Gore.",
       "source": "https://www.esrb.org/search/?searchKeyword=primal%20rage",
       "examples": [
@@ -188,6 +204,7 @@
       "id": "weaponlord",
       "pattern": "weapon\\s*lord",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates WeaponLord on Super Nintendo and Genesis for Animated Blood and Gore.",
       "source": "https://www.esrb.org/search/?searchKeyword=weaponlord",
       "examples": [
@@ -199,6 +216,7 @@
       "id": "time-killers",
       "pattern": "time\\s*killers",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates Time Killers on Genesis M for Animated Blood and Gore.",
       "source": "https://www.esrb.org/search/?searchKeyword=time%20killers",
       "examples": [
@@ -209,6 +227,7 @@
       "id": "turok",
       "pattern": "\\bturok\\b",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates the Turok games M for Blood and Gore.",
       "source": "https://www.esrb.org/search/?searchKeyword=turok",
       "examples": [
@@ -220,6 +239,7 @@
       "id": "carmageddon",
       "pattern": "carmageddon",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates Carmageddon on Nintendo 64 M for Animated Blood and Gore.",
       "source": "https://www.esrb.org/search/?searchKeyword=carmageddon",
       "examples": [
@@ -230,6 +250,7 @@
       "id": "duke-nukem",
       "pattern": "duke\\s*nukem",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates the Duke Nukem games M for Blood and Gore, or T for Blood on Game Boy Advance.",
       "source": "https://www.esrb.org/search/?searchKeyword=duke%20nukem",
       "examples": [
@@ -241,6 +262,7 @@
       "id": "quake",
       "pattern": "\\bquake\\b",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates the Quake games M for Blood and Gore.",
       "source": "https://www.esrb.org/search/?searchKeyword=quake",
       "examples": [
@@ -252,6 +274,7 @@
       "id": "resident-evil",
       "pattern": "resident\\s*evil",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates Resident Evil 2 M for Blood and Gore.",
       "source": "https://www.esrb.org/search/?searchKeyword=resident%20evil%202",
       "examples": [
@@ -262,6 +285,7 @@
       "id": "perfect-dark",
       "pattern": "perfect\\s*dark",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates Perfect Dark on Nintendo 64 M for Animated Blood.",
       "source": "https://www.esrb.org/search/?searchKeyword=perfect%20dark",
       "examples": [
@@ -272,6 +296,7 @@
       "id": "grand-theft-auto",
       "pattern": "grand\\s*theft\\s*auto",
       "category": "gore",
+      "action": "notice",
       "reason": "The ESRB rates Grand Theft Auto Advance M for Blood, Sexual Themes and Violence.",
       "source": "https://www.esrb.org/search/?searchKeyword=grand%20theft%20auto%20advance",
       "examples": [
@@ -282,6 +307,7 @@
       "id": "conkers-bad-fur-day",
       "pattern": "conker\\W*s?\\s*bad\\s*fur\\s*day",
       "category": "sexual",
+      "action": "block",
       "reason": "The ESRB rates Conker's Bad Fur Day M for Mature Sexual Themes and Strong Language.",
       "source": "https://www.esrb.org/search/?searchKeyword=conker",
       "examples": [
@@ -292,6 +318,7 @@
       "id": "custers-revenge",
       "pattern": "\\bcuster",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only Mystique cartridge that shows a sexual assault.",
       "source": "https://en.wikipedia.org/wiki/Custer%27s_Revenge",
       "examples": [
@@ -304,6 +331,7 @@
       "id": "general-re-treat",
       "pattern": "general\\s*re\\s*treat",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge. It is Custer's Revenge with new graphics.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -315,6 +343,7 @@
       "id": "westward-ho",
       "pattern": "^westward\\s*ho(?!\\w)",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -325,6 +354,7 @@
       "id": "bachelor-party",
       "pattern": "\\bbachelor",
       "category": "sexual",
+      "action": "block",
       "reason": "Adult-only Mystique and PlayAround cartridges with nudity (Bachelor Party, Bachelorette Party).",
       "source": "https://en.wikipedia.org/wiki/Bachelor_Party_(video_game)",
       "examples": [
@@ -337,6 +367,7 @@
       "id": "beat-em-and-eat-em",
       "pattern": "beat\\W*em\\W+(?:and\\W+)?eat\\W*em",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only Mystique cartridge with sexual content.",
       "source": "https://en.wikipedia.org/wiki/Beat_%27Em_%26_Eat_%27Em",
       "examples": [
@@ -348,6 +379,7 @@
       "id": "philly-flasher",
       "pattern": "philly\\s*flasher",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge with nudity.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -358,6 +390,7 @@
       "id": "burning-desire",
       "pattern": "burning\\s*desire",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge with sexual content.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -368,6 +401,7 @@
       "id": "cathouse-blues",
       "pattern": "cathouse",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge about visits to a brothel.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -378,6 +412,7 @@
       "id": "gigolo",
       "pattern": "\\bgigolo\\b",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge with sexual content.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -388,6 +423,7 @@
       "id": "jungle-fever",
       "pattern": "jungle\\s*fever",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge with sexual content. The clean hack Rescue Bira Bira is a different title and stays in the catalog.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -398,6 +434,7 @@
       "id": "knight-on-the-town",
       "pattern": "knight\\s*on\\s*the\\s*town",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge with sexual content.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -408,6 +445,7 @@
       "id": "lady-in-wading",
       "pattern": "lady\\s*in\\s*wading",
       "category": "sexual",
+      "action": "block",
       "reason": "An adult-only PlayAround cartridge with nudity.",
       "source": "https://en.wikipedia.org/wiki/PlayAround",
       "examples": [
@@ -418,6 +456,7 @@
       "id": "harem",
       "pattern": "\\bharem\\b",
       "category": "sexual",
+      "action": "block",
       "reason": "A pornographic 1982 Multivision cartridge.",
       "source": "http://www.atariprotos.com/2600/software/harem/harem.htm",
       "examples": [
@@ -428,6 +467,7 @@
       "id": "x-man-universal-gamex",
       "pattern": "\\bx\\s*man(?!\\w)",
       "category": "sexual",
+      "action": "block",
       "reason": "A pornographic 1983 Universal Gamex cartridge. The Stella ROM database identifies the catalog ROM x_man.bin by MD5 as \"X-Man (1983) (Universal)\".",
       "source": "https://en.wikipedia.org/wiki/X-Man_(video_game)",
       "examples": [
@@ -441,6 +481,7 @@
       "id": "panesian-adult-nes",
       "pattern": "bubble\\s*bath\\s*babes|peek\\s*a\\s*boo\\s*poker|^hot\\s*slots$",
       "category": "sexual",
+      "action": "block",
       "reason": "Unlicensed adult-only NES cartridges from Panesian with nudity.",
       "source": "https://en.wikipedia.org/wiki/Bubble_Bath_Babes",
       "examples": [
