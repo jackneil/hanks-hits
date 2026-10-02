@@ -120,6 +120,8 @@ pnpm dev          # open http://localhost:3000
 
 To let the child **publish games to the internet**, connect this GitHub repo to a Railway project (Postgres + a web service using the included `Dockerfile`). After that, every push to `master` auto-deploys. If you clone this as a *different* person, point it at **your own** GitHub repo + Railway project.
 
+In the Settings of the web service, set the healthcheck path to `/` and the healthcheck timeout to 100 seconds. Without a healthcheck, a broken build can go live. `.railway/railway.ts` holds the settings of Hank's own Railway project. Before you use it with `railway config apply` on your copy, change its `source` to your own repo and read `.railway/README.md`.
+
 After setup, hand the keyboard to the kid: they just open Claude Code in this folder and start talking.
 
 ### Make it yours (rebrand the site name)
