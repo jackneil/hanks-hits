@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db, eq } from "@hank-neil/db";
 import { gamingProfiles } from "@hank-neil/db/schema";
 import { describeError } from "@/lib/describe-error";
+import { readJson, refuseBody, SMALL_SAVE_BODY } from "@/lib/read-body";
 
 /**
  * GET /api/gaming-profile
@@ -71,8 +72,15 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const body = await request.json();
-    const { showOnLeaderboards } = body as { showOnLeaderboards?: boolean };
+    // A bounded read (64 KiB, no time limit: a save of a signed-in player):
+    // request.json() held a body of any size in memory.
+    const read = await readJson(request, SMALL_SAVE_BODY);
+    if (!read.ok) return refuseBody("PATCH /api/gaming-profile", read, request);
+    const body = read.value;
+    const { showOnLeaderboards } =
+      typeof body === "object" && body !== null
+        ? (body as { showOnLeaderboards?: unknown })
+        : {};
 
     // Validate input
     if (typeof showOnLeaderboards !== "boolean") {

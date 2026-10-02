@@ -5,6 +5,12 @@ import bcrypt from "bcryptjs";
 import { checkSignupRateLimit, getClientIP } from "@/lib/rate-limit";
 import { validateDisplayName, displayNameFromEmail } from "@/lib/validators";
 import { describeError } from "@/lib/describe-error";
+import { readJson, refuseBody, SMALL_JSON_BODY } from "@/lib/read-body";
+
+/** A JSON object (not null, not an array). */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export async function POST(request: Request) {
   try {
@@ -25,10 +31,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const { name, email: rawEmail, password } = await request.json();
+    // A bounded read (64 KiB in 30 s): request.json() held a body of any
+    // size in memory, with no sign-in needed.
+    const read = await readJson(request, SMALL_JSON_BODY);
+    if (!read.ok) return refuseBody("POST /api/auth/signup", read, request);
+    if (!isRecord(read.value)) {
+      return NextResponse.json(
+        { error: "Email and password are required" },
+        { status: 400 }
+      );
+    }
+    const { name, email: rawEmail, password } = read.value;
 
     // Normalize email (lowercase + trim) to prevent duplicate accounts
-    const email = rawEmail?.toLowerCase().trim();
+    const email =
+      typeof rawEmail === "string" ? rawEmail.toLowerCase().trim() : undefined;
 
     // Validation. The typeof checks matter: a JSON number for password
     // would slip past a bare truthiness test, dodge the length rule

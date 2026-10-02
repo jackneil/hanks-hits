@@ -6,6 +6,7 @@ import { db, eq } from "@hank-neil/db";
 import * as schema from "@hank-neil/db/schema";
 import bcrypt from "bcryptjs";
 import { checkLoginRateLimit } from "@/lib/rate-limit";
+import { authLogger } from "@/lib/auth-logger";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -116,6 +117,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
   // Trust Railway and localhost
   trustHost: true,
+
+  // Log Auth.js errors with no value in them. The default logger prints the
+  // error message: for a JSON body that does not parse, that message quotes
+  // the body (part of a password). See src/lib/auth-logger.ts.
+  logger: authLogger,
 });
 
 // Export auth config for use in API routes

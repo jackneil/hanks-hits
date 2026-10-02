@@ -20,6 +20,7 @@ import {
 } from "@/lib/leaderboard-extractors";
 import { leaderboardEntrySchema } from "@/lib/leaderboard-schemas";
 import { describeError } from "@/lib/describe-error";
+import { PROGRESS_SAVE_BODY, readJson, refuseBody } from "@/lib/read-body";
 
 type RouteContext = {
   params: Promise<{ appId: string }>;
@@ -280,9 +281,17 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    const body = await request.json();
-    const { data, merge = false } = body as {
-      data: AppProgressData;
+    // A bounded read: 100 MiB, 12M JSON marks and 1M allocation units, counted while the
+    // bytes arrive, and no time limit of our own (see PROGRESS_SAVE_BODY in
+    // src/lib/read-body.ts and design/ARCHITECTURE.md, section "Request
+    // bodies"). A refused body writes one log line with no value in it.
+    const read = await readJson(request, PROGRESS_SAVE_BODY);
+    if (!read.ok) return refuseBody(`POST /api/progress/${appId}`, read, request);
+    const body = read.value;
+    // A body that is not an object (null, a number) has no data: the check
+    // below answers 400. Destructuring null threw, and the route answered 500.
+    const { data, merge = false } = (typeof body === "object" && body !== null ? body : {}) as {
+      data?: AppProgressData;
       merge?: boolean;
     };
 
