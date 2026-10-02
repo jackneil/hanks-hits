@@ -62,4 +62,3 @@ export class InFlightGate {
     return this.byKey.size;
   }
 }
-
