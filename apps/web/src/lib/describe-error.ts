@@ -50,11 +50,14 @@ function stringField(value: unknown, key: string): string | undefined {
   return typeof field === "string" && field.length > 0 ? field : undefined;
 }
 
-/** Stack frame lines only: a message can span lines, so filter, not slice. */
+/** Remove the entire message before looking for frames: it can imitate a frame. */
 function framesOf(value: unknown): string[] | undefined {
   const stack = value instanceof Error ? value.stack : undefined;
   if (typeof stack !== "string") return undefined;
-  const frames = stack
+  const header = `${(value as Error).name}: ${(value as Error).message}`;
+  // Unknown stack formats cannot safely distinguish message text from frames.
+  if (!stack.startsWith(header)) return undefined;
+  const frames = stack.slice(header.length)
     .split("\n")
     .filter((line) => /^\s+at\s/.test(line))
     .slice(0, MAX_FRAMES)

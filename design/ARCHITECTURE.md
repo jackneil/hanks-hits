@@ -881,6 +881,188 @@ and the stack frames.
 
 ---
 
+## Request bodies
+
+CAUTION: Do not read a request body with `request.json()`, `request.text()`,
+`request.formData()`, `request.arrayBuffer()`, `request.blob()` or
+`request.bytes()`. Do not give the request to a library that reads it.
+Read the body with `readJson()` or `readBody()` from
+`src/lib/read-body.ts`.
+
+**Why.** A Next.js route handler has no body limit of its own. This app
+has no middleware. The Railway service domain answers with no Cloudflare
+in front of it, so the Cloudflare body limit does not protect the server.
+`request.json()` holds the whole body in memory before the route can check
+it, also a chunked body with no `Content-Length`. Auth.js read every POST
+to `/api/auth/*` in the same way, before its CSRF check and with no
+sign-in: one 300 MiB POST raised the memory of the server (RSS) to about
+1.1 GB.
+
+**How the reader works.**
+
+- The caller gives the limits as `{ maxBytes, timeoutMs }`, and
+  `readJson()` also needs `maxJsonValues`. `timeoutMs` is a number of
+  milliseconds, or `null` for no time limit. `maxJsonValues` is a number,
+  or `null` for no count. Only `null` turns a limit off. A missing value
+  throws, so no default can turn a limit on or off by accident.
+- A declared `Content-Length` over `maxBytes` gets 413 at once. The reader
+  reads no byte of that body.
+- The reader does not trust `Content-Length` for the rest. It counts the
+  bytes while they arrive. At the first chunk over `maxBytes`, it cancels
+  the stream and the route answers 413. The server holds at most the limit
+  and one chunk.
+- With `maxJsonValues`, `readJson()` also counts the JSON marks `{ [ , :`
+  outside strings while the bytes arrive. Each value or key after the
+  first value comes just after one of these marks. `JSON.parse` makes one
+  object for each value, so a body of many small values uses much more
+  memory than its bytes. A body with more marks than `maxJsonValues` gets
+  413 before the parse.
+- `readJson()` answers 400 for an empty body or for text that is not JSON.
+  The failure never holds the body text.
+- The route answers a failed read with `refuseBody()`. It writes one log
+  line: the route, the reason (`too_big`, `too_many_values`, `timeout`,
+  `bad_json` or `broken`), the declared `Content-Length` and the bytes that
+  arrived. The line has no value from the body and no user id. So a refused
+  body is never silent, also a save that a phone cut off part-way.
+
+**The limits.**
+
+| Route | Limits | Why |
+| --- | --- | --- |
+| `POST /api/auth/*` (Auth.js) | `SMALL_JSON_BODY`: 64 KiB in 30 s | A sign-in form is a few hundred bytes. No sign-in is needed, so the 30 s limit ends a connection that is held open. |
+| `POST /api/auth/signup` | `SMALL_JSON_BODY` | A form of three fields. No sign-in is needed. |
+| `PATCH /api/profile` | `SMALL_SAVE_BODY`: 64 KiB, no time limit | One name. A save of a signed-in player. |
+| `PATCH /api/gaming-profile` | `SMALL_SAVE_BODY` | One switch. A save of a signed-in player. |
+| `POST /api/progress/[appId]` | `PROGRESS_SAVE_BODY`: 100 MiB and 2,000,000 JSON values, no time limit | Over the largest valid save (see below). |
+
+**Auth.js.** `src/app/api/auth/[...nextauth]/route.ts` exports Auth.js's
+GET as it is (Next.js gives a GET handler no body). Its POST reads the body
+with `SMALL_JSON_BODY`, then gives Auth.js a new request with the same
+bytes and the same headers. An empty body stays an empty body (not `null`),
+so Auth.js answers an empty JSON sign-in with its own 400, as before. CSRF,
+sign-in, sign-out and the callbacks work as before. The test runs the real
+Auth.js.
+
+**Auth.js logs.** The default Auth.js logger printed `error.message`. For a
+JSON body that does not parse, that message is V8's `SyntaxError` text,
+and it quotes the body near the bad token (part of a password). The app's
+logger (`src/lib/auth-logger.ts`) logs the Auth.js error type and kind and
+`describeError()` of the error and its cause. It logs no message.
+
+**Saves have no gates.** A save (a progress save, a name, the leaderboard
+switch) has limits that no valid save can reach, and nothing more. It has
+no time limit of its own, no speed floor, no limit on the saves of one
+account at the same time, and no memory budget for the process. A first
+design had all four. Review found that each one refused or lost real
+saves:
+
+- A limit on saves in flight answered 429 to the overlapping saves of a
+  drawing gallery, and the kid lost the drawings.
+- A time limit answered 408 to a phone that paused for 30 s.
+- A memory budget let one slow account make every save answer 503.
+
+The byte limit and the JSON value count are not gates of this kind. Each
+one is over the largest valid save of every game, and the test of the
+largest save (below) proves it.
+
+Node's own `requestTimeout` (300 s) still ends a request that does not
+finish in time, as before this change. At 1 Mbit/s, 300 s carries about
+37 MB. Measured on the standalone server (2026-10-02):
+
+- The largest drawing save (60 MB) at 2 Mbit/s got 200 after 243 s.
+- A save of 11 drawings (33 MB) at 1 Mbit/s got 200 after 267 s.
+- A small save that paused for 35 s in the middle got 200.
+- The largest drawing save at 1 Mbit/s got Node's own 408 after 310 s, at
+  38 MB. The server on master does the same, because the limit is Node's.
+
+**Largest game-produced saves.** The test "the largest valid save of every game
+passes" (`src/app/api/progress/[appId]/__tests__/route.test.ts`) builds the
+upper-bound payloads from the schema (`largestSave.ts` in
+the same folder). Typed text uses a 3-byte character, and image data URLs
+use 1 byte a character (base64). Each save goes through the route and gets
+200. The largest is the Drawing App gallery: 20 drawings with a data URL
+and a thumbnail of 1,500,000 characters each, 60,063,790 bytes as a save
+body. The next largest are the Joke Generator (12.3 MB) and the Drum
+Machine (11.8 MB). The test also builds the save with the most JSON values
+of every schema. The most is the Drum Machine: 661,328 marks, under a third
+of 2,000,000. The test names the fields that a schema does not bound
+(today: `currentEvent` of Oregon Trail, a `z.any()`). For that field, the
+test sends every event that the game writes (fewer than 1,000 marks). This
+is evidence for game-produced payloads, not every value accepted by Zod:
+image fields also accept arbitrary Unicode, and Oregon currentEvent is
+unbounded until issue #72i is fixed. Route exports must be explicit
+functions; the inventory rejects factory results whose body handling
+cannot be inspected. Dynamic evaluation is forbidden in server code.
+
+**Residual risk.** A signed-in account can still send several 100 MiB
+bodies at the same time. Each one holds up to 100 MiB of bytes, and more
+while the route decodes, parses, validates and writes it. Measured on the
+standalone server:
+
+- A 300 MiB chunked POST to the save route from one account stopped at
+  100 MiB (413). The RSS of the server went from 106 MiB to 295 MiB until
+  the garbage collector freed it.
+- A 60 MB save and a 33 MB save that ended 25 s apart raised the RSS from
+  about 120 MiB to 753 MiB.
+- Before the JSON value count, ONE save body of 100 MiB of empty objects
+  (`[{},{},...]`, 35 million values) raised the RSS from 827 MiB to
+  3,761 MiB, and a GET of another player waited 3.4 s. With the count, the
+  route refuses that body with 413 after 3,036,208 bytes (69 ms), and the
+  RSS went from 80 MiB to 115 MiB. A body of 100 MiB of zeros
+  (`[0,0,...]`, 52 million values) gets 413 after 4,062,288 bytes. The
+  largest valid Drum Machine save (661,328 marks) still gets 200.
+- For comparison, a 300 MiB chunked POST to `/api/auth/callback/credentials`
+  with no sign-in raised the RSS of the server on master from 123 MiB to
+  1,128 MiB. With the wrapper, it gets 413 after the limit and one chunk
+  (130,885 bytes), and the RSS does not grow (50 MiB before, 50 MiB at the
+  peak).
+
+The real fix is to make the saves small. Part C of #26i (planned,
+`design/LOCAL_WORDS.html` on branch `fix/coppa-accounts`) keeps drawings
+and typed words on the device and out of the synced progress. After part
+C, lower `PROGRESS_SAVE_BODY.maxBytes` and `maxJsonValues` to the new
+largest valid save. The test of the largest save shows the new numbers.
+
+**The checks.**
+
+- The ESLint rule `hanks-hits/bounded-request-body`
+  (`src/lib/boundedBodyRule.mjs`) covers `src/app`, `src/lib`, and a
+  `src/middleware.ts` or `src/proxy.ts` file if one is added. It finds
+  the request (the first parameter of a route handler, also out of line or
+  in a wrapper; a value typed `Request` or `NextRequest`; a name of a value
+  that ends in "request" or "req"). It follows the request through
+  aliases, casts, destructuring, arrays and objects, the functions of the
+  file and the constructors of its classes. It reports a body member. It
+  fails closed: it reports every other use of a request that is not on its
+  list of safe uses (a member that is not a body member, a test, a
+  comparison, an untagged template). So it reports a request that goes to
+  code outside the file (a package, another module, a global such as
+  `fetch`, a callback, or a method of another object), a request that a
+  function returns or throws, and a request that goes into a member, a
+  class field or a default value. Only `@/lib/read-body` and the helpers in
+  `REQUEST_HELPERS` can get the request. The inventory test checks that
+  each helper takes the request in a parameter typed `Request`, so the rule
+  checks the helper in its own file.
+- The rule's test fails on an `eslint-disable` comment that turns the rule
+  off in its files (also a comment with no rule list, which turns every
+  rule off). The one exception is the bounded reader itself, in
+  `src/lib/read-body.ts`.
+- The route inventory test (`src/app/api/__tests__/body-inventory.test.ts`)
+  lists every route file with its body methods and the limits that it
+  reads with. A new route fails the test until it is in the list. These
+  fail the test:
+  - a POST, PUT, PATCH, DELETE or OPTIONS that is not a function of the
+    route file (an export of a library's handler, such as
+    `export const { POST } = handlers`);
+  - an `export let` or `export var` handler, and a handler whose name the
+    file assigns again (`POST = handlers.POST`);
+  - limits that are not a preset imported from `@/lib/read-body` (a
+    constant of the route with the name of a preset);
+  - a Pages Router folder (`src/pages` or `pages`), or an `app` folder
+    outside `src`. Their API routes are outside the rule and the inventory.
+
+---
+
 ## Gameplay Clips
 
 **Live check.** `pnpm e2e:clips-games <base-url>` (`e2e/clips-games/`) makes

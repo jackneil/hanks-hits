@@ -4,6 +4,7 @@ import { db, eq } from "@hank-neil/db";
 import { users } from "@hank-neil/db/schema";
 import { validateDisplayName } from "@/lib/validators";
 import { describeError } from "@/lib/describe-error";
+import { readJson, refuseBody, SMALL_SAVE_BODY } from "@/lib/read-body";
 
 // Rate limiting for name changes (basic in-memory, resets on redeploy)
 const nameChangeAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -97,8 +98,14 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const body = await request.json();
-    const { name } = body as { name?: unknown };
+    // A bounded read (64 KiB, no time limit: a save of a signed-in player):
+    // request.json() held a body of any size in memory.
+    const read = await readJson(request, SMALL_SAVE_BODY);
+    if (!read.ok) return refuseBody("PATCH /api/profile", read, request);
+    const body = read.value;
+    // A body that is not an object has no name: the check below answers 400.
+    const { name } =
+      typeof body === "object" && body !== null ? (body as { name?: unknown }) : {};
 
     // Validate name (shared with the signup route so the rules can't drift)
     const nameResult = validateDisplayName(name);

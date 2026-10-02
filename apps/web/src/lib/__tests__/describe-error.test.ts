@@ -27,6 +27,13 @@ function drizzleFailure() {
 }
 
 describe("describeError", () => {
+  it("drops message lines that imitate stack frames", () => {
+    const error = new SyntaxError("invalid input\n    at private-body-marker");
+    const described = describeError(error);
+    expect(JSON.stringify(described)).not.toContain("private-body-marker");
+    expect(described.at?.length).toBeGreaterThan(0);
+  });
+
   it("keeps the error classes, the SQLSTATE and the schema object names", () => {
     expect(describeError(drizzleFailure())).toEqual(
       expect.objectContaining({

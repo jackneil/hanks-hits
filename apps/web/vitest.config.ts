@@ -18,6 +18,15 @@ export default defineConfig({
     // per-test timeouts; fix the test or raise this with evidence.
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    server: {
+      deps: {
+        // next-auth imports "next/server" with no file extension, which
+        // Node's ESM loader cannot resolve outside the Next.js bundler.
+        // Vite transforms it instead, so a test can run the real Auth.js
+        // (src/app/api/auth/[...nextauth]/__tests__/route.test.ts).
+        inline: ['next-auth'],
+      },
+    },
     coverage: {
       reporter: ['text', 'json', 'html'],
     },

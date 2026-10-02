@@ -20,6 +20,13 @@ import {
   pointerReleasePlugin,
 } from "./src/shared/lib/input/pointerReleaseRule.mjs";
 import {
+  BOUNDED_BODY_LINT_FILES,
+  BOUNDED_BODY_PLUGIN,
+  BOUNDED_BODY_RULE,
+  BOUNDED_BODY_TEST_IGNORES,
+  boundedBodyPlugin,
+} from "./src/lib/boundedBodyRule.mjs";
+import {
   WHOLE_STORE_DEPS_LINT_FILES,
   WHOLE_STORE_DEPS_PLUGIN,
   WHOLE_STORE_DEPS_RULE,
@@ -29,20 +36,27 @@ import {
 
 // The local rules share one plugin namespace. Flat config refuses two
 // different plugin objects under one name, so the rules go in one object.
-if (POINTER_RELEASE_PLUGIN !== WHOLE_STORE_DEPS_PLUGIN) {
+if (
+  POINTER_RELEASE_PLUGIN !== WHOLE_STORE_DEPS_PLUGIN ||
+  BOUNDED_BODY_PLUGIN !== WHOLE_STORE_DEPS_PLUGIN
+) {
   throw new Error("The local ESLint rules must share one plugin namespace.");
 }
 const hanksHitsPlugin = Object.freeze({
   meta: { name: "hanks-hits" },
-  rules: { ...wholeStoreDepsPlugin.rules, ...pointerReleasePlugin.rules },
+  rules: {
+    ...wholeStoreDepsPlugin.rules,
+    ...pointerReleasePlugin.rules,
+    ...boundedBodyPlugin.rules,
+  },
 });
 
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
-    // The local rules (no-whole-store-deps, no-pointerup-position). The
-    // blocks below turn them on for their files.
+    // The local rules (no-whole-store-deps, no-pointerup-position,
+    // bounded-request-body). The blocks below turn them on for their files.
     name: "hanks-hits/plugin",
     plugins: { [WHOLE_STORE_DEPS_PLUGIN]: hanksHitsPlugin },
   },
@@ -125,6 +139,27 @@ const eslintConfig = defineConfig([
     ignores: [...POINTER_RELEASE_TEST_IGNORES],
     rules: {
       [`${POINTER_RELEASE_PLUGIN}/${POINTER_RELEASE_RULE}`]: "error",
+    },
+  },
+  {
+    // A route handler has no body limit of its own (no middleware, and the
+    // Railway service domain has no Cloudflare in front of it), so
+    // request.json() and the other body members hold a body of any size in
+    // memory, and so does a library that gets the request (Auth.js). Read a
+    // body with readJson or readBody from src/lib/read-body.ts. The rule
+    // follows the request through aliases, casts, containers, local calls
+    // and destructuring, and it reports a request given to code outside the
+    // file (a package such as Auth.js). The route inventory test checks the
+    // exports of every route. See src/lib/boundedBodyRule.mjs and design/ARCHITECTURE.md,
+    // section "Request bodies".
+    name: "hanks-hits/bounded-request-body",
+    files: [...BOUNDED_BODY_LINT_FILES],
+    ignores: [...BOUNDED_BODY_TEST_IGNORES],
+    rules: {
+      [`${BOUNDED_BODY_PLUGIN}/${BOUNDED_BODY_RULE}`]: "error",
+      "no-eval": "error",
+      "no-implied-eval": "error",
+      "no-new-func": "error",
     },
   },
   // Override default ignores of eslint-config-next.
