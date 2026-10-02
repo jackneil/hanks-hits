@@ -7,8 +7,9 @@ import {
 } from "@/__tests__/speech-mock";
 import { installAudioMock, removeAudioMock } from "@/__tests__/audio-mock";
 import { useGameBreaks } from "../../lib/gameBreaks";
+import { useStartOverlayPresence } from "../../lib/startOverlayPresence";
 
-import { GameStartOverlay, GameStartOverlayButton } from "../GameStartOverlay";
+import { GameNoticeOverlay, GameStartOverlay, GameStartOverlayButton } from "../GameStartOverlay";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 
 afterEach(() => {
@@ -580,6 +581,67 @@ describe("GameStartOverlay read aloud", () => {
     );
   });
 
+  it("speaks spokenStart in place of the default start sentence", async () => {
+    // A card with a "go back" choice (the Retro Arcade heads-up card) must
+    // not tell a kid that every choice starts the game.
+    mockPointer(true);
+    const synth = installSpeechMock();
+    render(
+      <GameStartOverlay
+        title="Heads up!"
+        touchHints={["Ask a grown-up."]}
+        showStartButton={false}
+        spokenStart="Tap Play to play the game. Tap Pick another game to go back."
+        onStart={() => {}}
+      >
+        <button type="button">Play</button>
+        <button type="button">Pick another game</button>
+      </GameStartOverlay>
+    );
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+
+    expect(synth.lastUtterance().text).toBe(
+      "Heads up! Ask a grown-up. Tap Play to play the game. Tap Pick another game to go back."
+    );
+  });
+
+  it("GameNoticeOverlay asks with the start card's look and has no Play button of its own", async () => {
+    mockPointer(true);
+    const synth = installSpeechMock();
+    const play = vi.fn();
+    const back = vi.fn();
+    render(
+      <GameNoticeOverlay
+        title="Heads up!"
+        subtitle="An old game."
+        hints={["Ask a grown-up."]}
+        spokenStart="Tap Play to play the game. Tap Pick another game to go back."
+        onDismiss={back}
+      >
+        <GameStartOverlayButton onClick={play}>Play</GameStartOverlayButton>
+        <GameStartOverlayButton onClick={back}>Pick another game</GameStartOverlayButton>
+      </GameNoticeOverlay>
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Heads up!" });
+    expect(dialog).toHaveAttribute("data-testid", "game-start-overlay");
+    // The two choices are the only buttons besides "Read it to me".
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "🔊 Read it to me",
+      "Play",
+      "Pick another game",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Pick another game" }));
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(play).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByTestId("read-aloud-button"));
+    expect(synth.lastUtterance().text).toBe(
+      "Heads up! An old game. Ask a grown-up. Tap Play to play the game. Tap Pick another game to go back."
+    );
+  });
+
   it("is a labelled dialog that lands keyboard focus on the start button", () => {
     render(
       <GameStartOverlay title="Snake" onStart={() => {}}>
@@ -663,5 +725,110 @@ describe("GameStartOverlay celebration slot on a short screen", () => {
     expect(screen.queryByTestId("start-overlay-short-slot")).toBeNull();
     const slot = screen.getByTestId("start-overlay-break-slot");
     expect(useGameBreaks.getState().slots).toEqual([{ el: slot, holds: ["tip", "celebration"], inline: false }]);
+  });
+});
+
+describe("GameNoticeOverlay: a question before a game, not a break", () => {
+  const realMatchMedia = window.matchMedia;
+  afterEach(() => {
+    Object.defineProperty(window, "matchMedia", { writable: true, value: realMatchMedia });
+    useGameBreaks.setState({ shells: 0, slots: [] });
+    useStartOverlayPresence.setState({ count: 0, enteredOn: null, leftOn: null });
+    removeSpeechMock();
+  });
+
+  function mockShort(short: boolean) {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes("max-height: 480px") ? short : false,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  }
+
+  function renderNotice(onPlay = vi.fn(), onBack = vi.fn()) {
+    render(
+      <GameNoticeOverlay
+        title="Heads up!"
+        subtitle="An old game."
+        hints={["Ask a grown-up."]}
+        spokenStart="Tap Play to play the game. Tap Pick another game to go back."
+        onDismiss={onBack}
+      >
+        <GameStartOverlayButton onClick={onPlay}>Play</GameStartOverlayButton>
+        <GameStartOverlayButton onClick={onBack}>Pick another game</GameStartOverlayButton>
+      </GameNoticeOverlay>
+    );
+    return { onPlay, onBack };
+  }
+
+  it.each([
+    ["a tall screen", false],
+    ["a short screen", true],
+  ])("holds no trophy and no install tip on %s", (_name, short) => {
+    // A trophy card (bright gold, with a big Yay! button) under the
+    // heads-up card pulled the eye away from the question, and the voice
+    // read it as part of the card.
+    mockShort(short);
+    renderNotice();
+    expect(screen.queryByTestId("start-overlay-break-slot")).toBeNull();
+    expect(screen.queryByTestId("start-overlay-short-slot")).toBeNull();
+    expect(useGameBreaks.getState().slots).toEqual([]);
+    // It still counts as a start card, so a bottom sheet stays away.
+    expect(useStartOverlayPresence.getState().count).toBe(1);
+  });
+
+  it("a start card still holds the notes (the control)", () => {
+    mockShort(false);
+    render(<GameStartOverlay title="Snake" onStart={() => {}} />);
+    expect(screen.getByTestId("start-overlay-break-slot")).toBeInTheDocument();
+    expect(useGameBreaks.getState().slots).toHaveLength(1);
+  });
+
+  it("lands keyboard focus on the first choice", () => {
+    renderNotice();
+    expect(screen.getByRole("button", { name: "Play" })).toHaveFocus();
+  });
+
+  it("calls onDismiss once on Escape, never the other choice, and stops the shell's pause", () => {
+    const { onPlay, onBack } = renderNotice();
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.activeElement!.dispatchEvent(event);
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(onPlay).not.toHaveBeenCalled();
+    // GameShell opens its pause menu on an Escape that nothing handled.
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("keeps Tab inside the card, with focus that starts outside it too", () => {
+    installSpeechMock();
+    render(<button type="button">Under the card</button>);
+    renderNotice();
+    const under = screen.getByRole("button", { name: "Under the card" });
+    under.focus();
+    fireEvent.keyDown(under, { key: "Tab" });
+    expect(screen.getByTestId("read-aloud-button")).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
+    expect(screen.getByRole("button", { name: "Pick another game" })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+    expect(screen.getByTestId("read-aloud-button")).toHaveFocus();
+  });
+
+  it("a start card does not take Escape or Tab (the control)", () => {
+    const onStart = vi.fn();
+    render(<GameStartOverlay title="Snake" onStart={onStart} />);
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.activeElement!.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    const tab = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    document.activeElement!.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
   });
 });

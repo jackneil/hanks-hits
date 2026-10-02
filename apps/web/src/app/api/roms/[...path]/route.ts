@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { findBlockedRomFile } from "@/games/retro-arcade/lib/content-blocklist";
+import { findRomFileBlockRule } from "@/games/retro-arcade/lib/content-rules";
 import { safeRedirectTarget } from "@/lib/rom-redirect";
 import { checkRomProxyRateLimit, getClientIP } from "@/lib/rate-limit";
 
@@ -41,12 +41,14 @@ export async function GET(
   }
   const romPath = path.join("/");
 
-  // KID SAFETY (Guardrail 1, issue #25): a title removed from the catalogs
-  // must not stay playable from its old URL. ROM objects stay in the bucket
-  // until someone deletes them, so refuse every blocked ROM file here, before
-  // any upstream fetch. The log names the rule, so a 404 here is not confused
-  // with a missing object.
-  const blockedRule = path.map(findBlockedRomFile).find((rule) => rule !== null);
+  // KID SAFETY (Guardrail 1, issue #25): a title that a BLOCK rule matches
+  // (sexual content) must not be playable from any URL. ROM objects stay in
+  // the bucket until someone deletes them, so refuse every blocked ROM file
+  // here, before any upstream fetch. A NOTICE rule (a mainstream violent
+  // classic, Jack 2026-10-02) does not refuse: the arcade shows its heads-up
+  // card before it asks for the ROM. The log names the rule, so a 404 here
+  // is not confused with a missing object.
+  const blockedRule = path.map(findRomFileBlockRule).find((rule) => rule !== null);
   if (blockedRule) {
     console.warn(
       `ROM proxy: refused /${romPath} (content rule: ${blockedRule.id})`

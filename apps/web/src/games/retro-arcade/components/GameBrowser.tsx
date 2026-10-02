@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // Generic catalog game interface - works with both SNES and Atari catalogs
 export interface CatalogGame {
@@ -144,6 +144,16 @@ export function GameBrowser({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGenre, setSelectedGenre] = useState<string>("all");
   const [loadingGameId, setLoadingGameId] = useState<string | null>(null);
+  // The select that waits for the loading delay. When the list leaves (Back,
+  // or the upload screen) before the delay ends, the tap is forgotten: a
+  // game must never open, or wait behind a card, after the kid left.
+  const selectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (selectTimerRef.current !== null) clearTimeout(selectTimerRef.current);
+    },
+    []
+  );
   const favoriteIdSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
   // Count only the favorites this catalog can show. The saved favorites list
   // is shared by all consoles, and it can keep the id of a game that a
@@ -193,9 +203,14 @@ export function GameBrowser({
   const handleGameClick = (game: CatalogGame) => {
     setLoadingGameId(game.id);
     const romUrl = getRomUrl(game);
-    // Small delay to show loading state
-    setTimeout(() => {
+    // Small delay to show loading state. The spinner stops after the
+    // select: a game can wait behind the heads-up card, and when the player
+    // picks another game, the card in the list must be as before.
+    if (selectTimerRef.current !== null) clearTimeout(selectTimerRef.current);
+    selectTimerRef.current = setTimeout(() => {
+      selectTimerRef.current = null;
       onGameSelect(game, romUrl);
+      setLoadingGameId(null);
     }, 100);
   };
 

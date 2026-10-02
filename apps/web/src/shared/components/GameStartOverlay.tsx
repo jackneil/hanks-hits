@@ -58,7 +58,14 @@ import { useRegisterBreakSlot } from "../lib/gameBreaks";
  * never push Play down or sit in the card's scroll box. The slot shows
  * only while the whole card body still fits with the note next to it.
  * When it does not fit, the slot goes away for this mount, and the note
- * waits for the next break (the pause menu).
+ * waits for the next break (the pause menu). A card with hostsNotes={false}
+ * (a question such as GameNoticeOverlay) has no slot: it is not a break,
+ * and a note waits for the next break.
+ *
+ * A question (onDismiss given, GameNoticeOverlay): the card is a real
+ * modal dialog for a keyboard. Focus goes to the first choice, Tab and
+ * Shift+Tab stay in the card, and Escape calls onDismiss. A start card has
+ * none of this: the GameShell header above it stays in the Tab order.
  *
  * Mount contract: render it CONDITIONALLY on the menu/ready state
  * (`{state === "ready" && <GameStartOverlay .../>}`), never permanently
@@ -151,7 +158,29 @@ export interface GameStartOverlayProps {
    * who cannot read has no other way to learn the choices.
    */
   spokenChoices?: string;
+  /**
+   * The last thing the voice says: how to go on. The default is "Then tap
+   * <startLabel> to start." (or "one of the choices" with no Play button).
+   * Give it when a choice does not start a game (a "go back" button).
+   */
+  spokenStart?: string;
+  /**
+   * False: the card holds no note (no trophy card, no install tip), and the
+   * voice reads the card's own words only. For a card that is not a break
+   * (GameNoticeOverlay). The default is true.
+   */
+  hostsNotes?: boolean;
+  /**
+   * Makes the card a question (see the file comment): Escape calls it, Tab
+   * stays in the card, and focus goes to the first choice. Give the action
+   * of the choice that closes the card without a start.
+   */
+  onDismiss?: () => void;
 }
+
+/** What a keyboard can reach inside the card. */
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const subscribeNothing = () => () => {};
 
@@ -183,6 +212,9 @@ export function GameStartOverlay({
   showStartButton = true,
   children,
   spokenChoices,
+  spokenStart,
+  hostsNotes = true,
+  onDismiss,
 }: GameStartOverlayProps) {
   const isClient = useIsClient();
   const isCoarse = useCoarsePointer();
@@ -196,14 +228,58 @@ export function GameStartOverlay({
   const bodyRef = useRef<HTMLDivElement>(null);
   const bodyContentRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
   const breakSlotElRef = useRef<HTMLDivElement | null>(null);
+  const isQuestion = onDismiss !== undefined;
+  const dismissRef = useRef(onDismiss);
+  useEffect(() => {
+    dismissRef.current = onDismiss;
+  });
 
   // Keyboard and screen-reader users land on Play, not on whatever game
-  // control sits under the card. (A finger is not affected: focusing a
-  // button opens no keyboard and moves no scroll on a phone.)
+  // control sits under the card. A question has no Play button: focus goes
+  // to its first choice (the read-aloud button is not a choice). (A finger
+  // is not affected: focusing a button opens no keyboard and moves no
+  // scroll on a phone.)
   useEffect(() => {
-    startRef.current?.focus({ preventScroll: true });
-  }, [isClient]);
+    if (startRef.current) {
+      startRef.current.focus({ preventScroll: true });
+      return;
+    }
+    if (!isQuestion) return;
+    actionsRef.current
+      ?.querySelector<HTMLElement>('button:not([disabled]):not([data-testid="read-aloud-button"])')
+      ?.focus({ preventScroll: true });
+  }, [isClient, isQuestion]);
+
+  // A question is a modal dialog for a keyboard: Escape is the choice that
+  // closes it, and Tab goes around the card only (from outside the card
+  // too). The capture phase, and preventDefault, so the GameShell pause
+  // (Escape) and the page under the card never see the key.
+  useEffect(() => {
+    if (!isClient || !isQuestion) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        dismissRef.current?.();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusables = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+      if (focusables.length === 0) return;
+      event.preventDefault();
+      const index = focusables.indexOf(document.activeElement as HTMLElement);
+      if (index === -1) {
+        focusables[event.shiftKey ? focusables.length - 1 : 0].focus();
+        return;
+      }
+      const step = event.shiftKey ? -1 : 1;
+      focusables[(index + step + focusables.length) % focusables.length].focus();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isClient, isQuestion]);
 
   // Tell bottom sheets (the iOS install banner) that a start card is up,
   // so they stay hidden until the kid has pressed Play. A layout effect
@@ -249,7 +325,8 @@ export function GameStartOverlay({
   );
   const breakSlotRef = useMemo(() => watchSlot(registerBreakSlot), [watchSlot, registerBreakSlot]);
   const shortSlotRef = useMemo(() => watchSlot(registerShortSlot), [watchSlot, registerShortSlot]);
-  const readNotes = () => [...readBreakNotes(), ...readShortNotes()];
+  // A card that holds no note reads its own words only.
+  const readNotes = () => (hostsNotes ? [...readBreakNotes(), ...readShortNotes()] : []);
 
   // The slot stays only while the card fits with the note next to it.
   // When the body (or the whole card) must scroll, the
@@ -301,9 +378,9 @@ export function GameStartOverlay({
   const hints = isCoarse ? touchHints : keyboardHints;
   // Also tell the kid HOW to start: some games hide the Play button and
   // start from a picker choice instead, and a non-reader cannot tell.
-  const startInstruction = showStartButton
-    ? `Then tap ${startLabel} to start.`
-    : "Then tap one of the choices to start.";
+  const startInstruction =
+    spokenStart ??
+    (showStartButton ? `Then tap ${startLabel} to start.` : "Then tap one of the choices to start.");
   // Built at tap time, so a note in a break slot is spoken last.
   const readAloudText = () =>
     [title, subtitle, ...hints, spokenChoices, startInstruction]
@@ -339,6 +416,7 @@ export function GameStartOverlay({
 
   return createPortal(
     <div
+      ref={dialogRef}
       data-testid="game-start-overlay"
       role="dialog"
       aria-modal="true"
@@ -417,12 +495,13 @@ export function GameStartOverlay({
 
             {/* Action row: pinned, never scrolls out of view */}
             <div
+              ref={actionsRef}
               data-testid="start-card-actions"
               className="flex shrink-0 flex-col items-stretch gap-3 px-6 pb-6 pt-3 short:w-[45%] short:gap-2 short:p-3 short:[align-self:safe_center]"
             >
               {/* Short screen: the celebration slot (one row) at the top
                   of the column; it goes away when the card would not fit. */}
-              {breakRoom && isShort && (
+              {hostsNotes && breakRoom && isShort && (
                 <div ref={shortSlotRef} data-testid="start-overlay-short-slot" className="w-full shrink-0 empty:hidden" />
               )}
               <ReadAloudButton text={readAloudText} className="short:min-h-[44px]" />
@@ -442,7 +521,7 @@ export function GameStartOverlay({
 
           {/* Break slot, outside the card (empty unless a nudge renders into
               it). Not on a short screen. */}
-          {breakRoom && !isShort && (
+          {hostsNotes && breakRoom && !isShort && (
             <div
               ref={breakSlotRef}
               data-testid="start-overlay-break-slot"
@@ -453,5 +532,66 @@ export function GameStartOverlay({
       </div>
     </div>,
     document.body
+  );
+}
+
+const noStart = () => {};
+
+export interface GameNoticeOverlayProps {
+  /** The heading, rendered once. */
+  title: string;
+  /** The main words, under the heading. */
+  subtitle: string;
+  /** More lines (the same on touch and keyboard screens). */
+  hints?: string[];
+  /** What the voice says about the choices, last. */
+  spokenStart: string;
+  /** The action of the choice that closes the card with no start. Escape calls it. */
+  onDismiss: () => void;
+  /** The choices: GameStartOverlayButton elements. */
+  children: React.ReactNode;
+}
+
+/**
+ * A card that asks a question BEFORE a game starts, with the look and the
+ * layout of the start card (the same box, the same "Read it to me" button,
+ * the same fit with no scroll on a phone). Retro Arcade's heads-up card
+ * uses it (Jack, 2026-10-02).
+ *
+ * It is not a start screen: a game mounts it when a player opens a game,
+ * never at load. Mount GameStartOverlay itself for a start screen. The
+ * start-card checks (e2e/start-cards and e2e/phone) expect a card at load
+ * from each module that mounts <GameStartOverlay>, so this second name
+ * keeps that rule true.
+ *
+ * The children are the choices, and each choice does its own action. No
+ * built-in Play button shows. It is a question, not a break: it holds no
+ * note (a trophy card or the install tip waits for the next break), so
+ * nothing pulls the eye from the choices and the voice reads the card
+ * only. For a keyboard it is a modal dialog: focus on the first choice,
+ * Tab stays in the card, and Escape calls onDismiss.
+ */
+export function GameNoticeOverlay({
+  title,
+  subtitle,
+  hints = [],
+  spokenStart,
+  onDismiss,
+  children,
+}: GameNoticeOverlayProps) {
+  return (
+    <GameStartOverlay
+      title={title}
+      subtitle={subtitle}
+      touchHints={hints}
+      keyboardHints={hints}
+      showStartButton={false}
+      onStart={noStart}
+      spokenStart={spokenStart}
+      hostsNotes={false}
+      onDismiss={onDismiss}
+    >
+      {children}
+    </GameStartOverlay>
   );
 }

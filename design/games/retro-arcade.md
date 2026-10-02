@@ -589,23 +589,48 @@ Minimal overlay - let the game shine:
 5. **No scary settings** - Hide advanced options, sensible defaults
 6. **Instant feedback** - Loading spinner, "Game starting..." text
 
-### Content Rules (Catalog Blocklist)
+### Content Rules (Block and Notice)
 
-Do not put a game with blood, gore, or sexual content in a catalog (Guardrail 1, issue #25).
+Each content rule has an action. The rule file defines the actions on 2026-10-02 (issue #25 had removed all 32 titles on 2026-09-28):
 
-- The rules are in `apps/web/src/games/retro-arcade/lib/content-blocklist.json`. Each rule has a pattern, a reason, and a source (an ESRB rating or a description of the game).
-- The test `__tests__/catalog-content.test.ts` finds each `lib/*catalog*` file. The test fails when a catalog entry matches a rule. A catalog for a new console gets this check with no test change. The test also fails when a catalog file has no catalog array, or when an entry has no string `id`, `displayName` and `filename`. Thus a catalog with a different entry shape cannot pass with no check.
-- The ROM proxy (`src/app/api/roms/[...path]/route.ts`) reads the same rules. It returns 404 for a blocked ROM file name before it fetches from the bucket. Thus a title that is removed from a catalog cannot be played from its old URL.
-- The catalog generators (`scripts/upload_snes_roms.py`, `scripts/upload_atari_roms.py`) read the same rules through `scripts/retro_blocklist.py`. They do not upload or list a blocked ROM. They do not delete a ROM that is already in the bucket.
-- When you remove a title, also delete its ROM object from the bucket. This is a production write, so get approval first. Cloudflare keeps `.bin` ROMs in its cache (`cf-cache-status: HIT`) for up to one year, so also purge each old `/api/roms/...` URL from the Cloudflare cache.
+- **block**: sexual content (the Mystique, PlayAround, Multivision and Universal Gamex adult cartridges). No catalog lists the title. The ROM proxy refuses its ROM file.
+- **notice**: mainstream violent classics (for example Mortal Kombat, Doom and Halloween). The catalog lists the title like every other game. The list shows no label, badge, icon or color for it, and it sorts like every other game. When a player opens the title, a heads-up card shows before the emulator loads.
+
+The rules:
+
+- The rules are in `apps/web/src/games/retro-arcade/lib/content-rules.json`. Each rule has a pattern, a category, an action, a reason, and a source (an ESRB rating or a description of the game).
+- One matcher reads the rules (`lib/content-match.ts`). When a title matches a block rule and a notice rule, the block rule applies.
 - A rule reads the display name, the ROM file name, and the id. Old ROM dumps often have short names (for example `custerev.bin`), so the display name alone is not sufficient.
+- A rule also reads each name with no dump tags (from the first `(` or `[` to the end). Thus a rule anchored at the end, such as `^halloween$`, also matches the dump name of an uploaded file: No-Intro `Halloween (USA).a26` and GoodTools `Halloween (1983) (Wizard Video Games) [!].a26`. The TypeScript matcher and `scripts/retro_content_rules.py` use the same steps.
+- Every rule with the category `sexual` must have the action `block`. The catalog test fails when one does not.
+
+The readers that refuse a block rule (and only a block rule):
+
+- The test `__tests__/catalog-content.test.ts` finds each `lib/*catalog*` file. The test fails when a catalog entry matches a block rule. A catalog for a new console gets this check with no test change. The test also fails when a catalog file has no catalog array, or when an entry has no string `id`, `displayName` and `filename`. Thus a catalog with a different entry shape cannot pass with no check.
+- The ROM proxy (`src/app/api/roms/[...path]/route.ts`) returns 404 for a blocked ROM file name before it fetches from the bucket. Thus a blocked title cannot be played from its URL. The proxy serves a notice ROM.
+- The catalog generators (`scripts/upload_snes_roms.py`, `scripts/upload_atari_roms.py`) read the rules through `scripts/retro_content_rules.py`. They do not upload or list a blocked ROM. They upload and list a notice ROM. They do not delete a ROM that is already in the bucket.
+
+The heads-up card:
+
+- The card is `components/ContentNoticeCard.tsx`. It uses `GameNoticeOverlay`: the look and the layout of the shared start card, with the "Read it to me" button and a fit on a phone with no scroll. It is not a start screen, so the start-card checks (`e2e/start-cards`, `e2e/phone`) do not expect it at load. It says: "Heads up!", "This is an old game made for teens and grown-ups. It has fighting and blood.", "Ask a grown-up if you are not sure." It has two buttons of the same size and look: "Play" starts the game, and "Pick another game" closes the card. The card shows each time a player opens the title. It has no "do not show again" choice, because a younger child can use the same device.
+- `Game.tsx` has one gate (`openGame`) in front of the one call of `startGame` (`launchGame`). A catalog card (all, a genre, favorites, a search), a new upload, and the "Your ROMs" list all go through the gate. An uploaded file is matched by its file name. The test `__tests__/content-notice.test.ts` fails when a second caller of `startGame` appears.
+- Each visit to the arcade starts at the list. When the arcade page leaves (for example, the browser's back button while a game runs), it stops the game. Thus the next visit cannot show a running game that skipped the card.
+- A start clears a card that waits for a different game. When the list leaves during the 100 ms loading delay of a tap (Back, or the upload screen), the tap is forgotten. Thus a card never shows later by itself.
+- The card is a question, not a break. It holds no trophy card and no install tip: they wait for the next break, and "Read it to me" reads the words of the card only.
+- On a keyboard, focus goes to "Play" when the card opens. Tab and Shift+Tab stay in the card. Escape is "Pick another game".
+- The emulator page (`public/emulator/index.html`) refuses to start when it is not in a frame. Thus a direct link to the emulator page cannot skip the card.
+- The browser gets only the notice rules, from `lib/content-notice.generated.ts`. The block rules stay out of the browser bundle: only the ROM proxy and the tests import `content-rules.ts`. After you change a notice rule, run `pnpm --filter web generate:content-notice` (`pnpm build` runs it too). The test `content-notice.test.ts` fails when the generated file is old.
+
+To change the rules:
+
+- To add a rule, add the pattern, the category, the action, the reason, the source, and examples to the JSON file. Then run `python3 scripts/retro_content_rules.py`, `pnpm --filter web generate:content-notice`, and the catalog test.
+- Never delete a ROM object from the bucket or a local library. Content rules control catalog visibility and the ROM proxy response only (Jack, 2026-10-02). Cloudflare can retain `.bin` responses, so a separately authorized cache purge may be needed when a proxy rule changes; preserve the source ROM.
 - To identify an unclear Atari 2600 ROM, compare its MD5 with the Stella ROM database (`src/emucore/DefProps.hxx` in the Stella source). Examine each ROM in the catalog, not only the ROMs with unclear names. Block every ROM from these adult publishers:
   - Mystique (American Multiple Industries)
   - PlayAround (J.H.M.)
   - Multivision (Harem)
   - Universal Gamex (X-Man)
 - Also block the re-releases and hacks of these adult games. Examples are the Dynacom "Beat 'Em & Eat 'Em" and the "Custer's Viagra" hacks.
-- To add a rule, add the pattern, the reason, the source, and examples to the JSON file. Then run `python3 scripts/retro_blocklist.py` and the catalog test.
 
 ---
 
