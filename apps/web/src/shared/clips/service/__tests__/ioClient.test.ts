@@ -234,7 +234,7 @@ describe("io client", () => {
     expect(isClearedOnSignOut(OWNER_MEMORY_ITEM)).toBe(true);
   });
 
-  it("follows a client-side sign-in on the session bus, with no game mounted (plan 8.1 partitions)", async () => {
+  it("follows a sign-in on the session bus, with no game mounted (plan 8.1 partitions)", async () => {
     const { client, bus, session } = setup();
     const heard = vi.fn();
     client.subscribe(heard);
@@ -243,7 +243,7 @@ describe("io client", () => {
     await client.mux(makeClipPackets({ seconds: 1 }), meta("user-clip", { ownerKey: userKey }));
     expect((await client.libraryApi().list()).map((r) => r.id)).toEqual(["guest-clip"]);
     heard.mockClear();
-    // The /login page signs in (router.push, the same page): next-auth's session changes.
+    // Another tab signs in: next-auth tells this tab, and its session changes.
     session.userId = "user-1";
     bus.publish("user-1");
     await vi.waitFor(() => expect(heard).toHaveBeenCalled());

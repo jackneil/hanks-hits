@@ -7,21 +7,7 @@ import { SIGNOUT_BROADCAST_KEY, clearGameStorage } from "./storage-keys";
 export { useSession, SessionProvider } from "next-auth/react";
 
 /**
- * Sign in with credentials (email/password)
- */
-export async function signInWithCredentials(
-  email: string,
-  password: string
-) {
-  return nextAuthSignIn("credentials", {
-    email,
-    password,
-    redirect: false,
-  });
-}
-
-/**
- * Sign in with Google OAuth
+ * Sign in with Google, the only sign-in (COPPA, see lib/auth-privacy.ts).
  */
 export async function signInWithGoogle(callbackUrl: string = "/") {
   return nextAuthSignIn("google", { callbackUrl });

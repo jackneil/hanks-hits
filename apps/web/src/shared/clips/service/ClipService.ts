@@ -22,8 +22,12 @@
  *
  * Owners (plan 7.1): the session bus (registry.ts) tells the service when
  * the signed-in player changes, on any page. The end of the ring's last run
- * is kept on the service (not on one game mount), so a sign-in from the
- * /login page within 60 s of the run's end keeps the guest ring. Every
+ * is kept on the service (not on one game mount), so a sign-in that this tab
+ * sees within 60 s of the run's end keeps the guest ring, also when no game
+ * is mounted. Sign-in is Google only (#26i) and leaves the page: the tab
+ * comes back with a full page load, and the ring is in memory only, so a
+ * sign-in in THIS tab always loses the ring. Only a sign-in that another tab
+ * of the browser completes reaches the keep rule. Every
  * action result, the new-clip chip and the last result belong to one owner:
  * a purge clears them, and an action that ends after an owner change never
  * shows its clip to the new owner.
@@ -1104,8 +1108,9 @@ export class ClipService implements ClipServiceApi {
     this.clearNamedTimer("owner-retry");
     if (confirmed) this.io.setOwnerKey(key);
     if (from !== null && from !== key) {
-      // The ring's last run, kept across detach: a sign-in on the /login page
-      // (the game is not mounted then) still keeps a guest run of 60 s ago.
+      // The ring's last run, kept across detach: a sign-in that this tab sees
+      // while no game is mounted (another tab completed it; a sign-in in this
+      // tab reloads the page) still keeps a guest run of 60 s ago.
       const run = this.ringRun;
       const action = ownerChangeAction({
         from,

@@ -51,7 +51,7 @@ describe("ClipSessionWatcher", () => {
     session.value = { data: null, status: "unauthenticated" };
     view.rerender(<ClipSessionWatcher />);
     expect(heard).toHaveBeenLastCalledWith(null);
-    // The /login page signs in (client side).
+    // A sign-in completes (another tab did it; next-auth tells this tab).
     session.value = { data: { user: { id: "kid-1" } }, status: "authenticated" };
     act(() => view.rerender(<ClipSessionWatcher />));
     expect(heard).toHaveBeenLastCalledWith("kid-1");

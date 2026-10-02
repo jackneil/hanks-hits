@@ -1,6 +1,6 @@
 /**
  * The pages outside the game shell on four iPhone screens: the home page,
- * the lists, the profile, the sign-in pages and the licenses. The phone
+ * the lists, the profile, the sign-in page and the licenses. The phone
  * gate opens only the game routes, so these pages had no check, and the
  * home header read "Hank's H..." on a real iPhone SE (2026-10-01) while
  * "Hall of Fame" was cut on a phone held sideways.
@@ -10,14 +10,18 @@
  * the page height is not checked.
  *
  * Run it with the gate: pnpm e2e:phone <base-url>. It always opens all
- * seven pages (about 20 s): E2E_ROUTES names game routes only, and the
+ * six pages (about 20 s): E2E_ROUTES names game routes only, and the
  * phone gate rejects a route the home page does not list.
+ *
+ * Email sign-up is gone (COPPA, issue #26i): sign-in is Google only, on
+ * /login. Old links to /signup land on /login, and a test below follows
+ * one on each screen.
  */
 import { expect, test } from "playwright/test";
 
 import { cutLabels, measure, openGame, SCREENS } from "./touch";
 
-const PAGES = ["/", "/leaderboards", "/trophies", "/profile", "/login", "/signup", "/licenses"];
+const PAGES = ["/", "/leaderboards", "/trophies", "/profile", "/login", "/licenses"];
 
 for (const screen of SCREENS) {
   test(`pages on ${screen.name}`, async ({ browser }) => {
@@ -34,5 +38,18 @@ for (const screen of SCREENS) {
       }
     }
     expect(problems, `${screen.name}: words whole and targets 44 px on every page`).toEqual([]);
+  });
+}
+
+for (const screen of SCREENS) {
+  test(`old /signup links land on /login on ${screen.name}`, async ({ browser }) => {
+    const { context, page } = await openGame(browser, screen, "/signup");
+    try {
+      expect(new URL(page.url()).pathname).toBe("/login");
+      await expect(page.getByRole("button", { name: /sign in with google/i })).toBeVisible();
+      await expect(page.locator('input[type="email"], input[type="password"]')).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
   });
 }

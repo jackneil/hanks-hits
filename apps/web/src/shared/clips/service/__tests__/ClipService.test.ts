@@ -1290,17 +1290,19 @@ describe("owner changes never leak a clip to the next player (plan 7.1, 8.1)", (
   });
 });
 
-describe("the guest-keep rule across the /login page (plan 7.1)", () => {
-  it("keeps the guest ring when sign-in on /login completes within 60 s of the run's end, with the game detached", async () => {
+describe("the guest-keep rule with no game mounted (plan 7.1)", () => {
+  it("keeps the guest ring when a sign-in completes within 60 s of the run's end, with the game detached", async () => {
     const w = makeWorld();
     w.bus.publish(null);
     await flush();
     const game = await ready(w);
     game.runPhase("end");
-    // The kid taps Sign In: the game page unmounts.
+    // The kid leaves the game for another page: the game unmounts.
     game.detach();
     vi.advanceTimersByTime(30_000);
-    // The /login page signs in (client side): the session bus hears it, no game is mounted.
+    // A sign-in completes in another tab (next-auth tells this tab): the
+    // session bus hears it, no game is mounted. A sign-in in this tab would
+    // leave the page for Google and lose the in-memory ring.
     w.userId.value = "kid-1";
     w.bus.publish("kid-1");
     await flush();

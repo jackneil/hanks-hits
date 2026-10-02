@@ -29,6 +29,14 @@ The `/cso` comprehensive audit found no HIGH/MEDIUM issues in the codebase; thes
 - [x] **Removed dead admin endpoint** — deleted `apps/web/src/app/api/admin/backfill-leaderboards/route.ts` (one-time migration route, dead attack surface). `ADMIN_SECRET` now has no consumer and can be dropped from the Railway env.
 - [x] **Dependency audit cleared (35 → 0)** — an in-range refresh plus `pnpm.overrides` (kysely, vite, esbuild, postcss) cleared all `pnpm audit` advisories (was 2 critical, 18 high). Every advisory was dev/build/test tooling or the unused `kysely` path inside `drizzle-orm` (this app uses `node-postgres`); none were runtime-reachable.
 
+## Completed (2026-10-02) - `fix/coppa-accounts` branch (issue #26i)
+
+- [x] **Email and password sign-up removed (COPPA).** Sign-in is Google only, and an account keeps only the Google subject id and a random gamer name. The signup page and API, the Credentials provider, bcrypt, `validators.ts`, the signup and login rate limiters and `PATCH /api/profile` (name edit) are gone; `/signup` redirects to `/login`. The 2025-12-26 signup/login rate limits, the password minimum (item 2) and the display-name validation above applied only to that removed code. Items 3 (email verification) and 5 (lockout by email) below no longer apply: there are no passwords and no stored email addresses. Decision, legal basis and purge steps: `design/ACCOUNTS_COPPA.md`.
+- [x] **Account linking closed.** Auth.js links a Google account that is new to the site to whoever is signed in on that browser, and that Google account then opened the first player's account on any device. `oneAccountPerPlayer()` (`apps/web/src/lib/auth-privacy.ts`) refuses the link in code, the unique index `accounts_user_id_unique` refuses it in the database, and `/login` shows "Sign out" instead of the Google button when the browser is signed in.
+- [x] **Deleted accounts sign out everywhere.** The `jwt` callback reads the account on each session read (`sessionGamerName`), so the cookie of a deleted account is cleared at its next read on every device, instead of living for 30 days.
+- [x] **Sign-in ends 30 days after the sign-in.** Auth.js slides the cookie expiry on each read; the `jwt` callback keeps the sign-in time (`authTime`) and ends the session 30 days after it.
+- [x] **Database pool timeouts.** `packages/db/src/index.ts` stops a connection attempt after 5 s and a query after 30 s, so a database that does not answer cannot hold a route (or every session read) for minutes.
+
 ---
 
 ## High Priority
@@ -81,7 +89,8 @@ For a kids' game, don't overcomplicate (no special chars requirement) — kept.
 
 ## Low Priority (Future)
 
-### 3. Email Verification
+### 3. Email Verification - OBSOLETE (2026-10-02)
+No longer applies: sign-in is Google only and no email address is stored (see `design/ACCOUNTS_COPPA.md`). Original note:
 New users can sign up with any email without verification.
 Would require:
 - Send verification email on signup
@@ -101,7 +110,8 @@ Would help with:
 - Debugging user issues
 - Compliance (if ever needed)
 
-### 5. Account Lockout
+### 5. Account Lockout - OBSOLETE (2026-10-02)
+No longer applies: there are no passwords to guess (Google sign-in only). Original note:
 After X failed attempts, lock account temporarily.
 Currently rate-limited by email, but could add:
 - Account lockout after 20 failed attempts

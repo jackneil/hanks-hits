@@ -27,7 +27,7 @@ export async function GET() {
     });
 
     if (!profile) {
-      // User doesn't have a gaming profile yet (hasn't played any games)
+      // No gaming profile yet: sign-in normally creates one (lib/auth.ts)
       return NextResponse.json({
         handle: null,
         showOnLeaderboards: true,

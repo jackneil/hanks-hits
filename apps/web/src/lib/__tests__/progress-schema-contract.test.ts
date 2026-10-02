@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { validateProgress } from "@/lib/progress-schemas";
 import type { ValidAppId } from "@hank-neil/db/schema";
@@ -86,6 +86,28 @@ describe("progress schema contract: every store's getProgress() validates", () =
       lastModified: Date.now(),
     });
     expect(result).toEqual(expect.objectContaining({ success: true }));
+  });
+
+  it("oregon-trail after a party member gets very sick (regression for the very_poor drift)", async () => {
+    const { useOregonTrailStore } = await import("@/games/oregon-trail/lib/store");
+    const { updatePartyHealth } = await import("@/games/oregon-trail/lib/gameLogic");
+    const store = useOregonTrailStore.getState();
+    store.startGame("", "farmer", ["", "", "", ""], "april");
+    // The game's own health rule: a member who stays sick for 10 days is
+    // "very_poor". The schema said "very poor" (a space), so every save
+    // after that was rejected with a 400.
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.99);
+    try {
+      const sick = useOregonTrailStore.getState().party.map((m, i) => (i === 0 ? { ...m, isSick: true, sickDays: 9 } : m));
+      const party = updatePartyHealth(sick, "steady", "clear", 100, 4);
+      expect(party[0].health).toBe("very_poor");
+      useOregonTrailStore.setState({ party });
+      const result = validateProgress("oregon-trail", useOregonTrailStore.getState().getProgress());
+      expect(result).toEqual(expect.objectContaining({ success: true }));
+    } finally {
+      random.mockRestore();
+      useOregonTrailStore.getState().resetGame();
+    }
   });
 
   it("weather with a real saved location (regression for the favoriteLocations drift)", async () => {

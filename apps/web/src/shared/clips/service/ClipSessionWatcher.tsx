@@ -7,8 +7,9 @@
  * no imports), and runs one effect per session change.
  *
  * Why on every page: the clip service and the library client must see an
- * owner change when it happens (plan 7.1, 8.1). A sign-in on the /login page
- * has no game mounted, so a watcher inside ClipProvider would miss it.
+ * owner change when it happens (plan 7.1, 8.1). A sign-in that another tab
+ * completes can reach this tab on a page with no game mounted (My Clips, the
+ * home page), so a watcher inside ClipProvider would miss it.
  */
 
 import { useSession } from "next-auth/react";

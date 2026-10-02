@@ -13,7 +13,7 @@ description: "Browser QA — standalone (generated 2026-07-21; upgrade jacked + 
 - **Component Paths**: `apps/web/src/shared/components` (shared UI); per-module under `apps/web/src/games/<name>/components` and `apps/web/src/apps/<name>/components`; routes at `apps/web/src/app` (games at `/games/<name>`, apps at `/apps/<name>`)
 
 ## Credential Hints
-none found — auth is next-auth **credentials** (email + password). Create a test user via `/signup`, or ask the user for login creds if a logged-in flow is under test. (`PGPASSWORD` in env is Postgres infra, not a UI login — ignore it.)
+none - sign-in is **Google only** (COPPA, `design/ACCOUNTS_COPPA.md`); there is no email/password login and no `/signup` (it redirects to `/login`). To test a logged-in flow on a LOCAL server only: put a user row and a `gaming_profiles` row in a local scratch DB, then mint a session cookie with `encode({ token: { sub: <id>, id: <id>, handle: <gamer name> }, secret: <local AUTH_SECRET>, salt: "authjs.session-token" })` from `next-auth/jwt` and set it as the `authjs.session-token` cookie. Never mint a cookie for production. (`PGPASSWORD` in env is Postgres infra, not a UI login.)
 
 ## Framework-Specific Checks
 - **React 19**: verify `key` props on list items; `useEffect` cleanup — especially game loops / `requestAnimationFrame` / event listeners torn down on unmount; controlled inputs

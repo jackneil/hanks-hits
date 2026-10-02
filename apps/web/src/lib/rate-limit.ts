@@ -40,7 +40,7 @@ type RateLimitResult = {
 /**
  * Check if a request should be rate limited
  *
- * @param key - Unique identifier (IP address, email, etc.)
+ * @param key - Unique identifier (IP address, user id, etc.)
  * @param limit - Maximum requests allowed in the window
  * @param windowMs - Time window in milliseconds
  * @returns Result with success flag and remaining requests
@@ -99,22 +99,6 @@ export function checkRateLimit(
 }
 
 // Pre-configured rate limiters
-
-/**
- * Rate limit for signup: 5 requests per minute per IP
- */
-export function checkSignupRateLimit(ip: string): RateLimitResult {
-  return checkRateLimit(`signup:${ip}`, 5, 60 * 1000);
-}
-
-/**
- * Rate limit for login: 10 attempts per 15 minutes per email
- * More lenient than signup since users may forget passwords
- */
-export function checkLoginRateLimit(email: string): RateLimitResult {
-  const normalizedEmail = email.toLowerCase().trim();
-  return checkRateLimit(`login:${normalizedEmail}`, 10, 15 * 60 * 1000);
-}
 
 /**
  * Rate limit for progress saves: 60 requests per minute per user

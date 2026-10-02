@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
   // Transpile three.js for proper bundling
   transpilePackages: ["three"],
 
+  // Email sign-up is gone (COPPA, issue #26i): a grown-up signs in with
+  // Google on /login. Old links and bookmarks to /signup land there.
+  async redirects() {
+    return [{ source: "/signup", destination: "/login", permanent: true }];
+  },
+
   // Security headers to prevent clickjacking, XSS, MIME sniffing
   // IMPORTANT: Order matters! When multiple rules match, LAST one wins for each header.
   // So put general rules FIRST, specific overrides LAST.
