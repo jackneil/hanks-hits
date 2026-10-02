@@ -1,4 +1,8 @@
 import type { NextConfig } from "next";
+import { clipMediaSources } from "./src/lib/leaderboard-clips/csp";
+
+// Public bucket origins are compiled into CSP; runtime config checks membership.
+const CLIP_MEDIA_SOURCES = clipMediaSources(process.env.LEADERBOARD_CLIPS_S3_ENDPOINT).join(" ");
 
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
@@ -21,6 +25,8 @@ const nextConfig: NextConfig = {
   experimental: {
     serverMinification: false,
   },
+
+  env: { LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES: CLIP_MEDIA_SOURCES },
 
   // Security headers to prevent clickjacking, XSS, MIME sniffing
   // IMPORTANT: Order matters! When multiple rules match, LAST one wins for each header.
@@ -51,7 +57,7 @@ const nextConfig: NextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https:; media-src 'self' blob:; worker-src 'self' blob:; frame-ancestors 'none';",
+              `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob: ${CLIP_MEDIA_SOURCES}; font-src 'self' data:; connect-src 'self' https:; media-src 'self' blob: ${CLIP_MEDIA_SOURCES}; worker-src 'self' blob:; frame-ancestors 'none';`,
           },
         ],
       },

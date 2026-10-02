@@ -6,3 +6,6 @@ export * from "./app-progress";
 
 // Leaderboard tables
 export * from "./leaderboards";
+
+// Leaderboard clips (videos of a run on the leaderboard)
+export * from "./leaderboard-clips";

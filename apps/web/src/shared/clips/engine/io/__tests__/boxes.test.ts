@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BoxError,
+  TooManyBoxesError,
   type ContainerNode,
   childOf,
   containerAt,
@@ -122,6 +123,41 @@ describe("readBoxes", () => {
     writeU32(cut, 0, 1);
     writeFourCC(cut, 4, "mdat");
     expect(() => readBoxes(cut)).toThrow(/cut 64-bit size/);
+  });
+
+  it("reads up to maxBoxes boxes, and stops at the first box past the limit", () => {
+    const three = concat(box("ftyp", []), box("moov", []), box("mdat", []));
+    expect(readBoxes(three, 0, three.length, 3)).toHaveLength(3);
+    const error = (() => {
+      try {
+        readBoxes(three, 0, three.length, 2);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(error).toBeInstanceOf(TooManyBoxesError);
+    expect(error).toBeInstanceOf(BoxError);
+    expect((error as TooManyBoxesError).maxBoxes).toBe(2);
+  });
+
+  it("stops early on a range of millions of tiny boxes (the read does not walk the whole range)", () => {
+    // 16 MiB of 8-byte boxes: 2 million of them.
+    const bomb = new Uint8Array(16 * 1024 * 1024);
+    for (let at = 0; at < bomb.length; at += 8) {
+      writeU32(bomb, at, 8);
+      writeFourCC(bomb, at + 4, "free");
+    }
+    let read = 0;
+    const counting = new Proxy(bomb, {
+      get(target, key) {
+        if (typeof key === "string" && /^\d+$/.test(key)) read++;
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    expect(() => readBoxes(counting, 0, bomb.length, 16)).toThrow(TooManyBoxesError);
+    // 16 headers of 8 bytes, read once each: nothing like the 16 MiB of the range.
+    expect(read).toBeLessThanOrEqual(16 * 8);
   });
 });
 

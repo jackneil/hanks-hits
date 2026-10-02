@@ -55,6 +55,13 @@ const INVENTORY: Inventory = {
   },
   "src/app/api/clips-config/route.ts": { bodyMethods: [], reads: [] },
   "src/app/api/gaming-profile/route.ts": { bodyMethods: ["PATCH"], reads: ["readJson(SMALL_SAVE_BODY)"] },
+  "src/app/api/leaderboard-clips/route.ts": { bodyMethods: ["POST"], reads: ["readBody(CLIP_UPLOAD_BODY)"] },
+  "src/app/api/leaderboard-clips/[id]/route.ts": { bodyMethods: ["DELETE"], reads: ["readBody(CLIP_DELETE_BODY)"] },
+  "src/app/api/leaderboard-clips/[id]/report/route.ts": {
+    bodyMethods: ["POST"], reads: [], why: "Report uses only the URL id, origin and network address."
+  },
+  "src/app/api/leaderboard-clips/[id]/video/route.ts": { bodyMethods: [], reads: [] },
+  "src/app/api/leaderboard-clips/[id]/poster/route.ts": { bodyMethods: [], reads: [] },
   "src/app/api/leaderboards/[appId]/route.ts": { bodyMethods: [], reads: [] },
   "src/app/api/leaderboards/my-ranks/route.ts": { bodyMethods: [], reads: [] },
   "src/app/api/profile/route.ts": { bodyMethods: ["PATCH"], reads: ["readJson(SMALL_SAVE_BODY)"] },

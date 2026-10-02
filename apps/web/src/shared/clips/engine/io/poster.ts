@@ -13,6 +13,7 @@
 
 import { BlobSource, type EncodedPacket, EncodedPacketSink, Input, type InputFormat, type InputVideoTrack, MP4, WEBM } from "mediabunny";
 
+import { stripJpegMetadata } from "../../../lib/jpeg";
 import { POSTER_END_GAP_SEC } from "./posterKey";
 
 /** Widest poster, in pixels. */
@@ -62,49 +63,12 @@ export function posterSize(width: number, height: number, maxWidth = POSTER_MAX_
 }
 
 /**
- * Removes APP1 to APP15 and COM segments from a JPEG. APP0 (JFIF) stays.
- * Returns null when the bytes are not a JPEG this reader understands.
+ * Removes APP1 to APP15 and COM segments from a JPEG (also between the scans
+ * of a progressive JPEG) and keeps only SOI to EOI. APP0 (JFIF) stays.
+ * Returns null when the bytes are not a complete JPEG. The same code cleans
+ * the poster of a leaderboard clip on the server (src/lib/leaderboard-clips/poster.ts).
  */
-export function stripJpegMetadata(jpeg: Uint8Array): Uint8Array | null {
-  if (jpeg.length < 4 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) return null;
-  const parts: Uint8Array[] = [jpeg.subarray(0, 2)];
-  let offset = 2;
-  while (offset < jpeg.length) {
-    if (jpeg[offset] !== 0xff) return null;
-    // Fill bytes: a marker can have more than one 0xFF before it.
-    while (offset + 1 < jpeg.length && jpeg[offset + 1] === 0xff) offset++;
-    if (offset + 1 >= jpeg.length) return null;
-    const marker = jpeg[offset + 1];
-    if (marker === 0xd9) {
-      parts.push(jpeg.subarray(offset, offset + 2));
-      break;
-    }
-    if (marker === 0xda) {
-      // Start of scan: the rest is image data and the markers in it.
-      parts.push(jpeg.subarray(offset));
-      break;
-    }
-    if ((marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) {
-      parts.push(jpeg.subarray(offset, offset + 2));
-      offset += 2;
-      continue;
-    }
-    if (offset + 4 > jpeg.length) return null;
-    const length = (jpeg[offset + 2] << 8) | jpeg[offset + 3];
-    if (length < 2 || offset + 2 + length > jpeg.length) return null;
-    const isMetadata = (marker >= 0xe1 && marker <= 0xef) || marker === 0xfe;
-    if (!isMetadata) parts.push(jpeg.subarray(offset, offset + 2 + length));
-    offset += 2 + length;
-  }
-  const total = parts.reduce((sum, part) => sum + part.length, 0);
-  const out = new Uint8Array(total);
-  let cursor = 0;
-  for (const part of parts) {
-    out.set(part, cursor);
-    cursor += part.length;
-  }
-  return out;
-}
+export { stripJpegMetadata } from "../../../lib/jpeg";
 
 /** Base64 without a data URL prefix. Works in windows, workers and Node. */
 export function bytesToBase64(bytes: Uint8Array): string {
