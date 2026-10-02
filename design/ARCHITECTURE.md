@@ -975,9 +975,9 @@ finish in time, as before this change. At 1 Mbit/s, 300 s carries about
 - The largest drawing save at 1 Mbit/s got Node's own 408 after 310 s, at
   38 MB. The server on master does the same, because the limit is Node's.
 
-**The largest valid save.** The test "the largest valid save of every game
+**Largest game-produced saves.** The test "the largest valid save of every game
 passes" (`src/app/api/progress/[appId]/__tests__/route.test.ts`) builds the
-largest save of every schema from the schema itself (`largestSave.ts` in
+upper-bound payloads from the schema (`largestSave.ts` in
 the same folder). Typed text uses a 3-byte character, and image data URLs
 use 1 byte a character (base64). Each save goes through the route and gets
 200. The largest is the Drawing App gallery: 20 drawings with a data URL
@@ -987,7 +987,12 @@ Machine (11.8 MB). The test also builds the save with the most JSON values
 of every schema. The most is the Drum Machine: 661,328 marks, under a third
 of 2,000,000. The test names the fields that a schema does not bound
 (today: `currentEvent` of Oregon Trail, a `z.any()`). For that field, the
-test sends every event that the game writes (fewer than 1,000 marks).
+test sends every event that the game writes (fewer than 1,000 marks). This
+is evidence for game-produced payloads, not every value accepted by Zod:
+image fields also accept arbitrary Unicode, and Oregon currentEvent is
+unbounded until issue #72i is fixed. Route exports must be explicit
+functions; the inventory rejects factory results whose body handling
+cannot be inspected. Dynamic evaluation is forbidden in server code.
 
 **Residual risk.** A signed-in account can still send several 100 MiB
 bodies at the same time. Each one holds up to 100 MiB of bytes, and more

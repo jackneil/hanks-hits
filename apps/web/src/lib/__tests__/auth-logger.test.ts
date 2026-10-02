@@ -56,6 +56,17 @@ describe("describeAuthError", () => {
 });
 
 describe("authLogger.error", () => {
+  it("does not log body text that looks like a stack frame", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      JSON.parse('["ok",\n    at private-body-marker]');
+    } catch (error) {
+      authLogger.error(error as Error);
+    }
+    expect(errors).toHaveBeenCalledOnce();
+    expect(inspect(errors.mock.calls, { depth: 8 })).not.toContain("at private");
+  });
+
   it("prints the description, never the message", () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     authLogger.error(parseError());

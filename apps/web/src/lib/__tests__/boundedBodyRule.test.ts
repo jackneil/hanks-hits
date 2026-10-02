@@ -31,7 +31,7 @@ beforeAll(() => {
     cwd: WEB_ROOT,
     overrideConfigFile: path.join(WEB_ROOT, "eslint.config.mjs"),
     // Only this rule: `pnpm lint` runs the others.
-    ruleFilter: ({ ruleId }) => ruleId === RULE_ID,
+    ruleFilter: ({ ruleId }) => [RULE_ID, "no-eval", "no-implied-eval", "no-new-func"].includes(ruleId),
     // src/middleware.ts and src/proxy.ts are in the rule's files but do not exist today.
     errorOnUnmatchedPattern: false,
   });
@@ -49,6 +49,19 @@ async function bodyMessages(code: string, filePath = ROUTE): Promise<string[]> {
 }
 
 describe("the bounded-body lint rule: body reads", () => {
+  it("bans dynamic evaluation that hides reads from static analysis", async () => {
+    const [result] = await eslint.lintText(
+      `export async function POST(request: Request) { return Response.json(await eval("request.json()")); }`,
+      { filePath: path.join(WEB_ROOT, ROUTE) }
+    );
+    expect(result.messages.some((message) => message.ruleId === "no-eval" && message.severity === 2)).toBe(true);
+  });
+
+  it("tracks a request asserted inside a factory-produced handler", async () => {
+    const code = `import { handlers } from "@/lib/auth"; function make() { return (input: unknown) => handlers.POST(input as NextRequest); } export const POST = make();`;
+    expect(await bodyMessages(code)).toContain("forwarded");
+  });
+
   it.each(["json", "text", "formData", "arrayBuffer", "blob", "bytes"])("bans request.%s() in a route", async (method) => {
     const code = `export async function POST(request: Request) { return Response.json(await request.${method}()); }\n`;
     expect(await bodyMessages(code)).toEqual(["unbounded"]);

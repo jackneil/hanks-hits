@@ -277,7 +277,7 @@ function routeFacts(fileName: string, text: string): RouteFacts {
   /**
    * True for a value that is not a function of this file: a member
    * (handlers.POST), an import, a name that the file does not declare, or a
-   * call of a function that the file does not declare (a library wrapper).
+   * call whose return value is not a statically declared handler.
    */
   const isForeign = (value: ts.Expression | undefined, depth = 0): boolean => {
     const target = unwrap(value);
@@ -285,10 +285,9 @@ function routeFacts(fileName: string, text: string): RouteFacts {
     if (ts.isArrowFunction(target) || ts.isFunctionExpression(target)) return false;
     if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) return true;
     if (ts.isCallExpression(target)) {
-      // wrap(handler): a local wrapper of local functions is the file's own code.
-      const callee = unwrap(target.expression);
-      if (!callee || !ts.isIdentifier(callee) || !localFunctions.has(callee.text)) return true;
-      return target.arguments.some((argument) => isForeign(argument, depth + 1));
+      // A local factory can return a library handler too. Require an explicit
+      // function export so the body rule can inspect its request parameter.
+      return true;
     }
     if (!ts.isIdentifier(target)) return true;
     if (imported.has(target.text)) return true;
@@ -309,6 +308,15 @@ const bodyMethodsOf = (facts: RouteFacts) =>
   BODY_METHODS.filter((method) => facts.methods.has(method)).sort();
 
 describe("the route inventory reader (its own fixtures)", () => {
+  it("requires explicit handlers instead of trusting a factory's return value", () => {
+    for (const code of [
+      `import { handlers } from "@/lib/auth"; function make() { return handlers.POST; } export const POST = make();`,
+      `import { handlers } from "@/lib/auth"; function make() { return (input: unknown) => handlers.POST(input as NextRequest); } export const POST = make();`,
+    ]) {
+      expect(routeFacts("src/app/api/fx/route.ts", code).foreignHandlers).toEqual(["POST"]);
+    }
+  });
+
   it("sees a library's handler exported in each way (the shapes that read a body with no limit)", () => {
     const foreign = (code: string) => routeFacts("src/app/api/fx/route.ts", code).foreignHandlers;
     // The Auth.js route as it was before this change.
@@ -330,12 +338,12 @@ describe("the route inventory reader (its own fixtures)", () => {
     expect(routeFacts("r.ts", `export * as h from "lib";\n`).starExport).toBe(true);
   });
 
-  it("takes a function of the file (also out of line, or wrapped by a function of the file) as its own", () => {
+  it("takes a declared function of the file as its own, but not a factory result", () => {
     const foreign = (code: string) => routeFacts("src/app/api/fx/route.ts", code).foreignHandlers;
     expect(foreign(`export async function POST() { return new Response(); }\n`)).toEqual([]);
     expect(foreign(`async function handler() { return new Response(); }\nexport const POST = handler;\n`)).toEqual([]);
     expect(foreign(`async function handler() { return new Response(); }\nexport { handler as POST };\n`)).toEqual([]);
-    expect(foreign(`const wrap = (f: unknown) => f;\nconst handler = wrap(async () => new Response());\nexport { handler as PUT };\n`)).toEqual([]);
+    expect(foreign(`const wrap = (f: unknown) => f;\nconst handler = wrap(async () => new Response());\nexport { handler as PUT };\n`)).toEqual(["PUT"]);
     // A GET of a library is fine: Next.js gives GET no body.
     expect(foreign(`import { handlers } from "@/lib/auth";\nexport const { GET } = handlers;\n`)).toEqual([]);
   });

@@ -222,6 +222,7 @@ const boundedRequestBodyRule = {
     const handlerFunctions = [];
     /** Identifiers that name an exported route handler (export { x as POST }, export const POST = x, wrap(x)). */
     const handlerNames = [];
+    const assertedRequests = [];
 
     /** The nodes reported so far: two paths can reach one node. */
     const reported = new Set();
@@ -251,6 +252,9 @@ const boundedRequestBodyRule = {
     }
 
     return {
+      "TSAsExpression, TSTypeAssertion"(node) {
+        if (isRequestType(node.typeAnnotation)) assertedRequests.push(node);
+      },
       "ExportNamedDeclaration > FunctionDeclaration"(node) {
         if (node.id && ROUTE_HANDLERS.has(node.id.name)) handlerFunctions.push(node);
       },
@@ -685,6 +689,8 @@ const boundedRequestBodyRule = {
             return !(init && (FUNCTION_TYPES.has(init.type) || init.type === "ClassExpression"));
           });
 
+        // A typed assertion can introduce a request even when its input is unknown.
+        for (const node of assertedRequests) follow(node, "request");
         // Seeds: names with "req" (of a value), and names typed Request or NextRequest.
         for (const scope of scopeManager.scopes) {
           for (const variable of scope.variables) {

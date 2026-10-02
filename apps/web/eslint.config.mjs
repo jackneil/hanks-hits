@@ -157,6 +157,9 @@ const eslintConfig = defineConfig([
     ignores: [...BOUNDED_BODY_TEST_IGNORES],
     rules: {
       [`${BOUNDED_BODY_PLUGIN}/${BOUNDED_BODY_RULE}`]: "error",
+      "no-eval": "error",
+      "no-implied-eval": "error",
+      "no-new-func": "error",
     },
   },
   // Override default ignores of eslint-config-next.
