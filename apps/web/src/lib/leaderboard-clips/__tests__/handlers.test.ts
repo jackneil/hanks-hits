@@ -66,6 +66,11 @@ function handleReport(request: Request, id: string, deps: ClipDeps) {
   return reportClip(metadata(request), id, deps);
 }
 
+const routeDeps = vi.hoisted(() => ({ current: null as ClipDeps | null }));
+vi.mock("../runtime", () => ({ defaultClipDeps: () => routeDeps.current! }));
+import { POST as uploadRoute } from "@/app/api/leaderboard-clips/route";
+import { DELETE as deleteRoute } from "@/app/api/leaderboard-clips/[id]/route";
+
 const KID = "user-kid-0001";
 const OTHER_KID = "user-kid-0002";
 const ADMIN = "user-admin-0003";
@@ -1113,5 +1118,48 @@ describe("uploadBoundary and boundaryMarks", () => {
     expect(boundaryMarks(text("--B\r\na\r\n--B\na\n--B--"), "B", 10)).toBe(3);
     expect(boundaryMarks(text("x--Bx--Bx--B"), "B", 10)).toBe(3);
     expect(boundaryMarks(text("--B".repeat(1000)), "B", 5)).toBe(6);
+  });
+});
+
+
+describe("real route bounded-reader adapters", () => {
+  it.each(["signed out", "off", "not on board", "busy"])("does not read an upload when %s", async (reason) => {
+    const h = harness();
+    routeDeps.current = h.deps;
+    if (reason === "signed out") h.user.id = null;
+    if (reason === "off") h.env.LEADERBOARD_CLIPS = "off";
+    if (reason === "not on board") h.store.removeBoardEntry(KID, "asteroids");
+    if (reason === "busy") vi.spyOn(h.deps.uploadGate, "tryEnter").mockReturnValue(false);
+    const request = await uploadRequest();
+    const reader = vi.spyOn(request.body!, "getReader");
+    const response = await uploadRoute(request);
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(reader).not.toHaveBeenCalled();
+  });
+
+  it("reads a valid upload exactly once while the process gate is held, then releases it", async () => {
+    const h = harness();
+    routeDeps.current = h.deps;
+    const request = await uploadRequest();
+    const stream = request.body!;
+    const original = stream.getReader.bind(stream);
+    const reader = vi.spyOn(stream, "getReader").mockImplementation(() => {
+      expect(h.deps.uploadGate.active).toBe(1);
+      return original();
+    });
+    expect((await uploadRoute(request)).status).toBe(201);
+    expect(reader).toHaveBeenCalledTimes(1);
+    expect(h.deps.uploadGate.active).toBe(0);
+  });
+
+  it("does not read an owner delete before authentication", async () => {
+    const h = harness();
+    routeDeps.current = h.deps;
+    h.user.id = null;
+    const id = testClipId();
+    const request = deleteRequest(id, { keepForLegalReport: false });
+    const reader = vi.spyOn(request.body!, "getReader");
+    expect((await deleteRoute(request, { params: Promise.resolve({ id }) })).status).toBe(401);
+    expect(reader).not.toHaveBeenCalled();
   });
 });
