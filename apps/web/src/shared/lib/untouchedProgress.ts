@@ -36,11 +36,12 @@
  *    device: foldProgress keeps what time alone earned on the device (the
  *    pet species that daily visits unlock, the longest visit streak).
  *
- * 4. useAuthSync, when the device's progress was built on the defaults (a
- *    guest's play, a blank device) and the account holds real progress:
- *    foldGuestProgress keeps the account's progress, the device's records,
- *    and the items that the player made on the device (`lists`: a beat, a
- *    drawing, a wish).
+ * 4. useAuthSync, when this page takes progress from somewhere else (the
+ *    account's progress at the first sync, or another tab's newer save) and
+ *    the player made items here that were not saved yet (`lists`: a beat, a
+ *    drawing, a wish): newListItems() finds those items, and addListItems()
+ *    adds them to the progress that the page takes. Each list keeps its
+ *    newest items, as the store's own eviction does.
  *
  * `ignore` lists the fields that change with no player choice (time passing,
  * a page load), and the settings whose setter did not stamp the time before
@@ -100,12 +101,23 @@ export interface UntouchedProgressRule {
 }
 
 /**
- * A list of items that a player makes (a beat, a drawing, a wish). `id`
- * names the key that tells two items apart (a function for an item with no
- * id key; none for a list of strings or numbers). `max` is the length that
- * the server's schema allows.
+ * A list of items that a player makes (a beat, a drawing, a wish).
+ * - `id`: the key that tells two items apart (a function for an item with
+ *   no id key; none for a list of strings or numbers).
+ * - `max`: the most items that the list holds: the store's own limit, and
+ *   never more than the server's schema allows.
+ * - `order`: where the store puts a new item ("newestFirst": at the start;
+ *   "newestLast": at the end). The store drops its oldest items from the
+ *   other end.
+ * - `time`: the key of the item's time (a number, or an ISO date), when the
+ *   item has one. Items with a time are put in time order.
  */
-export type ListSpec = { readonly id?: string | ((item: unknown) => string); readonly max: number };
+export type ListSpec = {
+  readonly id?: string | ((item: unknown) => string);
+  readonly max: number;
+  readonly order: "newestFirst" | "newestLast";
+  readonly time?: string;
+};
 
 type Spec = {
   /** The default progress, as getProgress() returns it. Its time is not compared. */
@@ -131,8 +143,8 @@ type Spec = {
   foldNested?: Fold;
   /**
    * Top-level lists of the progress whose items a player makes. When the
-   * device's progress was built on the defaults, foldGuestProgress adds the
-   * device's items to the account's list (useAuthSync).
+   * page takes progress from somewhere else, the items that the player made
+   * here and did not save yet join it (addListItems, useAuthSync).
    */
   lists?: Readonly<Record<string, ListSpec>>;
 };
@@ -250,6 +262,39 @@ export function foldProgress<T extends AppProgressData>(appId: string, base: T, 
   return out as T;
 }
 
+/**
+ * A three-way merge for a page that takes progress from somewhere else:
+ * `theirs` (the account's progress), with each change that `ours` (this
+ * page) made since `base` (what this page judged at the start of its first
+ * sync) at a field where `theirs` still holds the `base` value. A field that
+ * both sides changed keeps `theirs`: the merge never replaces a change of
+ * the account. The merge goes into plain objects; a list or other value is
+ * one field. The time key is not merged. Returns `theirs` when nothing of
+ * `ours` applies.
+ */
+export function applyOwnChanges<T extends AppProgressData>(appId: string, theirs: T, ours: unknown, base: unknown): T {
+  const timeKey = rules.get(appId)?.timeKey ?? "lastModified";
+  const merge = (mine: unknown, other: unknown, start: unknown, top: boolean): unknown => {
+    if (isRecord(mine) && isRecord(other) && isRecord(start)) {
+      let out: Record<string, unknown> | null = null;
+      for (const key of new Set([...Object.keys(mine), ...Object.keys(other)])) {
+        if (top && key === timeKey) continue;
+        const next = merge(mine[key], other[key], start[key], false);
+        if (next !== mine[key]) {
+          out = out ?? { ...mine };
+          if (next === undefined) delete out[key];
+          else out[key] = next;
+        }
+      }
+      return out ?? mine;
+    }
+    // Only this page changed the field since the start: its value.
+    if (sameProgress(mine, start) && !sameProgress(other, start)) return other === undefined ? undefined : JSON.parse(JSON.stringify(other));
+    return mine;
+  };
+  return merge(theirs, ours, base, true) as T;
+}
+
 /** The key of a list item (see ListSpec). */
 function itemKey(item: unknown, id: ListSpec["id"]): string {
   if (typeof id === "function") return id(item);
@@ -257,35 +302,102 @@ function itemKey(item: unknown, id: ListSpec["id"]): string {
   return isRecord(item) ? JSON.stringify(item[id]) : JSON.stringify(item);
 }
 
+/** The keys of the items in each list of the rule of `appId` (see ListSpec). */
+export type ListItemKeys = ReadonlyMap<string, ReadonlySet<string>>;
+
 /**
- * The account's progress with the device's records folded in, for a device
- * whose progress was built on the defaults (a guest's play, a blank device):
- * foldProgress(account, device), and each list of the rule (`lists`) keeps
- * the account's items and adds the device's items that the account does not
- * hold, up to the length that the server's schema allows. The account's
- * progress stays the base: the device's own non-record fields (a wallet, a
- * journey) do not replace it. The time is the account's.
+ * The keys of the items that `progress` holds in each list of the rule of
+ * `appId` (`lists`). Empty for an app with no rule or no lists.
  */
-export function foldGuestProgress<T extends AppProgressData>(appId: string, account: T, device: AppProgressData): T {
-  const out = foldProgress(appId, account, device) as Record<string, unknown>;
+export function listItemKeys(appId: string, progress: unknown): ListItemKeys {
+  const out = new Map<string, Set<string>>();
   const rule = rules.get(appId);
-  if (!rule) return out as T;
+  if (!rule || !isRecord(progress)) return out;
   for (const [field, list] of Object.entries(rule.lists)) {
-    const mine = out[field];
-    const theirs = device[field];
-    if (!Array.isArray(theirs) || theirs.length === 0) continue;
-    const base = Array.isArray(mine) ? mine : [];
-    const seen = new Set(base.map((item) => itemKey(item, list.id)));
-    const added = theirs.filter((item) => {
+    const items = progress[field];
+    out.set(field, new Set(Array.isArray(items) ? items.map((item) => itemKey(item, list.id)) : []));
+  }
+  return out;
+}
+
+/**
+ * The items of `progress` that no progress in `known` holds, per list of
+ * the rule of `appId`: the items that the player made after the page saw
+ * the `known` progress (its save, the account's progress). An item that a
+ * known progress holds is not new: when it is missing from the progress
+ * that the page takes, another tab or device deleted it.
+ */
+export function newListItems(appId: string, progress: unknown, known: readonly ListItemKeys[]): Record<string, unknown[]> {
+  const out: Record<string, unknown[]> = {};
+  const rule = rules.get(appId);
+  if (!rule || !isRecord(progress)) return out;
+  for (const [field, list] of Object.entries(rule.lists)) {
+    const items = progress[field];
+    if (!Array.isArray(items)) continue;
+    const fresh = items.filter((item) => {
+      const key = itemKey(item, list.id);
+      return !known.some((keys) => keys.get(field)?.has(key));
+    });
+    if (fresh.length > 0) out[field] = fresh;
+  }
+  return out;
+}
+
+/** The time of a list item (see ListSpec.time), or -Infinity when it has none. */
+function itemTime(item: unknown, time: string | undefined): number {
+  if (time === undefined || !isRecord(item)) return Number.NEGATIVE_INFINITY;
+  const value = item[time];
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return Number.NEGATIVE_INFINITY;
+}
+
+/**
+ * `base` with `items` added to its lists (see newListItems). An item that
+ * the list holds already (the same key) stays as `base` has it. The new
+ * items go where the store puts a new item, and a list whose items have a
+ * time is put in time order. Each list then keeps its newest `max` items,
+ * as the store's own eviction does: the oldest items go, and each drop is
+ * logged (the app, the list and the number of items, never a value). The
+ * time of `base` does not change.
+ */
+export function addListItems<T extends AppProgressData>(appId: string, base: T, items: Record<string, unknown[]>): T {
+  const rule = rules.get(appId);
+  if (!rule) return base;
+  let out: Record<string, unknown> | null = null;
+  for (const [field, list] of Object.entries(rule.lists)) {
+    const extra = items[field];
+    if (!extra || extra.length === 0) continue;
+    const current = Array.isArray(base[field]) ? (base[field] as unknown[]) : [];
+    const seen = new Set(current.map((item) => itemKey(item, list.id)));
+    const added = extra.filter((item) => {
       const key = itemKey(item, list.id);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
     if (added.length === 0) continue;
-    out[field] = [...base, ...added].slice(0, Math.max(list.max, base.length));
+    let merged = list.order === "newestFirst" ? [...added, ...current] : [...current, ...added];
+    if (list.time !== undefined) {
+      const time = list.time;
+      // A stable sort: items with the same time keep their place.
+      merged = [...merged].sort((a, b) =>
+        list.order === "newestFirst" ? itemTime(b, time) - itemTime(a, time) || 0 : itemTime(a, time) - itemTime(b, time) || 0
+      );
+    }
+    const dropped = merged.length - list.max;
+    if (dropped > 0) {
+      merged = list.order === "newestFirst" ? merged.slice(0, list.max) : merged.slice(dropped);
+      console.warn(
+        `useAuthSync: ${appId}.${field} keeps its newest ${list.max} items; ${dropped} older item(s) did not fit.`
+      );
+    }
+    out = { ...(out ?? base), [field]: merged };
   }
-  return out as T;
+  return (out ?? base) as T;
 }
 
 // ---------------------------------------------------------------------------

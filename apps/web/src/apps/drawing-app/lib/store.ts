@@ -120,9 +120,10 @@ const UNTOUCHED = defineUntouchedProgress("drawing-app", {
   defaults: { settings: defaultSettings, stats: defaultStats, savedArtworks: [], lastModified: 0 },
   // Settings are not progress (shared/lib/untouchedProgress.ts).
   ignore: ["settings"],
-  // The items that a player makes: a guest's items join the account's at
-  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
-  lists: { savedArtworks: { id: "id", max: 20 } },
+  // The items that a player makes (addListItems: an item made here and not
+  // saved yet joins progress that the page takes). saveArtwork adds at the
+  // start and drops the oldest past MAX_SAVED_ARTWORKS (the schema's bound).
+  lists: { savedArtworks: { id: "id", max: MAX_SAVED_ARTWORKS, order: "newestFirst", time: "createdAt" } },
 });
 
 // Generate unique ID

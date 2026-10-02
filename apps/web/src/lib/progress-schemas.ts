@@ -10,7 +10,10 @@
 
 import { z } from "zod";
 import { adventureSchema } from "@/games/four-wheeler-3d/lib/adventureSchema";
-import { DIFFICULTY_SETTINGS as MATH_ATTACK_SETTINGS, type Difficulty as MathAttackDifficulty } from "@/games/math-attack/lib/constants";
+import {
+  DIFFICULTY_SETTINGS as MATH_ATTACK_SETTINGS,
+  type Difficulty as MathAttackDifficulty,
+} from "@/games/math-attack/lib/constants";
 import { MAX_PATTERN_STEPS } from "@/apps/drum-machine/lib/constants";
 import type { ValidAppId } from "@hank-neil/db/schema";
 
@@ -20,7 +23,12 @@ const MAX_COUNT = 1_000_000; // 1 million items/games/etc
 const MAX_STRING_LENGTH = 255; // Max length for string fields
 const MAX_RECORD_KEYS = 100; // Max keys in a record/object
 
-const MATH_ATTACK_DIFFICULTIES = Object.keys(MATH_ATTACK_SETTINGS) as [MathAttackDifficulty, ...MathAttackDifficulty[]];
+// Every age that the Math Attack picker offers (games/math-attack/Game.tsx
+// makes one button for each key of DIFFICULTY_SETTINGS).
+const MATH_ATTACK_DIFFICULTIES = Object.keys(MATH_ATTACK_SETTINGS) as [
+  MathAttackDifficulty,
+  ...MathAttackDifficulty[],
+];
 
 // Bounded string helper - all strings have max length
 const boundedString = z.string().max(MAX_STRING_LENGTH);
@@ -192,13 +200,13 @@ const quoridorSchema = z.object({
 // NOTE: Oregon Trail syncs FULL GAME STATE (not aggregate stats) to allow
 // players to continue their journey across devices
 const partyMemberSchema = z.object({
-  // The game's own id for each member (gameLogic createInitialState): the
-  // list key. Without it here, the server dropped it from every save.
+  // The game's own id for each member (gameLogic createInitialState). Without
+  // it here, the server dropped it from every save.
   id: boundedString.optional(),
   name: boundedString,
   // The game's HealthStatus values (games/oregon-trail/types). "very poor"
-  // with a space never matched, so every save after a member got that sick
-  // was refused.
+  // with a space never matched, so the server refused every save after a
+  // member was sick for 10 days (gameLogic updatePartyHealth).
   health: z.enum(["good", "fair", "poor", "very_poor"]),
   isSick: z.boolean(),
   sickDays: z.number().min(0).max(365),
@@ -210,10 +218,12 @@ const suppliesSchema = z.object({
   oxen: z.number().min(0).max(100),
   clothing: z.number().min(0).max(1000),
   ammunition: z.number().min(0).max(MAX_COUNT),
+  // The store sells one part for $10 with no limit, so a banker ($1,600)
+  // can buy 160 wheels. A limit of 100 refused every later save.
   spareParts: z.object({
-    wheels: z.number().min(0).max(100),
-    axles: z.number().min(0).max(100),
-    tongues: z.number().min(0).max(100),
+    wheels: z.number().min(0).max(MAX_COUNT),
+    axles: z.number().min(0).max(MAX_COUNT),
+    tongues: z.number().min(0).max(MAX_COUNT),
   }),
   money: z.number().min(0).max(MAX_CURRENCY),
 });
@@ -226,8 +236,10 @@ const oregonTrailSchema = z.object({
   occupation: boundedString, // "banker" | "carpenter" | "farmer"
   party: z.array(partyMemberSchema).max(5),
   departureMonth: boundedString, // "march" | "april" | etc
-  // Progress
-  currentDay: z.number().min(0).max(365),
+  // Progress. The Rest button (store rest()) adds a day with no limit, and
+  // the trail has no last day (gameLogic checkGameOver), so a limit of 365
+  // refused every later save of a long journey.
+  currentDay: z.number().min(0).max(MAX_COUNT),
   milesTraveled: z.number().min(0).max(MAX_COUNT),
   currentLandmarkIndex: z.number().min(0).max(100),
   pace: boundedString, // "steady" | "strenuous" | "grueling"
@@ -243,7 +255,7 @@ const oregonTrailSchema = z.object({
   // Session stats
   huntingFood: z.number().min(0).max(MAX_COUNT),
   huntingAmmoUsed: z.number().min(0).max(MAX_COUNT),
-  daysRested: z.number().min(0).max(365),
+  daysRested: z.number().min(0).max(MAX_COUNT),
   foodHunted: z.number().min(0).max(MAX_COUNT),
   riversCrossed: z.number().min(0).max(100),
   eventsEncountered: z.number().min(0).max(MAX_COUNT),
@@ -529,9 +541,8 @@ const mathAttackSchema = z.object({
   gamesPlayed: z.number().min(0).max(MAX_COUNT),
   settings: z.object({
     soundEnabled: z.boolean(),
-    // Every age that the picker offers (games/math-attack/Game.tsx lists the
-    // keys of DIFFICULTY_SETTINGS). The list once missed 6yo and 10yo, and
-    // the server refused every save of a kid who picked either one.
+    // Every age that the picker offers. The list once missed 6yo and 10yo,
+    // and the server refused every save of a kid who picked either one.
     difficulty: z.enum(MATH_ATTACK_DIFFICULTIES),
   }),
   lastModified: timestampSchema,
@@ -663,7 +674,8 @@ const savedBeatSchema = z.object({
   bpm: z.number().min(40).max(300),
   // MAX_PATTERN_STEPS of the drum machine (apps/drum-machine/lib/constants.ts).
   pattern: boundedRecord(z.array(z.boolean()).max(MAX_PATTERN_STEPS)),
-  // The beat's length in steps. Without it here, the server dropped it.
+  // The beat's length in steps (store saveBeat). Without it here, the server
+  // dropped it from every save.
   patternLength: z.number().int().min(1).max(MAX_PATTERN_STEPS).optional(),
   createdAt: boundedString,
 });
@@ -792,7 +804,9 @@ const fourWheeler3dSchema = z.object({
 // Schema Registry
 // ============================================================================
 
-export const PROGRESS_SCHEMAS: Partial<Record<ValidAppId, z.ZodSchema>> = {
+// `satisfies` keeps the type of each schema, so a type test can compare it
+// with the store that syncs it (__tests__/progress-schema-types.test.ts).
+const SCHEMAS_BY_APP = {
   "2048": game2048Schema,
   snake: snakeSchema,
   "flappy-bird": flappyBirdSchema,
@@ -826,7 +840,13 @@ export const PROGRESS_SCHEMAS: Partial<Record<ValidAppId, z.ZodSchema>> = {
   "math-attack": mathAttackSchema,
   arkanoid: arkanoidSchema,
   achievements: achievementsSchema,
-};
+} satisfies Partial<Record<ValidAppId, z.ZodType>>;
+
+/** The schema of each app, with its own type (for type tests). */
+export type ProgressSchemasByApp = typeof SCHEMAS_BY_APP;
+
+export const PROGRESS_SCHEMAS: Partial<Record<ValidAppId, z.ZodSchema>> =
+  SCHEMAS_BY_APP;
 
 /**
  * Validate progress data for a specific app.

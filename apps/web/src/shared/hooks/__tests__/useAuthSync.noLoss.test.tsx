@@ -1,9 +1,10 @@
 /**
- * Review wave 5 of #26i: no kid loses progress. The first sync, a guest who
- * signs in, an outage, a record set during the sync, another tab, and the
- * untouched progress that no save may send, with the REAL stores, the real
- * useAuthSync, the real Virtual Pet page, and a server that runs the real
- * validation and merge (src/__tests__/fake-progress-server.ts).
+ * Review wave 5 of #26i: no kid loses progress. The first sync, an outage,
+ * a record set during the sync, another tab, and the untouched progress
+ * that no save may send, with the REAL stores, the real useAuthSync, the
+ * real Virtual Pet page, and a server that runs the real validation and
+ * merge (src/__tests__/fake-progress-server.ts). A guest's play at sign-in
+ * keeps the last-write rule in this part (the merge of both sides is #69i).
  */
 import { vi } from "vitest";
 
@@ -28,8 +29,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act, cleanup, render, renderHook } from "@testing-library/react";
 import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
 import { useAuthSync, __unsafeResetForeignPurgeLockForTests } from "../useAuthSync";
-import { signOutAndClear } from "@/lib/auth-client";
-import { PROGRESS_OWNER_KEY, SAVES_CLEARED_KEY, syncLineageKey } from "@/lib/storage-keys";
+import { PROGRESS_OWNER_KEY } from "@/lib/storage-keys";
 import { validateProgress } from "@/lib/progress-schemas";
 import { extractTimestamp } from "@/lib/progress-merge";
 import { sameProgress } from "@/shared/lib/progressStamp";
@@ -37,7 +37,6 @@ import { isUntouchedProgress, progressFromSave } from "@/shared/lib/untouchedPro
 import { SYNCED_STORES, syncedStore, type SyncedStoreEntry } from "@/__tests__/synced-stores";
 import { installAudioMock } from "@/__tests__/audio-mock";
 import { createProgressServer } from "@/__tests__/fake-progress-server";
-import { useCookieClickerStore, type CookieClickerProgress } from "@/games/cookie-clicker/lib/store";
 import { useFlappyStore } from "@/games/flappy-bird/lib/store";
 import { useOregonTrailStore } from "@/games/oregon-trail/lib/store";
 import { useDrawingStore } from "@/apps/drawing-app/lib/store";
@@ -99,10 +98,9 @@ function made(entry: SyncedStoreEntry, iso: string, play: () => void) {
   return out;
 }
 
-/** This device synced the account before (the owner key and the save's lineage key). */
-function thisAccountsDevice(entry: SyncedStoreEntry) {
+/** This device synced the account before (the owner key). */
+function thisAccountsDevice() {
   localStorage.setItem(PROGRESS_OWNER_KEY, "user-1");
-  localStorage.setItem(syncLineageKey(entry.key), "1");
 }
 
 beforeEach(() => {
@@ -125,120 +123,8 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// F1: a guest's play, or play on a blank device, at sign-in
+// F1: the device's own progress at sign-in
 // ---------------------------------------------------------------------------
-
-type GuestCase = {
-  appId: string;
-  /** The account's own progress (made at 11:00). */
-  account: () => void;
-  /** What the guest does on the defaults. */
-  guest: () => void;
-  /** A mark of the account's progress, and of the guest's new item (null: no item). */
-  accountMark: string;
-  guestMark: string | null;
-};
-
-const GUEST_CASES: GuestCase[] = [
-  {
-    appId: "drum-machine",
-    account: () => useDrumMachineStore.getState().saveBeat("Account beat"),
-    guest: () => useDrumMachineStore.getState().saveBeat("Guest beat"),
-    accountMark: "Account beat",
-    guestMark: "Guest beat",
-  },
-  {
-    appId: "toy-finder",
-    account: () => useToyFinderStore.getState().addToWishlist({ id: "account-truck" } as never, "need"),
-    guest: () => useToyFinderStore.getState().addToWishlist({ id: "guest-ball" } as never, "maybe"),
-    accountMark: "account-truck",
-    guestMark: "guest-ball",
-  },
-  {
-    appId: "drawing-app",
-    account: () => useDrawingStore.getState().saveArtwork("data:image/png;base64,AAAA", "Account art"),
-    guest: () => useDrawingStore.getState().saveArtwork("data:image/png;base64,BBBB", "Guest art"),
-    accountMark: "Account art",
-    guestMark: "Guest art",
-  },
-  {
-    appId: "virtual-pet",
-    account: () => useVirtualPetStore.getState().renamePet("Rex"),
-    guest: () => useVirtualPetStore.getState().renamePet("Guesty"),
-    accountMark: "Rex",
-    guestMark: null,
-  },
-];
-
-describe.each(GUEST_CASES.map((c) => [c.appId, c] as const))("F1 %s: a guest's play never replaces the account's progress", (_id, c) => {
-  const entry = syncedStore(c.appId);
-
-  async function expectAccountKept() {
-    expect(server.rejected).toEqual([]);
-    const row = JSON.stringify(server.row(c.appId));
-    expect(row).toContain(c.accountMark);
-    if (c.guestMark) expect(row).toContain(c.guestMark);
-    expect(sameProgress(progressOf(entry), server.row(c.appId))).toBe(true);
-  }
-
-  it("a blank device, a guest page, then sign-in in another tab (no reload)", async () => {
-    accountHolds(entry, made(entry, "2026-10-20T11:00:00Z", c.account));
-    at("2026-10-20T13:00:00Z");
-    await loadPage(entry);
-    const view = mount(entry);
-    await settle(1_000);
-    c.guest();
-    signIn();
-    view.rerender();
-    await settle(6_000);
-    view.unmount();
-    await expectAccountKept();
-  });
-
-  it("a guest's save after a sign-out on this device, then a reload and sign-in", async () => {
-    // The kid's own account synced here, then signed out.
-    accountHolds(entry, made(entry, "2026-10-20T11:00:00Z", c.account));
-    at("2026-10-20T11:30:00Z");
-    await loadPage(entry);
-    signIn();
-    let view = mount(entry);
-    await settle(3_000);
-    view.unmount();
-    expect(localStorage.getItem(syncLineageKey(entry.key))).not.toBeNull();
-    await signOutAndClear("/");
-    session.current = { data: null, status: "unauthenticated" };
-    expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-1");
-    expect(localStorage.getItem(SAVES_CLEARED_KEY)).not.toBeNull();
-    // A guest plays on the defaults; the save is on disk.
-    at("2026-10-20T13:00:00Z");
-    await loadPage(entry);
-    view = mount(entry);
-    await settle(1_000);
-    c.guest();
-    await settle(1_000);
-    view.unmount();
-    // The sign-in page, then back: a new page load.
-    at("2026-10-20T13:10:00Z");
-    await loadPage(entry);
-    signIn();
-    view = mount(entry);
-    await settle(6_000);
-    view.unmount();
-    await expectAccountKept();
-  });
-
-  it("a guest's save on a device where no account ever synced, then a reload and sign-in", async () => {
-    accountHolds(entry, made(entry, "2026-10-20T11:00:00Z", c.account));
-    at("2026-10-20T13:00:00Z");
-    c.guest();
-    await loadPage(entry);
-    signIn();
-    const view = mount(entry);
-    await settle(6_000);
-    view.unmount();
-    await expectAccountKept();
-  });
-});
 
 describe("F1: the device's own progress keeps the last-write rule", () => {
   it("a device of this account plays while the account cannot be reached; on the next load its newer play wins", async () => {
@@ -285,38 +171,6 @@ describe("F1: the device's own progress keeps the last-write rule", () => {
   });
 });
 
-describe("F1 (P2): a blank second device, the first GET fails, the kid plays before the retry", () => {
-  it("cookie-clicker: three clicks on the blank bakery never replace the account's bakery", async () => {
-    const entry = syncedStore("cookie-clicker");
-    const account = made(entry, "2026-10-20T12:00:00Z", () => {
-      const store = useCookieClickerStore.getState();
-      store.setProgress({
-        ...store.getProgress(),
-        cookies: 50_000,
-        totalCookiesBaked: 90_000,
-        buildings: { ...store.getProgress().buildings, cursor: 2, grandma: 5, bakery: 1 },
-        lastTick: Date.now(),
-        lastModified: Date.now(),
-      });
-    });
-    accountHolds(entry, account);
-    at("2026-10-20T13:00:00Z");
-    signIn();
-    server.net.failGets = 1;
-    const view = mount(entry, 5_000);
-    await settle(300);
-    for (let i = 0; i < 3; i++) useCookieClickerStore.getState().clickCookie();
-    await settle(20_000);
-    view.unmount();
-    const row = server.row("cookie-clicker") as CookieClickerProgress;
-    expect(row.buildings.grandma).toBe(5);
-    expect(row.buildings.bakery).toBe(1);
-    expect(row.cookies).toBe(50_000);
-    expect(row.totalClicks).toBe(3);
-    expect(useCookieClickerStore.getState().buildings.grandma).toBe(5);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // F3: a record set while the first sync is in flight
 // ---------------------------------------------------------------------------
@@ -341,7 +195,7 @@ describe("F3: a new high score set while the first GET is in flight reaches the 
     if (older) {
       at("2026-10-19T11:00:00Z");
       useFlappyStore.getState().setProgress({ ...useFlappyStore.getState().getProgress(), highScore: 8, gamesPlayed: 5, lastModified: Date.now() });
-      thisAccountsDevice(entry);
+      thisAccountsDevice();
     }
     at("2026-10-20T12:00:00Z");
     await loadPage(entry);
@@ -453,7 +307,7 @@ describe("no save sends progress that the store's rule calls untouched", () => {
     // This account's device: a drawing from the day before the row.
     at("2026-10-24T09:00:00Z");
     useDrawingStore.getState().saveArtwork("data:image/png;base64,AAAA", "Truck");
-    thisAccountsDevice(entry);
+    thisAccountsDevice();
     at("2026-10-26T09:00:00Z");
     await loadPage(entry);
     signIn();
@@ -491,7 +345,7 @@ describe("Virtual Pet: the visit and the clock", () => {
     accountHolds(entry, account as never);
     useVirtualPetStore.getState().setProgress(pet("Oldie", 10, "2026-10-19T09:00:00.000Z", "2026-10-19T09:00:00Z"));
     await useVirtualPetStore.persist.rehydrate();
-    thisAccountsDevice(entry);
+    thisAccountsDevice();
     at("2026-10-20T13:00:00Z");
     signIn();
     server.net.failGets = 1_000;

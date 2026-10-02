@@ -958,32 +958,29 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
   progress, and keeps its records. The new code never uploads untouched
   progress, so such a row is a row of the old code, whatever its time (a
   tab that still runs the old code, a rollback, a wrong clock).
-- Progress that the device built on the defaults (a guest's play, a blank
-  device that played while the first sync failed, a save made after a
-  sign-out) never replaces the account's real progress. The account's
-  progress stays the base. The device's records (a high score, an unlock)
-  and the items that the player made (`lists`) fold in. The device's other
-  fields (a wallet, a journey) do not: they were not built on the
-  account's progress. An account with no progress for the game takes the
-  device's progress whole.
-- How the hook knows: when a first sync is done, it writes
-  `syncLineageKey(localStorageKey)`. `clearGameStorage()` removes these
-  keys and writes `SAVES_CLEARED_KEY`. A save with no lineage key is built
-  on the defaults when the device has no owner key, or when
-  `SAVES_CLEARED_KEY` is set. A save of an account from before this code
-  (an owner key, no lineage key, no clear) keeps the last-write rule.
-- Otherwise the server merges by the time. A change that the kid makes on
-  an old copy during the sync goes when the account holds something newer,
-  but its records stay and save.
-- A refusal from the server's schema (400) is not tried again: the device
-  keeps its progress, and the page is ready. A refusal of a fold over the
-  account's progress (the guest case) takes the account's progress.
+- Every touched device sends its progress with `merge: true`. The server's
+  last-write rule decides, including guest play. There is no guest/lineage
+  classifier in B1. The conflict protocol and per-store guest merge are #69i.
+- After the first GET, the hook reads live progress again. If an untouched
+  device was played during that request, its live snapshot follows the
+  touched rule. New account list items join that snapshot using the store's
+  recency and eviction rules, preserving drawings or beats made during GET.
+- A refusal from the server's schema keeps the device's progress and makes
+  the page ready. A retryable network/server failure keeps trying; an
+  unchanged schema-refused payload is not repeatedly sent.
 - No save sends progress that the store's rule calls untouched. A change
   to a setting alone reaches the account with the kid's next real change.
 - Another tab that saves newer progress for the same key: the tab takes it
   before its next change, and folds in its own records that the other tab
-  does not hold. A page that comes back from the back-forward cache reads
-  the save again.
+  does not hold. Only this tab's unsaved new list items join the other tab's
+  list; a previously shared item deleted there stays deleted. Any addition
+  stays pending for upload. Lists use their store's own recency and bounds,
+  and each eviction is logged without values. A page restored from the
+  back-forward cache checks ownership before taking the saved progress.
+- Every save path requires the completed first-sync owner to match the
+  session. Account changes during or after the first sync lock uploads,
+  clear foreign saves, and reload. Debounce, force-sync, unload, and unmount
+  all use the same ownership check.
 - The server takes a save with the same time as its row
   (`mergeProgress`): it is the same line of play, and the later write.
 
@@ -1013,6 +1010,18 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
   sign-in, a guest who signs in, a second device, an outage, other tabs and
   the deploy, with the real stores, the real pages of Cookie Clicker and
   Virtual Pet, and the server's real merge.
+- `src/__tests__/no-worse-than-master.test.tsx` compares every deploy,
+  guest, outage, in-flight, tab and owner cell with the rollback build.
+  Every cell must lose no value that master keeps. Devices still untouched
+  at synchronization and second-tab cases must improve where master loses
+  progress. A device played during GET is touched and follows normal LWW.
+  No conflicting-value exemption is permitted.
+
+**Deferred to #69i.** Per-store client record rules, weight-based base
+selection, refused guest-fold recovery, lineage/base-version handling,
+missing-owner guest classification, the signout-broadcast transition gap,
+and no-time legacy loads remain part of B2. Preserve `wip/sync-stamps-full`
+until that work is complete.
 
 ---
 

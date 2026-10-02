@@ -70,9 +70,14 @@ const defaultProgress: ToyFinderProgress = {
 const UNTOUCHED = defineUntouchedProgress("toy-finder", {
   layout: "flat",
   defaults: defaultProgress,
-  // The items that a player makes: a guest's items join the account's at
-  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
-  lists: { wishlistItems: { id: "toyId", max: 500 }, recentlyViewed: { max: 1000 } },
+  // The items that a player makes (addListItems: an item made here and not
+  // saved yet joins progress that the page takes). `max`: the schema's bound
+  // (progress-schemas.ts), and for the toys that the kid looked at, the
+  // store's own limit (addToRecentlyViewed keeps the newest, at the start).
+  lists: {
+    wishlistItems: { id: "toyId", max: 500, order: "newestLast", time: "addedAt" },
+    recentlyViewed: { max: MAX_RECENTLY_VIEWED, order: "newestFirst" },
+  },
 });
 
 export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(

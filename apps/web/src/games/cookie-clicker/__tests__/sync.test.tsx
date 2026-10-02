@@ -36,7 +36,7 @@ import { installAudioMock } from "@/__tests__/audio-mock";
 import { createProgressServer } from "@/__tests__/fake-progress-server";
 import { READY_FALLBACK_MS, __unsafeResetForeignPurgeLockForTests } from "@/shared/hooks/useAuthSync";
 import { syncedStore } from "@/__tests__/synced-stores";
-import { PROGRESS_OWNER_KEY, syncLineageKey } from "@/lib/storage-keys";
+import { PROGRESS_OWNER_KEY } from "@/lib/storage-keys";
 
 const server = createProgressServer(session);
 const HOUR = 3_600_000;
@@ -182,10 +182,9 @@ describe("Cookie Clicker: the bake and the account", () => {
   });
 });
 
-/** This device synced the account before (the owner key and the save's lineage key). */
+/** This device synced the account before (the owner key). */
 function thisAccountsDevice() {
   localStorage.setItem(PROGRESS_OWNER_KEY, "user-1");
-  localStorage.setItem(syncLineageKey("cookie-clicker-storage"), "1");
 }
 
 /** The account's bakery: 5 grandmas and a bakery, bought at 12:00 on another device. */

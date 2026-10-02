@@ -43,7 +43,6 @@ import { sameProgress } from "@/shared/lib/progressStamp";
 import { SYNCED_STORES, syncedStore, type SyncedStoreEntry } from "@/__tests__/synced-stores";
 import { installAudioMock } from "@/__tests__/audio-mock";
 import legacy from "@/__tests__/fixtures/legacy-saves.json";
-import { useOregonTrailStore } from "@/games/oregon-trail/lib/store";
 import { useVirtualPetStore } from "@/apps/virtual-pet/lib/store";
 
 type Save = { state: Record<string, unknown>; version: number };
@@ -309,83 +308,10 @@ describe("a guest who plays and then signs in without a reload (review waves 3 a
     return account;
   }
 
-  // The guest's play was built on the defaults, not on the account's
-  // progress: its newer time must not make it the base of the merge (wave 5,
-  // finding F1). The account's progress stays; the guest's records and the
-  // items that the guest made join it.
+  // A guest's play at sign-in keeps the last-write rule in this part (the
+  // merge that keeps both sides is #69i): the records of both sides stay.
 
-  it("B2: sign-in in another tab: the account keeps its beats, and the guest's beat joins them", async () => {
-    const entry = syncedStore("drum-machine");
-    const account = (await accountAt11(entry)) as { savedBeats: Array<{ id: string; name: string }> };
-    expect(account.savedBeats.length).toBeGreaterThan(0);
-
-    // A fresh device: the page loads as a guest, with nothing saved.
-    vi.setSystemTime(new Date("2026-10-02T13:00:00Z"));
-    await loadPage(entry);
-    const view = mount(entry);
-    await settle(1_000);
-    // The guest saves a beat.
-    useDrumMachine().saveBeat("Guest beat");
-    // Sign-in finishes in another tab: next-auth tells this tab, no reload.
-    signIn();
-    view.rerender();
-    await settle(6_000);
-    view.unmount();
-
-    expect(rejected).toEqual([]);
-    const row = rowOf(entry) as { savedBeats: Array<{ id: string; name: string }> };
-    const names = row.savedBeats.map((beat) => beat.name);
-    expect(names).toEqual([...account.savedBeats.map((beat) => beat.name), "Guest beat"]);
-    expect(sameProgress(progressOf(entry), row)).toBe(true);
-  });
-
-  it("B3: a guest's new Oregon journey never replaces the account's journey", async () => {
-    const entry = syncedStore("oregon-trail");
-    const account = await accountAt11(entry);
-
-    vi.setSystemTime(new Date("2026-10-02T13:00:00Z"));
-    await loadPage(entry);
-    const view = mount(entry);
-    await settle(1_000);
-    const trail = useOregonTrailStore.getState();
-    trail.startGame("Synthetic Guest", "carpenter", ["G1", "G2"], "may");
-    trail.buySupply("oxen", 2);
-    trail.leaveStore();
-    const journey = progressOf(entry);
-    expect(timeOf(journey)).toBeGreaterThan(0);
-
-    signIn();
-    view.rerender();
-    await settle(6_000);
-    view.unmount();
-
-    expect(rejected).toEqual([]);
-    expect(rowOf(entry)).toEqual(account);
-    expect(useOregonTrailStore.getState().leaderName).toBe(account.leaderName);
-    expect(sameProgress(progressOf(entry), account)).toBe(true);
-  });
-
-  it("B4: play in the session's loading window on a blank device never replaces the account's pet", async () => {
-    const entry = syncedStore("virtual-pet");
-    const account = await accountAt11(entry);
-
-    vi.setSystemTime(new Date("2026-10-02T13:00:00Z"));
-    session.current = { data: null, status: "loading" };
-    await loadPage(entry);
-    const view = mount(entry);
-    // The kid renames the default pet while the session still loads.
-    useVirtualPetStore.getState().renamePet("Loading Window");
-    signIn();
-    view.rerender();
-    await settle(6_000);
-    view.unmount();
-
-    expect(rejected).toEqual([]);
-    expect(rowOf(entry)).toEqual(account);
-    expect(sameProgress(progressOf(entry), account)).toBe(true);
-  });
-
-  it("B5: a guest's records join the account (a new high score), and the account keeps the rest", async () => {
+  it("B5: a guest's records join the account (a new high score), and the account's records stay", async () => {
     const entry = syncedStore("flappy-bird");
     const account = (await accountAt11(entry)) as { highScore: number; gamesPlayed: number };
 
@@ -436,7 +362,3 @@ describe("virtual-pet: the daily-visit streak (review wave 3)", () => {
     expect(row.stats.lastPlayDate).toBe(new Date().toDateString());
   });
 });
-
-function useDrumMachine() {
-  return syncedStore("drum-machine").store.getState() as { saveBeat: (name: string) => void };
-}

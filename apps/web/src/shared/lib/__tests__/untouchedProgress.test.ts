@@ -1,17 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   PROGRESS_SUM_KEY,
   PROGRESS_TIME_MARKER,
+  addListItems,
   defineUntouchedProgress,
-  foldGuestProgress,
   foldProgress,
   isLegacyUntouchedRow,
   isMarkedSave,
   isUntouchedProgress,
+  listItemKeys,
   markSaved,
   markSavedWithSum,
+  newListItems,
   persistSettledSave,
   progressFromSave,
   progressSum,
@@ -31,9 +33,15 @@ const flat = defineUntouchedProgress("snake", {
 });
 const listed = defineUntouchedProgress("drum-machine", {
   layout: "flat",
-  defaults: { beats: [] as Array<{ id: string; name: string }>, tags: [] as string[], coins: 0, highScore: 0, phase: "title", lastModified: 0 },
+  defaults: { beats: [] as Array<{ id: string; name: string; at?: string }>, tags: [] as string[], coins: 0, highScore: 0, phase: "title", lastModified: 0 },
   ignore: ["phase"],
-  lists: { beats: { id: "id", max: 3 }, tags: { max: 10 } },
+  lists: { beats: { id: "id", max: 3, order: "newestLast", time: "at" }, tags: { max: 10, order: "newestLast" } },
+});
+// A list that adds at the start and drops its oldest at the end (the drawing app).
+defineUntouchedProgress("drawing-app", {
+  layout: "flat",
+  defaults: { art: [] as Array<{ id: string; at: number }>, lastModified: 0 },
+  lists: { art: { id: "id", max: 3, order: "newestFirst", time: "at" } },
 });
 
 describe("isUntouchedProgress", () => {
@@ -76,9 +84,11 @@ describe("foldProgress", () => {
   });
 });
 
-describe("foldGuestProgress", () => {
+describe("list items (F4, F5, F6 of part B1)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   const account = {
-    beats: [{ id: "a", name: "Account beat" }],
+    beats: [{ id: "a", name: "Account beat", at: "2026-10-20T10:00:00.000Z" }],
     tags: ["x"],
     coins: 500,
     highScore: 7,
@@ -86,44 +96,79 @@ describe("foldGuestProgress", () => {
     lastModified: 1_000,
   };
 
-  it("keeps the account's progress, folds the device's records in, and adds the items that the device made", () => {
-    const guest = {
-      beats: [{ id: "g", name: "Guest beat" }],
+  it("newListItems: the items that no known progress holds, per list", () => {
+    const device = {
+      ...account,
+      beats: [...account.beats, { id: "b", name: "Saved beat" }, { id: "c", name: "New beat" }],
       tags: ["x", "y"],
-      coins: 3,
-      highScore: 12,
-      phase: "title",
-      lastModified: 5_000,
     };
-    expect(foldGuestProgress("drum-machine", account, guest)).toEqual({
-      beats: [
-        { id: "a", name: "Account beat" },
-        { id: "g", name: "Guest beat" },
-      ],
-      tags: ["x", "y"],
-      coins: 500,
-      highScore: 12,
-      phase: "travel",
-      lastModified: 1_000,
+    const saved = { ...account, beats: [...account.beats, { id: "b", name: "Saved beat" }] };
+    expect(newListItems("drum-machine", device, [listItemKeys("drum-machine", saved)])).toEqual({
+      beats: [{ id: "c", name: "New beat" }],
+      tags: ["y"],
     });
+    expect(newListItems("drum-machine", device, [listItemKeys("drum-machine", device)])).toEqual({});
+    expect(newListItems("2048", { highScore: 3 }, [])).toEqual({});
   });
 
-  it("an item that both hold stays once (the account's copy), and the list never passes the schema's bound", () => {
-    const full = { ...account, beats: [{ id: "a", name: "A" }, { id: "b", name: "B" }] };
-    const guest = { ...account, beats: [{ id: "a", name: "A, renamed" }, { id: "c", name: "C" }, { id: "d", name: "D" }] };
-    expect(foldGuestProgress("drum-machine", full, guest).beats).toEqual([
-      { id: "a", name: "A" },
-      { id: "b", name: "B" },
-      { id: "c", name: "C" },
-    ]);
+  it("addListItems: adds the new items, keeps the base's own copy of an item that both hold, and keeps the base's other fields and time", () => {
+    const out = addListItems("drum-machine", account, {
+      beats: [
+        { id: "a", name: "A, renamed" },
+        { id: "g", name: "Guest beat", at: "2026-10-20T11:00:00.000Z" },
+      ],
+      tags: ["y"],
+    });
+    expect(out).toEqual({
+      ...account,
+      beats: [account.beats[0], { id: "g", name: "Guest beat", at: "2026-10-20T11:00:00.000Z" }],
+      tags: ["x", "y"],
+    });
+    expect(addListItems("drum-machine", account, {})).toBe(account);
   });
 
-  it("an account list that is missing counts as empty", () => {
+  it("addListItems: a list that is missing counts as empty", () => {
     const { beats: _beats, ...noBeats } = account;
     void _beats;
-    const guest = { ...account, beats: [{ id: "g", name: "G" }] };
-    const folded = foldGuestProgress("drum-machine", noBeats, guest) as Record<string, unknown>;
-    expect(folded.beats).toEqual([{ id: "g", name: "G" }]);
+    const out = addListItems("drum-machine", noBeats as typeof account, { beats: [{ id: "g", name: "G" }] });
+    expect(out.beats).toEqual([{ id: "g", name: "G" }]);
+  });
+
+  it("addListItems: a full list keeps its newest items by their time, as the store's own eviction does, and logs the drop without values", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const full = {
+      ...account,
+      beats: [
+        { id: "a", name: "A", at: "2026-10-20T10:00:00.000Z" },
+        { id: "b", name: "B", at: "2026-10-20T10:05:00.000Z" },
+        { id: "c", name: "C", at: "2026-10-20T10:10:00.000Z" },
+      ],
+    };
+    // One item newer than all, and one older than all: the two oldest go.
+    const out = addListItems("drum-machine", full, {
+      beats: [
+        { id: "n", name: "Newest", at: "2026-10-20T12:00:00.000Z" },
+        { id: "o", name: "Oldest", at: "2026-10-20T09:00:00.000Z" },
+      ],
+    });
+    expect(out.beats.map((beat) => beat.id)).toEqual(["b", "c", "n"]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0][0]);
+    expect(line).toContain("drum-machine.beats");
+    expect(line).toContain("2 older item(s)");
+    expect(line).not.toMatch(/Newest|Oldest|"A"|B,/);
+  });
+
+  it("addListItems: a list that adds at the start keeps its newest items at the start, and drops the oldest at the end", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const base = { art: [{ id: "c", at: 30 }, { id: "b", at: 20 }, { id: "a", at: 10 }], lastModified: 5 };
+    const out = addListItems("drawing-app", base, { art: [{ id: "x", at: 25 }] });
+    expect(out.art).toEqual([{ id: "c", at: 30 }, { id: "x", at: 25 }, { id: "b", at: 20 }]);
+  });
+
+  it("addListItems: a list with no item time keeps the base's order and adds at the store's end", () => {
+    const out = addListItems("drum-machine", { ...account, tags: ["x", "z"] }, { tags: ["y"] });
+    expect(out.tags).toEqual(["x", "z", "y"]);
   });
 });
 

@@ -147,9 +147,14 @@ const UNTOUCHED = defineUntouchedProgress("retro-arcade", {
   } satisfies RetroArcadeProgress,
   // Settings are not progress (shared/lib/untouchedProgress.ts).
   ignore: ["settings"],
-  // The items that a player makes: a guest's items join the account's at
-  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
-  lists: { favorites: { max: 500 }, customRoms: { id: "id", max: 500 } },
+  // The items that a player makes (addListItems: an item made here and not
+  // saved yet joins progress that the page takes). `max` is the schema's
+  // bound (progress-schemas.ts). addFavorite adds at the end; addCustomRom
+  // adds at the start.
+  lists: {
+    favorites: { max: 500, order: "newestLast" },
+    customRoms: { id: "id", max: 500, order: "newestFirst", time: "addedAt" },
+  },
 });
 
 /**

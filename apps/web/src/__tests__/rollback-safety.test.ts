@@ -12,9 +12,9 @@
  * Now the version stays and a marker key marks a new save
  * (shared/lib/untouchedProgress.ts). scripts/legacy-saves/rollback.sh
  * writes the saves of the new code (fixtures/new-saves.json) and loads them
- * with the REAL store code of ROLLBACK_COMMIT, the master commit that a
- * rollback of this deploy runs (fixtures/rollback-loads.json). This test
- * holds both files to the rules:
+ * with the REAL store code of ROLLBACK_COMMIT (rollback-commit.ts), the
+ * master commit that a rollback of this deploy runs
+ * (fixtures/rollback-loads.json). This test holds both files to the rules:
  * - the old code loads every new save with no error, and its progress is
  *   the new save's progress;
  * - the save that the old code writes back loads in the new code with the
@@ -42,17 +42,12 @@ import { SYNCED_STORES, syncedStore } from "@/__tests__/synced-stores";
 import { writeNewSaves, type NewSaves } from "@/__tests__/new-save-scenarios";
 import newSavesFile from "@/__tests__/fixtures/new-saves.json";
 import rollbackFile from "@/__tests__/fixtures/rollback-loads.json";
+// The commit of the old store code in fixtures/rollback-loads.json.
+import { ROLLBACK_COMMIT } from "@/__tests__/rollback-commit";
 
 type Load = { errors: string[]; loaded: AppProgressData; rewritten: string | null };
 type PlayedOn = { at: number; loaded: AppProgressData; rewritten: string | null };
 
-/**
- * The commit of the old store code in fixtures/rollback-loads.json:
- * rollback.sh's default, the merge base with origin/master (master before
- * this change: #61pr, #63pr, #65pr and #67pr). Update it when rollback.sh
- * runs against a newer master.
- */
-const ROLLBACK_COMMIT = "8187454";
 
 const NEW = newSavesFile.saves as unknown as NewSaves;
 const LOADS = rollbackFile.loads as unknown as Record<string, Record<string, Load>>;

@@ -160,7 +160,7 @@ describe("a change during the first sync", () => {
     expect(ids).toEqual(expect.arrayContaining(["a", "b"]));
   });
 
-  it("on an old copy, when the account holds newer progress: the account wins", async () => {
+  it("on an old copy, when the account holds newer progress: the account wins, and a wish made during the sync joins it (F4)", async () => {
     const entry = syncedStore("toy-finder");
     const account = made(entry, "2026-10-20T12:00:00Z", () => {
       useToyFinderStore.getState().addToWishlist({ id: "a" } as never, "need");
@@ -181,8 +181,11 @@ describe("a change during the first sync", () => {
     useToyFinderStore.getState().addToWishlist({ id: "y" } as never, "maybe");
     await settle(6_000);
     view.unmount();
-    expect(server.row("toy-finder")).toEqual(account);
-    expect(sameProgress(progressOf(entry), account)).toBe(true);
+    // The old copy's own wish (x) goes; the account's wishes stay, and the
+    // wish that the kid made during the sync (y) joins them.
+    const ids = (p: unknown) => (p as { wishlistItems: Array<{ toyId: string }> }).wishlistItems.map((item) => item.toyId);
+    expect(ids(server.row("toy-finder"))).toEqual(["a", "b", "y"]);
+    expect(sameProgress(progressOf(entry), server.row("toy-finder"))).toBe(true);
   });
 });
 

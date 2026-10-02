@@ -2,13 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  PROGRESS_OWNER_KEY,
-  SAVES_CLEARED_KEY,
-  clearGameStorage,
-  isClearedOnSignOut,
-  syncLineageKey,
-} from "../storage-keys";
+import { isClearedOnSignOut } from "../storage-keys";
 
 /**
  * Every localStorage key a game/app hands to useAuthSync MUST be cleared by
@@ -80,28 +74,6 @@ describe("signOutAndClear coverage", () => {
       "virtual-pet-state",
     ]) {
       expect(isClearedOnSignOut(key), key).toBe(true);
-    }
-  });
-});
-
-describe("the sync lineage keys (useAuthSync)", () => {
-  it("a sign-out clears them, keeps the owner, and records the clear", () => {
-    localStorage.clear();
-    const keys = [...collectSyncKeys().keys()];
-    for (const key of keys) localStorage.setItem(syncLineageKey(key), "1");
-    localStorage.setItem(PROGRESS_OWNER_KEY, "user-1");
-    clearGameStorage();
-    for (const key of keys) expect(localStorage.getItem(syncLineageKey(key)), key).toBeNull();
-    expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-1");
-    expect(Number(localStorage.getItem(SAVES_CLEARED_KEY))).toBeGreaterThan(0);
-    localStorage.clear();
-  });
-
-  it("end with a suffix that the code before them clears too (a sign-out during a rollback)", () => {
-    // The suffixes of clearGameStorage() at commit 8187454.
-    const oldSuffixes = ["-storage", "-progress", "-save", "-game-state"];
-    for (const key of collectSyncKeys().keys()) {
-      expect(oldSuffixes.some((suffix) => syncLineageKey(key).endsWith(suffix)), key).toBe(true);
     }
   });
 });

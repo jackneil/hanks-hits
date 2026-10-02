@@ -14,7 +14,7 @@ export default defineConfig({
     root: __dirname,
     setupFiles: [path.join(src, "__tests__/setup.ts")],
     // generate.sh runs generate.test.ts; rollback.sh runs new-saves.test.ts
-    // and rollback.test.ts.
+    // and rollback.test.ts; no-worse.sh runs no-worse-master.test.ts.
     include: [process.env.TEST_FILE ?? "generate.test.ts"],
     testTimeout: 60_000,
   },

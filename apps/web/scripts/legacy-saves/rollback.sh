@@ -4,11 +4,10 @@
 #    checkout (new-saves.test.ts);
 # 2. loads those saves with the store code of an older commit and writes
 #    src/__tests__/fixtures/rollback-loads.json (rollback.test.ts). The
-#    default is the merge base of this checkout and origin/master: the code
-#    that a rollback of this branch's deploy runs.
-# src/__tests__/rollback-safety.test.ts checks both files. After a run with
-# a new commit, set ROLLBACK_COMMIT in that test to the commit that this
-# script prints.
+#    default is ROLLBACK_COMMIT in src/__tests__/rollback-commit.ts: the
+#    master commit that a rollback of this branch's deploy runs.
+# src/__tests__/rollback-safety.test.ts checks both files. To use a new
+# commit, change ROLLBACK_COMMIT, then run this script and no-worse.sh.
 # Run it from anywhere: bash apps/web/scripts/legacy-saves/rollback.sh [commit]
 set -euo pipefail
 
@@ -18,8 +17,15 @@ repo="$(git -C "$web" rev-parse --show-toplevel)"
 
 if [ "$#" -ge 1 ]; then
   commit="$1"
-elif ! commit="$(git -C "$repo" merge-base HEAD origin/master)"; then
-  echo "rollback.sh: no merge base with origin/master; pass a commit" >&2
+else
+  commit="$(sed -n 's/^export const ROLLBACK_COMMIT = "\([0-9a-f]*\)";$/\1/p' "$web/src/__tests__/rollback-commit.ts")"
+  if [ -z "$commit" ]; then
+    echo "rollback.sh: no ROLLBACK_COMMIT in src/__tests__/rollback-commit.ts; pass a commit" >&2
+    exit 1
+  fi
+fi
+if ! git -C "$repo" merge-base --is-ancestor "$commit" HEAD; then
+  echo "rollback.sh: $commit is not an ancestor of HEAD, so a rollback of this branch does not run it" >&2
   exit 1
 fi
 

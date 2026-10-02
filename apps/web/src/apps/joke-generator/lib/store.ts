@@ -112,9 +112,14 @@ const UNTOUCHED = defineUntouchedProgress("joke-generator", {
   defaults: defaultProgress,
   // The category picker is a setting, not progress.
   ignore: ["lastCategory"],
-  // The items that a player makes: a guest's items join the account's at
-  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
-  lists: { favorites: { id: "id", max: 500 }, ratings: { id: "jokeId", max: 2000 }, seenJokeIds: { max: 5000 } },
+  // The items that a player makes (addListItems: an item made here and not
+  // saved yet joins progress that the page takes). `max` is the schema's
+  // bound (progress-schemas.ts); each action adds at the end.
+  lists: {
+    favorites: { id: "id", max: 500, order: "newestLast", time: "savedAt" },
+    ratings: { id: "jokeId", max: 2000, order: "newestLast", time: "ratedAt" },
+    seenJokeIds: { max: 5000, order: "newestLast" },
+  },
   within: {
     jokesViewed: (value) => value === undefined || (typeof value === "number" && value <= 1),
     seenJokeIds: (value) => value === undefined || (Array.isArray(value) && value.length <= 1),

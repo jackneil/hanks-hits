@@ -104,9 +104,10 @@ const defaultProgress: DrumMachineProgress = {
 const UNTOUCHED = defineUntouchedProgress("drum-machine", {
   defaults: defaultProgress,
   ignore: ["settings"],
-  // The items that a player makes: a guest's items join the account's at
-  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
-  lists: { savedBeats: { id: "id", max: 100 } },
+  // The items that a player makes (addListItems: an item made here and not
+  // saved yet joins progress that the page takes). `max` is the schema's
+  // bound (progress-schemas.ts); saveBeat adds at the end.
+  lists: { savedBeats: { id: "id", max: 100, order: "newestLast", time: "createdAt" } },
 });
 
 function createInitialState(): Partial<DrumMachineState> {

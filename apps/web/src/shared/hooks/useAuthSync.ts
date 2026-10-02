@@ -7,22 +7,24 @@ import { extractTimestamp } from "@/lib/progress-merge";
 import { reportProgressToAchievements } from "@/shared/lib/achievements";
 import { sameProgress } from "@/shared/lib/progressStamp";
 import {
-  foldGuestProgress,
+  addListItems,
+  applyOwnChanges,
   foldProgress,
   isLegacyUntouchedRow,
   isMarkedSave,
   isRecord,
   isUntouchedProgress,
+  listItemKeys,
+  newListItems,
   progressFromSave,
   progressTimeKey,
+  type ListItemKeys,
 } from "@/shared/lib/untouchedProgress";
 import {
   PROGRESS_OWNER_KEY,
-  SAVES_CLEARED_KEY,
   SIGNOUT_BROADCAST_KEY,
   clearGameStorage,
   isClearedOnSignOut,
-  syncLineageKey,
 } from "@/lib/storage-keys";
 
 type SyncStatus = "idle" | "syncing" | "synced" | "error";
@@ -106,22 +108,23 @@ function uploadable(appId: string, data: unknown): boolean {
   return !untouchedTime(data) && !isUntouchedProgress(appId, data);
 }
 
-/**
- * What the page found on this device at its first render, before this
- * page's sync (or another tab's) writes the keys. builtOnDefaults() reads it.
- */
-type LoadState = {
-  /** A save for this key was on disk (unknown, blocked storage: true). */
-  saved: boolean;
-  /** The save's progress was untouched (time 0, or the store's rule). */
-  untouched: boolean;
-  /** The save descends from the progress of a signed-in account (syncLineageKey). */
-  lineage: boolean;
-  /** The account that last synced progress on this device (PROGRESS_OWNER_KEY). */
-  owner: string | null;
-  /** clearGameStorage() removed every save on this device at some time (SAVES_CLEARED_KEY). */
-  cleared: boolean;
-};
+/** Adds the item keys of `keys` to `into` (a union per list). */
+function addKeys(into: Map<string, Set<string>>, keys: ListItemKeys): void {
+  for (const [field, set] of keys) {
+    const known = into.get(field);
+    if (known) for (const key of set) known.add(key);
+    else into.set(field, new Set(set));
+  }
+}
+
+/** localStorage.getItem, or null when the storage is blocked. */
+function readKey(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 
 // True from the moment a foreign-owner purge begins until the pending hard
 // reload lands. MODULE-level on purpose: it must survive client-side
@@ -156,20 +159,25 @@ export function __unsafeResetForeignPurgeLockForTests() {
  * - Untouched progress on the account (the defaults that the code before
  *   the sync-time fix uploaded, with the page-load time) never wins over
  *   the device's real progress (shared/lib/untouchedProgress.ts).
- * - Progress that the device built on the defaults (a guest's play, a blank
- *   device that played while the first sync failed, a save from after a
- *   sign-out) never replaces the account's real progress: the account's
- *   progress stays the base, and the device's records and new items fold in
- *   (builtOnDefaults, foldGuestProgress).
- * - When the first sync takes the account's progress (the account is as
- *   new as the device, or the device is untouched), a change that the
- *   player made on the old copy during the sync goes: the account's newer
- *   progress must not lose to it. Its records stay (a high score, an
- *   unlock) and save. When the device was newer, its change stays and the
- *   next save sends it.
+ * - Progress that a player changed on this device goes to the server with
+ *   merge:true, and the server's last-write rule decides (the same rule as
+ *   before this change). A guest's play at sign-in follows that rule too:
+ *   the merge that keeps both sides is #69i.
+ * - When the first sync takes the account's progress (the device is
+ *   untouched, or the account is newer), a change that the player made on
+ *   the old copy during the sync goes: the account's newer progress must
+ *   not lose to it. Its records stay (a high score, an unlock), and so do
+ *   the items that the player made during the sync (a beat, a drawing).
+ *   They save with the next save. When the device was newer, its change
+ *   stays and the next save sends it.
  * - Another tab that saves newer progress for this key: this tab takes it
  *   before its next change, so a stale tab never replaces it. This tab's
- *   records fold in.
+ *   records and its unsaved items join it, and the next save sends them.
+ * - The progress of one account never goes to another account. Each save
+ *   needs the account of the first sync to be the session's account. A new
+ *   account on the page, a page from the back-forward cache after a
+ *   sign-out, and another tab that claims the device for a new account
+ *   (the owner key) lock every save and reload the page.
  * No save leaves the page before the first sync is done; a failed first
  * sync tries again (a refusal from the server's schema does not).
  */
@@ -207,7 +215,16 @@ export function useAuthSync<T extends AppProgressData>({
   // counts as a save, so the merge runs.
   const savedAtLoadRef = useRef<boolean | null>(null);
   const tsAtLoadRef = useRef<number | null | undefined>(undefined);
-  const loadRef = useRef<LoadState | null>(null);
+  // The account whose progress the page loaded (the owner key at the first
+  // render), and the mark of the last sign-out at that time. Another tab can
+  // change both while this page holds the loaded progress in memory.
+  const ownerAtLoadRef = useRef<string | null | undefined>(undefined);
+  const signOutMarkRef = useRef<string | null>(null);
+  // The keys of the list items that this page shares with the account or
+  // another tab (its save at load, its uploads, the progress that it took),
+  // per list. An item that is not here and that newer progress does not
+  // hold is an item that the player made on this page and did not save yet.
+  const knownItemsRef = useRef<Map<string, Set<string>> | null>(null);
   if (savedAtLoadRef.current === null && typeof window !== "undefined") {
     try {
       savedAtLoadRef.current = localStorage.getItem(localStorageKey) !== null;
@@ -218,30 +235,28 @@ export function useAuthSync<T extends AppProgressData>({
   if (tsAtLoadRef.current === undefined) {
     tsAtLoadRef.current = extractTimestamp(getState() as AppProgressData);
   }
-  if (loadRef.current === null && typeof window !== "undefined") {
-    const atLoad = getState();
-    const untouched = untouchedTime(atLoad) || isUntouchedProgress(appId, atLoad);
-    try {
-      loadRef.current = {
-        saved: savedAtLoadRef.current !== false,
-        untouched,
-        lineage: localStorage.getItem(syncLineageKey(localStorageKey)) !== null,
-        owner: localStorage.getItem(PROGRESS_OWNER_KEY),
-        cleared: localStorage.getItem(SAVES_CLEARED_KEY) !== null,
-      };
-    } catch {
-      // Blocked storage: nothing is saved here; the last-write rule.
-      loadRef.current = { saved: true, untouched, lineage: true, owner: null, cleared: false };
-    }
+  if (ownerAtLoadRef.current === undefined && typeof window !== "undefined") {
+    ownerAtLoadRef.current = readKey(PROGRESS_OWNER_KEY);
+    signOutMarkRef.current = readKey(SIGNOUT_BROADCAST_KEY);
   }
+  if (knownItemsRef.current === null) {
+    knownItemsRef.current = new Map();
+    addKeys(knownItemsRef.current, listItemKeys(appId, getState()));
+  }
+  // The session's account at this render (the save paths read it).
+  const sessionUserIdRef = useRef<string | undefined>(undefined);
+  sessionUserIdRef.current = session?.user?.id;
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedRef = useRef<string>("");
   const initialSyncDoneRef = useRef(false);
   // The account whose first sync is done (for `ready`). A sign-out leaves
   // the page (signOutAndClear navigates, other tabs reload), so a page syncs
-  // one account at most.
+  // one account at most. The ref is for the save paths: each save needs it
+  // to be the session's account.
   const [syncedUserId, setSyncedUserId] = useState<string | null>(null);
+  const syncedUserIdRef = useRef<string | null>(null);
+  const initialSyncUserIdRef = useRef<string | null>(null);
   const syncAttemptsRef = useRef(0);
   const syncInFlightRef = useRef(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -267,33 +282,120 @@ export function useAuthSync<T extends AppProgressData>({
     onSyncCompleteRef.current = onSyncComplete;
   }, [getState, setState, onSyncComplete]);
 
-  /**
-   * True when this device's progress was built on the defaults, not on the
-   * progress of the account `userId`: there was no save at load (a blank
-   * device, a guest page), the save was untouched, or the save does not
-   * descend from a signed-in account. The last needs the lineage key, which
-   * this code writes when a first sync is done: a save without it, made after
-   * clearGameStorage() (a sign-out), or on a device where no account ever
-   * synced, is a guest's save. A save from before the lineage key existed,
-   * on a device where this account synced, keeps the last-write rule.
-   */
-  const builtOnDefaults = useCallback((userId: string | undefined) => {
-    const load = loadRef.current;
-    if (!load) return false;
-    if (!load.saved || load.untouched) return true;
-    if (load.lineage) return false;
-    return load.cleared || load.owner === null || load.owner !== userId;
-  }, []);
+  /** The page shares the list items of `progress` with the account or another tab. */
+  const noteKnown = useCallback(
+    (progress: unknown) => {
+      if (!knownItemsRef.current) knownItemsRef.current = new Map();
+      addKeys(knownItemsRef.current, listItemKeys(appId, progress));
+    },
+    [appId]
+  );
 
-  /** This device's save now descends from the signed-in account's progress. */
-  const writeLineage = useCallback(() => {
+  /** `progress` is on the account now: nothing of it is unsaved. */
+  const noteSaved = useCallback(
+    (progress: unknown) => {
+      lastSavedRef.current = JSON.stringify(progress);
+      noteKnown(progress);
+    },
+    [noteKnown]
+  );
+
+  /**
+   * True when a save may leave the page: the first sync is done for the
+   * session's account, and no other account took the page or the device.
+   */
+  const ownerMaySave = useCallback(
+    () =>
+      !foreignDataRef.current &&
+      !foreignPurgePending &&
+      syncedUserIdRef.current !== null &&
+      syncedUserIdRef.current === sessionUserIdRef.current,
+    []
+  );
+
+  /**
+   * The progress in memory belongs to another account than `userId`: lock
+   * every save, remove the saves on this device, claim the device for
+   * `userId`, and reload. A hard reload is the only thing that removes the
+   * progress that the stores hold in memory (see runInitialSync).
+   */
+  const enterForeignOwner = useCallback((userId: string) => {
+    foreignDataRef.current = true;
+    foreignPurgePending = true;
     try {
-      localStorage.setItem(syncLineageKey(localStorageKey), "1");
+      clearGameStorage();
+      localStorage.setItem(PROGRESS_OWNER_KEY, userId);
     } catch {
       // Blocked storage: nothing is saved on this device.
     }
-    if (loadRef.current) loadRef.current = { ...loadRef.current, lineage: true };
+    // The persist middleware can re-write the foreign blob from memory
+    // BEFORE the reload's navigation commits (cookie-clicker's ticker
+    // writes 20x/s). pagehide fires when the navigation commits, after
+    // the document's last timer — so this makes the clear the final
+    // write and the reload always boots from clean disk.
+    window.addEventListener(
+      "pagehide",
+      () => {
+        try {
+          clearGameStorage();
+        } catch {
+          // Blocked storage.
+        }
+      },
+      { once: true }
+    );
+    // bfcache escape: if a competing navigation preempts the reload and
+    // this document is later restored frozen, reload it then too.
+    window.addEventListener(
+      "pageshow",
+      (e) => {
+        if ((e as PageTransitionEvent).persisted) {
+          window.location.reload();
+        }
+      },
+      { once: true }
+    );
+    window.location.reload();
+  }, []);
+
+  /**
+   * Another tab changed the device under this page (a sign-out, or the
+   * claim of the device for another account): the progress in memory is
+   * stale. Lock every save and reload. The other tab already handled the
+   * saves on disk, so this page puts back the save of this key as the other
+   * tab left it, as the last write before the reload (the persist
+   * middleware can write the old progress from memory first).
+   */
+  const leaveStalePage = useCallback(() => {
+    if (foreignDataRef.current) return;
+    foreignDataRef.current = true;
+    foreignPurgePending = true;
+    const left = readKey(localStorageKey);
+    window.addEventListener(
+      "pagehide",
+      () => {
+        try {
+          if (left === null) localStorage.removeItem(localStorageKey);
+          else localStorage.setItem(localStorageKey, left);
+        } catch {
+          // Blocked storage.
+        }
+      },
+      { once: true }
+    );
+    window.location.reload();
   }, [localStorageKey]);
+
+  /**
+   * True when another tab changed the device since this page loaded or
+   * synced its progress: a sign-out (the broadcast mark), or a new owner
+   * of the device (the owner key).
+   */
+  const deviceChangedUnderPage = useCallback(() => {
+    if (readKey(SIGNOUT_BROADCAST_KEY) !== signOutMarkRef.current) return true;
+    const expected = syncedUserIdRef.current ?? ownerAtLoadRef.current ?? null;
+    return expected !== null && readKey(PROGRESS_OWNER_KEY) !== expected;
+  }, []);
 
   // Another tab signing out clears localStorage, but THIS tab's in-memory
   // store would re-persist it within seconds. Reload on the broadcast so the
@@ -323,45 +425,49 @@ export function useAuthSync<T extends AppProgressData>({
       const ours = getStateRef.current();
       const ourTime = extractTimestamp(ours as AppProgressData) ?? 0;
       if (theirTime <= ourTime) return;
-      const folded = foldProgress(appId, theirs as AppProgressData, ours as AppProgressData);
-      setStateRef.current(folded as T);
-      // This tab's progress now descends from the other tab's save.
-      if (loadRef.current) {
-        let lineage = loadRef.current.lineage;
-        try {
-          lineage = localStorage.getItem(syncLineageKey(localStorageKey)) !== null;
-        } catch {
-          // Blocked storage: keep what the page knew.
-        }
-        loadRef.current = {
-          ...loadRef.current,
-          saved: true,
-          untouched: untouchedTime(theirs) || isUntouchedProgress(appId, theirs),
-          lineage,
-        };
+      // This tab's records, and the items that this tab made and did not
+      // save yet (an item that this page shared before and that the other
+      // tab does not hold was deleted there, so it stays deleted).
+      const records = foldProgress(appId, theirs as AppProgressData, ours as AppProgressData);
+      const unsaved = newListItems(appId, ours, [knownItemsRef.current ?? new Map(), listItemKeys(appId, theirs)]);
+      const folded = addListItems(appId, records, unsaved);
+      noteKnown(theirs);
+      if (sameProgress(folded, theirs)) {
+        setStateRef.current(folded as T);
+        // The other tab saves its progress to the account: this tab has
+        // nothing new.
+        lastSavedRef.current = JSON.stringify(getStateRef.current());
+        return;
       }
-      // The other tab saves its progress to the account. When nothing of this
-      // tab's folded in, this tab has nothing new; else the next save sends
-      // the records.
-      if (sameProgress(folded, theirs)) lastSavedRef.current = JSON.stringify(getStateRef.current());
+      // Something of this tab joined: one moment newer than the other tab's
+      // save, so that the account and the other tab take it. The save stays
+      // pending, and the next save sends it.
+      setStateRef.current({ ...folded, [progressTimeKey(appId)]: theirTime + 1 } as T);
     };
     const onStorage = (e: StorageEvent) => {
       if (e.key === SIGNOUT_BROADCAST_KEY) {
         window.location.reload();
         return;
       }
+      if (e.key === PROGRESS_OWNER_KEY) {
+        // Another tab claimed the device for another account (its first
+        // sync found progress of a different owner).
+        if (deviceChangedUnderPage()) leaveStalePage();
+        return;
+      }
       if (e.key !== localStorageKey) return;
       takeNewer(e.newValue);
     };
     // A page from the back-forward cache missed the storage events of the
-    // time it was away: read the save again.
+    // time it was away: a sign-out or a new owner reloads it; else it reads
+    // the save again.
     const onPageShow = (e: PageTransitionEvent) => {
       if (!e.persisted) return;
-      try {
-        takeNewer(localStorage.getItem(localStorageKey));
-      } catch {
-        // Blocked storage: no other tab wrote anything.
+      if (deviceChangedUnderPage()) {
+        leaveStalePage();
+        return;
       }
+      takeNewer(readKey(localStorageKey));
     };
     window.addEventListener("storage", onStorage);
     window.addEventListener("pageshow", onPageShow);
@@ -369,7 +475,19 @@ export function useAuthSync<T extends AppProgressData>({
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("pageshow", onPageShow);
     };
-  }, [appId, localStorageKey]);
+  }, [appId, localStorageKey, noteKnown, deviceChangedUnderPage, leaveStalePage]);
+
+  // The session's account changed on this mounted page (another tab signed
+  // in as another kid; the login page does not sign out first). The
+  // progress in memory is the first account's: it must never reach the new
+  // one.
+  const sessionUserId = session?.user?.id;
+  useEffect(() => {
+    const synced = syncedUserIdRef.current ?? initialSyncUserIdRef.current;
+    if (!sessionUserId || synced === null || sessionUserId === synced) return;
+    if (foreignDataRef.current || foreignPurgePending) return;
+    enterForeignOwner(sessionUserId);
+  }, [sessionUserId, enterForeignOwner]);
 
   /**
    * Fetch progress from server
@@ -487,15 +605,16 @@ export function useAuthSync<T extends AppProgressData>({
     return getStateRef.current();
   }, [appId, localStorageKey]);
 
-  /** The first sync is done: saves may start, and the page is ready. */
-  const markSynced = useCallback(() => {
+  /** The first sync for `userId` is done: saves may start, and the page is ready. */
+  const markSynced = useCallback((userId: string) => {
     initialSyncDoneRef.current = true;
-    setSyncedUserId(session?.user?.id ?? null);
+    syncedUserIdRef.current = userId;
+    setSyncedUserId(userId);
     if (fallbackTimerRef.current) {
       clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
     }
-  }, [session?.user?.id]);
+  }, []);
 
   /**
    * The first sync failed (the server did not answer): try again later,
@@ -540,38 +659,23 @@ export function useAuthSync<T extends AppProgressData>({
     // if the server is down post-reload, defaults are all that's left to
     // upload. foreignDataRef locks every save path on THIS instance in the
     // window before the reload lands (and in any context that blocks it).
+    //
+    // The owner at the page's first render counts too: another tab can claim
+    // the device for this account (and remove the saves on disk) while this
+    // page holds the previous account's progress in memory.
     const userId = session?.user?.id;
-    if (userId) {
-      const owner = localStorage.getItem(PROGRESS_OWNER_KEY);
-      if (owner && owner !== userId) {
-        foreignDataRef.current = true;
-        foreignPurgePending = true;
-        clearGameStorage();
-        localStorage.setItem(PROGRESS_OWNER_KEY, userId);
-        // The persist middleware can re-write the foreign blob from memory
-        // BEFORE the reload's navigation commits (cookie-clicker's ticker
-        // writes 20x/s). pagehide fires when the navigation commits, after
-        // the document's last timer — so this makes the clear the final
-        // write and the reload always boots from clean disk.
-        window.addEventListener("pagehide", () => clearGameStorage(), {
-          once: true,
-        });
-        // bfcache escape: if a competing navigation preempts the reload and
-        // this document is later restored frozen, reload it then too.
-        window.addEventListener(
-          "pageshow",
-          (e) => {
-            if ((e as PageTransitionEvent).persisted) {
-              window.location.reload();
-            }
-          },
-          { once: true }
-        );
-        window.location.reload();
-        return;
-      }
-      localStorage.setItem(PROGRESS_OWNER_KEY, userId);
+    if (!userId) return;
+    initialSyncUserIdRef.current = userId;
+    const owner = localStorage.getItem(PROGRESS_OWNER_KEY);
+    const ownerAtLoad = ownerAtLoadRef.current ?? null;
+    if ((owner && owner !== userId) || (ownerAtLoad !== null && ownerAtLoad !== userId)) {
+      enterForeignOwner(userId);
+      return;
     }
+    localStorage.setItem(PROGRESS_OWNER_KEY, userId);
+    // The session changed while this sync waited (another tab signed in as
+    // another account): stop. The session effect locks the page.
+    const sessionMoved = () => foreignDataRef.current || foreignPurgePending || sessionUserIdRef.current !== userId;
 
     const tsAtStart = extractTimestamp(getStateRef.current() as AppProgressData);
 
@@ -585,10 +689,11 @@ export function useAuthSync<T extends AppProgressData>({
     }
 
     // Wait for Zustand to hydrate from localStorage first
-    const localState = await waitForHydration();
+    let localState = await waitForHydration();
 
     // Fetch server state
     const serverResult = await fetchFromServer();
+    if (sessionMoved()) return;
 
     if (!serverResult) {
       // Server fetch failed - DON'T set the flag; try again soon.
@@ -598,6 +703,21 @@ export function useAuthSync<T extends AppProgressData>({
     }
 
     const serverData = serverResult.data as T | null;
+    // The first GET may take long enough for the player to create progress.
+    // Judge that live progress as touched, so the normal server LWW rule
+    // applies. Only in this witnessed transition from untouched do we add
+    // the account's list items: neither side has deleted a previously shared
+    // item, and new drawings/beats must survive the initial load.
+    const live = getStateRef.current();
+    if (!uploadable(appId, localState) && uploadable(appId, live)) {
+      const before = localState;
+      localState = live;
+      if (serverData) {
+        const accountItems = newListItems(appId, serverData, [listItemKeys(appId, before)]);
+        localState = addListItems(appId, live as AppProgressData, accountItems) as T;
+        setStateRef.current(localState);
+      }
+    }
     const localTs = extractTimestamp(localState as AppProgressData);
     const emptyLocal = !localState || Object.keys(localState).length === 0;
     // The page loaded with no save for this key, and nothing changed the
@@ -626,29 +746,37 @@ export function useAuthSync<T extends AppProgressData>({
      * Take `data`, which the account holds as `account` once this sync is
      * done: nothing uploads until the player changes something, unless
      * `data` holds more than `account`. When the player changed the
-     * progress while the sync ran (the sync judged `judged`), the records of
-     * that change stay: a new high score, an unlock (foldProgress). They
-     * fold into `data`, and the next save sends them. Without this, a
-     * record set while the first GET was in flight was gone, and never
-     * reached the account.
+     * progress while the sync ran (the sync judged `judged`), these changes
+     * stay: a change at a field that `data` holds as the sync judged it
+     * (applyOwnChanges: the account did not change it), the records (a new
+     * high score, an unlock: foldProgress), and the items that the player
+     * made (a beat, a drawing: addListItems). A field that the account
+     * changed too keeps the account's value. The kept changes join `data`,
+     * and the next save sends them. Without this, a change made while the
+     * first GET was in flight was gone, and never reached the account.
      */
     const take = (data: T, judged: string, account: T) => {
       const during = getStateRef.current();
       let next = data;
       if (JSON.stringify(during) !== judged && !untouchedTime(during)) {
-        const kept = foldProgress(appId, data, during as AppProgressData);
+        const start = JSON.parse(judged) as unknown;
+        const own = applyOwnChanges(appId, data, during, start);
+        const records = foldProgress(appId, own, during as AppProgressData);
+        const made = newListItems(appId, during, [listItemKeys(appId, start), listItemKeys(appId, data)]);
+        const kept = addListItems(appId, records, made);
         if (!sameProgress(kept, data)) {
           next = { ...kept, [timeKey]: Math.max(timeOf(data), timeOf(during)) } as T;
         }
       }
       setStateRef.current(next);
+      noteKnown(data);
+      noteKnown(account);
       const now = getStateRef.current();
       lastSavedRef.current = sameProgress(now, account) ? JSON.stringify(now) : JSON.stringify(account);
     };
     /** The first sync is done: this device's progress is the account's (or builds on it). */
     const synced = (source: "local" | "server") => {
-      writeLineage();
-      markSynced();
+      markSynced(userId);
       setSyncStatus("synced");
       onSyncCompleteRef.current?.(source);
     };
@@ -667,7 +795,7 @@ export function useAuthSync<T extends AppProgressData>({
         `useAuthSync: the server refused the progress of ${appId} (${result.status}); this device keeps it and does not try again.`
       );
       lastSavedRef.current = localJson;
-      markSynced();
+      markSynced(userId);
       setSyncStatus("error");
     };
 
@@ -681,12 +809,14 @@ export function useAuthSync<T extends AppProgressData>({
         synced("local");
         return;
       }
+      if (sessionMoved()) return;
       const result = await saveToServer(sent, false);
+      if (sessionMoved()) return;
       if (!result.ok) {
         saveFailed(result);
         return;
       }
-      lastSavedRef.current = JSON.stringify(sent);
+      noteSaved(sent);
       synced("local");
       return;
     }
@@ -716,7 +846,9 @@ export function useAuthSync<T extends AppProgressData>({
     if (isLegacyUntouchedRow(appId, serverData)) {
       const current = getStateRef.current();
       const sent = foldProgress(appId, current, serverData);
+      if (sessionMoved()) return;
       const result = await saveToServer(sent, false);
+      if (sessionMoved()) return;
       if (!result.ok) {
         saveFailed(result);
         return;
@@ -726,55 +858,20 @@ export function useAuthSync<T extends AppProgressData>({
       return;
     }
 
-    // The device's progress was built on the defaults, not on this account's
-    // progress: a guest's play (on a blank device, or saved after a
-    // sign-out), or play on a blank device while the first sync failed. Its
-    // time is newer than the account's only because it is a new copy: the
-    // server's last write would make it the base, and the account would keep
-    // only its counters and unlocks. So the account's progress stays the
-    // base, and the device's records and the items that the player made fold
-    // in (foldGuestProgress). Its non-record fields (a wallet, a journey)
-    // were built on nothing that the account holds.
-    if (builtOnDefaults(userId)) {
-      const current = getStateRef.current();
-      const judged = JSON.stringify(current);
-      const folded = foldGuestProgress(appId, serverData, current as AppProgressData);
-      if (sameProgress(folded, serverData)) {
-        take(serverData, judged, serverData);
-        synced("server");
-        return;
-      }
-      const sent = { ...folded, [timeKey]: Math.max(timeOf(serverData) + 1, timeOf(current)) } as T;
-      const result = await saveToServer(sent, true);
-      if (!result.ok) {
-        if (retryable(result)) {
-          scheduleRetry();
-          return;
-        }
-        // The server refuses the fold: the account's own progress stays,
-        // and the device takes it (its copy must not replace the account's
-        // with the next save).
-        console.warn(
-          `useAuthSync: the server refused the progress of ${appId} (${result.status}); this device takes the account's progress.`
-        );
-        take(serverData, judged, serverData);
-        synced("server");
-        return;
-      }
-      take(sent, judged, sent);
-      synced("server");
-      return;
-    }
-
     // Both exist - upload local with merge flag; the server reconciles by
-    // the blobs' own lastModified with field-aware merging.
+    // the blobs' own lastModified with field-aware merging (last write
+    // wins). This is the rule of the code before this change, also for a
+    // guest's play: the merge that keeps both sides is #69i.
+    if (sessionMoved()) return;
     const result = await saveToServer(localState, true);
+    if (sessionMoved()) return;
     if (!result.ok) {
       saveFailed(result);
       return;
     }
     // Re-fetch to get merged result
     const merged = await fetchFromServer();
+    if (sessionMoved()) return;
     if (!merged?.data) {
       scheduleRetry();
       return;
@@ -788,7 +885,7 @@ export function useAuthSync<T extends AppProgressData>({
     //   server folds the account's records in).
     // When the account holds something newer, a change on the old copy
     // goes: it must not replace the account's newer progress. Its records
-    // stay (take).
+    // and the items made during the sync stay (take).
     const accountTs = timeOf(serverData);
     const mergedTs = extractTimestamp(merged.data as AppProgressData);
     const stale = mergedTs !== null && localTs !== null && mergedTs < localTs;
@@ -797,6 +894,7 @@ export function useAuthSync<T extends AppProgressData>({
     // is the account's progress): a change during the sync builds on it.
     const nothingNew = sameProgress(merged.data, localState);
     if (stale || (changedDuringSync && (nothingNew || (localTs ?? 0) > accountTs))) {
+      noteKnown(localState);
       lastSavedRef.current = localJson;
     } else {
       take(merged.data as T, localJson, merged.data as T);
@@ -809,8 +907,9 @@ export function useAuthSync<T extends AppProgressData>({
     saveToServer,
     scheduleRetry,
     markSynced,
-    builtOnDefaults,
-    writeLineage,
+    noteKnown,
+    noteSaved,
+    enterForeignOwner,
     session?.user?.id,
   ]);
 
@@ -833,13 +932,8 @@ export function useAuthSync<T extends AppProgressData>({
       // No save before the first sync is done: until then this device may
       // hold only untouched defaults, and the account's progress is not here
       // yet.
-      if (
-        !isAuthenticated ||
-        !initialSyncDoneRef.current ||
-        foreignDataRef.current ||
-        foreignPurgePending
-      )
-        return;
+      // Each save needs the account of the first sync to be the session's.
+      if (!isAuthenticated || !initialSyncDoneRef.current || !ownerMaySave()) return;
 
       // Nothing new since the last completed save (or nothing that a player
       // made): drop any stale pending timer and stop.
@@ -859,17 +953,17 @@ export function useAuthSync<T extends AppProgressData>({
 
       saveTimeoutRef.current = setTimeout(async () => {
         saveTimeoutRef.current = null;
-        if (foreignDataRef.current || foreignPurgePending) return;
+        if (!ownerMaySave()) return;
         const latest = getStateRef.current();
         const latestStr = JSON.stringify(latest);
         if (!uploadable(appId, latest) || latestStr === lastSavedRef.current) return;
-        lastSavedRef.current = latestStr;
+        noteSaved(latest);
         // merge:true — the server folds this into any concurrent write from
         // another tab/device instead of blind-overwriting it.
         await saveToServer(latest, true);
       }, debounceMs);
     },
-    [appId, isAuthenticated, debounceMs, saveToServer]
+    [appId, isAuthenticated, debounceMs, saveToServer, ownerMaySave, noteSaved]
   );
 
   /**
@@ -882,6 +976,7 @@ export function useAuthSync<T extends AppProgressData>({
       pendingForceRef.current = true;
       return;
     }
+    if (!ownerMaySave()) return;
 
     // Clear pending debounce
     if (saveTimeoutRef.current) {
@@ -891,9 +986,9 @@ export function useAuthSync<T extends AppProgressData>({
 
     const data = getStateRef.current();
     if (!uploadable(appId, data)) return;
-    lastSavedRef.current = JSON.stringify(data);
+    noteSaved(data);
     await saveToServer(data, true);
-  }, [appId, isAuthenticated, saveToServer]);
+  }, [appId, isAuthenticated, saveToServer, ownerMaySave, noteSaved]);
 
   // A forceSync() that came before the first sync was done: save now, if
   // anything is unsaved.
@@ -974,12 +1069,7 @@ export function useAuthSync<T extends AppProgressData>({
       // or StrictMode-double-mount beacon would ship DEFAULT state and (before
       // merge protection) erase real progress on the server. Never beacon
       // foreign (previous-user) state either.
-      if (
-        !isAuthenticated ||
-        !initialSyncDoneRef.current ||
-        foreignDataRef.current
-      )
-        return;
+      if (!isAuthenticated || !initialSyncDoneRef.current || !ownerMaySave()) return;
 
       const data = getStateRef.current();
       const dataStr = JSON.stringify(data);
@@ -1009,12 +1099,7 @@ export function useAuthSync<T extends AppProgressData>({
       // Flush only after initial sync — a StrictMode unmount fires this
       // with DEFAULT state before hydration, which must never be saved.
       // Foreign (previous-user) state must never flush either.
-      if (
-        isAuthenticated &&
-        initialSyncDoneRef.current &&
-        !foreignDataRef.current &&
-        !foreignPurgePending
-      ) {
+      if (isAuthenticated && initialSyncDoneRef.current && ownerMaySave()) {
         const data = getStateRef.current();
         const dataStr = JSON.stringify(data);
         if (uploadable(appId, data) && dataStr !== lastSavedRef.current) {
@@ -1027,7 +1112,7 @@ export function useAuthSync<T extends AppProgressData>({
         }
       }
     };
-  }, [appId, isAuthenticated]);
+  }, [appId, isAuthenticated, ownerMaySave]);
 
   return {
     isAuthenticated,

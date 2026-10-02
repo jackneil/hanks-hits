@@ -109,9 +109,10 @@ const UNTOUCHED = defineUntouchedProgress("weather", {
   layout: "flat",
   defaults: defaultProgress,
   ignore: ["units"],
-  // The items that a player makes: a guest's items join the account's at
-  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
-  lists: { savedLocations: { id: "name", max: 50 } },
+  // The items that a player makes (addListItems: an item made here and not
+  // saved yet joins progress that the page takes). `max` is the schema's
+  // bound (progress-schemas.ts); addSavedLocation adds at the end.
+  lists: { savedLocations: { id: "name", max: 50, order: "newestLast" } },
 });
 
 export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()(
