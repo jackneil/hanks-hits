@@ -83,6 +83,29 @@ describe("emulator page", () => {
     expect(page.message).toContain("Go back and pick a different game.");
   });
 
+  it("refuses to start outside a frame, so a direct link cannot skip the heads-up card", () => {
+    // Retro Arcade is the one gate that starts a game (Jack, 2026-10-02).
+    // A top-level window is its own parent.
+    document.body.innerHTML = BODY;
+    const win: PageWindow = {
+      location: { origin: ORIGIN, search: "?core=snes&rom=%2Fapi%2Froms%2Fsnes%2Fmortal_kombat_1.smc&name=MK" },
+      addEventListener: vi.fn(),
+    };
+    win.parent = win;
+    let error: Error | null = null;
+    try {
+      new Function("window", "document", INLINE_SCRIPT)(win, document);
+    } catch (e) {
+      error = e as Error;
+    }
+    expect(error?.message).toMatch(/only inside Retro Arcade/);
+    expect(document.body.querySelector("script[src]")).toBeNull();
+    expect(win.EJS_gameUrl).toBeUndefined();
+    const loading = document.getElementById("loading");
+    expect(loading?.textContent).toContain("Play this game in Retro Arcade");
+    expect(loading?.querySelector("a")?.getAttribute("href")).toBe("/games/retro-arcade");
+  });
+
   it.each([
     ["a Railway CDN URL", "https://cdn-hankshits.up.railway.app/roms/snes/demo.smc"],
     ["a Railway storage URL", "https://storage.railway.app/bucket/demo.smc"],

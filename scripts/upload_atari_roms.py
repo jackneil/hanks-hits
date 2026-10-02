@@ -11,7 +11,7 @@ import boto3
 from pathlib import Path
 from botocore.config import Config
 
-from retro_blocklist import blocked_rule
+from retro_content_rules import blocked_rule
 
 # Railway S3 configuration - NEVER COMMIT CREDENTIALS
 # Set these environment variables before running:
@@ -211,7 +211,9 @@ def upload_roms():
         display_name = get_display_name(original_name)
         game_id = f"atari2600-{safe_name.replace('.bin', '').replace('_', '-')}"
 
-        # Kid-safe content: do not upload or list a blocked title
+        # Kid-safe content: do not upload or list a title that a block rule
+        # matches (sexual content). A notice title (a violent classic) is
+        # uploaded and listed; the arcade shows its heads-up card.
         rule = blocked_rule(display_name, safe_name, game_id)
         if rule:
             print(f"  [BLOCKED] {original_name} ({rule['id']}: {rule['reason']})")
@@ -366,7 +368,8 @@ def generate_catalog_only():
         display_name = get_display_name(original_name)
         game_id = f"atari2600-{safe_name.replace('.bin', '').replace('_', '-')}"
 
-        # Kid-safe content: do not list a blocked title
+        # Kid-safe content: do not list a title that a block rule matches
+        # (sexual content). A notice title is listed like every other game.
         rule = blocked_rule(display_name, safe_name, game_id)
         if rule:
             print(f"  [BLOCKED] {original_name} ({rule['id']}: {rule['reason']})")

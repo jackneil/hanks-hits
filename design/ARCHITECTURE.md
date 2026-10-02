@@ -255,7 +255,12 @@ tip) only on a page with no play. An app with no start card puts an
 `AppNotesSlot` (`src/shared/components/AppNotesSlot.tsx`) in its own
 layout: an inline slot that holds a trophy for its 4 s show window as
 part of the page, so the fixed strip never covers the app's buttons. An
-inline slot is not a break, so the install pill still shows. The body shows a soft shadow
+inline slot is not a break, so the install pill still shows.
+`GameNoticeOverlay` (the same file) is a question before a game starts, not
+a break (Retro Arcade's heads-up card). It has no slot, so a nudge waits for
+the next break, and its read-aloud text is the card's words only. On a
+keyboard it is a modal dialog: focus goes to the first choice, Tab stays in
+the card, and Escape calls `onDismiss`. The body shows a soft shadow
 at an edge only while there is more content past that edge (`useScrollCue`).
 The check in `e2e/start-cards` tests this contract on real screens for each
 route that the home page lists. Run it with `pnpm e2e:start-cards

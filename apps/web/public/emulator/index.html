@@ -550,6 +550,20 @@
     // SECURITY: Sanitize game name to prevent XSS
     const gameName = (params.get('name') || 'Game').replace(/[<>"'&]/g, '');
 
+    // KID SAFETY: this page plays a game only inside Retro Arcade (an iframe
+    // of this site). The arcade is the one gate that starts a game, and it
+    // shows the heads-up card for a mainstream violent classic first (Jack,
+    // 2026-10-02). A direct link to this page must not skip that card, so
+    // the page refuses to start when it is not in a frame.
+    if (window.parent === window) {
+      document.getElementById('loading').innerHTML = `
+        <div class="icon">🕹️</div>
+        <div class="text">Play this game in Retro Arcade</div>
+        <div class="subtext"><a href="/games/retro-arcade" style="display: inline-block; min-height: 44px; padding: 12px 16px; box-sizing: border-box; color: #93c5fd; text-decoration: underline;">Open Retro Arcade</a></div>
+      `;
+      throw new Error('The emulator page runs only inside Retro Arcade');
+    }
+
     // Validate required parameters. hasOwnProperty: a name such as
     // "constructor" must not match a property of Object.prototype.
     const system = Object.prototype.hasOwnProperty.call(SYSTEM_CONFIG, core) ? SYSTEM_CONFIG[core] : null;

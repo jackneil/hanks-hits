@@ -84,11 +84,11 @@ describe("retro arcade recently played", () => {
     });
   });
 
-  it("does not show a removed title in Recently Played", () => {
-    // Saved progress from before issue #25 can still name a removed title.
+  it("does not show a blocked title in Recently Played", () => {
+    // Saved progress from before issue #25 can still name an adult
+    // cartridge that a block rule removed from the catalog.
     useRetroArcadeStore.setState({
       recentlyPlayed: [
-        { gameId: "snes-Mortal Kombat 1", name: "Mortal Kombat 1", system: "snes", lastPlayed: 3 },
         { gameId: "atari2600-X-Man", name: "X-Man", system: "atari2600", lastPlayed: 2 },
         { gameId: "snes-Super Mario World", name: "Super Mario World", system: "snes", lastPlayed: 1 },
       ],
@@ -98,8 +98,27 @@ describe("retro arcade recently played", () => {
 
     expect(screen.getByText("Recently Played")).toBeInTheDocument();
     expect(screen.getByText("Super Mario World")).toBeInTheDocument();
-    expect(screen.queryByText("Mortal Kombat 1")).not.toBeInTheDocument();
     expect(screen.queryByText("X-Man")).not.toBeInTheDocument();
+  });
+
+  it("shows a violent classic in Recently Played exactly like any other game", () => {
+    // Jack, 2026-10-02: no label, badge or color in any list. The heads-up
+    // card shows only when the game is opened.
+    useRetroArcadeStore.setState({
+      recentlyPlayed: [
+        { gameId: "snes-Mortal Kombat 1", name: "Mortal Kombat 1", system: "snes", lastPlayed: 2 },
+        { gameId: "snes-Super Mario World", name: "Super Mario World", system: "snes", lastPlayed: 1 },
+      ],
+      customRoms: [],
+    });
+    render(<RetroArcadeGame />);
+
+    const row = (name: string) => screen.getByText(name).parentElement!;
+    expect(row("Mortal Kombat 1").outerHTML.replace("Mortal Kombat 1", "NAME")).toBe(
+      row("Super Mario World").outerHTML.replace("Super Mario World", "NAME")
+    );
+    expect(screen.queryByText(/heads up/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/teens and grown-ups|fighting and blood/i)).not.toBeInTheDocument();
   });
 });
 
