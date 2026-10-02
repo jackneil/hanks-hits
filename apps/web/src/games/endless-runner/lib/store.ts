@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist, type PersistStorage } from "zustand/middleware";
 import {
   type GameState,
   type Player as PlayerType,
@@ -14,10 +14,20 @@ import {
   SPEED,
   SCORING,
   CANVAS_WIDTH,
-  CANVAS_HEIGHT,
-  GROUND,
   CHARACTERS,
+  MAX_STEPS_PER_UPDATE,
+  STEP_MS,
 } from "./constants";
+import {
+  SPAWN_X,
+  coinRect,
+  gapAfter,
+  obstacleRect,
+  overlaps,
+  runnerCoinBox,
+  runnerHitbox,
+  stepJump,
+} from "./geometry";
 
 // Progress data that gets synced to server
 // Index signature required for AppProgressData compatibility
@@ -45,7 +55,7 @@ const defaultProgress: EndlessRunnerProgress = {
 };
 
 // Full game state
-type EndlessRunnerState = {
+export type EndlessRunnerState = {
   // Current game state
   gameState: GameState;
   score: number;
@@ -58,7 +68,19 @@ type EndlessRunnerState = {
   groundOffset: number;
   currentSpeed: number;
   obstacleIdCounter: number;
+  /**
+   * Where the front of the next obstacle goes. It scrolls with the world,
+   * and the obstacle appears when it reaches SPAWN_X, so the clear road
+   * behind every obstacle is exactly what gapAfter() planned for it.
+   */
+  nextObstacleX: number;
   coinIdCounter: number;
+  /**
+   * DUCK is held down (a key, a thumb button or the duck zone). The runner
+   * ducks whenever it is on the ground while this is true: a DUCK pressed
+   * in the air ducks on landing, and a jump from a duck lands ducked.
+   */
+  duckHeld: boolean;
   isNewHighScore: boolean;
   lastMilestone: number;
 
@@ -125,7 +147,7 @@ function createCoins(startId: number, obstacleX: number): CoinType[] {
 
   const coins: CoinType[] = [];
   const pattern = Math.floor(Math.random() * 3); // 0: line, 1: arc, 2: single
-  const startX = obstacleX - 150; // Coins appear before obstacles
+  const startX = obstacleX - COIN.LEAD; // Coins appear before obstacles
 
   if (pattern === 0) {
     // Line of 3 coins
@@ -156,6 +178,46 @@ function createCoins(startId: number, obstacleX: number): CoinType[] {
   return coins;
 }
 
+/** What the store keeps in localStorage. */
+type PersistedRunner = { progress: EndlessRunnerProgress };
+
+/**
+ * localStorage for the store that writes only when the progress changes.
+ * persist writes after every set, and the game loop sets the store on every
+ * frame of a run (60 to 120 times a second), but the progress changes only
+ * at the end of a run and with a character. Each write turns the progress
+ * into a string on the main thread (review wave 2, 2026-10-02). When the
+ * key is gone (a sign-out clears it), the next set writes it again, as
+ * before. Unavailable storage (the server) gives undefined, like persist's
+ * own default.
+ */
+export function progressStorage(): PersistStorage<PersistedRunner> | undefined {
+  let local: Storage;
+  try {
+    local = window.localStorage;
+  } catch {
+    return undefined;
+  }
+  const json = createJSONStorage<PersistedRunner>(() => local);
+  if (!json) return undefined;
+  // The progress object last written. Every change to the progress makes a
+  // new object, so the same object means the same data.
+  let saved: EndlessRunnerProgress | null = null;
+  return {
+    getItem: (name) => json.getItem(name),
+    setItem: (name, value) => {
+      if (value.state.progress === saved && local.getItem(name) !== null) return;
+      json.setItem(name, value);
+      // Only after the write: a failed write is tried again at the next set.
+      saved = value.state.progress;
+    },
+    removeItem: (name) => {
+      saved = null;
+      return json.removeItem(name);
+    },
+  };
+}
+
 export const useEndlessRunnerStore = create<EndlessRunnerState>()(
   persist(
     (set, get) => ({
@@ -176,14 +238,15 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
       groundOffset: 0,
       currentSpeed: SPEED.INITIAL,
       obstacleIdCounter: 0,
+      nextObstacleX: SPAWN_X,
       coinIdCounter: 0,
+      duckHeld: false,
       isNewHighScore: false,
       lastMilestone: 0,
       progress: defaultProgress,
 
       startGame: () => {
-        const state = get();
-        const firstObstacleX = CANVAS_WIDTH + 200;
+        const firstObstacleX = SPAWN_X;
         const firstObstacle = createObstacle(1, firstObstacleX);
         const firstCoins = createCoins(1, firstObstacleX);
 
@@ -204,27 +267,18 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
           groundOffset: 0,
           currentSpeed: SPEED.INITIAL,
           obstacleIdCounter: 1,
+          nextObstacleX: firstObstacle.x + firstObstacle.width + gapAfter(SPEED.INITIAL, Math.random()),
           coinIdCounter: firstCoins.length > 0 ? firstCoins[firstCoins.length - 1].id : 0,
+          duckHeld: false,
           isNewHighScore: false,
           lastMilestone: 0,
         });
       },
 
+      // A jump works from a duck too: the runner stands up into the jump,
+      // and lands ducked again if DUCK is still held. (A kid holding DUCK
+      // who taps JUMP for a crate used to get nothing.)
       jump: () => {
-        const state = get();
-        if (state.gameState !== "playing") return;
-        if (state.player.isJumping || state.player.isDucking) return;
-
-        set({
-          player: {
-            ...state.player,
-            velocity: PHYSICS.JUMP_VELOCITY,
-            isJumping: true,
-          },
-        });
-      },
-
-      startDuck: () => {
         const state = get();
         if (state.gameState !== "playing") return;
         if (state.player.isJumping) return;
@@ -232,7 +286,25 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
         set({
           player: {
             ...state.player,
-            isDucking: true,
+            velocity: PHYSICS.JUMP_VELOCITY,
+            isJumping: true,
+            isDucking: false,
+          },
+        });
+      },
+
+      // DUCK is a hold: it ducks now on the ground, or on landing when it is
+      // pressed in the air (a touch hold fires once, so a press in the air
+      // was lost and the kid landed standing under the next purple bar).
+      startDuck: () => {
+        const state = get();
+        if (state.gameState !== "playing") return;
+
+        set({
+          duckHeld: true,
+          player: {
+            ...state.player,
+            isDucking: !state.player.isJumping,
           },
         });
       },
@@ -240,6 +312,7 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
       stopDuck: () => {
         const state = get();
         set({
+          duckHeld: false,
           player: {
             ...state.player,
             isDucking: false,
@@ -251,24 +324,23 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
         const state = get();
         if (state.gameState !== "playing") return;
 
-        // Normalize delta to ~16ms (60fps)
-        const normalizedDelta = Math.min(delta / 16.67, 2);
+        // Game time in steps (STEP_MS each), capped for a slow frame
+        const normalizedDelta = Math.min(delta / STEP_MS, MAX_STEPS_PER_UPDATE);
 
         // Update player physics
         let newY = state.player.y;
         let newVelocity = state.player.velocity;
         let newIsJumping = state.player.isJumping;
+        let newIsDucking = state.player.isDucking;
 
         if (state.player.isJumping) {
-          newVelocity += PHYSICS.GRAVITY * normalizedDelta;
-          newVelocity = Math.min(newVelocity, PHYSICS.MAX_FALL_SPEED);
-          newY += newVelocity * normalizedDelta;
-
-          // Check if landed
-          if (newY >= PLAYER.GROUND_Y) {
-            newY = PLAYER.GROUND_Y;
-            newVelocity = 0;
+          const next = stepJump(newY, newVelocity, normalizedDelta);
+          newY = next.y;
+          newVelocity = next.velocity;
+          if (next.landed) {
             newIsJumping = false;
+            // A DUCK held in the air ducks on landing.
+            newIsDucking = state.duckHeld;
           }
         }
 
@@ -282,27 +354,37 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
         const newGroundOffset = (state.groundOffset + newSpeed * normalizedDelta) % 40;
 
         // Update obstacles
+        const scroll = newSpeed * normalizedDelta;
         let newObstacles = state.obstacles.map((obs) => ({
           ...obs,
-          x: obs.x - newSpeed * normalizedDelta,
+          x: obs.x - scroll,
         }));
 
         // Remove off-screen obstacles
         newObstacles = newObstacles.filter((obs) => obs.x > -obs.width);
 
-        // Spawn new obstacles
+        // Spawn the next obstacle when its planned spot scrolls in. The road
+        // behind each one is planned in steps (gapAfter), so after any jump
+        // the runner lands with time to react, at every speed. (The old rule
+        // re-rolled a pixel threshold every frame and put obstacles about
+        // 85 px apart.)
         let newObstacleIdCounter = state.obstacleIdCounter;
+        let newNextObstacleX = state.nextObstacleX - scroll;
         let newCoinIdCounter = state.coinIdCounter;
-        let newCoins = [...state.coins];
 
-        const lastObstacle = newObstacles[newObstacles.length - 1];
-        const spawnThreshold = CANVAS_WIDTH + OBSTACLE.MIN_SPACING;
+        // Update coins (before new ones join, so a new obstacle's coins sit
+        // exactly COIN.LEAD in front of it)
+        let newCoins = state.coins.map((coin) => ({
+          ...coin,
+          x: coin.x - scroll,
+        }));
 
-        if (!lastObstacle || lastObstacle.x < spawnThreshold - (OBSTACLE.MIN_SPACING + Math.random() * (OBSTACLE.MAX_SPACING - OBSTACLE.MIN_SPACING))) {
+        if (newNextObstacleX <= SPAWN_X) {
           newObstacleIdCounter++;
-          const newObstacleX = CANVAS_WIDTH + 50;
+          const newObstacleX = newNextObstacleX;
           const newObstacle = createObstacle(newObstacleIdCounter, newObstacleX);
           newObstacles.push(newObstacle);
+          newNextObstacleX = newObstacle.x + newObstacle.width + gapAfter(newSpeed, Math.random());
 
           // Spawn coins with new obstacle
           const obstacleCoins = createCoins(newCoinIdCounter + 1, newObstacleX);
@@ -311,12 +393,6 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
             newCoinIdCounter = obstacleCoins[obstacleCoins.length - 1].id;
           }
         }
-
-        // Update coins
-        newCoins = newCoins.map((coin) => ({
-          ...coin,
-          x: coin.x - newSpeed * normalizedDelta,
-        }));
 
         // Remove off-screen coins
         newCoins = newCoins.filter((coin) => coin.x > -COIN.SIZE && !coin.collected);
@@ -335,63 +411,23 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
 
         // Check for coin collection
         let newCoinsThisRun = state.coinsThisRun;
-        const playerHeight = state.player.isDucking ? PHYSICS.DUCK_HEIGHT : PLAYER.HEIGHT;
-        const playerTop = newY - playerHeight;
-        const playerBottom = newY;
-        const playerLeft = PLAYER.X - PLAYER.WIDTH / 2 + PLAYER.HITBOX_PADDING;
-        const playerRight = PLAYER.X + PLAYER.WIDTH / 2 - PLAYER.HITBOX_PADDING;
+        const pose = { y: newY, isDucking: newIsDucking };
+        const coinBox = runnerCoinBox(pose);
 
         newCoins = newCoins.map((coin) => {
           if (coin.collected) return coin;
-
-          const coinLeft = coin.x - COIN.SIZE / 2;
-          const coinRight = coin.x + COIN.SIZE / 2;
-          const coinTop = coin.y - COIN.SIZE / 2;
-          const coinBottom = coin.y + COIN.SIZE / 2;
-
-          // Check collision
-          if (
-            playerRight > coinLeft &&
-            playerLeft < coinRight &&
-            playerBottom > coinTop &&
-            playerTop < coinBottom
-          ) {
+          if (overlaps(coinBox, coinRect(coin))) {
             newCoinsThisRun += COIN.VALUE;
             return { ...coin, collected: true };
           }
           return coin;
         });
 
-        // Check for obstacle collision
-        const groundY = CANVAS_HEIGHT - GROUND.HEIGHT;
+        // Check for obstacle collision: the same boxes Game.tsx draws, and
+        // the runner's forgiving hitbox.
+        const hitbox = runnerHitbox(pose);
         for (const obs of newObstacles) {
-          const obsLeft = obs.x;
-          const obsRight = obs.x + obs.width;
-          let obsTop: number;
-          let obsBottom: number;
-
-          if (obs.type === "ground") {
-            obsTop = groundY - GROUND.HEIGHT - obs.height;
-            obsBottom = groundY - GROUND.HEIGHT;
-          } else {
-            // Air obstacle
-            obsTop = OBSTACLE.AIR_Y;
-            obsBottom = OBSTACLE.AIR_Y + obs.height;
-          }
-
-          // Add padding for forgiving hitboxes
-          const paddedPlayerLeft = playerLeft;
-          const paddedPlayerRight = playerRight;
-          const paddedPlayerTop = playerTop + PLAYER.HITBOX_PADDING;
-          const paddedPlayerBottom = playerBottom - PLAYER.HITBOX_PADDING;
-
-          // Check collision
-          if (
-            paddedPlayerRight > obsLeft &&
-            paddedPlayerLeft < obsRight &&
-            paddedPlayerBottom > obsTop &&
-            paddedPlayerTop < obsBottom
-          ) {
+          if (overlaps(hitbox, obstacleRect(obs))) {
             get().endGame();
             return;
           }
@@ -413,6 +449,7 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
             y: newY,
             velocity: newVelocity,
             isJumping: newIsJumping,
+            isDucking: newIsDucking,
           },
           obstacles: newObstacles,
           coins: newCoins,
@@ -423,6 +460,7 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
           score: Math.floor(newDistance),
           coinsThisRun: newCoinsThisRun,
           obstacleIdCounter: newObstacleIdCounter,
+          nextObstacleX: newNextObstacleX,
           coinIdCounter: newCoinIdCounter,
           lastMilestone: newMilestone,
         });
@@ -461,6 +499,8 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
             isJumping: false,
           },
           obstacles: [],
+          nextObstacleX: SPAWN_X,
+          duckHeld: false,
           coins: [],
           clouds: createInitialClouds(),
           groundOffset: 0,
@@ -506,6 +546,7 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
     }),
     {
       name: "endless-runner-storage",
+      storage: progressStorage(),
       partialize: (state) => ({ progress: state.progress }),
     }
   )

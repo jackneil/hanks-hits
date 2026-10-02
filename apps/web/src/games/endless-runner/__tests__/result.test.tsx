@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 import { DEFAULT_RESTART_GRACE_MS } from "@/shared/lib/input";
-import { clipsEnabledFor } from "@/shared/clips";
 
 import { EndlessRunnerGame, runnerResultText } from "../Game";
 import { useEndlessRunnerStore } from "../lib/store";
