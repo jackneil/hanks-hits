@@ -24,235 +24,9 @@ import { inspect } from "node:util";
 // Errors have drizzle's shape: a DrizzleQueryError whose message carries the
 // SQL params, with the driver error (code, constraint) as its cause.
 
-const pg = vi.hoisted(() => {
-  type Row = Record<string, unknown>;
-  type Tables = Map<string, Row[]>;
-  type Col = {
-    name: string;
-    table: object;
-    isUnique: boolean;
-    uniqueName?: string;
-    getSQLType(): string;
-  };
-  type Pred =
-    | { op: "eq"; col: Col; val: unknown }
-    | { op: "and"; preds: Pred[] };
-  type Scope = { tables: Tables; root: { aborted: boolean } | null };
-
-  const NAME = Symbol.for("drizzle:Name");
-  const tableName = (t: object) => (t as Record<symbol, string>)[NAME];
-  const columnsOf = (t: object) =>
-    Object.entries(t).filter(
-      ([, c]) =>
-        c && typeof c === "object" && typeof (c as Col).getSQLType === "function"
-    ) as [string, Col][];
-  const keyOf = (col: Col) => {
-    const entry = columnsOf(col.table).find(([, c]) => c === col);
-    if (!entry) throw new Error(`stand-in: unknown column ${col.name}`);
-    return entry[0];
-  };
-  const matches = (row: Row, p: Pred): boolean =>
-    p.op === "and"
-      ? p.preds.every((q) => matches(row, q))
-      : row[keyOf(p.col)] === p.val;
-  const firstTable = (p: Pred): object =>
-    p.op === "and" ? firstTable(p.preds[0]) : p.col.table;
-  const clone = (t: Tables): Tables =>
-    new Map([...t].map(([k, rows]) => [k, rows.map((r) => ({ ...r }))]));
-
-  class DrizzleQueryError extends Error {}
-  const queryError = (
-    sqlText: string,
-    params: unknown[],
-    code: string,
-    message: string,
-    constraint?: string
-  ) =>
-    new DrizzleQueryError(`Failed query: ${sqlText}\nparams: ${params.join(",")}`, {
-      cause: Object.assign(new Error(message), {
-        code,
-        ...(constraint ? { constraint } : {}),
-      }),
-    });
-
-  const state = {
-    committed: new Map() as Tables,
-    /** Make every leaderboard_entries write fail (a stand-in for any DB fault). */
-    failBoardWrites: false,
-    /** Make every app_progress write fail (the save itself cannot be stored). */
-    failProgressWrites: false,
-  };
-
-  function applyUpdate(name: string, existing: Row, incoming: Row, set: Row) {
-    if (name === "leaderboard_entries") {
-      // The route's CASE WHEN: keep the better score (lower for fastest_time).
-      const better =
-        incoming.scoreType === "fastest_time"
-          ? (incoming.score as number) < (existing.score as number)
-          : (incoming.score as number) > (existing.score as number);
-      if (better) {
-        existing.score = incoming.score;
-        existing.additionalStats = incoming.additionalStats;
-        existing.achievedAt = incoming.achievedAt;
-      }
-      existing.syncedAt = set.syncedAt;
-      return;
-    }
-    Object.assign(existing, set);
-  }
-
-  function executor(scope: Scope): Record<string, unknown> {
-    // Every statement fails fast on an aborted transaction, and a failure
-    // aborts it.
-    const stmt = async <T>(fn: () => T): Promise<T> => {
-      if (scope.root?.aborted) {
-        throw queryError(
-          "<next statement>",
-          [],
-          "25P02",
-          "current transaction is aborted, commands ignored until end of transaction block"
-        );
-      }
-      try {
-        return fn();
-      } catch (error) {
-        if (scope.root) scope.root.aborted = true;
-        throw error;
-      }
-    };
-    const rowsOf = (t: object) => {
-      const name = tableName(t);
-      if (!scope.tables.has(name)) scope.tables.set(name, []);
-      return scope.tables.get(name)!;
-    };
-
-    const insert = (table: object) => ({
-      values: (input: Row) => {
-        const run = (conflict: { target: Col | Col[]; set?: Row; nothing?: boolean }) =>
-          stmt(() => {
-            const name = tableName(table);
-            const params = Object.values(input);
-            const sqlText = `insert into "${name}" (${Object.keys(input).join(", ")})`;
-            if (name === "leaderboard_entries" && state.failBoardWrites) {
-              throw queryError(sqlText, params, "57014", "canceling statement due to statement timeout");
-            }
-            if (name === "app_progress" && state.failProgressWrites) {
-              throw queryError(sqlText, params, "53100", "could not extend file: No space left on device");
-            }
-            for (const [key, col] of columnsOf(table)) {
-              const v = input[key];
-              const type = col.getSQLType();
-              if (
-                ["bigint", "integer", "smallint"].includes(type) &&
-                typeof v === "number" &&
-                !Number.isInteger(v)
-              ) {
-                throw queryError(sqlText, params, "22P02", `invalid input syntax for type ${type}: "${v}"`);
-              }
-            }
-            const row: Row = { ...input };
-            if (row.id === undefined) row.id = crypto.randomUUID();
-            const all = rowsOf(table);
-            const targets = [conflict.target].flat();
-            const existing = all.find((r) =>
-              targets.every((c) => r[keyOf(c)] === row[keyOf(c)])
-            );
-            if (existing) {
-              if (conflict.nothing) return [];
-              applyUpdate(name, existing, row, conflict.set ?? {});
-              return [{ ...existing }];
-            }
-            for (const [key, col] of columnsOf(table)) {
-              if (col.isUnique && all.some((r) => r[key] === row[key])) {
-                throw queryError(
-                  sqlText,
-                  params,
-                  "23505",
-                  `duplicate key value violates unique constraint "${col.uniqueName}"`,
-                  col.uniqueName
-                );
-              }
-            }
-            all.push(row);
-            return [{ ...row }];
-          });
-        return {
-          onConflictDoUpdate: (c: { target: Col | Col[]; set: Row }) =>
-            run({ target: c.target, set: c.set }),
-          onConflictDoNothing: (c: { target: Col | Col[] }) => ({
-            returning: () => run({ target: c.target, nothing: true }),
-          }),
-        };
-      },
-    });
-
-    const query = new Proxy(
-      {},
-      {
-        get: () => ({
-          findFirst: ({ where }: { where: Pred }) =>
-            stmt(() => {
-              const row = rowsOf(firstTable(where)).find((r) => matches(r, where));
-              return row ? { ...row } : undefined;
-            }),
-        }),
-      }
-    );
-
-    const del = (table: object) => ({
-      where: (p: Pred) =>
-        stmt(() => {
-          const all = rowsOf(table);
-          for (let i = all.length - 1; i >= 0; i--) if (matches(all[i], p)) all.splice(i, 1);
-        }),
-    });
-
-    const transaction = async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
-      if (!scope.root) {
-        // BEGIN on a private copy. A throw is a ROLLBACK (nothing published);
-        // COMMIT of an aborted transaction is a ROLLBACK too.
-        const txScope: Scope = { tables: clone(state.committed), root: { aborted: false } };
-        const result = await fn(executor(txScope));
-        if (!txScope.root!.aborted) state.committed = txScope.tables;
-        return result;
-      }
-      // SAVEPOINT (fails on an aborted transaction like any statement)
-      await stmt(() => undefined);
-      const snapshot = clone(scope.tables);
-      try {
-        const result = await fn(executor(scope));
-        await stmt(() => undefined); // RELEASE SAVEPOINT
-        return result;
-      } catch (error) {
-        // ROLLBACK TO SAVEPOINT: undo this level's writes, clear the abort.
-        scope.tables.clear();
-        for (const [k, v] of snapshot) scope.tables.set(k, v);
-        scope.root.aborted = false;
-        throw error;
-      }
-    };
-
-    return { insert, query, delete: del, transaction };
-  }
-
-  const db = executor({
-    get tables() {
-      return state.committed;
-    },
-    root: null,
-  } as Scope);
-
-  return {
-    db,
-    state,
-    rows: (name: string) => state.committed.get(name) ?? [],
-    reset() {
-      state.committed = new Map();
-      state.failBoardWrites = false;
-      state.failProgressWrites = false;
-    },
-  };
-});
+const pg = await vi.hoisted(async () =>
+  (await import("./db-stand-in")).createDbStandIn()
+);
 
 const handles = vi.hoisted(() => ({ queue: [] as string[], next: 0 }));
 
@@ -493,6 +267,130 @@ describe("POST /api/progress/[appId]: fractional scores and the board write", ()
   });
 });
 
+// ---------------------------------------------------------------------------
+// A merge save whose merged blob breaks the schema
+// ---------------------------------------------------------------------------
+// The route re-validates the merged blob. It once stored the INCOMING save
+// whenever that check failed, so an older save replaced a newer row whole.
+// Now it starts again from the newer side and adds each merged field that
+// keeps the blob valid; when the newer side is the stored row and the row
+// itself fails the schema of today, it stores nothing and answers 409.
+
+describe("POST merge: a merged blob that breaks the schema", () => {
+  const HOUR = 60 * 60_000;
+  const ids = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
+
+  async function cookieBlob(fields: Record<string, unknown>) {
+    const { useCookieClickerStore } = await import("@/games/cookie-clicker/lib/store");
+    return { ...useCookieClickerStore.getState().getProgress(), ...fields } as Record<string, unknown>;
+  }
+
+  async function mathBlob(fields: Record<string, unknown>) {
+    const { useMathAttackStore } = await import("@/games/math-attack/lib/store");
+    return { ...useMathAttackStore.getState().getProgress(), ...fields } as Record<string, unknown>;
+  }
+
+  /** A stored row, written the way an older server version could have. */
+  function putRow(appId: string, data: Record<string, unknown>, updatedAt: Date) {
+    const rows = pg.state.committed.get("app_progress") ?? [];
+    rows.push({ id: crypto.randomUUID(), userId: USER_ID, appId, data, lastSyncedAt: updatedAt, updatedAt });
+    pg.state.committed.set("app_progress", rows);
+  }
+
+  let warn: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    pg.reset();
+    handles.queue = [];
+    handles.next = 0;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("newer row + an older save whose union is too long: the row stays the base, and the save's records still fold in", async () => {
+    const now = Date.now();
+    putRow(
+      "cookie-clicker",
+      await cookieBlob({ cookies: 7_000, totalCookiesBaked: 1_000, totalClicks: 50, unlockedAchievements: ids("row-", 300), lastModified: now - 60_000 }),
+      new Date(now - 60_000)
+    );
+    const older = await cookieBlob({ cookies: 3, totalCookiesBaked: 5_000, totalClicks: 10, unlockedAchievements: ids("dev-", 300), lastModified: now - HOUR });
+
+    const res = await save("cookie-clicker", older, true);
+
+    expect(res.status).toBe(200);
+    const stored = progressRow("cookie-clicker")!.data as Record<string, unknown>;
+    expect(stored.cookies).toBe(7_000); // the newer row's wallet, not the older save's
+    expect(stored.totalCookiesBaked).toBe(5_000); // the older save's record
+    expect(stored.totalClicks).toBe(50);
+    expect(stored.unlockedAchievements).toEqual(ids("row-", 300)); // 600 > 500: left out
+    expect(stored.lastModified).toBe(now - 60_000);
+    const logged = printed(warn);
+    expect(logged).toContain("left out [unlockedAchievements]");
+    expect(logged).toContain("stored row");
+    expect(logged).not.toContain("dev-0");
+  });
+
+  it("newer row that the schema of today refuses + an older save: 409, and the row is not touched", async () => {
+    const now = Date.now();
+    const rowData = await mathBlob({ highScore: 900, gamesPlayed: 40, settings: { soundEnabled: true, difficulty: "13yo" }, lastModified: now - 60_000 });
+    const rowTime = new Date(now - 60_000);
+    putRow("math-attack", rowData, rowTime);
+    const older = await mathBlob({ highScore: 100, gamesPlayed: 5, lastModified: now - HOUR });
+
+    const res = await save("math-attack", older, true);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual(expect.objectContaining({ kept: "existing" }));
+    const row = progressRow("math-attack")!;
+    expect(row.data).toEqual(rowData);
+    expect(row.updatedAt).toBe(rowTime);
+    expect(printed(warn)).toContain("kept the newer stored row");
+  });
+
+  it("older row + a newer save whose union is too long: the save is stored, with the row's records that fit", async () => {
+    const now = Date.now();
+    putRow(
+      "cookie-clicker",
+      await cookieBlob({ cookies: 7_000, totalCookiesBaked: 1_000, totalClicks: 9_000, unlockedAchievements: ids("row-", 300), lastModified: now - HOUR }),
+      new Date(now - HOUR)
+    );
+    const newer = await cookieBlob({ cookies: 3, totalCookiesBaked: 200, totalClicks: 10, unlockedAchievements: ids("dev-", 300), lastModified: now - 1_000 });
+
+    const res = await save("cookie-clicker", newer, true);
+
+    expect(res.status).toBe(200);
+    const stored = progressRow("cookie-clicker")!.data as Record<string, unknown>;
+    expect(stored.cookies).toBe(3); // the newer save's wallet
+    expect(stored.totalClicks).toBe(9_000); // the row's record
+    expect(stored.totalCookiesBaked).toBe(1_000);
+    expect(stored.unlockedAchievements).toEqual(ids("dev-", 300));
+    expect(stored.lastModified).toBe(now - 1_000);
+    expect(printed(warn)).toContain("incoming save");
+  });
+
+  it("older row that the schema of today refuses + a newer save: the save is stored with the row's best score", async () => {
+    const now = Date.now();
+    putRow(
+      "math-attack",
+      await mathBlob({ highScore: 900, gamesPlayed: 40, settings: { soundEnabled: true, difficulty: "13yo" }, lastModified: now - HOUR }),
+      new Date(now - HOUR)
+    );
+    const newer = await mathBlob({ highScore: 100, gamesPlayed: 5, lastModified: now - 1_000 });
+
+    const res = await save("math-attack", newer, true);
+
+    expect(res.status).toBe(200);
+    const stored = progressRow("math-attack")!.data as Record<string, unknown>;
+    expect(stored.highScore).toBe(900);
+    expect(stored.gamesPlayed).toBe(40);
+    expect((stored.settings as Record<string, unknown>).difficulty).toBe(newer.settings && (newer.settings as Record<string, unknown>).difficulty);
+  });
+});
+
 /** A save request whose body arrives from a stream (no Content-Length unless given). */
 function streamedSave(appId: string, body: ReadableStream<Uint8Array>, headers: Record<string, string> = {}) {
   return POST(
@@ -718,9 +616,7 @@ describe("POST /api/progress/[appId]: the largest valid save of every game passe
   const ASCII_PATHS = ["savedArtworks.*.thumbnail", "savedArtworks.*.dataUrl"];
   // The fields that the schemas do not bound. A new one fails this test, so
   // that a review sees it. The body limit (100 MiB) still holds for them.
-  const UNBOUNDED: Record<string, string[]> = {
-    "oregon-trail": ["currentEvent (z.any)"],
-  };
+  const UNBOUNDED: Record<string, string[]> = {};
   const sizes: Record<string, number> = {};
 
   beforeEach(() => {
@@ -759,6 +655,14 @@ describe("POST /api/progress/[appId]: the largest valid save of every game passe
     expect(schema.safeParse(most.value).success, "the save with the most values is valid").toBe(true);
     marks[appId] = Math.max(marksOf(body), marksOf(JSON.stringify({ data: most.value, merge: true })));
     expect(marks[appId]).toBeLessThanOrEqual(PROGRESS_SAVE_BODY.maxJsonValues!);
+    const allocationsOf = (v: unknown) => {
+      const counter = new JsonValueCounter();
+      counter.add(new TextEncoder().encode(JSON.stringify(v) ?? ""));
+      return counter.allocations;
+    };
+    const allocationHeavy = largestSave(schema, ASCII_PATHS, allocationsOf);
+    expect(schema.safeParse(allocationHeavy.value).success).toBe(true);
+    expect(allocationsOf({ data: allocationHeavy.value, merge: true })).toBeLessThanOrEqual(PROGRESS_SAVE_BODY.maxJsonAllocations!);
 
     const res = await POST(
       new Request(`http://localhost/api/progress/${appId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
@@ -768,22 +672,21 @@ describe("POST /api/progress/[appId]: the largest valid save of every game passe
     expect(progressRow(appId)).toBeDefined();
   });
 
-  it("the largest of them is the drawing gallery, about 60 MB, under the 100 MiB limit", () => {
+  it("the largest of them is the expanded Drum Machine save, under the 100 MiB limit", () => {
     const largest = Object.entries(sizes).sort((a, b) => b[1] - a[1])[0];
-    expect(largest[0]).toBe("drawing-app");
+    expect(largest[0]).toBe("drum-machine");
     expect(largest[1]).toBeGreaterThan(60_000_000);
     expect(largest[1]).toBeLessThan(PROGRESS_SAVE_BODY.maxBytes);
   });
 
-  it("the most JSON values are in the Drum Machine's largest save (661,328 marks), under a third of the 2,000,000 count", () => {
+  it("the Drum Machine's 10,261,528 marks fit the total budget", () => {
     const most = Object.entries(marks).sort((a, b) => b[1] - a[1])[0];
-    expect(most).toEqual(["drum-machine", 661_328]);
-    expect(most[1] * 3).toBeLessThan(PROGRESS_SAVE_BODY.maxJsonValues!);
+    expect(most).toEqual(["drum-machine", 10_261_528]);
+    expect(most[1]).toBeLessThan(PROGRESS_SAVE_BODY.maxJsonValues!);
   });
 
-  it("an Oregon Trail save with each event that the game writes passes (its currentEvent is z.any() in the schema)", async () => {
-    // The schema does not bound currentEvent, so the count is checked on
-    // the events that the game itself puts there: every event of the trail,
+  it("an Oregon Trail save with each event that the game writes passes", async () => {
+    // Check the bounded event snapshot against every authored trail event,
     // and the river crossing result (src/games/oregon-trail/lib/store.ts).
     const { ALL_EVENTS } = await import("@/games/oregon-trail/lib/events");
     const river = { id: "river-crossing-result", title: "Kansas River Trouble!", message: "The wagon tipped. Lost: 2 oxen, 40 food.", category: "severe", probability: 0, effect: {} };

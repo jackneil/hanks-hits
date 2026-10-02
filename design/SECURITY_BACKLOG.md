@@ -41,7 +41,10 @@ The `/cso` comprehensive audit found no HIGH/MEDIUM issues in the codebase; thes
 > server-side bounds before any comparison, the merged blob is re-validated
 > against the app's Zod schema before persisting, and monotonic merge keys use
 > a conservative prefix rule plus a verified exact allowlist (commits `781a181`,
-> `bab096e`, `05e0784`). A client claiming a future timestamp can no longer
+> `bab096e`, `05e0784`). Since 2026-10-02 each app's fields follow a reviewed
+> direction table (`apps/web/src/lib/progress-field-rules.ts`), and a merged
+> blob that fails re-validation keeps the NEWER side as its base (never the
+> incoming save whole). A client claiming a future timestamp can no longer
 > win the merge, which was this item's threat. The original "server time only"
 > proposal below is kept for history; it traded away legitimate offline-play
 > ordering and is not planned.

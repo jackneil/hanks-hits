@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mergeProgress, mergeForSave, extractTimestamp } from "../progress-merge";
+import { mergeProgress, mergeForSave, extractTimestamp, resolveMergedSave } from "../progress-merge";
+import { validateProgress } from "../progress-schemas";
 
 describe("mergeProgress", () => {
   it("prefers server data when it is genuinely newer", () => {
@@ -270,5 +271,212 @@ describe("extractTimestamp", () => {
   });
   it("returns null when no timestamp field exists", () => {
     expect(extractTimestamp({ score: 1 })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The app's reviewed direction table (progress-field-rules.ts)
+// ---------------------------------------------------------------------------
+// Wave 3 F1: the name rules (high/best/max/longest/games + capital, and a
+// short allowlist) missed every highest... field, most total... counters,
+// records inside objects, and best times. A last-write merge then lost the
+// older save's better values. Each case is a real field of a real game.
+
+describe("mergeForSave with the app's table: the records the name rules lost", () => {
+  /** The account row (older) has the better records; the device save is newer. */
+  function merge(appId: string, accountOlder: Record<string, unknown>, deviceNewer: Record<string, unknown>) {
+    return mergeForSave(
+      { ...deviceNewer, lastModified: 2_000 },
+      { data: { ...accountOlder, lastModified: 1_000 }, updatedAt: new Date(1_000) },
+      appId
+    ).data;
+  }
+
+  it("hill-climb: totalCoinsEarned, per-stage bests and upgrade levels survive; the wallet is the newer save's", () => {
+    const data = merge(
+      "hill-climb",
+      {
+        coins: 5_000,
+        totalCoinsEarned: 9_000,
+        bestDistance: 900,
+        bestDistancePerStage: { countryside: 900, desert: 650 },
+        vehicleUpgrades: { jeep: { engine: 3, suspension: 1, tires: 0, fuelTank: 2, nitro: 0 } },
+      },
+      {
+        coins: 110,
+        totalCoinsEarned: 110,
+        bestDistance: 50,
+        bestDistancePerStage: { countryside: 50 },
+        vehicleUpgrades: { jeep: { engine: 0, suspension: 2, tires: 0, fuelTank: 0, nitro: 0 } },
+      }
+    );
+    expect(data.totalCoinsEarned).toBe(9_000); // 110 with the name rules
+    expect(data.coins).toBe(110);
+    expect(data.bestDistancePerStage).toEqual({ countryside: 900, desert: 650 });
+    expect(data.vehicleUpgrades).toEqual({ jeep: { engine: 3, suspension: 2, tires: 0, fuelTank: 2, nitro: 0 } });
+  });
+
+  it("space-invaders, bomberman, breakout, 2048: highest... and ...Completed survive", () => {
+    expect(merge("space-invaders", { highestWave: 9, wavesCompleted: 40 }, { highestWave: 2, wavesCompleted: 0 })).toEqual(
+      expect.objectContaining({ highestWave: 9, wavesCompleted: 40 })
+    );
+    expect(merge("bomberman", { highestLevel: 6, levelsCompleted: 25 }, { highestLevel: 1, levelsCompleted: 0 })).toEqual(
+      expect.objectContaining({ highestLevel: 6, levelsCompleted: 25 })
+    );
+    expect(merge("breakout", { highestLevel: 7, totalBricksDestroyed: 800 }, { highestLevel: 1, totalBricksDestroyed: 3 })).toEqual(
+      expect.objectContaining({ highestLevel: 7, totalBricksDestroyed: 800 })
+    );
+    expect(merge("2048", { highestTile: 512 }, { highestTile: 0 }).highestTile).toBe(512);
+  });
+
+  it("chess: totalCheckmates survives; the current streak is the newer save's", () => {
+    const data = merge("chess", { totalCheckmates: 18, currentWinStreak: 5 }, { totalCheckmates: 0, currentWinStreak: 0 });
+    expect(data.totalCheckmates).toBe(18);
+    expect(data.currentWinStreak).toBe(0);
+  });
+
+  it("platformer: a level completed only in the older save is kept whole, and a shared level takes the better of each record", () => {
+    const data = merge(
+      "platformer",
+      {
+        levels: {
+          "1-1": { completed: true, starsCollected: 3, bestTime: 40_000, coinsCollected: 12 },
+          "1-2": { completed: true, starsCollected: 1, bestTime: 90_000, coinsCollected: 4 },
+        },
+      },
+      { levels: { "1-2": { completed: false, starsCollected: 2, bestTime: null, coinsCollected: 1 } } }
+    );
+    expect(data.levels).toEqual({
+      "1-2": { completed: true, starsCollected: 2, bestTime: 90_000, coinsCollected: 4 },
+      "1-1": { completed: true, starsCollected: 3, bestTime: 40_000, coinsCollected: 12 },
+    });
+  });
+
+  it("memory-match and quoridor: the better (lower) best time and fewest-moves win survive", () => {
+    const memory = merge(
+      "memory-match",
+      { bestTimes: { easy: 21_000, medium: 48_000, hard: null, expert: null }, totalMatches: 160 },
+      { bestTimes: { easy: 30_000, medium: null, hard: null, expert: null }, totalMatches: 0 }
+    );
+    expect(memory.bestTimes).toEqual({ easy: 21_000, medium: 48_000, hard: null, expert: null });
+    expect(memory.totalMatches).toBe(160);
+    // The name rules kept the newer 40 (a worse result) or took a max.
+    expect(merge("quoridor", { fastestWin: 12 }, { fastestWin: 40 }).fastestWin).toBe(12);
+    expect(merge("quoridor", { fastestWin: 12 }, { fastestWin: null }).fastestWin).toBe(12);
+  });
+
+  it("wordle: the wins at each number of guesses take the larger count at each place", () => {
+    const data = merge(
+      "wordle",
+      { gamesWon: 25, guessDistribution: [0, 3, 10, 8, 4, 0, 0, 0, 0] },
+      { gamesWon: 1, guessDistribution: [0, 0, 1, 0, 0, 0, 0, 0, 0] }
+    );
+    expect(data.gamesWon).toBe(25);
+    expect(data.guessDistribution).toEqual([0, 3, 10, 8, 4, 0, 0, 0, 0]);
+  });
+
+  it("cookie-clicker and monster-truck: buildings and upgrade levels bought earlier survive; the wallets stand", () => {
+    const cookie = merge(
+      "cookie-clicker",
+      { cookies: 6_834, buildings: { cursor: 10, grandma: 6, bakery: 2 } },
+      { cookies: 777, buildings: { cursor: 2, grandma: 0, bakery: 0 } }
+    );
+    expect(cookie.buildings).toEqual({ cursor: 10, grandma: 6, bakery: 2 });
+    expect(cookie.cookies).toBe(777);
+
+    const level = (n: number) => ({ level: n, maxLevel: 5, costs: [100, 250, 500, 1000, 2500] });
+    const truck = merge(
+      "monster-truck",
+      { coins: 10_653, totalCoinsEarned: 22_327, upgrades: { monster: { engine: level(3), suspension: level(2), tires: level(0), nos: level(1) } } },
+      { coins: 0, totalCoinsEarned: 0, upgrades: { monster: { engine: level(0), suspension: level(0), tires: level(1), nos: level(0) } } }
+    );
+    expect(truck.coins).toBe(0);
+    expect(truck.totalCoinsEarned).toBe(22_327);
+    expect(truck.upgrades).toEqual({ monster: { engine: level(3), suspension: level(2), tires: level(1), nos: level(1) } });
+  });
+
+  it("four-wheeler-3d: totalEarned and racesWon survive; trophies and money (reset by starvation, spent) stand", () => {
+    const data = merge(
+      "four-wheeler-3d",
+      { money: 21_150, totalEarned: 40_000, trophies: 27, racesWon: 6, bestRaceTimeMs: 61_000 },
+      { money: 19_990, totalEarned: 20_000, trophies: 0, racesWon: 1, bestRaceTimeMs: 0 }
+    );
+    expect(data).toEqual(
+      expect.objectContaining({ money: 19_990, totalEarned: 40_000, trophies: 0, racesWon: 6, bestRaceTimeMs: 61_000 })
+    );
+  });
+
+  it("endless-runner: totalCoins is a wallet (spent on characters), so the newer save's stands", () => {
+    expect(merge("endless-runner", { totalCoins: 500, coinsCollected: 900 }, { totalCoins: 100, coinsCollected: 950 })).toEqual(
+      expect.objectContaining({ totalCoins: 100, coinsCollected: 950 })
+    );
+  });
+
+  it("reports which side is the base", () => {
+    expect(mergeForSave({ a: 1, lastModified: 2 }, { data: { a: 1, lastModified: 1 }, updatedAt: new Date(1) }, "2048").base).toBe("local");
+    expect(mergeForSave({ a: 1, lastModified: 1 }, { data: { a: 1, lastModified: 2 }, updatedAt: new Date(2) }, "2048").base).toBe("server");
+  });
+});
+
+describe("resolveMergedSave: a merge that breaks the schema", () => {
+  const validate = (data: unknown) => validateProgress("cookie-clicker", data);
+  const ids = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
+  const cookie = (fields: Record<string, unknown>) => ({
+    cookies: 0,
+    totalCookiesBaked: 0,
+    totalClicks: 0,
+    buildings: {},
+    purchasedUpgrades: [],
+    unlockedAchievements: [],
+    lastModified: 0,
+    ...fields,
+  });
+
+  it("a valid merge is stored as it is", () => {
+    const out = resolveMergedSave(
+      cookie({ totalClicks: 5, lastModified: 1_000 }),
+      { data: cookie({ totalClicks: 9, lastModified: 2_000 }), updatedAt: new Date(2_000) },
+      "cookie-clicker",
+      validate
+    );
+    expect(out).toEqual(expect.objectContaining({ kind: "write", base: "server", leftOut: [], mergeError: "" }));
+  });
+
+  it("keeps the newer row as the base and leaves out only the field that breaks the schema", () => {
+    const out = resolveMergedSave(
+      cookie({ cookies: 1, totalClicks: 900, unlockedAchievements: ids("d", 300), lastModified: 1_000 }),
+      { data: cookie({ cookies: 50, totalClicks: 9, unlockedAchievements: ids("r", 300), lastModified: 2_000 }), updatedAt: new Date(2_000) },
+      "cookie-clicker",
+      validate
+    );
+    expect(out.kind).toBe("write");
+    if (out.kind !== "write") return;
+    expect(out.base).toBe("server");
+    expect(out.leftOut).toEqual(["unlockedAchievements"]);
+    expect(out.mergeError).toContain("unlockedAchievements");
+    expect(out.data).toEqual(expect.objectContaining({ cookies: 50, totalClicks: 900, unlockedAchievements: ids("r", 300) }));
+  });
+
+  it("stores nothing when the newer row itself fails the schema of today", () => {
+    const out = resolveMergedSave(
+      cookie({ totalClicks: 900, lastModified: 1_000 }),
+      { data: cookie({ cookies: -5, lastModified: 2_000 }), updatedAt: new Date(2_000) },
+      "cookie-clicker",
+      validate
+    );
+    expect(out).toEqual({ kind: "keepExisting", error: expect.stringContaining("cookies") });
+  });
+
+  it("never refuses a newer incoming save: a broken older row only loses its folds", () => {
+    const out = resolveMergedSave(
+      cookie({ totalClicks: 9, unlockedAchievements: ids("d", 300), lastModified: 2_000 }),
+      { data: cookie({ totalClicks: 900, unlockedAchievements: ids("r", 300), cookies: -1, lastModified: 1_000 }), updatedAt: new Date(1_000) },
+      "cookie-clicker",
+      validate
+    );
+    expect(out.kind).toBe("write");
+    if (out.kind !== "write") return;
+    expect(out.base).toBe("local");
+    expect(out.data).toEqual(expect.objectContaining({ totalClicks: 900, unlockedAchievements: ids("d", 300) }));
   });
 });
