@@ -13,6 +13,15 @@ const nextConfig: NextConfig = {
   // Transpile three.js for proper bundling
   transpilePackages: ["three"],
 
+  // Keep class and function names in the SERVER bundle. Server logs name the
+  // error class (lib/describe-error.ts logs no message or value, so the
+  // class name, the SQLSTATE and the stack frames are all it has), and a
+  // minified build turned them into one letter ("error: 'c'"), which makes
+  // a production failure undiagnosable. The browser bundle stays minified.
+  experimental: {
+    serverMinification: false,
+  },
+
   // Security headers to prevent clickjacking, XSS, MIME sniffing
   // IMPORTANT: Order matters! When multiple rules match, LAST one wins for each header.
   // So put general rules FIRST, specific overrides LAST.

@@ -99,6 +99,12 @@ describe("Next.js version", () => {
   it("does not let next dev write AGENTS.md or CLAUDE.md into apps/web", () => {
     expect(nextConfig.agentRules).toBe(false);
   });
+
+  it("keeps class names in the server bundle, so server logs can name an error", () => {
+    // describeError logs the error class and no message; a minified server
+    // build logged "error: 'c'" for a bucket error.
+    expect(nextConfig.experimental?.serverMinification).toBe(false);
+  });
 });
 
 type TomlValue = string | number | boolean;
