@@ -119,6 +119,15 @@ describe("Next.js version", () => {
 // NEVER add CLIPS_LAB: the /clips-lab page answers 404 in production only
 // because that variable is not set.
 const RAILWAY_VARIABLES = [
+  // Prepared for leaderboard clips; these declarations set no live values.
+  "ADMIN_USER_IDS",
+  "LEADERBOARD_CLIPS",
+  "LEADERBOARD_CLIPS_S3_ACCESS_KEY_ID",
+  "LEADERBOARD_CLIPS_S3_BUCKET",
+  "LEADERBOARD_CLIPS_S3_ENDPOINT",
+  "LEADERBOARD_CLIPS_S3_REGION",
+  "LEADERBOARD_CLIPS_S3_SECRET_ACCESS_KEY",
+  "LEADERBOARD_CLIPS_S3_URL_STYLE",
   "AUTH_GOOGLE_ID",
   "AUTH_GOOGLE_SECRET",
   "AUTH_SECRET",
@@ -366,10 +375,14 @@ describe("Railway configuration", () => {
       for (const name of names) expect(source, `${reader} reads ${name}`).toMatch(new RegExp(`\\benv\\.${name}\\b`));
     }
     // Names that the platform or Next.js sets, never a Railway variable.
-    const PLATFORM = new Set(["NODE_ENV"]);
+    const PLATFORM = new Set(["NODE_ENV", "NEXT_RUNTIME", "NEXT_PHASE"]);
     // Names that the build takes from BUILD_TIME_FILE (the next test keeps
     // them off Railway).
     const buildTime = nextPublicNamesIn(readRepoFile(BUILD_TIME_FILE));
+    // A public build constant explicitly compiled by next.config.ts, not a
+    // runtime service setting. Keep the assertion tied to its source.
+    expect(readRepoFile("apps/web/next.config.ts")).toMatch(/env:\s*\{\s*LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES:\s*CLIP_MEDIA_SOURCES\s*\}/);
+    buildTime.add("LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES");
     const web = await loadService();
     const declared = new Set(Object.keys(web.variables ?? {}));
     const missing = [...read]
@@ -400,6 +413,10 @@ describe("Railway configuration", () => {
     const dockerfile = readRepoFile("Dockerfile");
     const buildArg = (name: string) => new RegExp(`^\\s*ARG\\s+${name}\\b`, "m");
     const buildTime = nextPublicNamesIn(readRepoFile(BUILD_TIME_FILE));
+    // A public build constant explicitly compiled by next.config.ts, not a
+    // runtime service setting. Keep the assertion tied to its source.
+    expect(readRepoFile("apps/web/next.config.ts")).toMatch(/env:\s*\{\s*LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES:\s*CLIP_MEDIA_SOURCES\s*\}/);
+    buildTime.add("LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES");
     // A control: the ROM address comes from the committed file.
     expect([...buildTime]).toContain("NEXT_PUBLIC_ROM_CDN_URL");
     const web = await loadService();
