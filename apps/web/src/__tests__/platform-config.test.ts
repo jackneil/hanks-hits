@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRailwayContext, project, type ServiceNode } from "railway/iac";
@@ -21,13 +22,14 @@ import railwayProgram, { partial } from "../../../../.railway/railway";
  *   fixed by #96307pr in 16.3.0), and the clips encoder runs in a worker.
  * - Next 16.3 `next dev` writes AGENTS.md and CLAUDE.md into apps/web when it
  *   detects a coding agent. The repo root CLAUDE.md is the only agent guide.
- * - Railway: railway.toml (Config as Code) sets the deploy settings until the
- *   one-time migration in .railway/README.md. .railway/railway.ts (Infrastructure
- *   as Code) is the prepared replacement. While both files exist, they must
- *   hold the same values, or the migration changes production settings.
+ * - Railway: .railway/railway.ts (Infrastructure as Code) is applied and is
+ *   the only source of the build and deploy settings. A railway.toml or
+ *   railway.json (Config as Code) in the repository would override it at
+ *   every deploy, so these tests fail if one comes back.
  *   `railway config apply` deletes every variable that railway.ts does not
  *   declare and detaches the service when railway.ts has no source, so these
- *   tests pin the source and keep every variable as preserve().
+ *   tests pin the build and deploy values and the source, and keep every
+ *   variable as preserve().
  */
 
 const REPO_ROOT = join(__dirname, "..", "..", "..", "..");
@@ -107,58 +109,13 @@ describe("Next.js version", () => {
   });
 });
 
-type TomlValue = string | number | boolean;
-
-/**
- * Reads the flat railway.toml format: [section] headers and `key = value`
- * lines with string, number or boolean values. Any other line fails the test,
- * so a setting that this parser cannot read is never skipped without a signal.
- */
-function parseFlatToml(source: string): Record<string, Record<string, TomlValue>> {
-  const sections: Record<string, Record<string, TomlValue>> = {};
-  let current: Record<string, TomlValue> | null = null;
-  const lines = source.split("\n");
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const rawLine = lines[index];
-    const where = `railway.toml line ${index + 1}`;
-    const line = rawLine.replace(/\s+#[^"]*$/, "").trim();
-    if (line === "" || line.startsWith("#")) continue;
-
-    const header = line.match(/^\[([A-Za-z0-9_]+)\]$/);
-    if (header) {
-      current = sections[header[1]] ??= {};
-      continue;
-    }
-
-    const pair = line.match(/^([A-Za-z0-9_]+)\s*=\s*(.+)$/);
-    if (!pair || current === null) {
-      throw new Error(`${where} is not a flat setting: "${rawLine}"`);
-    }
-    const [, key, rawValue] = pair;
-    if (/^"[^"]*"$/.test(rawValue)) current[key] = rawValue.slice(1, -1);
-    else if (/^-?\d+(\.\d+)?$/.test(rawValue)) current[key] = Number(rawValue);
-    else if (rawValue === "true" || rawValue === "false") current[key] = rawValue === "true";
-    else throw new Error(`${where} has a value this test cannot read: "${rawLine}"`);
-  }
-
-  return sections;
-}
-
-// Enum settings: Config as Code writes them in lower case ("dockerfile",
-// "on_failure"), Infrastructure as Code in upper case. Paths and other
-// strings must match exactly.
-const ENUM_SETTINGS = new Set(["build.builder", "deploy.restartPolicyType"]);
-
-function normalizeSetting(setting: string, value: unknown): unknown {
-  return ENUM_SETTINGS.has(setting) && typeof value === "string" ? value.toUpperCase() : value;
-}
-
-// The variables that the hanks-garage service had on Railway (read-only
-// `railway config plan`, 2026-09-28), and the clips variables that the app
-// reads in production (CLIPS_MODE, CLIPS_DOGFOOD_USER_IDS; not set on
-// Railway yet). An apply deletes a variable that is missing from
-// railway.ts. Edit this list only together with railway.ts.
+// The variables that the hanks-garage service holds on Railway (read-only
+// `railway config plan`, 2026-09-28 and 2026-10-02), and the clips variables
+// that the app reads in production (CLIPS_MODE, set to "on" on 2026-10-01;
+// CLIPS_DOGFOOD_USER_IDS, not set). NEXT_PUBLIC_ROM_CDN_URL is not here: its
+// value comes from BUILD_TIME_FILE at build time. An apply deletes a variable
+// that is missing from railway.ts. Edit this list only together with
+// railway.ts.
 // NEVER add CLIPS_LAB: the /clips-lab page answers 404 in production only
 // because that variable is not set.
 const RAILWAY_VARIABLES = [
@@ -169,12 +126,51 @@ const RAILWAY_VARIABLES = [
   "CLIPS_DOGFOOD_USER_IDS",
   "CLIPS_MODE",
   "DATABASE_URL",
-  "NEXT_PUBLIC_ROM_CDN_URL",
   "S3_ACCESS_KEY_ID",
   "S3_BUCKET",
   "S3_ENDPOINT",
   "S3_SECRET_ACCESS_KEY",
 ];
+
+/**
+ * The committed dotenv file that `next build` reads in the Docker build.
+ * Next.js puts each NEXT_PUBLIC_ value into the bundle at build time. The
+ * Dockerfile passes no build argument for these names, so a Railway variable
+ * with one of these names has no effect.
+ */
+const BUILD_TIME_FILE = "apps/web/.env.production";
+
+/** The NEXT_PUBLIC_ names that a dotenv file sets (`NAME=value` lines). */
+function nextPublicNamesIn(source: string): Set<string> {
+  const names = new Set<string>();
+  for (const line of source.split("\n")) {
+    const match = /^\s*(?:export\s+)?(NEXT_PUBLIC_[A-Z0-9_]+)\s*=/.exec(line);
+    if (match) names.add(match[1]);
+  }
+  return names;
+}
+
+/**
+ * The names of the files that make Railway use Config as Code. Railway reads
+ * such a file during every deploy, and its values override the values that
+ * `railway config apply` set from railway.ts.
+ */
+const CONFIG_AS_CODE_FILES = new Set(["railway.toml", "railway.json"]);
+
+/**
+ * Every file in this checkout that git tracks or would add (ignored files
+ * are left out), and that is on disk. These are the files that can reach a
+ * Railway deploy.
+ */
+function repositoryFiles(): string[] {
+  return execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  })
+    .split("\n")
+    .filter((file) => file !== "" && existsSync(join(REPO_ROOT, file)));
+}
 
 /**
  * Functions that take process.env whole, and the names that each one reads.
@@ -279,31 +275,40 @@ describe("Railway configuration", () => {
     return web;
   }
 
-  it("has one Config as Code file at most: railway.toml, never railway.json", () => {
+  it("has no Config as Code file, so a deploy cannot override what railway.ts applied", () => {
     expect(existsSync(join(REPO_ROOT, ".railway", "railway.ts"))).toBe(true);
-    expect(existsSync(join(REPO_ROOT, "railway.json"))).toBe(false);
+    const files = repositoryFiles();
+    // A control: the listing sees the files of this repository.
+    expect(files).toContain(".railway/railway.ts");
+    expect(files).toContain("Dockerfile");
+    const configAsCode = files.filter((file) => CONFIG_AS_CODE_FILES.has(file.split("/").pop() ?? ""));
+    expect(configAsCode).toEqual([]);
   });
 
   it("is a named partial, so an apply cannot delete the rest of the project", () => {
     expect(partial).toBe("hanks-garage");
   });
 
-  it("sets the deploy settings of the hanks-garage service", async () => {
+  it("sets the build and deploy settings of the hanks-garage service", async () => {
+    // railway.ts is the only source of these values. Exact objects, so a
+    // setting that is added, removed or changed fails here first, before a
+    // plan shows it as a production change.
     const web = await loadService();
-    expect(web).toMatchObject({
-      address: "service.hanks-garage",
-      name: "hanks-garage",
-      build: {
-        builder: "DOCKERFILE",
-        dockerfilePath: "Dockerfile",
-      },
-      deploy: {
-        healthcheckPath: "/",
-        healthcheckTimeout: 100,
-        restartPolicyType: "ON_FAILURE",
-        restartPolicyMaxRetries: 3,
-      },
+    expect(web.address).toBe("service.hanks-garage");
+    expect(web.name).toBe("hanks-garage");
+    expect(web.build).toEqual({
+      builder: "DOCKERFILE",
+      dockerfilePath: "Dockerfile",
     });
+    // No restartPolicyType: ON_FAILURE is the Railway default, Railway
+    // stores no default value, and declaring it made every plan show a
+    // change that an apply cannot clear (see railway.ts).
+    expect(web.deploy).toEqual({
+      healthcheckPath: "/",
+      healthcheckTimeout: 100,
+      restartPolicyMaxRetries: 3,
+    });
+    expect(existsSync(join(REPO_ROOT, "Dockerfile"))).toBe(true);
   });
 
   it("keeps the service connected to the master branch of this repository", async () => {
@@ -362,15 +367,21 @@ describe("Railway configuration", () => {
     }
     // Names that the platform or Next.js sets, never a Railway variable.
     const PLATFORM = new Set(["NODE_ENV"]);
+    // Names that the build takes from BUILD_TIME_FILE (the next test keeps
+    // them off Railway).
+    const buildTime = nextPublicNamesIn(readRepoFile(BUILD_TIME_FILE));
     const web = await loadService();
     const declared = new Set(Object.keys(web.variables ?? {}));
     const missing = [...read]
-      .filter((name) => !PLATFORM.has(name) && !NEVER_ON_RAILWAY.has(name) && !declared.has(name))
+      .filter(
+        (name) => !PLATFORM.has(name) && !NEVER_ON_RAILWAY.has(name) && !buildTime.has(name) && !declared.has(name),
+      )
       .sort();
     expect(missing).toEqual([]);
-    // A control: the scan finds the clips variables, the database, and the
-    // lab switch (read through isClipsLabEnabled).
-    for (const name of ["CLIPS_MODE", "CLIPS_DOGFOOD_USER_IDS", "DATABASE_URL", "CLIPS_LAB"]) {
+    // A control: the scan finds the clips variables, the database, the lab
+    // switch (read through isClipsLabEnabled) and the ROM address (a
+    // build-time name).
+    for (const name of ["CLIPS_MODE", "CLIPS_DOGFOOD_USER_IDS", "DATABASE_URL", "CLIPS_LAB", "NEXT_PUBLIC_ROM_CDN_URL"]) {
       expect(read.has(name), name).toBe(true);
     }
     // The lab switch stays out of production, in the file and in the list.
@@ -381,40 +392,34 @@ describe("Railway configuration", () => {
     }
   });
 
-  it("holds the same settings in railway.toml and railway.ts while both files exist", async () => {
-    const tomlPath = join(REPO_ROOT, "railway.toml");
-    if (!existsSync(tomlPath)) return;
-
-    const toml = parseFlatToml(readFileSync(tomlPath, "utf8"));
+  it("takes each NEXT_PUBLIC_ value from the build, never from a dead Railway variable", async () => {
+    // Next.js puts a NEXT_PUBLIC_ value into the bundle at build time.
+    // Railway gives a service variable to a Docker build only through an ARG
+    // line in the Dockerfile, so without one the Railway variable has no
+    // effect (NEXT_PUBLIC_ROM_CDN_URL was such a variable until 2026-10-02).
+    const dockerfile = readRepoFile("Dockerfile");
+    const buildArg = (name: string) => new RegExp(`^\\s*ARG\\s+${name}\\b`, "m");
+    const buildTime = nextPublicNamesIn(readRepoFile(BUILD_TIME_FILE));
+    // A control: the ROM address comes from the committed file.
+    expect([...buildTime]).toContain("NEXT_PUBLIC_ROM_CDN_URL");
     const web = await loadService();
-    const iac: Record<string, Record<string, unknown>> = {
-      build: { ...web.build },
-      deploy: { ...web.deploy },
-    };
-
-    expect(Object.keys(toml).sort()).toEqual(Object.keys(iac).sort());
-    for (const section of Object.keys(iac)) {
-      const tomlSection = toml[section];
-      const iacSection = iac[section];
-      expect({ section, keys: Object.keys(tomlSection).sort() }).toEqual({
-        section,
-        keys: Object.keys(iacSection).sort(),
-      });
-      for (const key of Object.keys(iacSection)) {
-        const setting = `${section}.${key}`;
-        expect({ setting, value: normalizeSetting(setting, tomlSection[key]) }).toEqual({
-          setting,
-          value: normalizeSetting(setting, iacSection[key]),
-        });
-      }
+    const declared = new Set(Object.keys(web.variables ?? {}));
+    for (const name of buildTime) {
+      // The committed value is the only value: no ARG or ENV can replace it,
+      // and Railway does not declare the name.
+      expect(dockerfile, name).not.toMatch(new RegExp(`^\\s*(?:ARG|ENV)\\b.*\\b${name}\\b`, "m"));
+      expect(declared.has(name), name).toBe(false);
+      expect(RAILWAY_VARIABLES).not.toContain(name);
+    }
+    // A NEXT_PUBLIC_ variable on Railway needs an ARG line, or it is dead.
+    for (const name of [...declared].filter((name) => name.startsWith("NEXT_PUBLIC_"))) {
+      expect(dockerfile, name).toMatch(buildArg(name));
     }
   });
 
-  it("reads every railway.toml line or fails with the line number", () => {
-    expect(parseFlatToml('# note\n[build]\nbuilder = "dockerfile" # why\nretries = 3\n')).toEqual({
-      build: { builder: "dockerfile", retries: 3 },
-    });
-    expect(() => parseFlatToml("[deploy]\nhealthcheckPath = [\"/\"]\n")).toThrow(/line 2/);
-    expect(() => parseFlatToml('builder = "dockerfile"\n')).toThrow(/line 1/);
+  it("reads the NEXT_PUBLIC_ names of a dotenv file", () => {
+    expect([
+      ...nextPublicNamesIn("# note\nNEXT_PUBLIC_A=/x\nexport NEXT_PUBLIC_B = y\nSECRET=z\n# NEXT_PUBLIC_C=no\n"),
+    ]).toEqual(["NEXT_PUBLIC_A", "NEXT_PUBLIC_B"]);
   });
 });
