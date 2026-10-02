@@ -76,14 +76,52 @@ describe("Endless Runner under the shell's hold", () => {
     });
     const firstStep = distance() - atHold;
     const afterFirst = distance();
-    // The loop effect re-runs on each store change (render is a dependency),
-    // so an update frame is followed by a seed frame: two frames make one
-    // more step.
+    // Every frame moves the world by its own time (loop.test.tsx), so the
+    // next two frames make two such moves.
     raf.runFor(2000 / 60, 60, act);
-    const nextStep = distance() - afterFirst;
+    const nextStep = (distance() - afterFirst) / 2;
     expect(firstStep).toBeGreaterThan(0);
-    // The frame after the wait is one normal frame, like the one after it,
+    // The frame after the wait is one normal frame, like the ones after it,
     // not thirty seconds of running at once.
     expect(firstStep).toBeLessThanOrEqual(nextStep * 1.5);
+  });
+
+  // Review wave 2 (2026-10-02): a browser runs no animation frames in a
+  // hidden tab, so no frame sees the hold. The clock must start again when
+  // the hold changes, not only when a frame sees it, or the first frame
+  // after the tab comes back moves the world by the whole wait (capped, but
+  // 4x a normal frame: a visible hitch).
+  it("starts the clock again after a hold that no frame saw (a hidden tab)", () => {
+    const { rerender } = render(<Game held={false} />);
+    act(() => useEndlessRunnerStore.getState().startGame());
+    raf.runFor(200, 60, act);
+    expect(distance(), "the run moves while it is free").toBeGreaterThan(0);
+
+    // A normal 60 Hz frame, measured before the hide.
+    const beforeFrame = distance();
+    act(() => {
+      raf.nextFrame(60);
+    });
+    const normalFrame = distance() - beforeFrame;
+    expect(normalFrame).toBeGreaterThan(0);
+
+    // The tab hides: the hold comes on, and then no frame runs at all.
+    rerender(<Game held />);
+    raf.stall(30_000);
+    // The tab shows again: the hold goes off before the next frame runs.
+    rerender(<Game held={false} />);
+    const atShow = distance();
+
+    act(() => {
+      raf.nextFrame(60);
+    });
+    expect(distance(), "the first frame after the hidden tab only starts the clock").toBe(atShow);
+    act(() => {
+      raf.nextFrame(60);
+    });
+    const firstStep = distance() - atShow;
+    expect(firstStep).toBeGreaterThan(0);
+    // One normal frame (the speed rises a very little between frames).
+    expect(firstStep).toBeLessThan(normalFrame * 1.05);
   });
 });

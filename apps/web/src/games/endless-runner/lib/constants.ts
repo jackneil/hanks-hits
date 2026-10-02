@@ -5,12 +5,29 @@
 export const CANVAS_WIDTH = 800;
 export const CANVAS_HEIGHT = 400;
 
+// Ground settings
+export const GROUND = {
+  HEIGHT: 60,
+  COLOR: "#8B5A2B",
+  GRASS_COLOR: "#228B22",
+  GRASS_HEIGHT: 10,
+} as const;
+
+/**
+ * The top of the grass. The single floor line of the world: the runner's
+ * feet, the bottom of every crate and the drawn grass all sit on it, and
+ * every other height (air bars, coins) is measured up from it. Before this
+ * the runner's floor was 20 px above the grass and the crates floated 40 px
+ * above the runner's feet, so ducking passed under every crate.
+ */
+export const FLOOR_Y = CANVAS_HEIGHT - GROUND.HEIGHT;
+
 // Player settings
 export const PLAYER = {
   WIDTH: 40,
   HEIGHT: 50,
   X: 100, // Fixed X position (player runs in place, world scrolls)
-  GROUND_Y: CANVAS_HEIGHT - 80, // Y position when on ground
+  GROUND_Y: FLOOR_Y, // The runner's feet when on the ground
   // Hitbox is smaller than visual for forgiving collisions (20% smaller)
   HITBOX_PADDING: 8,
   // Colors
@@ -19,20 +36,47 @@ export const PLAYER = {
   COLOR_HAIR: "#8B4513",
 } as const;
 
-// Physics - tuned for responsive, fun jumping
-export const PHYSICS = {
-  GRAVITY: 0.8, // pixels/frame^2
-  JUMP_VELOCITY: -15, // pixels/frame - upward impulse
-  MAX_FALL_SPEED: 12, // terminal velocity
-  DUCK_HEIGHT: 25, // Player height when ducking
+/**
+ * The runner's drawing, in its own frame: x from PLAYER.X, y from the feet
+ * (negative is up). Game.tsx draws the runner from these numbers and
+ * lib/geometry.ts makes the coin box from them (runnerSilhouette), so a
+ * coin that touches the drawn runner is a coin collected. The obstacle
+ * hitbox stays the smaller, forgiving PLAYER box.
+ */
+export const RUNNER_ART = {
+  // Standing, running and jumping: the hair is the top, the arms reach out.
+  HEAD_Y: -(PLAYER.HEIGHT + 17),
+  HEAD_R: 14,
+  HAIR_Y: -(PLAYER.HEIGHT + 22),
+  HAIR_R: 12,
+  ARM_REACH: PLAYER.WIDTH / 2 + 5,
+  ARM_WIDTH: 8,
+  LEG_LENGTH: 22,
+  // Ducking: a low slide with the head tucked in front.
+  DUCK_BODY_HEIGHT: 20,
+  DUCK_HEAD_X: 14,
+  DUCK_HEAD_Y: -17,
+  DUCK_HEAD_R: 10,
 } as const;
 
-// Ground settings
-export const GROUND = {
-  HEIGHT: 60,
-  COLOR: "#8B5A2B",
-  GRASS_COLOR: "#228B22",
-  GRASS_HEIGHT: 10,
+/**
+ * One game step in real time. The speeds, the jump and the gaps are all
+ * counted in steps. The game has always played at 30 steps a second: its
+ * loop used to start again after every update, so every other screen frame
+ * only drew. The loop now updates on every frame (smooth at any refresh
+ * rate) and keeps the pace kids know. 1000 / 60 would double the speed.
+ */
+export const STEP_MS = 1000 / 30;
+
+/** The most game time one update covers, in steps: a slow frame never jumps the world far. */
+export const MAX_STEPS_PER_UPDATE = 2;
+
+// Physics - tuned for responsive, fun jumping
+export const PHYSICS = {
+  GRAVITY: 0.8, // pixels/step^2
+  JUMP_VELOCITY: -15, // pixels/step - upward impulse
+  MAX_FALL_SPEED: 12, // terminal velocity
+  DUCK_HEIGHT: 25, // Player height when ducking
 } as const;
 
 // Obstacle settings
@@ -43,10 +87,19 @@ export const OBSTACLE = {
   AIR_WIDTH: 60, // Air obstacles (duck under)
   AIR_HEIGHT: 30,
   AIR_COLOR: "#7C3AED", // Purple bars
-  AIR_Y: CANVAS_HEIGHT - 80 - 60, // Position for air obstacles
-  // Minimum gap between obstacles (in pixels) - generous for kids
-  MIN_SPACING: 300,
-  MAX_SPACING: 500,
+  // Top of an air bar: its bottom is 30 px above the floor, so a standing
+  // runner hits it and a ducking runner passes under it.
+  AIR_Y: FLOOR_Y - 60,
+  // Clear road between the back of one obstacle and the front of the next,
+  // counted in update steps (STEP_MS each, 1/30 s), so it holds
+  // at every speed. The least is one whole jump (lib/geometry.ts measures
+  // it from PHYSICS) plus REACTION_STEPS: a kid who jumps a crate lands with
+  // time to see the next one and react. At the starting speed this is the
+  // old 300 to 500 px; a fixed pixel gap was shorter than one jump at top
+  // speed.
+  REACTION_STEPS: 24,
+  // A random extra on top of the least, so the rhythm is not a metronome.
+  EXTRA_GAP_STEPS: 40,
 } as const;
 
 // Coin settings
@@ -55,20 +108,22 @@ export const COIN = {
   COLOR: "#FFD700",
   OUTLINE_COLOR: "#DAA520",
   VALUE: 10,
-  // Spawn height variations
-  LOW_Y: CANVAS_HEIGHT - 80 - 30, // Ground level coins
-  MID_Y: CANVAS_HEIGHT - 80 - 70, // Mid-jump coins
-  HIGH_Y: CANVAS_HEIGHT - 80 - 110, // High jump coins
+  // Coins start this far in front of the obstacle they come with.
+  LEAD: 150,
+  // Spawn height variations (the coin's centre). The standing runner's
+  // drawing reaches 84 px up (RUNNER_ART), and the coin box is that drawing.
+  LOW_Y: FLOOR_Y - 30, // Ground level coins: running or ducking collects them
+  MID_Y: FLOOR_Y - 100, // Mid-jump coins: just over the head, any hop collects them
+  HIGH_Y: FLOOR_Y - 140, // High jump coins: a real jump
   // Coin patterns spawn rate
   SPAWN_CHANCE: 0.6, // 60% chance per obstacle gap
 } as const;
 
 // Speed settings - gradual increase for kids
 export const SPEED = {
-  INITIAL: 5, // Starting speed (pixels/frame)
+  INITIAL: 5, // Starting speed (pixels/step)
   MAX: 12, // Maximum speed
-  INCREASE_RATE: 0.001, // Speed increase per frame
-  INCREASE_INTERVAL: 60, // Frames between speed checks
+  INCREASE_RATE: 0.001, // Speed increase per step
 } as const;
 
 // Scoring
