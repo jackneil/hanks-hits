@@ -28,7 +28,7 @@
  * - deploy (the wave-3 deploy matrix): a save of the old code (the 86a1fe0
  *   format and master's 904bc09 format), played or untouched, on a device
  *   where this account synced before; the account row missing, older,
- *   newer, or untouched (the defaults with a page-load time).
+ *   equal, newer, or untouched (the defaults with a page-load time).
  * - guestLots: a guest with a lot of play on this device signs in to an
  *   account with a little progress.
  * - blankOutage: a signed-in kid on a blank device; the first GET fails for
@@ -84,7 +84,7 @@ export const FORMATS = ["86a1fe0", "904bc09"] as const;
 export type Format = (typeof FORMATS)[number];
 const DEVICES = ["played", "untouched"] as const;
 type Device = (typeof DEVICES)[number];
-const ROWS = ["missing", "older", "newer", "untouched"] as const;
+const ROWS = ["missing", "older", "equal", "newer", "untouched"] as const;
 type RowKind = (typeof ROWS)[number];
 
 const LEGACY: Record<Format, Record<string, Record<string, unknown>>> = {
@@ -532,6 +532,7 @@ function deployCell(entry: SyncedStoreEntry, format: Format, device: Device, row
       await loadPage(entry);
       let row: Progress | null = null;
       if (rowKind === "older") row = withTime(entry, inputs.account, T("2026-08-15T10:00:00Z"));
+      else if (rowKind === "equal") row = withTime(entry, inputs.account, Number(inputs.device[format][device][entry.timeKey]) || 0);
       else if (rowKind === "newer") row = withTime(entry, inputs.account, T("2026-10-20T12:00:00Z"));
       else if (rowKind === "untouched") row = withTime(entry, inputs.defaults, T("2026-10-15T10:00:00Z"));
       if (row) putRow(ctx, "user-1", entry.appId, row);

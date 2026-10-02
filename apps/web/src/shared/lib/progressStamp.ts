@@ -25,9 +25,9 @@
  * - A continuous change (a clock that runs while the page is open: Cookie
  *   Clicker's bake, the Four-Wheeler world clock, the pet's needs) keeps
  *   the time. A stamp there made an idle page newer than what the kid did
- *   on another device, and the idle page's saves replaced it. The server
- *   takes a save with the same time as its row (the same line of play,
- *   lib/progress-merge.ts), so the change still reaches the account.
+ *   on another device, and the idle page's saves replaced it. Equal-time
+ *   saves retain the stored row and reconcile reviewed record fields.
+ *   Lineage-aware automatic progress remains part of B2.
  *
  * src/__tests__/progress-stamp-fuzz.test.ts drives every synced store with
  * seeded random actions and holds each store to these rules.

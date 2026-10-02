@@ -27,16 +27,17 @@ describe("mergeProgress", () => {
     expect(result.data.score).toBe(200);
   });
 
-  it("on an equal time, the incoming save wins: it continues the row's line of play (an idle bakery's bake)", () => {
+  it("retains the stored wallet on equal timestamps while reconciling earned records", () => {
     const result = mergeProgress(
+      { cookies: 2_000, totalCookiesBaked: 12_000, lastModified: 1000 },
       { cookies: 9_000, totalCookiesBaked: 9_500, lastModified: 1000 },
-      { cookies: 2_000, totalCookiesBaked: 2_500, lastModified: 1000 },
       1000,
-      1000
+      1000,
+      "cookie-clicker"
     );
-
+    expect(result.base).toBe("server");
     expect(result.data.cookies).toBe(9_000);
-    expect(result.data.totalCookiesBaked).toBe(9_500);
+    expect(result.data.totalCookiesBaked).toBe(12_000);
   });
 
   it("uses local data when there is no existing server data", () => {

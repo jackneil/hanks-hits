@@ -982,9 +982,9 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
 - A continuous change never stamps: a clock that runs while the page is
   open (Cookie Clicker's bake, the Four-Wheeler world clock, the pet's
   needs). A stamp there makes an idle page newer than what the kid did on
-  another device, and its saves replace that. The server takes a save
-  with the same time as its row (the same line of play), so the change
-  still reaches the account.
+  another device, and its saves replace that. Equal-time saves retain
+  the stored row, with only the reviewed field reconciliation applied.
+  Lineage-aware automatic progress remains part of B2.
 - A page that changes progress by itself waits for `ready` from
   `useAuthSync`. Then the change applies to the account's progress, not to
   an old copy on the device. When the account cannot be reached for
@@ -1050,8 +1050,8 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
   session. Account changes during or after the first sync lock uploads,
   clear foreign saves, and reload. Debounce, force-sync, unload, and unmount
   all use the same ownership check.
-- The server takes a save with the same time as its row
-  (`mergeProgress`): it is the same line of play, and the later write.
+- Equal-time saves keep the stored row under master's existing conflict
+  ordering. Equal timestamps do not establish shared lineage.
 
 **Enforcement:**
 
@@ -1081,10 +1081,18 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
   Virtual Pet, and the server's real merge.
 - `src/__tests__/no-worse-than-master.test.tsx` compares every deploy,
   guest, outage, in-flight, tab and owner cell with the rollback build.
-  Every cell must lose no value that master keeps. Devices still untouched
+  Every cell must lose no value that master keeps, except the four
+  explicitly approved legacy load decisions below. Devices still untouched
   at synchronization and second-tab cases must improve where master loses
   progress. A device played during GET is touched and follows normal LWW.
-  No conflicting-value exemption is permitted.
+  No general conflicting-value exemption is permitted.
+- **Approved legacy load difference (2026-10-02):** Monster Truck and
+  Oregon Trail old saves contain no timestamp. B1 assigns one on load;
+  master kept assigning a later one on each read. At the equal-row boundary,
+  two legacy formats select the account wallet/journey where master selected
+  the device wallet/journey. Jack approved this behavior with the differences
+  documented. `approved-legacy-load-differences.json` records only the exact
+  four cases (18 differing values); additional differences still fail.
 
 **Deferred to #69i.** Per-store client record rules, weight-based base
 selection, refused guest-fold recovery, lineage/base-version handling,

@@ -325,7 +325,7 @@ function reconcileByName(
  *
  * - If only one side has data, it wins outright.
  * - Otherwise the side with the newer timestamp is the base (on equal
- *   timestamps, the local side: the incoming write), and monotonic
+ *   timestamps, the stored server side), and monotonic
  *   counters / unlockables from the older side are folded in so a stale blob
  *   can never erase earned progress.
  */
@@ -360,11 +360,8 @@ export function mergeProgress(
   const localTime = localTimestamp || 0;
   const serverTime = serverTimestamp || 0;
 
-  // An equal time is the same line of play: a save that continues the
-  // row's progress without a new player change (the bake of an idle Cookie
-  // Clicker, a pet's needs). The incoming save is the later write, so it
-  // wins. The new code never uploads time 0 (untouched progress).
-  const serverWins = serverTime > localTime;
+  // Equal timestamps do not prove shared lineage. Preserve the stored row.
+  const serverWins = serverTime >= localTime;
   const winner = serverWins ? serverData : localData;
   const loser = serverWins ? localData : serverData;
 
