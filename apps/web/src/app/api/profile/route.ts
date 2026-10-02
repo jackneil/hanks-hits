@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db, eq } from "@hank-neil/db";
 import { users } from "@hank-neil/db/schema";
 import { validateDisplayName } from "@/lib/validators";
+import { describeError } from "@/lib/describe-error";
 
 // Rate limiting for name changes (basic in-memory, resets on redeploy)
 const nameChangeAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -63,7 +64,7 @@ export async function GET() {
       // Don't expose: password, updatedAt
     });
   } catch (error) {
-    console.error("GET /api/profile error:", error);
+    console.error("GET /api/profile error:", describeError(error));
     return NextResponse.json(
       { error: "Failed to fetch profile" },
       { status: 500 }
@@ -120,7 +121,7 @@ export async function PATCH(request: Request) {
       name: trimmedName,
     });
   } catch (error) {
-    console.error("PATCH /api/profile error:", error);
+    console.error("PATCH /api/profile error:", describeError(error));
     return NextResponse.json(
       { error: "Failed to update profile" },
       { status: 500 }

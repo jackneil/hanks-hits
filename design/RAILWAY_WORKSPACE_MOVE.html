@@ -182,7 +182,8 @@ PGCONNECT_TIMEOUT=60 pg_dump "$URL" -Fc -f ~/railway-backup/hanks-hits/pre-move.
 createdb hh_restore_check
 pg_restore -d hh_restore_check ~/railway-backup/hanks-hits/pre-move.dump
 psql hh_restore_check -c "select relname, n_live_tup from pg_stat_user_tables order by n_live_tup desc"
-# compare those counts against the same query on the live database</code></pre>
+# compare those counts against the same query on the live database
+dropdb hh_restore_check   # the drill is done; the dump file is the backup</code></pre>
   Note: the TCP proxy accepted a connection but psql needed a long timeout on first contact. If it still stalls, dump from inside the container with <code>railway ssh</code> instead.</li>
   <li>Mirror the ROM bucket to local disk and count the objects.
 <pre><code>railway bucket credentials --bucket app-files --json   # endpoint, bucket name, key id, secret

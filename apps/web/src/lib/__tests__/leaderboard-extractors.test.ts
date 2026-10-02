@@ -4,8 +4,14 @@ import {
   LEADERBOARD_ENABLED_GAMES,
   extractLeaderboardScore,
   getGameScoreType,
+  toBoardEntry,
+  toBoardScore,
 } from "../leaderboard-extractors";
-import { leaderboardEntrySchema, type ScoreType } from "../leaderboard-schemas";
+import {
+  MAX_BOARD_SCORE,
+  leaderboardEntrySchema,
+  type ScoreType,
+} from "../leaderboard-schemas";
 
 const extractorSamples = {
   "2048": {
@@ -173,5 +179,113 @@ describe("leaderboard extractors", () => {
         bestTimes: { easy: null, medium: 0 },
       })
     ).toBeNull();
+  });
+});
+
+/** Add a fraction to every positive number in a sample blob. */
+function withFractions(value: unknown): unknown {
+  if (typeof value === "number") return value > 0 ? value + 0.37 : value;
+  if (Array.isArray(value)) return value.map(withFractions);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, withFractions(v)])
+    );
+  }
+  return value;
+}
+
+describe("toBoardScore (leaderboard_entries.score is a Postgres bigint)", () => {
+  it("rounds high_score DOWN: a board never shows more than was achieved", () => {
+    expect(toBoardScore(4189.294008871742, "high_score")).toBe(4189); // Hill Climb, prod
+    expect(toBoardScore(436.8441000000125, "high_score")).toBe(436); // Cookie Clicker, prod
+    expect(toBoardScore(99.999, "high_score")).toBe(99);
+    expect(toBoardScore(2048, "high_score")).toBe(2048);
+    expect(toBoardScore(0.4, "high_score")).toBe(0);
+  });
+
+  it("rounds wins DOWN", () => {
+    expect(toBoardScore(3.9, "wins")).toBe(3);
+    expect(toBoardScore(5, "wins")).toBe(5);
+  });
+
+  it("rounds fastest_time UP: a board never shows a time faster than achieved", () => {
+    expect(toBoardScore(12500.2, "fastest_time")).toBe(12501);
+    expect(toBoardScore(92500.000001, "fastest_time")).toBe(92501);
+    expect(toBoardScore(92500, "fastest_time")).toBe(92500);
+    expect(toBoardScore(0.1, "fastest_time")).toBe(1);
+  });
+
+  it("gives no score for negatives, NaN, Infinity, or a non-number", () => {
+    for (const type of ["high_score", "wins", "fastest_time"] as const) {
+      expect(toBoardScore(-1, type), type).toBeNull();
+      expect(toBoardScore(-0.5, type), type).toBeNull();
+      expect(toBoardScore(Number.NaN, type), type).toBeNull();
+      expect(toBoardScore(Number.POSITIVE_INFINITY, type), type).toBeNull();
+      expect(toBoardScore(Number.NEGATIVE_INFINITY, type), type).toBeNull();
+      expect(toBoardScore("4189", type), type).toBeNull();
+      expect(toBoardScore(undefined, type), type).toBeNull();
+    }
+  });
+
+  it("holds the 1e12 bound after rounding", () => {
+    expect(MAX_BOARD_SCORE).toBe(1_000_000_000_000);
+    expect(toBoardScore(MAX_BOARD_SCORE, "high_score")).toBe(MAX_BOARD_SCORE);
+    expect(toBoardScore(MAX_BOARD_SCORE + 0.5, "high_score")).toBe(MAX_BOARD_SCORE);
+    expect(toBoardScore(MAX_BOARD_SCORE + 1, "high_score")).toBeNull();
+    expect(toBoardScore(MAX_BOARD_SCORE - 0.5, "fastest_time")).toBe(MAX_BOARD_SCORE);
+    expect(toBoardScore(MAX_BOARD_SCORE + 0.5, "fastest_time")).toBeNull();
+  });
+
+  it("never returns negative zero", () => {
+    expect(Object.is(toBoardScore(-0, "high_score"), 0)).toBe(true);
+    expect(Object.is(toBoardScore(-0, "fastest_time"), 0)).toBe(true);
+  });
+});
+
+describe("toBoardEntry", () => {
+  it("returns null for no extraction or nothing to rank after rounding", () => {
+    expect(toBoardEntry(null)).toBeNull();
+    expect(toBoardEntry({ score: 0.4, scoreType: "high_score" })).toBeNull();
+    expect(toBoardEntry({ score: Number.NaN, scoreType: "wins" })).toBeNull();
+  });
+
+  it("keeps the score type and stats and makes the score a whole number", () => {
+    expect(
+      toBoardEntry({
+        score: 4189.294008871742,
+        scoreType: "high_score",
+        stats: { totalCoinsEarned: 312 },
+      })
+    ).toEqual({
+      score: 4189,
+      scoreType: "high_score",
+      stats: { totalCoinsEarned: 312 },
+    });
+  });
+
+  it("makes a schema-valid entry for EVERY enabled game when its blob holds fractions", () => {
+    for (const appId of LEADERBOARD_ENABLED_GAMES) {
+      const sample = samplesByApp[appId];
+      if (!sample) continue;
+
+      const raw = extractLeaderboardScore(
+        appId,
+        withFractions(sample.data) as Record<string, unknown>
+      );
+      // The fraction reached the score field, so the bigint risk is real here.
+      expect(raw, appId).not.toBeNull();
+      expect(Number.isInteger(raw!.score), appId).toBe(false);
+      // The raw extraction is exactly what the bigint column rejects.
+      expect(leaderboardEntrySchema.safeParse(raw).success, appId).toBe(false);
+
+      const entry = toBoardEntry(raw);
+      expect(entry, appId).not.toBeNull();
+      expect(entry!.score, appId).toBe(
+        raw!.scoreType === "fastest_time"
+          ? Math.ceil(raw!.score)
+          : Math.floor(raw!.score)
+      );
+      expect(leaderboardEntrySchema.safeParse(entry).success, appId).toBe(true);
+    }
   });
 });

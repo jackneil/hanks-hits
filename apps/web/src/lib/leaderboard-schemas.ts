@@ -7,6 +7,12 @@ export const scoreTypeSchema = z.enum(["high_score", "wins", "fastest_time"]);
 export type ScoreType = z.infer<typeof scoreTypeSchema>;
 
 /**
+ * The largest score a board row may hold. It matches MAX_CURRENCY, the
+ * largest bound in the progress schemas.
+ */
+export const MAX_BOARD_SCORE = 1_000_000_000_000;
+
+/**
  * Validation schema for leaderboard entry data
  * Used to validate extracted scores before DB insert
  */
@@ -17,7 +23,11 @@ const leaderboardStatsSchema = z
   });
 
 export const leaderboardEntrySchema = z.object({
-  score: z.number().min(0).max(1_000_000_000_000), // MAX_CURRENCY
+  // leaderboard_entries.score is a Postgres bigint: a fraction makes the
+  // insert throw. toBoardEntry() makes the integer. With this rule, a path
+  // that skips it fails validation (in a test, or as a logged skip), never
+  // in Postgres.
+  score: z.number().int().min(0).max(MAX_BOARD_SCORE),
   scoreType: scoreTypeSchema,
   stats: leaderboardStatsSchema.optional(),
 }).strict();

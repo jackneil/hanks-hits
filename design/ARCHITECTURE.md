@@ -770,6 +770,61 @@ stayed in the box (issue #56).
 
 ---
 
+## Progress saves and leaderboards
+
+`POST /api/progress/[appId]` writes the player's save (`app_progress`).
+Then it writes the player's board row (`leaderboard_entries`) from a
+number in that save.
+
+**The save comes first.** The board row is a copy of a number that is
+already in the save. A failure of the board write must never lose the
+save.
+
+- The route writes the board row in a savepoint (a nested
+  `tx.transaction`). If the board write fails, Postgres rolls back to the
+  savepoint, and the save commits.
+- Do not replace the savepoint with a bare `try`/`catch`. A failed
+  statement aborts the Postgres transaction. The `COMMIT` of an aborted
+  transaction is a `ROLLBACK`, so the save is lost and the route still
+  sends 200.
+- The next save writes the board row again, because the route reads the
+  score from the full saved blob.
+
+**Board scores are whole numbers.** `leaderboard_entries.score` is a
+Postgres `bigint`. Some games keep fractions (the Hill Climb distance,
+the Cookie Clicker cookie count).
+
+- An extractor in `src/lib/leaderboard-extractors.ts` returns the raw
+  value. Do not round in an extractor.
+- `toBoardEntry()` makes the whole number for all games. It rounds
+  `high_score` and `wins` down, and `fastest_time` up, so a board never
+  shows a better result than the player got. It gives no entry for a
+  value that is negative, not finite, or more than 1e12.
+- `leaderboardEntrySchema` accepts only whole numbers.
+
+**Logs.** Do not log a raw error from a database call. The message of a
+drizzle error holds every query parameter: user ids, emails, password
+hashes, and progress blobs with names that kids type. Log
+`describeError(error)` from `src/lib/describe-error.ts`. It keeps the
+error classes, the SQLSTATE, the names of the table and the constraint,
+and the stack frames.
+
+**Tests.**
+
+- `src/app/api/progress/[appId]/__tests__/route.test.ts` runs the route
+  on an in-memory stand-in for Postgres. It runs every time.
+- `route.pg.test.ts` in the same folder runs the route on a real
+  Postgres. It runs only when `TEST_DATABASE_URL` names a server on this
+  computer, for example `postgres://localhost:5432/postgres`. The test
+  makes its own database, applies the migrations in
+  `packages/db/drizzle`, and drops the database. It refuses a server on
+  a different computer.
+- The pre-push hook sets `TEST_DATABASE_URL` when a local Postgres
+  answers. To run the test by hand:
+  `TEST_DATABASE_URL=postgres://localhost:5432/postgres pnpm --filter web test`.
+
+---
+
 ## Gameplay Clips
 
 A kid taps the clip button in the header, and the game keeps the last 30

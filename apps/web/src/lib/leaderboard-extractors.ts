@@ -3,9 +3,13 @@
  *
  * Each extractor takes progress data and returns the leaderboard score
  * for that game. Returns null if no valid score can be extracted.
+ *
+ * An extractor returns the raw value from the progress blob; a fraction is
+ * correct there. Do not round in an extractor: toBoardEntry() (below) makes
+ * the whole number that the bigint board column stores, for every game.
  */
 
-import type { ScoreType } from "./leaderboard-schemas";
+import { MAX_BOARD_SCORE, type ScoreType } from "./leaderboard-schemas";
 import { VALID_APP_IDS, type ValidAppId } from "@hank-neil/db/schema";
 
 export interface LeaderboardScore {
@@ -452,4 +456,50 @@ export function extractLeaderboardScore(
     console.warn(`[LEADERBOARD] Failed to extract score for ${appId}:`, error);
     return null;
   }
+}
+
+// ============================================================================
+// BOARD NORMALIZATION
+// ============================================================================
+
+/**
+ * Turn an extracted score into the whole number that a board row stores.
+ *
+ * leaderboard_entries.score is a Postgres bigint, and some games keep
+ * fractions in their progress (Hill Climb distance comes from the physics
+ * step; Cookie Clicker bakes fractional cookies each second). A fraction
+ * makes the insert throw. The rounding never flatters the player:
+ * - high_score and wins round DOWN: a board never shows more than was done.
+ * - fastest_time rounds UP: a board never shows a time faster than was done.
+ *
+ * Returns null (no board entry) for a value that is not a finite number, is
+ * negative, or is more than MAX_BOARD_SCORE after rounding.
+ */
+export function toBoardScore(
+  score: unknown,
+  scoreType: ScoreType
+): number | null {
+  if (typeof score !== "number" || !Number.isFinite(score) || score < 0) {
+    return null;
+  }
+  // "+ 0" turns -0 (valid JSON, and z.number().min(0) passes it) into 0.
+  const whole =
+    (scoreType === "fastest_time" ? Math.ceil(score) : Math.floor(score)) + 0;
+  return whole <= MAX_BOARD_SCORE ? whole : null;
+}
+
+/**
+ * The one boundary between an extractor and a board row: the progress route
+ * passes every extraction through here before it validates and writes it.
+ * The extractors keep their own meaning (raw values); this makes them
+ * storable. Returns null when there is nothing to rank: no extraction, a
+ * value toBoardScore refuses, or a score of 0 after rounding.
+ */
+export function toBoardEntry(
+  extracted: LeaderboardScore | null
+): LeaderboardScore | null {
+  if (!extracted) return null;
+  const score = toBoardScore(extracted.score, extracted.scoreType);
+  if (score === null || score === 0) return null;
+  return { ...extracted, score };
 }

@@ -16,12 +16,167 @@ import { generateUniqueHandle } from "@/lib/handle-generator";
 import {
   extractLeaderboardScore,
   hasLeaderboardSupport,
+  toBoardEntry,
 } from "@/lib/leaderboard-extractors";
 import { leaderboardEntrySchema } from "@/lib/leaderboard-schemas";
+import { describeError } from "@/lib/describe-error";
 
 type RouteContext = {
   params: Promise<{ appId: string }>;
 };
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** The UNIQUE constraint on gaming_profiles.handle (migration 0000). */
+const HANDLE_UNIQUE_CONSTRAINT = "gaming_profiles_handle_unique";
+
+/**
+ * True when the error (or a cause under it) is a unique violation (SQLSTATE
+ * 23505) on the gaming-profile handle. drizzle wraps the driver error in a
+ * DrizzleQueryError whose own message is the SQL text, so the check reads
+ * the driver fields on the cause chain, not the top-level message. Any other
+ * 23505 (for example gaming_profiles_user_id_unique) is not a collision.
+ */
+function isHandleCollision(err: unknown): boolean {
+  let e: unknown = err;
+  for (let depth = 0; depth < 5 && e && typeof e === "object"; depth++) {
+    const { code, constraint } = e as { code?: unknown; constraint?: unknown };
+    if (code === "23505" && constraint === HANDLE_UNIQUE_CONSTRAINT) {
+      return true;
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
+ * Write the player's board entry for one save. Runs inside the savepoint
+ * that POST opens, so a throw here undoes only the board work.
+ */
+async function syncLeaderboardEntry(
+  tx: Tx,
+  appId: ValidAppId,
+  userId: string,
+  finalData: AppProgressData,
+  now: Date
+): Promise<void> {
+  const extracted = extractLeaderboardScore(appId, finalData);
+  // The one place an extraction becomes a board entry: a whole number
+  // (bigint column), rounded so it never flatters the player.
+  const scoreData = toBoardEntry(extracted);
+
+  // DIAGNOSTIC: Log extraction results to debug empty leaderboards
+  if (!extracted) {
+    console.warn(
+      `[LEADERBOARD] No score extracted for ${appId}. Progress data keys:`,
+      Object.keys(finalData)
+    );
+    return;
+  }
+  if (!scoreData) {
+    console.warn(
+      `[LEADERBOARD] No rankable ${extracted.scoreType} score for ${appId} (not finite, below 1, or over the limit), skipping leaderboard update`
+    );
+    return;
+  }
+  console.log(
+    `[LEADERBOARD] Extracted score ${scoreData.score} (${scoreData.scoreType}) for ${appId}`
+  );
+
+  // Validate the board entry (bounds, integer, stats shape)
+  const validated = leaderboardEntrySchema.safeParse(scoreData);
+  if (!validated.success) {
+    console.warn(
+      `[LEADERBOARD] Invalid score for ${appId}:`,
+      validated.error.message
+    );
+    return; // Skip the board update; the progress save is unaffected
+  }
+
+  // Get or create gaming profile (server-side lookup by session)
+  // RACE-SAFE: Handles both userId race (same user, two tabs) and
+  // handle collision race (different users get same random handle)
+  let profile = await tx.query.gamingProfiles.findFirst({
+    where: eq(gamingProfiles.userId, userId),
+  });
+
+  if (!profile) {
+    // Try up to 3 times in case of handle collision
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const handle = await generateUniqueHandle(tx as unknown as typeof db);
+      try {
+        // Each attempt gets its own savepoint: a failed INSERT aborts the
+        // enclosing transaction in Postgres, so without one the retry below
+        // would run on an aborted transaction and fail again.
+        const [inserted] = await tx.transaction((attemptTx) =>
+          attemptTx
+            .insert(gamingProfiles)
+            .values({
+              userId,
+              handle,
+            })
+            .onConflictDoNothing({ target: gamingProfiles.userId })
+            .returning()
+        );
+
+        // If insert was a no-op (userId race - another tab won), fetch their profile
+        profile = inserted || await tx.query.gamingProfiles.findFirst({
+          where: eq(gamingProfiles.userId, userId),
+        });
+        break; // Success - exit retry loop
+      } catch (err) {
+        // Handle collision (different user got same random handle): the
+        // unique constraint on the 'handle' column triggers this.
+        if (isHandleCollision(err) && attempt < 2) {
+          console.warn(`[LEADERBOARD] Handle collision on attempt ${attempt + 1}, retrying...`);
+          continue; // Try again with a new handle
+        }
+        throw err; // Other errors or max retries exceeded
+      }
+    }
+
+    // Should never happen, but handle gracefully
+    if (!profile) {
+      console.error(`[LEADERBOARD] Failed to get/create a gaming profile for ${appId}`);
+      return;
+    }
+  }
+
+  // Upsert leaderboard entry (only if new score is better)
+  const isTimeBased = scoreData.scoreType === "fastest_time";
+
+  await tx
+    .insert(leaderboardEntries)
+    .values({
+      gamingProfileId: profile.id,
+      appId,
+      score: scoreData.score,
+      scoreType: scoreData.scoreType,
+      additionalStats: scoreData.stats || null,
+      achievedAt: now, // SERVER TIMESTAMP - never from client
+      syncedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        leaderboardEntries.gamingProfileId,
+        leaderboardEntries.appId,
+        leaderboardEntries.scoreType,
+      ],
+      set: {
+        // Only update if new score is better
+        score: isTimeBased
+          ? sql`CASE WHEN ${scoreData.score} < ${leaderboardEntries.score} THEN ${scoreData.score} ELSE ${leaderboardEntries.score} END`
+          : sql`CASE WHEN ${scoreData.score} > ${leaderboardEntries.score} THEN ${scoreData.score} ELSE ${leaderboardEntries.score} END`,
+        additionalStats: isTimeBased
+          ? sql`CASE WHEN ${scoreData.score} < ${leaderboardEntries.score} THEN ${JSON.stringify(scoreData.stats || {})}::jsonb ELSE ${leaderboardEntries.additionalStats} END`
+          : sql`CASE WHEN ${scoreData.score} > ${leaderboardEntries.score} THEN ${JSON.stringify(scoreData.stats || {})}::jsonb ELSE ${leaderboardEntries.additionalStats} END`,
+        achievedAt: isTimeBased
+          ? sql`CASE WHEN ${scoreData.score} < ${leaderboardEntries.score} THEN ${now} ELSE ${leaderboardEntries.achievedAt} END`
+          : sql`CASE WHEN ${scoreData.score} > ${leaderboardEntries.score} THEN ${now} ELSE ${leaderboardEntries.achievedAt} END`,
+        syncedAt: now,
+      },
+    });
+}
 
 /**
  * GET /api/progress/[appId]
@@ -79,7 +234,7 @@ export async function GET(request: Request, context: RouteContext) {
       updatedAt: progress.updatedAt.toISOString(),
     });
   } catch (error) {
-    console.error("GET /api/progress error:", error);
+    console.error("GET /api/progress error:", describeError(error));
     return NextResponse.json(
       { error: "Failed to fetch progress" },
       { status: 500 }
@@ -227,8 +382,10 @@ export async function POST(request: Request, context: RouteContext) {
     const now = new Date();
     const progressId = crypto.randomUUID();
 
-    // TRANSACTION: Save progress and sync leaderboard atomically
-    // This ensures data consistency between appProgress and leaderboard_entries
+    // TRANSACTION: Save progress, then sync the leaderboard in a savepoint.
+    // The progress blob is the player's save. The board row is a copy of a
+    // number already inside that blob, so a board failure must never take
+    // the save down with it.
     await db.transaction(async (tx) => {
       // 1. UPSERT progress: Insert or update atomically
       await tx
@@ -250,122 +407,22 @@ export async function POST(request: Request, context: RouteContext) {
           },
         });
 
-      // 2. LEADERBOARD SYNC: Extract and upsert leaderboard entry
+      // 2. LEADERBOARD SYNC in a SAVEPOINT (a nested drizzle transaction).
+      // If it throws, Postgres rolls back to the savepoint only: the progress
+      // upsert above still commits, and the next save retries the board.
       if (hasLeaderboardSupport(appId)) {
-        const scoreData = extractLeaderboardScore(
-          appId as ValidAppId,
-          finalData
-        );
-
-        // DIAGNOSTIC: Log extraction results to debug empty leaderboards
-        if (!scoreData) {
-          console.warn(
-            `[LEADERBOARD] No score extracted for ${appId}. Progress data keys:`,
-            Object.keys(finalData)
+        try {
+          await tx.transaction((sp) =>
+            syncLeaderboardEntry(sp, appId, userId, finalData, now)
           );
-        } else if (scoreData.score <= 0) {
-          console.warn(
-            `[LEADERBOARD] Score is ${scoreData.score} for ${appId}, skipping leaderboard update`
+        } catch (error) {
+          // Values-free on purpose: a driver error's text carries the query
+          // params (user id, score, stats), so log only the game and the
+          // error kind + SQLSTATE.
+          console.error(
+            `[LEADERBOARD] Board sync failed for ${appId}; progress saved without it:`,
+            describeError(error)
           );
-        } else {
-          console.log(
-            `[LEADERBOARD] Extracted score ${scoreData.score} (${scoreData.scoreType}) for ${appId}`
-          );
-        }
-
-        if (scoreData && scoreData.score > 0) {
-          // Validate extracted score
-          const validated = leaderboardEntrySchema.safeParse(scoreData);
-          if (!validated.success) {
-            console.warn(
-              `[LEADERBOARD] Invalid score for ${appId}:`,
-              validated.error.message
-            );
-            return; // Don't fail transaction, just skip leaderboard update
-          }
-
-          // Get or create gaming profile (server-side lookup by session)
-          // RACE-SAFE: Handles both userId race (same user, two tabs) and
-          // handle collision race (different users get same random handle)
-          let profile = await tx.query.gamingProfiles.findFirst({
-            where: eq(gamingProfiles.userId, userId),
-          });
-
-          if (!profile) {
-            // Try up to 3 times in case of handle collision
-            for (let attempt = 0; attempt < 3; attempt++) {
-              const handle = await generateUniqueHandle(tx as unknown as typeof db);
-              try {
-                const [inserted] = await tx
-                  .insert(gamingProfiles)
-                  .values({
-                    userId,
-                    handle,
-                  })
-                  .onConflictDoNothing({ target: gamingProfiles.userId })
-                  .returning();
-
-                // If insert was a no-op (userId race - another tab won), fetch their profile
-                profile = inserted || await tx.query.gamingProfiles.findFirst({
-                  where: eq(gamingProfiles.userId, userId),
-                });
-                break; // Success - exit retry loop
-              } catch (err) {
-                // Handle collision (different user got same random handle)
-                // The unique constraint on 'handle' column triggers this
-                const isHandleCollision = err instanceof Error &&
-                  err.message.includes("unique") &&
-                  err.message.toLowerCase().includes("handle");
-
-                if (isHandleCollision && attempt < 2) {
-                  console.warn(`[LEADERBOARD] Handle collision on attempt ${attempt + 1}, retrying...`);
-                  continue; // Try again with a new handle
-                }
-                throw err; // Other errors or max retries exceeded
-              }
-            }
-
-            // Should never happen, but handle gracefully
-            if (!profile) {
-              console.error(`[LEADERBOARD] Failed to get/create profile for user ${userId}`);
-              return;
-            }
-          }
-
-          // Upsert leaderboard entry (only if new score is better)
-          const isTimeBased = scoreData.scoreType === "fastest_time";
-
-          await tx
-            .insert(leaderboardEntries)
-            .values({
-              gamingProfileId: profile.id,
-              appId,
-              score: scoreData.score,
-              scoreType: scoreData.scoreType,
-              additionalStats: scoreData.stats || null,
-              achievedAt: now, // SERVER TIMESTAMP - never from client
-              syncedAt: now,
-            })
-            .onConflictDoUpdate({
-              target: [
-                leaderboardEntries.gamingProfileId,
-                leaderboardEntries.appId,
-                leaderboardEntries.scoreType,
-              ],
-              set: {
-                // Only update if new score is better
-                score: isTimeBased
-                  ? sql`CASE WHEN ${scoreData.score} < ${leaderboardEntries.score} THEN ${scoreData.score} ELSE ${leaderboardEntries.score} END`
-                  : sql`CASE WHEN ${scoreData.score} > ${leaderboardEntries.score} THEN ${scoreData.score} ELSE ${leaderboardEntries.score} END`,
-                additionalStats: isTimeBased
-                  ? sql`CASE WHEN ${scoreData.score} < ${leaderboardEntries.score} THEN ${JSON.stringify(scoreData.stats || {})}::jsonb ELSE ${leaderboardEntries.additionalStats} END`
-                  : sql`CASE WHEN ${scoreData.score} > ${leaderboardEntries.score} THEN ${JSON.stringify(scoreData.stats || {})}::jsonb ELSE ${leaderboardEntries.additionalStats} END`,
-                achievedAt: isTimeBased
-                  ? sql`CASE WHEN ${scoreData.score} < ${leaderboardEntries.score} THEN ${now} ELSE ${leaderboardEntries.achievedAt} END`
-                  : sql`CASE WHEN ${scoreData.score} > ${leaderboardEntries.score} THEN ${now} ELSE ${leaderboardEntries.achievedAt} END`,
-                syncedAt: now,
-              },
-            });
         }
       }
     });
@@ -377,7 +434,7 @@ export async function POST(request: Request, context: RouteContext) {
       conflicts,
     });
   } catch (error) {
-    console.error("POST /api/progress error:", error);
+    console.error("POST /api/progress error:", describeError(error));
     return NextResponse.json(
       { error: "Failed to save progress" },
       { status: 500 }
@@ -463,7 +520,7 @@ export async function DELETE(request: Request, context: RouteContext) {
       deleted: true,
     });
   } catch (error) {
-    console.error("DELETE /api/progress error:", error);
+    console.error("DELETE /api/progress error:", describeError(error));
     return NextResponse.json(
       { error: "Failed to delete progress" },
       { status: 500 }
