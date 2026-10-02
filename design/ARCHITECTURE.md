@@ -772,6 +772,15 @@ stayed in the box (issue #56).
 
 ## Gameplay Clips
 
+**Live check.** `pnpm e2e:clips-games <base-url>` (`e2e/clips-games/`) makes
+a clip in every game whose `metadata.ts` has `clips: true`. It plays each
+game by touch, taps the clip button (or the result chip), saves the clip
+from the viewer, and checks the MP4: the game area is not blank, the
+picture never stands still for more than 2 s, the file decodes with no
+error, the viewer plays it to the end, and a game with a sound switch has
+sound. Run it against production after a deploy that changes clips or a
+clip game. `E2E_ROUTES=/games/asteroids` runs one game.
+
 A kid taps the clip button in the header, and the game keeps the last 30
 seconds as a video. A hold of 500 ms opens the Capture menu. A press that
 the kid drags more than 48 px off the button before letting go makes no

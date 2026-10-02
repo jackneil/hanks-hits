@@ -273,20 +273,45 @@ async function journey(page: Page, finger: Finger, screen: Screen) {
   // A finger swipes the list up until the row is on screen (the list
   // scrolls under the pinned money and Leave; the page never does).
   const list = page.getByTestId("oregon-store").locator("ul");
+  // The list's scroll position once it stands still (a swipe can fling on
+  // for a while), and how far it can scroll at most.
+  const settledScroll = () =>
+    list.evaluate(
+      (el) =>
+        new Promise<{ top: number; max: number }>((resolve) => {
+          const scroller = el.parentElement!;
+          let last = -1;
+          let still = 0;
+          const tick = () => {
+            const top = scroller.scrollTop;
+            still = top === last ? still + 1 : 0;
+            last = top;
+            if (still >= 3) resolve({ top, max: scroller.scrollHeight - scroller.clientHeight });
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        })
+    );
   const buy = async (item: string, times: number) => {
     const row = page.getByTestId(`oregon-item-${item}`);
     for (let swipe = 0; swipe < 6 && !(await inView(row)); swipe++) {
+      const before = await settledScroll();
+      // At the end of the list a swipe cannot scroll, so the row must show
+      // by now. (A strict "it scrolled" check here failed at random when an
+      // earlier swipe had already flung the list to its end.)
+      if (before.top >= before.max - 1) {
+        expect(await inView(row), `${where}: the store list is at its end and ${item} is still not on screen`).toBe(true);
+        break;
+      }
       // From the middle of the part of the list that shows (the list's own
       // middle can be under the pinned Leave button).
       const scroller = await list.evaluate((el) => {
         const r = el.parentElement!.getBoundingClientRect();
         return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
       });
-      const before = await list.evaluate((el) => el.parentElement!.scrollTop);
       await finger.swipe(scroller.x, scroller.y + 30, 0, -80);
-      await page.waitForTimeout(300);
-      const after = await list.evaluate((el) => el.parentElement!.scrollTop);
-      expect(after, `${where}: a finger swipe scrolls the store list`).toBeGreaterThan(before);
+      const after = await settledScroll();
+      expect(after.top, `${where}: a finger swipe scrolls the store list`).toBeGreaterThan(before.top);
     }
     for (let i = 0; i < times; i++) await finger.tap(row.getByRole("button", { name: /^Buy/ }));
   };

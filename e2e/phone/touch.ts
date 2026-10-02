@@ -39,23 +39,68 @@ export function wanted(route: string): boolean {
   return raw.split(",").map((r) => r.trim().replace(/\/+$/, "")).includes(route);
 }
 
-/** A finger: taps and holds by real touch events, never a mouse click. */
+/**
+ * A finger: taps and holds by real touch events, never a mouse click.
+ *
+ * One thumb can stay down on a control (hold, then release later: a gas
+ * pedal, DUCK) while the other thumb taps: tap and tapAt use the second
+ * thumb while a thumb is held. CDP's touchStart lists every point that is
+ * down; its touchEnd names the points that lift (an empty list lifts all of
+ * them). holdAt, drag, swipe and holdWith use one finger, so they lift a
+ * held thumb first.
+ */
 export class Finger {
+  private held: { x: number; y: number; id: number } | null = null;
+
   constructor(private readonly page: Page, private readonly send: (type: string, points: { x: number; y: number; id?: number }[]) => Promise<unknown>) {}
 
-  async tap(target: Locator) {
+  /** The center of a control on the screen. */
+  async center(target: Locator): Promise<{ x: number; y: number }> {
     const box = await target.boundingBox();
-    if (!box) throw new Error("the control to tap has no box");
-    await this.tapAt(box.x + box.width / 2, box.y + box.height / 2);
+    if (!box) throw new Error("the control to touch has no box");
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   }
 
+  async tap(target: Locator) {
+    const at = await this.center(target);
+    await this.tapAt(at.x, at.y);
+  }
+
+  /** A tap at a point: with the other thumb while a thumb is held. */
   async tapAt(x: number, y: number) {
+    if (this.held) {
+      const other = { x, y, id: 2 };
+      await this.send("touchStart", [this.held, other]);
+      await this.send("touchEnd", [other]);
+      return;
+    }
     await this.send("touchStart", [{ x, y }]);
+    await this.send("touchEnd", []);
+  }
+
+  /** True while a thumb is held down (hold). */
+  get holding(): boolean {
+    return this.held !== null;
+  }
+
+  /** One thumb goes down on the control and stays down until release(). */
+  async hold(target: Locator) {
+    await this.release();
+    const at = await this.center(target);
+    this.held = { ...at, id: 1 };
+    await this.send("touchStart", [this.held]);
+  }
+
+  /** The held thumb lifts. Nothing happens when no thumb is held. */
+  async release() {
+    if (!this.held) return;
+    this.held = null;
     await this.send("touchEnd", []);
   }
 
   /** One finger holds (x, y) for `ms`, then lifts: a held pad button. */
   async holdAt(x: number, y: number, ms: number) {
+    await this.release();
     await this.send("touchStart", [{ x, y }]);
     try {
       await this.page.waitForTimeout(ms);
@@ -70,6 +115,7 @@ export class Finger {
    * drags a paddle.
    */
   async drag(x: number, y: number, dx: number, steps = 12) {
+    await this.release();
     await this.send("touchStart", [{ x, y }]);
     for (let i = 1; i <= steps; i++) {
       await this.send("touchMove", [{ x: x + (dx * i) / steps, y }]);
@@ -83,6 +129,7 @@ export class Finger {
    * apart, and lifts: a swipe that scrolls a list.
    */
   async swipe(x: number, y: number, dx: number, dy: number, steps = 10) {
+    await this.release();
     await this.send("touchStart", [{ x, y }]);
     for (let i = 1; i <= steps; i++) {
       await this.send("touchMove", [{ x: x + (dx * i) / steps, y: y + (dy * i) / steps }]);
@@ -97,6 +144,7 @@ export class Finger {
    * lifts at the end. This is how a kid pauses mid-drive.
    */
   async holdWith<T>(target: Locator, ms: number, during: (otherThumb: (tap: Locator) => Promise<void>) => Promise<T>): Promise<T> {
+    await this.release();
     const box = await target.boundingBox();
     if (!box) throw new Error("the control to hold has no box");
     const held = { x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1 };

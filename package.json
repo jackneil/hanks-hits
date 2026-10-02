@@ -11,6 +11,7 @@
     "e2e:start-cards": "node scripts/e2e/run-playwright.mjs e2e/start-cards/playwright.config.ts",
     "e2e:install-sheet": "node scripts/e2e/run-playwright.mjs e2e/install-sheet/playwright.config.ts",
     "e2e:phone": "node scripts/e2e/run-playwright.mjs e2e/phone/playwright.config.ts",
+    "e2e:clips-games": "node scripts/e2e/run-playwright.mjs e2e/clips-games/playwright.config.ts",
     "e2e:typecheck": "tsc -p e2e"
   },
   "devDependencies": {
