@@ -168,7 +168,8 @@ function reconcileFields(
  * Timestamp-based merge with field-aware reconciliation.
  *
  * - If only one side has data, it wins outright.
- * - Otherwise the side with the newer timestamp is the base, and monotonic
+ * - Otherwise the side with the newer timestamp is the base (on equal
+ *   timestamps, the local side: the incoming write), and monotonic
  *   counters / unlockables from the older side are folded in so a stale blob
  *   can never erase earned progress.
  */
@@ -200,7 +201,11 @@ export function mergeProgress(
   const localTime = localTimestamp || 0;
   const serverTime = serverTimestamp || 0;
 
-  const serverWins = serverTime >= localTime;
+  // An equal time is the same line of play: a save that continues the
+  // row's progress without a new player change (the bake of an idle Cookie
+  // Clicker, a pet's needs). The incoming save is the later write, so it
+  // wins. The new code never uploads time 0 (untouched progress).
+  const serverWins = serverTime > localTime;
   const winner = serverWins ? serverData : localData;
   const loser = serverWins ? localData : serverData;
 

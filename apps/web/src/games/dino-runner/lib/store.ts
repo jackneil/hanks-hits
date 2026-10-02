@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameState,
   type Obstacle,
@@ -125,8 +127,12 @@ const defaultProgress: DinoRunnerProgress = {
   longestRun: 0,
   milestonesReached: 0,
   soundEnabled: true,
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// A milestone during a run did not stamp the time before the sync-time fix.
+// The sound switch is a setting, not progress.
+const UNTOUCHED = defineUntouchedProgress("dino-runner", { defaults: defaultProgress, ignore: ["milestonesReached", "soundEnabled"] });
 
 // ============================================
 // INITIAL GAME STATE
@@ -191,6 +197,10 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
       // Game over
       gameOver: () => {
         const state = get();
+        // Only a run that is playing ends (update() calls this on a hit). A
+        // call with no run counted a game and a run as long as the clock
+        // (Date.now() - 0), which the server refuses.
+        if (state.gameState !== "playing") return;
         const runDuration = Date.now() - state.runStartTime;
         const finalScore = Math.floor(state.score);
 
@@ -356,10 +366,8 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
           milestoneFlash,
           flashTimer,
           currentRunDistance,
-          progress: {
-            ...state.progress,
-            milestonesReached,
-          },
+          // A new milestone is progress: it stamps the time.
+          progress: stampIfChanged(state.progress, { ...state.progress, milestonesReached }),
         });
       },
 
@@ -412,11 +420,7 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
       // Settings
       setSoundEnabled: (enabled: boolean) => {
         set((state) => ({
-          progress: {
-            ...state.progress,
-            soundEnabled: enabled,
-            lastModified: Date.now(),
-          },
+          progress: stampIfChanged(state.progress, { ...state.progress, soundEnabled: enabled }),
         }));
       },
 
@@ -426,7 +430,11 @@ export const useDinoRunnerStore = create<DinoRunnerGameState & DinoRunnerActions
     }),
     {
       name: "dino-runner-progress",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
       }),
     }

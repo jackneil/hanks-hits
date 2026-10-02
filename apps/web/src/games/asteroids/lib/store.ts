@@ -37,6 +37,8 @@ import {
   createAsteroid,
   distance,
 } from "./constants";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 
 // Progress data (persisted)
 export type AsteroidsProgress = {
@@ -106,6 +108,9 @@ type AsteroidsActions = {
 
   update: () => void;
 
+  /** The sound switch: a player's choice, so it stamps the time. */
+  toggleSound: () => void;
+
   getProgress: () => AsteroidsProgress;
   setProgress: (data: AsteroidsProgress) => void;
 };
@@ -118,8 +123,11 @@ const defaultProgress: AsteroidsProgress = {
   gamesPlayed: 0,
   soundEnabled: true,
   difficulty: "normal",
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// The sound switch did not stamp the time before the sync-time fix.
+const UNTOUCHED = defineUntouchedProgress("asteroids", { defaults: defaultProgress, ignore: ["soundEnabled"] });
 
 function createInitialShip(): Ship {
   return {
@@ -230,11 +238,10 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
           asteroids: createInitialAsteroids(nextWaveNum, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2),
           ufo: null,
           particles: [],
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             highestWave: Math.max(state.progress.highestWave, nextWaveNum),
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -247,11 +254,10 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
           // Strictly better than the best before this run (a cloud best
           // that arrived during the run counts). A first score counts too.
           lastRunNewBest: state.score > 0 && state.score > state.progress.highScore,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             highScore: Math.max(state.progress.highScore, state.score),
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -577,7 +583,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
                   nextBulletId,
                   nextAsteroidId,
                   nextParticleId,
-                  progress,
+                  progress: stampIfChanged(state.progress, progress),
                 });
                 get().gameOver();
                 return;
@@ -628,7 +634,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
                   nextBulletId,
                   nextAsteroidId,
                   nextParticleId,
-                  progress,
+                  progress: stampIfChanged(state.progress, progress),
                 });
                 get().gameOver();
                 return;
@@ -672,7 +678,7 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
             nextBulletId,
             nextAsteroidId,
             nextParticleId,
-            progress: { ...progress, lastModified: Date.now() },
+            progress: stampIfChanged(state.progress, progress),
           });
           return;
         }
@@ -691,16 +697,26 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
           nextBulletId,
           nextAsteroidId,
           nextParticleId,
-          progress,
+          // A frame that destroyed something stamps the new totals.
+          progress: stampIfChanged(state.progress, progress),
         });
       },
+
+      toggleSound: () =>
+        set((state) => ({
+          progress: { ...state.progress, soundEnabled: !state.progress.soundEnabled, lastModified: Date.now() },
+        })),
 
       getProgress: () => get().progress,
       setProgress: (data: AsteroidsProgress) => set({ progress: data }),
     }),
     {
       name: "asteroids-game-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
       }),
     }

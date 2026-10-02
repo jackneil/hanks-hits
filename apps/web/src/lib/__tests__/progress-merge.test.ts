@@ -26,6 +26,18 @@ describe("mergeProgress", () => {
     expect(result.data.score).toBe(200);
   });
 
+  it("on an equal time, the incoming save wins: it continues the row's line of play (an idle bakery's bake)", () => {
+    const result = mergeProgress(
+      { cookies: 9_000, totalCookiesBaked: 9_500, lastModified: 1000 },
+      { cookies: 2_000, totalCookiesBaked: 2_500, lastModified: 1000 },
+      1000,
+      1000
+    );
+
+    expect(result.data.cookies).toBe(9_000);
+    expect(result.data.totalCookiesBaked).toBe(9_500);
+  });
+
   it("uses local data when there is no existing server data", () => {
     const result = mergeProgress({ score: 200 }, null, null, null);
 

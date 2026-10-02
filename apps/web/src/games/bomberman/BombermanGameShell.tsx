@@ -22,14 +22,11 @@ const MENU_BUTTON =
 
 function BombermanPauseSettings() {
   const soundEnabled = useBombermanStore((s) => s.progress.settings.soundEnabled);
-  const progress = useBombermanStore((s) => s.progress);
-  const setProgress = useBombermanStore((s) => s.setProgress);
+  const toggleSound = useBombermanStore((s) => s.toggleSound);
   return (
     <button
       type="button"
-      onClick={() =>
-        setProgress({ ...progress, settings: { ...progress.settings, soundEnabled: !soundEnabled } })
-      }
+      onClick={toggleSound}
       className={MENU_BUTTON}
     >
       <span className="text-2xl" aria-hidden="true">{soundEnabled ? "🔊" : "🔇"}</span>

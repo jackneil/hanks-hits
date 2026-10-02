@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type Direction,
   type Position,
@@ -90,8 +92,15 @@ const defaultProgress: SnakeProgress = {
   wraparoundWalls: true, // Kid-friendly default
   controlMode: "buttons",
   soundEnabled: true,
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// Settings are not progress: a device that changed only a setting holds
+// nothing that must win over the account (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("snake", {
+  defaults: defaultProgress,
+  ignore: ["speed", "wraparoundWalls", "controlMode", "soundEnabled"],
+});
 
 function createInitialGameState(): Pick<
   SnakeGameState,
@@ -255,41 +264,37 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
       // Settings
       setSpeed: (speed: SpeedSetting) => {
         set((state) => ({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             speed,
-            lastModified: Date.now(),
-          },
+          }),
         }));
       },
 
       setWraparound: (enabled: boolean) => {
         set((state) => ({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             wraparoundWalls: enabled,
-            lastModified: Date.now(),
-          },
+          }),
         }));
       },
 
       setControlMode: (mode: ControlMode) => {
         set((state) => ({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             controlMode: mode,
-            lastModified: Date.now(),
-          },
+          }),
         }));
       },
 
       setSoundEnabled: (enabled: boolean) => {
         set((state) => ({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             soundEnabled: enabled,
-            lastModified: Date.now(),
-          },
+          }),
         }));
       },
 
@@ -299,7 +304,11 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
     }),
     {
       name: "snake-game-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
       }),
     }

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type Player,
   type Position,
@@ -119,8 +120,20 @@ const defaultProgress: QuoridorProgress = {
   fastestWin: null,
   difficulty: "easy",
   gameMode: "ai",
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// The pickers (difficulty, mode) did not stamp the time before the sync-time fix.
+const UNTOUCHED = defineUntouchedProgress("quoridor", {
+  defaults: defaultProgress,
+  ignore: ["difficulty", "gameMode"],
+  // getProgress() adds the pickers, which the save keeps beside progress.
+  progressOf: (saved) => ({
+    ...(saved.progress as object),
+    difficulty: saved.difficulty ?? defaultProgress.difficulty,
+    gameMode: saved.gameMode ?? defaultProgress.gameMode,
+  }),
+});
 
 type BoardState = Omit<GameState, "gameMode" | "difficulty" | "progress">;
 
@@ -371,11 +384,19 @@ export const useQuoridorStore = create<GameState & GameActions>()(
 
         newGame: (mode?: GameMode, difficulty?: Difficulty) => {
           const state = get();
+          const gameMode = mode ?? state.gameMode;
+          const nextDifficulty = difficulty ?? state.difficulty;
+          // A new choice (the pickers) is a player's change of the synced
+          // settings: it stamps the time. The same choice keeps it.
+          const changed = gameMode !== state.gameMode || nextDifficulty !== state.difficulty;
           set({
             ...createBoardState(),
             wallOrientation: state.wallOrientation,
-            gameMode: mode ?? state.gameMode,
-            difficulty: difficulty ?? state.difficulty,
+            gameMode,
+            difficulty: nextDifficulty,
+            ...(changed
+              ? { progress: { ...state.progress, gameMode, difficulty: nextDifficulty, lastModified: Date.now() } }
+              : {}),
           });
         },
 
@@ -402,11 +423,16 @@ export const useQuoridorStore = create<GameState & GameActions>()(
     },
     {
       name: "quoridor-progress",
-      partialize: (state) => ({
-        progress: state.progress,
-        difficulty: state.difficulty,
-        gameMode: state.gameMode,
-      }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) =>
+        markSaved({
+          progress: state.progress,
+          difficulty: state.difficulty,
+          gameMode: state.gameMode,
+        }),
     }
   )
 );

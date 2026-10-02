@@ -5,6 +5,8 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { automaticStamp } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import type { Joke, JokeCategory, Rating } from "./constants";
 
 // Saved joke in favorites
@@ -69,13 +71,17 @@ interface JokeStoreActions {
   getJokeRating: (jokeId: string) => Rating | null;
 
   // Stats
-  incrementViewed: () => void;
+  /**
+   * `automatic`: the joke showed by itself (the first joke of a page), see
+   * automaticStamp. `synced`: the progress is the account's (useAuthSync).
+   */
+  incrementViewed: (automatic?: boolean, synced?: boolean) => void;
   incrementCopied: () => void;
   incrementShared: () => void;
   setCopiedId: (id: string | null) => void;
 
   // Seen jokes tracking
-  markJokeSeen: (jokeId: string) => void;
+  markJokeSeen: (jokeId: string, automatic?: boolean, synced?: boolean) => void;
   getSeenJokeIds: () => string[];
   resetSeenJokes: () => void;
 
@@ -94,8 +100,26 @@ const defaultProgress: JokeGeneratorProgress = {
   jokesViewed: 0,
   jokesCopied: 0,
   jokesShared: 0,
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// The first joke of a page shows by itself: before the sync-time fix it
+// stamped the time of an untouched store (one seen joke, one view). Every
+// later joke is a tap on "next joke", a player's change: a store with more
+// than one view holds the kid's reading and is not untouched.
+const UNTOUCHED = defineUntouchedProgress("joke-generator", {
+  layout: "flat",
+  defaults: defaultProgress,
+  // The category picker is a setting, not progress.
+  ignore: ["lastCategory"],
+  // The items that a player makes: a guest's items join the account's at
+  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
+  lists: { favorites: { id: "id", max: 500 }, ratings: { id: "jokeId", max: 2000 }, seenJokeIds: { max: 5000 } },
+  within: {
+    jokesViewed: (value) => value === undefined || (typeof value === "number" && value <= 1),
+    seenJokeIds: (value) => value === undefined || (Array.isArray(value) && value.length <= 1),
+  },
+});
 
 export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
   persist(
@@ -123,6 +147,7 @@ export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
 
       // Category
       setCategory: (category) => {
+        if (get().lastCategory === category) return;
         set({
           lastCategory: category,
           lastModified: Date.now(),
@@ -145,6 +170,7 @@ export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
       },
 
       removeFavorite: (jokeId) => {
+        if (!get().favorites.some((f) => f.id === jokeId)) return;
         set((state) => ({
           favorites: state.favorites.filter((f) => f.id !== jokeId),
           lastModified: Date.now(),
@@ -174,10 +200,10 @@ export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
       },
 
       // Stats
-      incrementViewed: () => {
+      incrementViewed: (automatic = false, synced = true) => {
         set((state) => ({
           jokesViewed: state.jokesViewed + 1,
-          lastModified: Date.now(),
+          lastModified: automatic ? automaticStamp(state.lastModified, synced) : Date.now(),
         }));
       },
 
@@ -198,11 +224,12 @@ export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
       setCopiedId: (id) => set({ copiedId: id }),
 
       // Seen jokes tracking
-      markJokeSeen: (jokeId) => {
+      markJokeSeen: (jokeId, automatic = false, synced = true) => {
         set((state) => {
           if (state.seenJokeIds.includes(jokeId)) return state;
           return {
             seenJokeIds: [...state.seenJokeIds, jokeId],
+            lastModified: automatic ? automaticStamp(state.lastModified, synced) : Date.now(),
           };
         });
       },
@@ -210,7 +237,8 @@ export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
       getSeenJokeIds: () => get().seenJokeIds,
 
       resetSeenJokes: () => {
-        set({ seenJokeIds: [] });
+        if (get().seenJokeIds.length === 0) return;
+        set({ seenJokeIds: [], lastModified: Date.now() });
       },
 
       // Sync helpers
@@ -237,14 +265,19 @@ export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
           jokesViewed: data.jokesViewed ?? 0,
           jokesCopied: data.jokesCopied ?? 0,
           jokesShared: data.jokesShared ?? 0,
-          lastModified: Date.now(),
+          // Taking progress is not a player action: it keeps the time it gets.
+          lastModified: typeof data.lastModified === "number" ? data.lastModified : 0,
         });
       },
     }),
     {
       name: STORAGE_KEY,
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
       // Only persist progress data, not session state
-      partialize: (state) => ({
+      partialize: (state) => markSaved({
         favorites: state.favorites,
         ratings: state.ratings,
         seenJokeIds: state.seenJokeIds,

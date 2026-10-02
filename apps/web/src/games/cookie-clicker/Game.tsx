@@ -37,24 +37,49 @@ export function CookieClickerGame() {
   const goldenExpireRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitialized = useRef(false);
 
+  // The page started on the device's copy of the bakery (the account could
+  // not be reached for READY_FALLBACK_MS), and the first sync then ended:
+  // bake the time away on the bakery that the sync left (the account's).
+  // This runs inside the sync's own step, before a tick moves lastTick, so
+  // the time away of the account's bakery is not lost.
+  const bakeAfterLateSync = useCallback(() => {
+    if (!hasInitialized.current) return;
+    const earned = useCookieClickerStore.getState().applyOfflineProgress(true);
+    if (earned > 100) {
+      setOfflineEarnings(earned);
+      setShowOfflinePopup(true);
+    }
+  }, []);
+
   // Cloud sync for authenticated users
-  useAuthSync<CookieClickerProgress>({
+  const { ready, synced } = useAuthSync<CookieClickerProgress>({
     appId: "cookie-clicker",
     localStorageKey: "cookie-clicker-storage",
     getState: () => store.getProgress(),
     setState: (data) => store.setProgress(data),
     debounceMs: 5000, // Cookie clicker state changes frequently
+    onSyncComplete: bakeAfterLateSync,
   });
 
-  // Initialize game on mount
+  // Read by the start step below, which runs once (a change of `synced`
+  // must not run its cleanup, which stops the popup's timer).
+  const syncedRef = useRef(synced);
   useEffect(() => {
-    if (hasInitialized.current) return;
+    syncedRef.current = synced;
+  }, [synced]);
+
+  // Initialize the game once the sync is ready: the bake while away goes
+  // onto the account's progress, not onto an old copy on this device. When
+  // the page runs on the device's copy (`synced` is false: the account
+  // cannot be reached, or a guest), the bake keeps the time.
+  useEffect(() => {
+    if (!ready || hasInitialized.current) return;
     hasInitialized.current = true;
     let popupTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Apply offline progress
     const game = useCookieClickerStore.getState();
-    const earned = game.applyOfflineProgress();
+    const earned = game.applyOfflineProgress(syncedRef.current);
     if (earned > 100) {
       popupTimer = setTimeout(() => {
         setOfflineEarnings(earned);
@@ -73,11 +98,14 @@ export function CookieClickerGame() {
     return () => {
       if (popupTimer) clearTimeout(popupTimer);
     };
-  }, []);
+  }, [ready]);
 
-  // Game loop tick
+  // Game loop tick. It starts after the bake while away (the effect above
+  // runs first when the sync is ready): a tick moves lastTick, and a tick
+  // before that bake took the whole time away from it. A tick before the
+  // sync also baked onto an old copy of the bakery.
   useEffect(() => {
-    if (!hasStarted) return;
+    if (!hasStarted || !ready) return;
 
     tickRef.current = setInterval(() => {
       useCookieClickerStore.getState().tick();
@@ -88,7 +116,7 @@ export function CookieClickerGame() {
         clearInterval(tickRef.current);
       }
     };
-  }, [hasStarted]);
+  }, [hasStarted, ready]);
 
   // Golden cookie spawn loop
   useEffect(() => {

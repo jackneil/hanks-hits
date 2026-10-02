@@ -5,6 +5,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import type { Toy, ToyCategory, AgeRange, Priority } from "./constants";
 
 // Wishlist item (toy + metadata)
@@ -63,8 +64,16 @@ const MAX_RECENTLY_VIEWED = 20;
 const defaultProgress: ToyFinderProgress = {
   wishlistItems: [],
   recentlyViewed: [],
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+const UNTOUCHED = defineUntouchedProgress("toy-finder", {
+  layout: "flat",
+  defaults: defaultProgress,
+  // The items that a player makes: a guest's items join the account's at
+  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
+  lists: { wishlistItems: { id: "toyId", max: 500 }, recentlyViewed: { max: 1000 } },
+});
 
 export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
   persist(
@@ -94,6 +103,7 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
       },
 
       removeFromWishlist: (toyId) => {
+        if (!get().wishlistItems.some((w) => w.toyId === toyId)) return;
         set((state) => ({
           wishlistItems: state.wishlistItems.filter((w) => w.toyId !== toyId),
           lastModified: Date.now(),
@@ -101,6 +111,8 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
       },
 
       updatePriority: (toyId, priority) => {
+        const item = get().wishlistItems.find((w) => w.toyId === toyId);
+        if (!item || item.priority === priority) return;
         set((state) => ({
           wishlistItems: state.wishlistItems.map((w) =>
             w.toyId === toyId ? { ...w, priority } : w
@@ -122,6 +134,8 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
       // Recently viewed
       addToRecentlyViewed: (toyId) => {
         set((state) => {
+          // Already the newest one: nothing changes.
+          if (state.recentlyViewed[0] === toyId) return {};
           const filtered = state.recentlyViewed.filter((id) => id !== toyId);
           const updated = [toyId, ...filtered].slice(0, MAX_RECENTLY_VIEWED);
           return {
@@ -148,14 +162,19 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
         set({
           wishlistItems: data.wishlistItems ?? [],
           recentlyViewed: data.recentlyViewed ?? [],
-          lastModified: Date.now(),
+          // Taking progress is not a player action: it keeps the time it gets.
+          lastModified: typeof data.lastModified === "number" ? data.lastModified : 0,
         });
       },
     }),
     {
       name: STORAGE_KEY,
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
       // Only persist progress data, not session state
-      partialize: (state) => ({
+      partialize: (state) => markSaved({
         wishlistItems: state.wishlistItems,
         recentlyViewed: state.recentlyViewed,
         lastModified: state.lastModified,

@@ -99,6 +99,14 @@ export const DEFAULT_BPM = 120;
 export const MIN_BPM = 60;
 export const MAX_BPM = 200;
 export const GRID_STEPS = 16;
+/**
+ * The longest pattern: 1024 steps (64 bars of 16 steps). The server takes a
+ * saved beat up to this length (lib/progress-schemas.ts). Before the sync-time
+ * fix the "+" button had no limit while the server took only 64 steps, so a
+ * beat of 5 bars or more made the server refuse every save of the drum
+ * machine. A beat that a device already holds keeps all of its steps.
+ */
+export const MAX_PATTERN_STEPS = 1024;
 
 // UI
 export const PAD_SIZE = 80;

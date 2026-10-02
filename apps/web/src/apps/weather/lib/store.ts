@@ -5,6 +5,8 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { sameProgress } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import type { WeatherCondition } from "./constants";
 
 // Location data from geocoding API
@@ -98,8 +100,19 @@ const defaultProgress: WeatherProgress = {
   savedLocations: [],
   units: "fahrenheit",
   lastLocation: null,
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// Settings are not progress: a device that changed only a setting holds
+// nothing that must win over the account (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("weather", {
+  layout: "flat",
+  defaults: defaultProgress,
+  ignore: ["units"],
+  // The items that a player makes: a guest's items join the account's at
+  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
+  lists: { savedLocations: { id: "name", max: 50 } },
+});
 
 export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()(
   persist(
@@ -117,6 +130,9 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
 
       // Location actions
       setLastLocation: (location) => {
+        // The page loads the weather of the last place on every visit: the
+        // same place again is no change.
+        if (sameProgress(get().lastLocation, location)) return;
         set({
           lastLocation: location,
           lastModified: Date.now(),
@@ -134,6 +150,7 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
       },
 
       removeSavedLocation: (name) => {
+        if (!get().savedLocations.some((l) => l.name === name)) return;
         set((state) => ({
           savedLocations: state.savedLocations.filter((l) => l.name !== name),
           lastModified: Date.now(),
@@ -160,6 +177,7 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
 
       // Settings
       setUnits: (units) => {
+        if (get().units === units) return;
         set({ units, lastModified: Date.now() });
       },
 
@@ -194,14 +212,19 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
           savedLocations: data.savedLocations ?? [],
           units: data.units ?? "fahrenheit",
           lastLocation: data.lastLocation ?? null,
-          lastModified: Date.now(),
+          // Taking progress is not a player action: it keeps the time it gets.
+          lastModified: typeof data.lastModified === "number" ? data.lastModified : 0,
         });
       },
     }),
     {
       name: STORAGE_KEY,
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
       // Only persist user preferences, not weather data
-      partialize: (state) => ({
+      partialize: (state) => markSaved({
         savedLocations: state.savedLocations,
         units: state.units,
         lastLocation: state.lastLocation,

@@ -5,6 +5,8 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { sameProgress } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import type { DrawingTool } from "./constants";
 import {
   STORAGE_KEY,
@@ -113,6 +115,16 @@ const defaultStats: DrawingStats = {
   totalDrawTime: 0,
 };
 
+const UNTOUCHED = defineUntouchedProgress("drawing-app", {
+  layout: "flat",
+  defaults: { settings: defaultSettings, stats: defaultStats, savedArtworks: [], lastModified: 0 },
+  // Settings are not progress (shared/lib/untouchedProgress.ts).
+  ignore: ["settings"],
+  // The items that a player makes: a guest's items join the account's at
+  // sign-in (foldGuestProgress). `max` is the schema's bound (progress-schemas.ts).
+  lists: { savedArtworks: { id: "id", max: 20 } },
+});
+
 // Generate unique ID
 function generateId(): string {
   return `art_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -155,6 +167,21 @@ function createThumbnail(dataUrl: string): Promise<string> {
   });
 }
 
+/**
+ * The small picture of a saved artwork, made after the save. It syncs with
+ * the artwork, so a new picture stamps the time.
+ */
+function withThumbnail(id: string, thumbnail: string) {
+  return (state: DrawingStoreState): Partial<DrawingStoreState> => {
+    const artwork = state.savedArtworks.find((art) => art.id === id);
+    if (!artwork || artwork.thumbnail === thumbnail) return {};
+    return {
+      savedArtworks: state.savedArtworks.map((art) => (art.id === id ? { ...art, thumbnail } : art)),
+      lastModified: Date.now(),
+    };
+  };
+}
+
 export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()(
   persist(
     (set, get) => ({
@@ -168,7 +195,7 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
       settings: defaultSettings,
       stats: defaultStats,
       savedArtworks: [],
-      lastModified: Date.now(),
+      lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 
       // Gallery state
       showGallery: false,
@@ -185,10 +212,10 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
 
       // Settings actions
       updateSettings: (newSettings) => {
-        set((state) => ({
-          settings: { ...state.settings, ...newSettings },
-          lastModified: Date.now(),
-        }));
+        set((state) => {
+          const settings = { ...state.settings, ...newSettings };
+          return sameProgress(settings, state.settings) ? {} : { settings, lastModified: Date.now() };
+        });
       },
 
       toggleSound: () => {
@@ -239,43 +266,36 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
         });
 
         // Create thumbnail async and update
-        createThumbnail(dataUrl).then((thumbnail) => {
-          set((state) => ({
-            savedArtworks: state.savedArtworks.map((art) =>
-              art.id === id ? { ...art, thumbnail } : art
-            ),
-          }));
-        });
+        createThumbnail(dataUrl).then((thumbnail) => set(withThumbnail(id, thumbnail)));
 
         return id;
       },
 
       deleteArtwork: (id) => {
-        set((state) => ({
-          savedArtworks: state.savedArtworks.filter((art) => art.id !== id),
-          lastModified: Date.now(),
-        }));
+        set((state) =>
+          state.savedArtworks.some((art) => art.id === id)
+            ? { savedArtworks: state.savedArtworks.filter((art) => art.id !== id), lastModified: Date.now() }
+            : {}
+        );
       },
 
       updateArtwork: (id, dataUrl) => {
         const now = new Date().toISOString();
-        set((state) => ({
-          savedArtworks: state.savedArtworks.map((art) =>
-            art.id === id
-              ? { ...art, dataUrl, editedAt: now }
-              : art
-          ),
-          lastModified: Date.now(),
-        }));
+        set((state) =>
+          state.savedArtworks.some((art) => art.id === id)
+            ? {
+                savedArtworks: state.savedArtworks.map((art) =>
+                  art.id === id
+                    ? { ...art, dataUrl, editedAt: now }
+                    : art
+                ),
+                lastModified: Date.now(),
+              }
+            : {}
+        );
 
         // Update thumbnail async
-        createThumbnail(dataUrl).then((thumbnail) => {
-          set((state) => ({
-            savedArtworks: state.savedArtworks.map((art) =>
-              art.id === id ? { ...art, thumbnail } : art
-            ),
-          }));
-        });
+        createThumbnail(dataUrl).then((thumbnail) => set(withThumbnail(id, thumbnail)));
       },
 
       getArtwork: (id) => {
@@ -299,6 +319,7 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
       },
 
       addDrawTime: (seconds) => {
+        if (seconds <= 0) return;
         set((state) => ({
           stats: {
             ...state.stats,
@@ -324,14 +345,19 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
           settings: data.settings ?? defaultSettings,
           stats: data.stats ?? defaultStats,
           savedArtworks: data.savedArtworks ?? get().savedArtworks,
-          lastModified: Date.now(),
+          // Taking progress is not a player action: it keeps the time it gets.
+          lastModified: typeof data.lastModified === "number" ? data.lastModified : 0,
         });
       },
     }),
     {
       name: STORAGE_KEY,
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
       // Persist everything except transient drawing state
-      partialize: (state) => ({
+      partialize: (state) => markSaved({
         settings: state.settings,
         stats: state.stats,
         savedArtworks: state.savedArtworks,

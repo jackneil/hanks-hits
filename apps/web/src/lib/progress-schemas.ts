@@ -10,6 +10,8 @@
 
 import { z } from "zod";
 import { adventureSchema } from "@/games/four-wheeler-3d/lib/adventureSchema";
+import { DIFFICULTY_SETTINGS as MATH_ATTACK_SETTINGS, type Difficulty as MathAttackDifficulty } from "@/games/math-attack/lib/constants";
+import { MAX_PATTERN_STEPS } from "@/apps/drum-machine/lib/constants";
 import type { ValidAppId } from "@hank-neil/db/schema";
 
 // Common limits
@@ -17,6 +19,8 @@ const MAX_CURRENCY = 1_000_000_000_000; // 1 trillion - generous for any game
 const MAX_COUNT = 1_000_000; // 1 million items/games/etc
 const MAX_STRING_LENGTH = 255; // Max length for string fields
 const MAX_RECORD_KEYS = 100; // Max keys in a record/object
+
+const MATH_ATTACK_DIFFICULTIES = Object.keys(MATH_ATTACK_SETTINGS) as [MathAttackDifficulty, ...MathAttackDifficulty[]];
 
 // Bounded string helper - all strings have max length
 const boundedString = z.string().max(MAX_STRING_LENGTH);
@@ -188,8 +192,14 @@ const quoridorSchema = z.object({
 // NOTE: Oregon Trail syncs FULL GAME STATE (not aggregate stats) to allow
 // players to continue their journey across devices
 const partyMemberSchema = z.object({
+  // The game's own id for each member (gameLogic createInitialState): the
+  // list key. Without it here, the server dropped it from every save.
+  id: boundedString.optional(),
   name: boundedString,
-  health: z.enum(["good", "fair", "poor", "very poor"]),
+  // The game's HealthStatus values (games/oregon-trail/types). "very poor"
+  // with a space never matched, so every save after a member got that sick
+  // was refused.
+  health: z.enum(["good", "fair", "poor", "very_poor"]),
   isSick: z.boolean(),
   sickDays: z.number().min(0).max(365),
   leftBehind: z.boolean(),
@@ -519,7 +529,10 @@ const mathAttackSchema = z.object({
   gamesPlayed: z.number().min(0).max(MAX_COUNT),
   settings: z.object({
     soundEnabled: z.boolean(),
-    difficulty: z.enum(["4yo", "8yo", "12yo", "24yo", "99yo"]),
+    // Every age that the picker offers (games/math-attack/Game.tsx lists the
+    // keys of DIFFICULTY_SETTINGS). The list once missed 6yo and 10yo, and
+    // the server refused every save of a kid who picked either one.
+    difficulty: z.enum(MATH_ATTACK_DIFFICULTIES),
   }),
   lastModified: timestampSchema,
 });
@@ -648,7 +661,10 @@ const savedBeatSchema = z.object({
   name: boundedString,
   kitId: boundedString,
   bpm: z.number().min(40).max(300),
-  pattern: boundedRecord(z.array(z.boolean()).max(64)),
+  // MAX_PATTERN_STEPS of the drum machine (apps/drum-machine/lib/constants.ts).
+  pattern: boundedRecord(z.array(z.boolean()).max(MAX_PATTERN_STEPS)),
+  // The beat's length in steps. Without it here, the server dropped it.
+  patternLength: z.number().int().min(1).max(MAX_PATTERN_STEPS).optional(),
   createdAt: boundedString,
 });
 

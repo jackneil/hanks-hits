@@ -61,6 +61,33 @@ export const PROGRESS_OWNER_KEY = "hanks-hits-progress-owner";
  */
 export const SIGNOUT_BROADCAST_KEY = "hanks-hits-signout-broadcast";
 
+/**
+ * Per save key: this device's save of the key holds the progress of the
+ * signed-in account, or progress built on it (useAuthSync writes it when a
+ * first sync is done). A save without it was built on the defaults (a
+ * guest's play, a blank device): at the first sync, the account's progress
+ * stays the base and the save's records fold in. Cleared on sign-out.
+ */
+export const SYNC_LINEAGE_PREFIX = "hanks-hits-lineage:";
+
+/**
+ * The lineage key of a save key. It ends with "-progress", a suffix that
+ * every version of clearGameStorage() removes: also the code before this
+ * key, after a rollback, so a sign-out on that code clears it too.
+ */
+export function syncLineageKey(localStorageKey: string): string {
+  return `${SYNC_LINEAGE_PREFIX}${localStorageKey}:sync-progress`;
+}
+
+/**
+ * The time when clearGameStorage() last removed every save on this device
+ * (a sign-out, or the purge of another account's progress). A save after it
+ * that has no sync lineage key was made on the defaults. Kept on sign-out,
+ * as the owner key is. A device with no value has only saves from before
+ * this key existed: those keep the last-write rule of that code.
+ */
+export const SAVES_CLEARED_KEY = "hanks-hits-saves-cleared";
+
 /** Remove every game/app progress key (explicit registry + suffix scan). */
 export function clearGameStorage(): void {
   for (const key of GAME_STORAGE_KEYS) {
@@ -76,6 +103,7 @@ export function clearGameStorage(): void {
   for (const key of keysToRemove) {
     localStorage.removeItem(key);
   }
+  localStorage.setItem(SAVES_CLEARED_KEY, String(Date.now()));
 }
 
 /** Suffix safety net for keys that follow the common naming conventions */
@@ -85,6 +113,7 @@ const CLEARED_SUFFIXES = ["-storage", "-progress", "-save", "-game-state"];
 export function isClearedOnSignOut(key: string): boolean {
   return (
     (GAME_STORAGE_KEYS as readonly string[]).includes(key) ||
+    key.startsWith(SYNC_LINEAGE_PREFIX) ||
     CLEARED_SUFFIXES.some((suffix) => key.endsWith(suffix))
   );
 }

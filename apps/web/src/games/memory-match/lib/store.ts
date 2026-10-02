@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type Card,
   type Difficulty,
@@ -83,7 +84,7 @@ type GameActions = {
 };
 
 const defaultProgress: MemoryMatchProgress = {
-  updatedAt: Date.now(),
+  updatedAt: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
   bestTimes: {
     easy: null,
     medium: null,
@@ -100,6 +101,20 @@ const defaultProgress: MemoryMatchProgress = {
   difficulty: "medium",
   theme: "animals",
 };
+
+// The difficulty and theme pickers did not stamp the time before the
+// sync-time fix.
+const UNTOUCHED = defineUntouchedProgress("memory-match", {
+  defaults: defaultProgress,
+  timeKey: "updatedAt",
+  ignore: ["difficulty", "theme", "soundEnabled"],
+  // getProgress() adds the pickers, which the save keeps beside progress.
+  progressOf: (saved) => ({
+    ...(saved.progress as object),
+    difficulty: saved.difficulty ?? defaultProgress.difficulty,
+    theme: saved.theme ?? defaultProgress.theme,
+  }),
+});
 
 export const useMemoryMatchStore = create<GameState & GameActions>()(
   persist(
@@ -182,8 +197,13 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
                 const stars = calculateStars(moves, totalPairs);
                 const isPerfect = stars === 3;
 
-                // Update progress
-                const newProgress = { ...currentState.progress };
+                // Update progress. Copy the nested record and list: a change
+                // in place changed the previous state (and the defaults).
+                const newProgress = {
+                  ...currentState.progress,
+                  bestTimes: { ...currentState.progress.bestTimes },
+                  unlockedThemes: [...currentState.progress.unlockedThemes],
+                };
                 newProgress.updatedAt = Date.now();
                 newProgress.gamesPlayed += 1;
                 newProgress.gamesWon += 1;
@@ -258,8 +278,14 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
         const state = get();
         const newDifficulty = difficulty ?? state.difficulty;
         const newTheme = theme ?? state.theme;
+        // A new choice (the pickers) is a player's change of the synced
+        // settings: it stamps the time. The same choice keeps it.
+        const changed = newDifficulty !== state.difficulty || newTheme !== state.theme;
 
         set({
+          ...(changed
+            ? { progress: { ...state.progress, difficulty: newDifficulty, theme: newTheme, updatedAt: Date.now() } }
+            : {}),
           cards: createCards(newDifficulty, newTheme),
           flippedCards: [],
           matchedPairs: 0,
@@ -362,11 +388,16 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
     }),
     {
       name: "memory-match-progress",
-      partialize: (state) => ({
-        progress: state.progress,
-        difficulty: state.difficulty,
-        theme: state.theme,
-      }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) =>
+        markSaved({
+          progress: state.progress,
+          difficulty: state.difficulty,
+          theme: state.theme,
+        }),
     }
   )
 );

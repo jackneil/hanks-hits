@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameState,
   type Player as PlayerType,
@@ -53,8 +54,10 @@ const defaultProgress: PlatformerProgress = {
   totalDeaths: 0,
   totalJumps: 0,
   lastPlayedLevel: null,
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+const UNTOUCHED = defineUntouchedProgress("platformer", { defaults: defaultProgress });
 
 // Full game state
 type PlatformerState = {
@@ -386,14 +389,12 @@ export const usePlatformerStore = create<PlatformerState>()(
         // Check collision with platforms
         const playerLeft = newX;
         const playerRight = newX + PLAYER.HITBOX_WIDTH;
-        const playerTop = newY;
         const playerBottom = newY + PLAYER.HEIGHT;
 
         for (const platform of platforms) {
           const platLeft = platform.x;
           const platRight = platform.x + platform.width;
           const platTop = platform.y;
-          const platBottom = platform.y + PLATFORM.HEIGHT;
 
           // Check if overlapping horizontally
           if (playerRight > platLeft && playerLeft < platRight) {
@@ -662,7 +663,11 @@ export const usePlatformerStore = create<PlatformerState>()(
     }),
     {
       name: "hank-platformer-progress",
-      partialize: (state) => ({ progress: state.progress }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({ progress: state.progress }),
     }
   )
 );

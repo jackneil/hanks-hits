@@ -6,6 +6,8 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { progressStamp, sameProgress } from '@/shared/lib/progressStamp';
+import { defineUntouchedProgress, markSaved, persistSettledSave, settleOnLoad } from '@/shared/lib/untouchedProgress';
 import { FUEL, NITRO, VEHICLES, UPGRADES, STAGES, type UpgradeType } from './constants';
 
 // =============================================================================
@@ -79,6 +81,9 @@ export interface GameState {
   soundEnabled: boolean;
   musicEnabled: boolean;
   leanSensitivity: number; // 0.5 to 2.0, default 1.0
+
+  /** The player's last change to PROGRESS_FIELDS (0: untouched). */
+  lastModified: number;
 }
 
 export interface GameActions {
@@ -179,7 +184,45 @@ const initialState: GameState = {
   soundEnabled: true,
   musicEnabled: true,
   leanSensitivity: 1.0,
+
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+/**
+ * The fields that sync to the account. A change to one of them stamps
+ * lastModified (progressStamp), so no action has to stamp it by hand.
+ * Before the sync-time fix, getProgress() returned Date.now() on every
+ * read: an untouched store always looked newer than the account and
+ * replaced the account's progress at sign-in.
+ */
+const PROGRESS_FIELDS = [
+  'coins',
+  'totalCoinsEarned',
+  'bestDistance',
+  'bestDistancePerStage',
+  'currentVehicleId',
+  'unlockedVehicles',
+  'vehicleUpgrades',
+  'currentStageId',
+  'unlockedStages',
+  'leanSensitivity',
+  'soundEnabled',
+  'musicEnabled',
+] as const satisfies readonly (keyof GameState)[];
+
+const stamp = progressStamp<GameState>(PROGRESS_FIELDS);
+
+const pickProgress = (state: Record<string, unknown>) =>
+  Object.fromEntries(PROGRESS_FIELDS.map((field) => [field, state[field]]));
+
+// The settings did not count as progress before the sync-time fix either
+// (no time at all was saved), so a save that changed only them is untouched.
+const UNTOUCHED = defineUntouchedProgress('hill-climb', {
+  layout: 'flat',
+  defaults: pickProgress(initialState as unknown as Record<string, unknown>),
+  // Settings, and the picked vehicle and stage (ones the kid already has).
+  ignore: ['soundEnabled', 'musicEnabled', 'leanSensitivity', 'currentVehicleId', 'currentStageId'],
+});
 
 function getUnlockedStagesForDistance(existingStages: string[], bestDistance: number): string[] {
   const unlocked = new Set(existingStages);
@@ -499,7 +542,11 @@ export const useHillClimbStore = create<GameState & GameActions>()(
       },
 
       resetProgress: () => {
-        set(initialState);
+        // A reset is the player's choice: its time wins over the account. A
+        // reset of a garage that is already new changes nothing.
+        const state = get();
+        const unchanged = PROGRESS_FIELDS.every((field) => sameProgress(state[field], initialState[field]));
+        set({ ...initialState, lastModified: unchanged ? state.lastModified : Date.now() });
       },
 
       // Cloud sync
@@ -518,34 +565,42 @@ export const useHillClimbStore = create<GameState & GameActions>()(
           leanSensitivity: state.leanSensitivity,
           soundEnabled: state.soundEnabled,
           musicEnabled: state.musicEnabled,
-          lastModified: Date.now(),
+          lastModified: state.lastModified,
         };
       },
 
       setProgress: (data) => {
         const unlockedStages = getUnlockedStagesForDistance(data.unlockedStages, data.bestDistance);
 
-        set({
-          coins: data.coins,
-          totalCoinsEarned: data.totalCoinsEarned,
-          bestDistance: data.bestDistance,
-          bestDistancePerStage: data.bestDistancePerStage,
-          currentVehicleId: data.currentVehicleId,
-          unlockedVehicles: data.unlockedVehicles,
-          vehicleUpgrades: data.vehicleUpgrades,
-          currentStageId: unlockedStages.includes(data.currentStageId)
-            ? data.currentStageId
-            : initialState.currentStageId,
-          unlockedStages,
-          leanSensitivity: data.leanSensitivity,
-          soundEnabled: data.soundEnabled,
-          musicEnabled: data.musicEnabled,
-        });
+        // Taking progress is not a player action: it keeps the time it gets.
+        stamp.adopt(() =>
+          set({
+            coins: data.coins,
+            totalCoinsEarned: data.totalCoinsEarned,
+            bestDistance: data.bestDistance,
+            bestDistancePerStage: data.bestDistancePerStage,
+            currentVehicleId: data.currentVehicleId,
+            unlockedVehicles: data.unlockedVehicles,
+            vehicleUpgrades: data.vehicleUpgrades,
+            currentStageId: unlockedStages.includes(data.currentStageId)
+              ? data.currentStageId
+              : initialState.currentStageId,
+            unlockedStages,
+            leanSensitivity: data.leanSensitivity,
+            soundEnabled: data.soundEnabled,
+            musicEnabled: data.musicEnabled,
+            lastModified: typeof data.lastModified === 'number' ? data.lastModified : 0,
+          })
+        );
       },
     }),
     {
       name: 'hill-climb-storage',
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         // Only persist these fields
         coins: state.coins,
         totalCoinsEarned: state.totalCoinsEarned,
@@ -559,7 +614,14 @@ export const useHillClimbStore = create<GameState & GameActions>()(
         leanSensitivity: state.leanSensitivity,
         soundEnabled: state.soundEnabled,
         musicEnabled: state.musicEnabled,
+        lastModified: state.lastModified,
       }),
     }
   )
 );
+
+stamp.attach(useHillClimbStore);
+
+// A save of the old code has no time: write the time that the load gave it
+// once, so that the next load does not make the old progress newer again.
+persistSettledSave(useHillClimbStore, UNTOUCHED);

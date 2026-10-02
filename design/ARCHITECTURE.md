@@ -881,6 +881,141 @@ and the stack frames.
 
 ---
 
+## Progress time (cloud sync)
+
+The time in synced progress (`lastModified`, or `updatedAt` in Memory
+Match) marks the last change that a player made. Nothing else sets it.
+
+**Why.** `useAuthSync` merges the progress of a device and the progress of
+the account by this time: the newer progress wins
+(`src/lib/progress-merge.ts`). Before this rule, most stores put the
+page-load time into their default progress, and three stores returned
+`Date.now()` from `getProgress()`. Untouched progress then looked newer
+than the account. At sign-in, or on a second device, the defaults replaced
+the account's pet, beats, wishlist, journey and coins (issue #26i).
+
+**Rules for a store that syncs:**
+
+- The default progress has time `0`. A time of `0` means "untouched".
+- `getProgress()` returns the stored time. A read never stamps.
+- `setProgress()` keeps the time of the progress that it gets.
+- A player action that changes progress stamps `Date.now()`. An action
+  that changes nothing keeps the time. Use `stampIfChanged()` from
+  `src/shared/lib/progressStamp.ts`.
+- A store that keeps its synced fields at the top level of its state can
+  use `progressStamp()` instead (Hill Climb, Monster Truck, Oregon
+  Trail).
+- An automatic change that a page makes once (a page load, the catch-up
+  for the time away, a visit on a new day) uses
+  `automaticStamp(time, synced)`. It stamps only progress that a player
+  already changed, and only when `synced` from `useAuthSync` is true (the
+  store holds the account's progress).
+- A continuous change never stamps: a clock that runs while the page is
+  open (Cookie Clicker's bake, the Four-Wheeler world clock, the pet's
+  needs). A stamp there makes an idle page newer than what the kid did on
+  another device, and its saves replace that. The server takes a save
+  with the same time as its row (the same line of play), so the change
+  still reaches the account.
+- A page that changes progress by itself waits for `ready` from
+  `useAuthSync`. Then the change applies to the account's progress, not to
+  an old copy on the device. When the account cannot be reached for
+  `READY_FALLBACK_MS` (10 s), `ready` turns true and the page runs on the
+  device's progress, as a guest's page does. `synced` stays false until the
+  first sync is done, so no automatic change stamps that old copy. When the
+  sync ends later, run the automatic change again on the account's
+  progress (Cookie Clicker bakes the time away in `onSyncComplete`).
+- Define the untouched rule of the store with `defineUntouchedProgress()`
+  (`src/shared/lib/untouchedProgress.ts`). Put every setting (sound,
+  difficulty, a picked vehicle) and every clock in `ignore`: settings are
+  not progress. A counter that a page load changes by itself goes in
+  `within`, with the value that one load can reach.
+- In the persist options, keep the `version` of the store. Use
+  `merge: settleOnLoad(UNTOUCHED)` and wrap the `partialize` result in
+  `markSaved()`. The marker key tells a save of this code from a save of
+  the old code, which gets its real time on load. Do not raise the
+  version for this: the old code loads the defaults for a higher version,
+  so a rollback would lose progress.
+- A store whose old saves have no time (Hill Climb, Monster Truck, Oregon
+  Trail) calls `persistSettledSave(store, UNTOUCHED)` after `create()`. It
+  writes the settled save once, so the next load does not give the old
+  progress a newer time again.
+- A store whose old code keeps keys that it does not know (Oregon Trail
+  saves its whole state) uses `markSavedWithSum(UNTOUCHED, ...)`. After a
+  rollback, that code keeps the marker and the old time while the kid plays
+  on. The sum of the progress tells such a save, and it loads with the old
+  rule's time.
+- Put the lists of items that a player makes (a beat, a drawing, a wish)
+  in `lists`, with the key of an item and the schema's bound.
+- Do not set progress from a component with `setProgress()`. Put the
+  player action in the store, so that it stamps the time.
+
+**What the first sync does (`useAuthSync`):**
+
+- An untouched device (time `0`, or only settings and clocks changed)
+  takes the account's progress. What time alone earned on the device (an
+  unlocked pet species, a visit streak) is folded in.
+- An account row of untouched progress gives way to the device's real
+  progress, and keeps its records. The new code never uploads untouched
+  progress, so such a row is a row of the old code, whatever its time (a
+  tab that still runs the old code, a rollback, a wrong clock).
+- Progress that the device built on the defaults (a guest's play, a blank
+  device that played while the first sync failed, a save made after a
+  sign-out) never replaces the account's real progress. The account's
+  progress stays the base. The device's records (a high score, an unlock)
+  and the items that the player made (`lists`) fold in. The device's other
+  fields (a wallet, a journey) do not: they were not built on the
+  account's progress. An account with no progress for the game takes the
+  device's progress whole.
+- How the hook knows: when a first sync is done, it writes
+  `syncLineageKey(localStorageKey)`. `clearGameStorage()` removes these
+  keys and writes `SAVES_CLEARED_KEY`. A save with no lineage key is built
+  on the defaults when the device has no owner key, or when
+  `SAVES_CLEARED_KEY` is set. A save of an account from before this code
+  (an owner key, no lineage key, no clear) keeps the last-write rule.
+- Otherwise the server merges by the time. A change that the kid makes on
+  an old copy during the sync goes when the account holds something newer,
+  but its records stay and save.
+- A refusal from the server's schema (400) is not tried again: the device
+  keeps its progress, and the page is ready. A refusal of a fold over the
+  account's progress (the guest case) takes the account's progress.
+- No save sends progress that the store's rule calls untouched. A change
+  to a setting alone reaches the account with the kid's next real change.
+- Another tab that saves newer progress for the same key: the tab takes it
+  before its next change, and folds in its own records that the other tab
+  does not hold. A page that comes back from the back-forward cache reads
+  the save again.
+- The server takes a save with the same time as its row
+  (`mergeProgress`): it is the same line of play, and the later write.
+
+**Enforcement:**
+
+- `src/__tests__/store-default-timestamp.test.ts`: every store that
+  `useAuthSync` syncs is in `src/__tests__/synced-stores.ts`, starts at
+  time 0, keeps the server's time, keeps the persist version of the old
+  code and marks its saves.
+- `src/__tests__/progress-stamp-fuzz.test.ts`: about 6,000 seeded random
+  actions over all synced stores. A player action that changes progress
+  stamps the time, an action that changes nothing keeps it, a continuous
+  change never moves it, and progress that a save sends passes the
+  server's schema. Every action of a store needs a driver step or a skip
+  reason.
+- `src/__tests__/page-load-untouched.test.tsx`: a page load keeps an
+  untouched store untouched.
+- `src/__tests__/legacy-save-migration.test.ts`: the saves of the old
+  store code (`src/__tests__/fixtures/legacy-saves.json`, made by
+  `apps/web/scripts/legacy-saves/generate.sh`) load with their real time.
+- `src/__tests__/rollback-safety.test.ts`: the old store code loads the
+  saves of this code with their progress
+  (`apps/web/scripts/legacy-saves/rollback.sh` makes the fixtures; run it
+  again after a change to a store's save).
+- `src/shared/hooks/__tests__/useAuthSync.roundtrip.test.tsx`,
+  `useAuthSync.review4.test.tsx` and `useAuthSync.noLoss.test.tsx`:
+  sign-in, a guest who signs in, a second device, an outage, other tabs and
+  the deploy, with the real stores, the real pages of Cookie Clicker and
+  Virtual Pet, and the server's real merge.
+
+---
+
 ## Gameplay Clips
 
 **Live check.** `pnpm e2e:clips-games <base-url>` (`e2e/clips-games/`) makes
