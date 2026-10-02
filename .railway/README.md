@@ -51,7 +51,7 @@ The file manages the `hanks-garage` service only:
 | Healthcheck timeout | 100 seconds |
 | Restart policy | On failure |
 | Maximum restart retries | 3 |
-| Variables | The 10 variables that Railway holds, and `CLIPS_MODE` and `CLIPS_DOGFOOD_USER_IDS` (not set yet), each kept with `preserve()` |
+| Variables | The 10 variables that Railway held before clips, `CLIPS_MODE` (set to `on` on 2026-10-01) and `CLIPS_DOGFOOD_USER_IDS` (not set), each kept with `preserve()` |
 
 The build and deploy values are the same as the values in `railway.toml`.
 While both files exist, `platform-config.test.ts` makes sure that they stay
@@ -110,8 +110,9 @@ Do this before 2026-12-01. It needs approval for a production write.
    of "Preview and apply a change". A read-only plan of this file on
    2026-09-28 showed `0 to add, 2 to change, 0 to destroy`. The changes were
    `build.builder` and the four `deploy` fields. That plan ran before
-   `CLIPS_MODE` and `CLIPS_DOGFOOD_USER_IDS` were in the file, and Railway
-   does not hold them yet. Nobody has seen what a plan does with
+   `CLIPS_MODE` and `CLIPS_DOGFOOD_USER_IDS` were in the file. Railway
+   holds `CLIPS_MODE` since 2026-10-01 (value `on`). It does not hold
+   `CLIPS_DOGFOOD_USER_IDS`. Nobody has seen what a plan does with
    `preserve()` for a variable that Railway does not hold. If the plan
    shows a change or an error for either name, do not apply. Ask first.
 4. Run `railway config apply`.
