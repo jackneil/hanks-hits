@@ -657,7 +657,7 @@ stateDiagram-v2
   <ul>
   <li>On <code>pointerdown</code> the ring bounds are snapshotted. The clip is committed on <code>pointerup</code> before 500 ms, so a slow 6-year-old press still captures the moment they meant.</li>
   <li>A hold of 500 ms or more without movement opens the Capture menu and commits nothing. The menu's first row, "Clip the last 30 seconds", uses the snapshot.</li>
-  <li>Drag off to cancel, like a native iOS button: a press released more than 48 px outside the clip button commits nothing. A release inside the button, or within 48 px of its edges, still clips, also after the finger moved. A cancelled press (pointercancel, a press given up for a sheet) never clips, whatever its length.</li>
+  <li>Drag off to cancel, like a native iOS button: a press released more than 48 px outside the clip button commits nothing. A release inside the button, or within 48 px of its edges, still clips, also after the finger moved. The release point is the last <code>pointermove</code> of the press (<code>createPointerTrail</code>), never the <code>pointerup</code>'s own point: iPhone Safari can report a <code>pointerup</code> at (0, 0), which made every tap a drag off (iPhone SE, 2026-10-01). A cancelled press (pointercancel, a press given up for a sheet) never clips, whatever its length.</li>
   <li>A tap within 5 s of the last clip extends it.</li>
   <li>Test: a 600 ms hold opens the menu and leaves zero new library rows.</li>
   </ul></li>

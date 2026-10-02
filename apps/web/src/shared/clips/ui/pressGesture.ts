@@ -18,7 +18,9 @@
  *   length under HOLD_FOR_MENU_MS, so however long it is held, it is a tap.
  * - Drag off to cancel (like a native iOS button): a pointer press that is
  *   released more than RELEASE_SLOP_PX outside the button commits nothing.
- *   The button sends it as a cancel (releasedOff). A release within that
+ *   The button sends it as a cancel (releasedOff). The release point is
+ *   the last pointermove of the press (shared/lib/input/pointerTrail.ts),
+ *   never the pointerup's own point. A release within that
  *   distance of the button still clips, also after a move past
  *   PRESS_SLOP_PX (the move only stops the hold from opening the menu).
  * - While a video records, the button is the stop control: the release

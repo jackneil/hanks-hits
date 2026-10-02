@@ -1,5 +1,6 @@
 "use client";
 import { useId, useMemo, useRef, useState } from "react";
+import { createPointerTrail } from "@/shared/lib/input";
 import { DESTINATIONS, distanceTo, routeTo } from "../../lib/destinations";
 import { useAdventureSession, type Waypoint } from "../../lib/adventureSession";
 import { useFourWheeler3dStore } from "../../lib/store";
@@ -73,6 +74,10 @@ export function WorldMap({ mini = false }: { mini?: boolean }) {
     height: number;
     moved: boolean;
   } | null>(null);
+  // The point where a tap lets go comes from its moves, never from the
+  // pointerup: iPhone Safari can send a pointerup at (0, 0), which put the
+  // pin in the map's top-left corner.
+  const [trail] = useState(createPointerTrail);
   const span = mini ? 600 : 4200 / zoom,
     center = mini ? player : (pan ?? (zoom > 1 ? player : { x: 0, z: 0 }));
   const viewBox = `${center.x - span / 2} ${center.z - span / 2} ${span} ${span}`;
@@ -298,6 +303,7 @@ export function WorldMap({ mini = false }: { mini?: boolean }) {
                     height: rect.height,
                     moved: false,
                   };
+                  trail.down(e);
                   e.currentTarget.setPointerCapture(e.pointerId);
                 }
           }
@@ -305,6 +311,7 @@ export function WorldMap({ mini = false }: { mini?: boolean }) {
             mini
               ? undefined
               : (e) => {
+                  trail.move(e);
                   const d = drag.current;
                   if (!d) return;
                   const dx = e.clientX - d.x,
@@ -321,6 +328,7 @@ export function WorldMap({ mini = false }: { mini?: boolean }) {
             mini
               ? undefined
               : (e) => {
+                  const at = trail.release(e);
                   const d = drag.current;
                   if (!d) return;
                   if (!d.moved) {
@@ -330,18 +338,19 @@ export function WorldMap({ mini = false }: { mini?: boolean }) {
                       label: "Map pin",
                       x: clamp(
                         d.centerX +
-                          ((e.clientX - rect.left) / rect.width - 0.5) * d.span,
+                          ((at.x - rect.left) / rect.width - 0.5) * d.span,
                       ),
                       z: clamp(
                         d.centerZ +
-                          ((e.clientY - rect.top) / rect.height - 0.5) * d.span,
+                          ((at.y - rect.top) / rect.height - 0.5) * d.span,
                       ),
                     });
                   }
                   drag.current = null;
                 }
           }
-          onPointerCancel={() => {
+          onPointerCancel={(e) => {
+            trail.forget(e.pointerId);
             drag.current = null;
           }}
         >

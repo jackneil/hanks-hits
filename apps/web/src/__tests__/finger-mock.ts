@@ -14,6 +14,10 @@ import { act, fireEvent } from "@testing-library/react";
  *   onTouchStart + onClick pairs run an action twice, and that the shared
  *   native touch hook uses to stop the click.
  * - fingerCancel: pointercancel, then touchcancel.
+ * - fingerUp with { pointerUpAt }: the pointerup reports that point, and the
+ *   touchend and the compatibility events keep the real point. This is what
+ *   an iPhone SE (iOS 27 Safari) sent on 2026-10-01: pointerup at (0, 0),
+ *   touchend and click at the finger (see shared/lib/input/pointerTrail.ts).
  *
  * jsdom has TouchEvent but no Touch constructor, so the touch events are
  * plain Events with the touch lists defined by hand. Games read only
@@ -44,16 +48,21 @@ function touchEvent(
   return event;
 }
 
-function pointerInit(finger: ActiveFinger) {
+function pointerInit(finger: ActiveFinger, at: { x: number; y: number } = finger) {
   return {
     pointerId: finger.id,
     pointerType: "touch",
     button: 0,
     buttons: 1,
     isPrimary: finger.id === Array.from(active.keys())[0],
-    clientX: finger.x,
-    clientY: finger.y,
+    clientX: at.x,
+    clientY: at.y,
   };
+}
+
+export interface FingerUpOptions {
+  /** The point that the pointerup reports. Default: the finger's point. */
+  pointerUpAt?: { x: number; y: number };
 }
 
 /** A finger lands on the element. */
@@ -81,14 +90,14 @@ export function fingerMove(element: Element, { id = 1, x = 0, y = 0 }: Finger = 
 }
 
 /** A finger lifts. The compatibility mouse events and click follow unless a touch event was prevented. */
-export function fingerUp(element: Element, { id = 1, x, y }: Finger = {}): void {
+export function fingerUp(element: Element, { id = 1, x, y }: Finger = {}, { pointerUpAt }: FingerUpOptions = {}): void {
   const finger = active.get(id);
   if (!finger) throw new Error(`finger ${id} is not down`);
   if (x !== undefined) finger.x = x;
   if (y !== undefined) finger.y = y;
   active.delete(id);
   act(() => {
-    fireEvent.pointerUp(element, pointerInit(finger));
+    fireEvent.pointerUp(element, pointerInit(finger, pointerUpAt));
     const end = touchEvent("touchend", [finger]);
     element.dispatchEvent(end);
     const prevented = finger.prevented || end.defaultPrevented;

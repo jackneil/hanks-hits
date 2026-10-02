@@ -6837,7 +6837,11 @@ updateSwitchLabel();
    on the button it went down on and no click follows within 250 ms, the
    button gets one click then; a late click after that is dropped, so one
    tap is one action. The touch pad and the plane pad have their own
-   touch handlers and are left alone. */
+   touch handlers and are left alone.
+   "Lifts on the button" uses the finger's last pointermove, never the
+   pointerup's own point: iPhone Safari can send a pointerup at (0, 0)
+   (iPhone SE, 2026-10-01). A touch is captured to the button it went down
+   on, so every move of that finger comes here. */
 (function secondFingerClicks() {
   const WAIT = 250, LATE = 1000;
   const downOn = new Map();
@@ -6845,15 +6849,20 @@ updateSwitchLabel();
   addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'touch' || !e.target.closest) return;
     const b = e.target.closest('button');
-    if (b && !b.closest('#touch, #planeCtrls')) downOn.set(e.pointerId, b);
+    if (b && !b.closest('#touch, #planeCtrls')) downOn.set(e.pointerId, { b, x: e.clientX, y: e.clientY });
+  }, true);
+  addEventListener('pointermove', (e) => {
+    const press = downOn.get(e.pointerId);
+    if (press) { press.x = e.clientX; press.y = e.clientY; }
   }, true);
   addEventListener('pointercancel', (e) => downOn.delete(e.pointerId), true);
   addEventListener('pointerup', (e) => {
-    const b = downOn.get(e.pointerId);
+    const press = downOn.get(e.pointerId);
     downOn.delete(e.pointerId);
-    if (!b) return;
+    if (!press) return;
+    const b = press.b;
     const r = b.getBoundingClientRect();
-    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+    if (press.x < r.left || press.x > r.right || press.y < r.top || press.y > r.bottom) return;
     clearTimeout(waiting);
     waitingFor = b;
     waiting = setTimeout(() => {

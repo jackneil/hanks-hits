@@ -13,6 +13,13 @@ import {
   TOUCH_INPUT_TEST_IGNORES,
 } from "./src/shared/lib/input/touchInputRule.mjs";
 import {
+  POINTER_RELEASE_LINT_FILES,
+  POINTER_RELEASE_PLUGIN,
+  POINTER_RELEASE_RULE,
+  POINTER_RELEASE_TEST_IGNORES,
+  pointerReleasePlugin,
+} from "./src/shared/lib/input/pointerReleaseRule.mjs";
+import {
   WHOLE_STORE_DEPS_LINT_FILES,
   WHOLE_STORE_DEPS_PLUGIN,
   WHOLE_STORE_DEPS_RULE,
@@ -20,9 +27,25 @@ import {
   wholeStoreDepsPlugin,
 } from "./src/shared/lib/wholeStoreDepsRule.mjs";
 
+// The local rules share one plugin namespace. Flat config refuses two
+// different plugin objects under one name, so the rules go in one object.
+if (POINTER_RELEASE_PLUGIN !== WHOLE_STORE_DEPS_PLUGIN) {
+  throw new Error("The local ESLint rules must share one plugin namespace.");
+}
+const hanksHitsPlugin = Object.freeze({
+  meta: { name: "hanks-hits" },
+  rules: { ...wholeStoreDepsPlugin.rules, ...pointerReleasePlugin.rules },
+});
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    // The local rules (no-whole-store-deps, no-pointerup-position). The
+    // blocks below turn them on for their files.
+    name: "hanks-hits/plugin",
+    plugins: { [WHOLE_STORE_DEPS_PLUGIN]: hanksHitsPlugin },
+  },
   {
     // Two bans in one no-restricted-syntax list (a later flat-config block
     // replaces the rule, so both sets live together):
@@ -81,9 +104,27 @@ const eslintConfig = defineConfig([
     name: "hanks-hits/no-whole-store-deps",
     files: [...WHOLE_STORE_DEPS_LINT_FILES],
     ignores: [...WHOLE_STORE_DEPS_TEST_IGNORES],
-    plugins: { [WHOLE_STORE_DEPS_PLUGIN]: wholeStoreDepsPlugin },
     rules: {
       [`${WHOLE_STORE_DEPS_PLUGIN}/${WHOLE_STORE_DEPS_RULE}`]: "error",
+    },
+  },
+  {
+    // A decision about where a pointer let go must not read the position
+    // of the pointerup event: iPhone Safari can report a pointerup at
+    // (0, 0), so the clip button took every tap for a drag off. Read
+    // createPointerTrail().release() from @/shared/lib/input. The rule
+    // finds each pointerup binding (JSX onPointerUp, a handler object,
+    // addEventListener("pointerup"), onpointerup), follows a handler bound
+    // by name to its declaration, and follows the event into the functions
+    // of the file that get it. It is a plugin rule, not no-restricted-syntax,
+    // so the audio and touch blocks above cannot replace it. See
+    // src/shared/lib/input/pointerReleaseRule.mjs and design/ARCHITECTURE.md,
+    // section "Touch input".
+    name: "hanks-hits/no-pointerup-position",
+    files: [...POINTER_RELEASE_LINT_FILES],
+    ignores: [...POINTER_RELEASE_TEST_IGNORES],
+    rules: {
+      [`${POINTER_RELEASE_PLUGIN}/${POINTER_RELEASE_RULE}`]: "error",
     },
   },
   // Override default ignores of eslint-config-next.
