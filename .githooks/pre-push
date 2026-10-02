@@ -43,6 +43,18 @@ run() {
 
 echo "[ci-gate] running local CI gate before push (lint, typecheck, e2e typecheck, test, build) ..." >&2
 
+# The progress route has a test on a REAL Postgres
+# (apps/web/src/app/api/progress/[appId]/__tests__/route.pg.test.ts). It runs
+# only when TEST_DATABASE_URL names a server on this computer; it makes its
+# own database and drops it. When a local server answers, turn it on, so the
+# gate proves the savepoint behavior on Postgres and not only on the stand-in.
+if [ -z "${TEST_DATABASE_URL:-}" ] && command -v psql >/dev/null 2>&1 \
+  && PGCONNECT_TIMEOUT=3 psql -w "postgres://localhost:5432/postgres" -Atqc "select 1" </dev/null >/dev/null 2>&1; then
+  # -w: never ask for a password (a hook has no one to answer the prompt).
+  export TEST_DATABASE_URL="postgres://localhost:5432/postgres"
+  echo "[ci-gate] local Postgres found - the real-Postgres route test will run." >&2
+fi
+
 run "install (frozen lockfile)" pnpm install --frozen-lockfile
 run "lint"                      pnpm --filter web lint
 run "typecheck"                 pnpm --filter web typecheck

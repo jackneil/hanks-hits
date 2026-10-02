@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { inspect } from "node:util";
 
 // The signup route is the server-side enforcement of the password minimum
 // (SECURITY_BACKLOG item 2: 6 -> 8). Client-side minLength is decoration;
@@ -173,5 +174,76 @@ describe("POST /api/auth/signup display-name validation", () => {
     );
     expect(res.status).toBe(200);
     expect(persistedName()).toBe("hank");
+  });
+});
+
+describe("POST /api/auth/signup error log", () => {
+  beforeEach(() => {
+    findFirst.mockReset().mockResolvedValue(undefined);
+    valuesSpy.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const printed = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls
+      .map((args) =>
+        args.map((a) => (typeof a === "string" ? a : inspect(a, { depth: 8 }))).join(" ")
+      )
+      .join("\n");
+
+  it("logs a failed insert without the email, the name or the password hash", async () => {
+    // Two signups with one email race past the findFirst check. drizzle puts
+    // every insert parameter into its error message.
+    class DrizzleQueryError extends Error {}
+    returning.mockReset().mockImplementation(async () => {
+      const [values] = valuesSpy.mock.calls[0] as [Record<string, string>];
+      throw new DrizzleQueryError(
+        `Failed query: insert into "users" ("id", "name", "email", "password")\nparams: ${Object.values(values).join(",")}`,
+        {
+          cause: Object.assign(new Error("duplicate key value violates unique constraint"), {
+            code: "23505",
+            table: "users",
+            constraint: "users_email_unique",
+          }),
+        }
+      );
+    });
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await POST(
+      signupRequest({ email: "racer@example.com", password: "eight888", name: "Speedy" })
+    );
+
+    expect(res.status).toBe(500);
+    expect(errorLog).toHaveBeenCalledWith(
+      "Signup error:",
+      expect.objectContaining({ code: "23505", constraint: "users_email_unique" })
+    );
+    const logged = printed(errorLog);
+    expect(logged).not.toContain("racer@example.com");
+    expect(logged).not.toContain("Speedy");
+    expect(logged).not.toContain("$2"); // a bcrypt hash starts "$2a$" / "$2b$"
+    expect(logged).not.toContain("Failed query");
+  });
+
+  it("logs a malformed body without quoting it", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await POST(
+      new Request("http://localhost/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "hunter22 racer@example.com",
+      })
+    );
+
+    expect(res.status).toBe(500);
+    const logged = printed(errorLog);
+    expect(logged).toContain("SyntaxError");
+    expect(logged).not.toContain("hunter22");
+    expect(logged).not.toContain("racer@example.com");
   });
 });

@@ -615,9 +615,15 @@ pnpm install --frozen-lockfile   # deps match the lockfile
 pnpm --filter web lint           # eslint (0 errors; warnings are OK)
 pnpm --filter web typecheck      # tsc --noEmit
 pnpm e2e:typecheck               # tsc over the Playwright specs in e2e/
-pnpm --filter web test           # vitest run
+pnpm --filter web test           # vitest run (see TEST_DATABASE_URL below)
 pnpm --filter web build          # authoritative typecheck + regenerates game metadata
 ```
+
+The progress route also has a test on a REAL Postgres
+(`src/app/api/progress/[appId]/__tests__/route.pg.test.ts`). It runs only when
+`TEST_DATABASE_URL` names a local server. When a local Postgres is up, run the test
+step as `TEST_DATABASE_URL=postgres://localhost:5432/postgres pnpm --filter web test`.
+The pre-push hook sets it for you when a local server answers.
 
 A **pre-push git hook enforces this automatically** (`.githooks/pre-push`) — it runs
 the exact gate above and blocks the push if anything fails. It's tracked in the repo;

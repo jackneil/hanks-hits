@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db, eq } from "@hank-neil/db";
 import { appProgress } from "@hank-neil/db/schema";
 import { checkProgressRateLimit } from "@/lib/rate-limit";
+import { describeError } from "@/lib/describe-error";
 
 /**
  * GET /api/progress
@@ -49,7 +50,7 @@ export async function GET() {
       count: progressList.length,
     });
   } catch (error) {
-    console.error("GET /api/progress error:", error);
+    console.error("GET /api/progress error:", describeError(error));
     return NextResponse.json(
       { error: "Failed to fetch progress" },
       { status: 500 }
