@@ -14,13 +14,14 @@ description: "Release manager — standalone (generated 2026-07-21; upgrade jack
   1. `pnpm install --frozen-lockfile`
   2. `pnpm --filter web lint`   (0 errors; warnings OK)
   3. `pnpm --filter web typecheck`
-  4. `pnpm --filter web test`
-  5. `pnpm --filter web build`
+  4. `pnpm e2e:typecheck`
+  5. `pnpm --filter web test`
+  6. `pnpm --filter web build`
 - **Publish Mechanism**: merge the PR to `master` (or push to `master`). Railway (project `hanks-hits`, ID `08bfe3ff-3cf6-429c-a4f9-16dd711e74af`, service "hanks-garage") auto-deploys the `web` service from the root `Dockerfile` within seconds. There is NO tag, NO GitHub Release, NO package publish — the merge IS the release.
 - **Verify**: confirm the Railway deploy landed and the app is up —
   - `railway deployment list --json` (Railway project `hanks-hits`) → the newest deploy is `SUCCESS`.
   - `curl -sf -o /dev/null -w "%{http_code}" https://hanks-garage-production.up.railway.app/` → `200`.
-  - Railway healthcheck path is `/` (see `railway.toml`); a failed healthcheck auto-rolls-back per `restartPolicyType = on_failure`.
+  - Railway healthcheck: path `/`, timeout 100 s (see `.railway/railway.ts`). A new deploy takes traffic only after `/` answers 2xx; if it does not within the timeout, the deploy is marked FAILED and the previous deployment keeps serving. The healthcheck runs only at deploy start; the restart policy (ON_FAILURE, the Railway default; max 3 retries in `railway.ts`) restarts a container that crashes later.
 
 <!-- Staleness fingerprint — the engine compares these against the live repo on each run -->
 - **Generated at commit**: 309ceaa75e6d98993de54942d13e1b8857585e25
