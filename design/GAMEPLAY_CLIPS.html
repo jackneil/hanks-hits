@@ -515,7 +515,7 @@ stateDiagram-v2
 <ul>
 <li><strong>Visible pauses</strong> keep the encoder alive.</li>
 <li><strong>iOS hidden:</strong> flush and close at once. Errors in the first seconds after resume do not count toward the disable limit.</li>
-<li><strong>Owner changes:</strong> keep the guest ring only when sign-in completes within 60 s of that run's end, in the same tab (the same kid saving the run they just played, from any sign-in entry point). Otherwise purge it. Always purge on user-to-other-user, on user-to-guest, and on bfcache restore when the owner differs.</li>
+<li><strong>Owner changes:</strong> keep the guest ring only when sign-in completes within 60 s of that run's end, in the same tab (the same kid saving the run they just played, from any sign-in entry point). Otherwise purge it. Always purge on user-to-other-user, on user-to-guest, and on bfcache restore when the owner differs. Since #26i part A, sign-in is Google only, and a sign-in always leaves the page: the tab goes to Google and comes back with a full page load. The ring lives in memory, so a sign-in in the same tab always loses the ring (it is purged by construction). A tab sees a sign-in complete only when another tab of the same browser does it (next-auth tells every open tab of the new session). The service cannot tell that from a sign-in in its own tab, so that sign-in keeps the ring when it completes within the 60 s, as before part A.</li>
 <li><strong>Web Locks election:</strong> only the focused tab captures.</li>
 </ul>
 

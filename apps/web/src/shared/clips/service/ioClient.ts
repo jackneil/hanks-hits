@@ -22,8 +22,10 @@
  *   (registry.ts), or setOwnerKey() from the clip service CONFIRMS the owner
  *   for this tab. A confirmed owner is kept until the session bus says the
  *   session changed; then the next call reads the session again. So a
- *   client-side sign-in (the /login page, then router.push) changes the
- *   partition on My Clips too, where no game is mounted.
+ *   sign-in that another tab completes (next-auth tells every open tab of
+ *   the new session) changes the partition on My Clips too, where no game is
+ *   mounted. A sign-in in this tab is Google only and leaves the page: it
+ *   comes back with a full page load, which starts a new client.
  * - A failed read (offline, or the endpoint is down) is NEVER kept. The call
  *   uses the last owner this browser confirmed (OWNER_MEMORY_ITEM), so a
  *   signed-in kid who opens My Clips offline sees their own clips (plan 8.1:

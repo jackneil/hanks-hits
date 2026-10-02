@@ -8,6 +8,13 @@
       "when": 1767565123088,
       "tag": "0000_overrated_mulholland_black",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790890068495,
+      "tag": "0001_coppa_google_id_only",
+      "breakpoints": true
     }
   ]
 }

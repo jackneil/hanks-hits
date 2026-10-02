@@ -12,7 +12,7 @@ import {
 import { mergeForSave } from "@/lib/progress-merge";
 import { validateProgress } from "@/lib/progress-schemas";
 import { checkProgressDeleteRateLimit, checkProgressRateLimit } from "@/lib/rate-limit";
-import { generateUniqueHandle } from "@/lib/handle-generator";
+import { getOrCreateGamingProfile } from "@/lib/gaming-profile";
 import {
   extractLeaderboardScore,
   hasLeaderboardSupport,
@@ -284,52 +284,18 @@ export async function POST(request: Request, context: RouteContext) {
             return; // Don't fail transaction, just skip leaderboard update
           }
 
-          // Get or create gaming profile (server-side lookup by session)
-          // RACE-SAFE: Handles both userId race (same user, two tabs) and
-          // handle collision race (different users get same random handle)
-          let profile = await tx.query.gamingProfiles.findFirst({
-            where: eq(gamingProfiles.userId, userId),
-          });
+          // Get or create the gaming profile (server-side lookup by session).
+          // Sign-in normally creates it already. Race-safe for the same user
+          // in two tabs and for two users who draw the same random handle.
+          const profile = await getOrCreateGamingProfile(
+            tx as unknown as typeof db,
+            userId
+          );
 
+          // Should never happen, but handle gracefully
           if (!profile) {
-            // Try up to 3 times in case of handle collision
-            for (let attempt = 0; attempt < 3; attempt++) {
-              const handle = await generateUniqueHandle(tx as unknown as typeof db);
-              try {
-                const [inserted] = await tx
-                  .insert(gamingProfiles)
-                  .values({
-                    userId,
-                    handle,
-                  })
-                  .onConflictDoNothing({ target: gamingProfiles.userId })
-                  .returning();
-
-                // If insert was a no-op (userId race - another tab won), fetch their profile
-                profile = inserted || await tx.query.gamingProfiles.findFirst({
-                  where: eq(gamingProfiles.userId, userId),
-                });
-                break; // Success - exit retry loop
-              } catch (err) {
-                // Handle collision (different user got same random handle)
-                // The unique constraint on 'handle' column triggers this
-                const isHandleCollision = err instanceof Error &&
-                  err.message.includes("unique") &&
-                  err.message.toLowerCase().includes("handle");
-
-                if (isHandleCollision && attempt < 2) {
-                  console.warn(`[LEADERBOARD] Handle collision on attempt ${attempt + 1}, retrying...`);
-                  continue; // Try again with a new handle
-                }
-                throw err; // Other errors or max retries exceeded
-              }
-            }
-
-            // Should never happen, but handle gracefully
-            if (!profile) {
-              console.error(`[LEADERBOARD] Failed to get/create profile for user ${userId}`);
-              return;
-            }
+            console.error(`[LEADERBOARD] Failed to get/create profile for user ${userId}`);
+            return;
           }
 
           // Upsert leaderboard entry (only if new score is better)

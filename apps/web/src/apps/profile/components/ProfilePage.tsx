@@ -7,19 +7,20 @@ import { signOutAndClear } from "@/lib/auth-client";
 import { GameProgressCard } from "./GameProgressCard";
 import { GamesIMade } from "./GamesIMade";
 import { LeaderboardNameToggle } from "./LeaderboardNameToggle";
+import { DeleteAccount } from "./DeleteAccount";
 import { TrophyCase } from "@/shared/components/TrophyCase";
 import { extractGameStats, type GameDisplayInfo } from "@/shared/lib/gameStatExtractor";
 import Link from "next/link";
 import { Header } from "@/shared/components/Header";
 import { getPlayableHref } from "@/shared/lib/app-routing";
 
+/**
+ * GET /api/profile. An account keeps no name, email or photo (COPPA,
+ * lib/auth-privacy.ts): the card shows the made-up gamer name.
+ */
 interface ProfileData {
-  id: string;
-  name: string | null;
-  email: string | null;
-  image: string | null;
+  handle: string | null;
   createdAt: string | null;
-  emailVerified: boolean;
 }
 
 interface ProgressItem {
@@ -48,7 +49,7 @@ interface MyRanksData {
  * Shows user info, game progress, and account actions.
  */
 export function ProfilePage() {
-  const { status, update } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -56,12 +57,6 @@ export function ProfilePage() {
   const [rankings, setRankings] = useState<MyRanksData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Name editing state
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [nameSaving, setNameSaving] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -100,7 +95,6 @@ export function ProfilePage() {
         }
 
         setProfile(profileData);
-        setNewName(profileData.name || "");
 
         // Extract game stats from progress. The "achievements" blob is
         // platform state, not a game — it feeds the Trophy Case section,
@@ -122,41 +116,6 @@ export function ProfilePage() {
     fetchData();
   }, [status]);
 
-  // Handle name save
-  const handleSaveName = async () => {
-    if (!newName.trim()) {
-      setNameError("Name can't be empty!");
-      return;
-    }
-
-    try {
-      setNameSaving(true);
-      setNameError(null);
-
-      const res = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim() }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to save name");
-      }
-
-      setProfile((prev) => prev ? { ...prev, name: data.name } : null);
-      setIsEditingName(false);
-      // Push the new name into the session JWT so the header avatar
-      // initials update immediately instead of after the next login.
-      await update({ name: data.name });
-    } catch (err) {
-      setNameError(err instanceof Error ? err.message : "Couldn't save name");
-    } finally {
-      setNameSaving(false);
-    }
-  };
-
   // Handle sign out
   const handleSignOut = async () => {
     await signOutAndClear("/");
@@ -170,17 +129,6 @@ export function ProfilePage() {
       month: "long",
       year: "numeric",
     });
-  };
-
-  // Get initials for avatar fallback
-  const getInitials = (name: string | null, email: string | null): string => {
-    const displayName = name || email || "Player";
-    return displayName
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
   };
 
   // Loading state
@@ -213,7 +161,8 @@ export function ProfilePage() {
     );
   }
 
-  const displayName = profile?.name || profile?.email || "Player";
+  // The made-up gamer name. "Player" only if creating it failed.
+  const gamerName = profile?.handle || "Player";
 
   return (
     <div className="min-h-dvh bg-blue-800 pb-8">
@@ -224,79 +173,21 @@ export function ProfilePage() {
         <div className="bg-white/10 rounded-3xl p-6 border-2 border-white/20">
           {/* Avatar and Name */}
           <div className="flex flex-col items-center mb-6">
-            {/* Large Avatar */}
-            <div className="w-24 h-24 rounded-full ring-4 ring-white/30 mb-4 overflow-hidden bg-blue-500 flex items-center justify-center">
-              {profile?.image ? (
-                <img
-                  src={profile.image}
-                  alt={displayName}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              ) : (
-                <span className="text-3xl font-bold text-white">
-                  {getInitials(profile?.name ?? null, profile?.email ?? null)}
-                </span>
-              )}
+            {/* Large avatar: the gamer name's first letter, never a photo */}
+            <div
+              data-testid="gamer-avatar"
+              className="w-24 h-24 rounded-full ring-4 ring-white/30 mb-4 overflow-hidden bg-blue-500 flex items-center justify-center"
+            >
+              <span className="text-3xl font-bold text-white">
+                {gamerName.charAt(0).toUpperCase()}
+              </span>
             </div>
 
-            {/* Name with edit */}
-            {isEditingName ? (
-              <div className="w-full max-w-xs">
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  maxLength={50}
-                  className="w-full px-4 py-3 text-center text-xl font-bold rounded-xl bg-white/20 text-white placeholder-white/50 border-2 border-white/30 focus:border-white/60 outline-none"
-                  placeholder="Your name"
-                  autoFocus
-                />
-                {nameError && (
-                  <p className="text-red-300 text-sm text-center mt-2">{nameError}</p>
-                )}
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => {
-                      setIsEditingName(false);
-                      setNewName(profile?.name || "");
-                      setNameError(null);
-                    }}
-                    className="flex-1 px-4 py-2 bg-white/10 text-white rounded-xl font-bold"
-                    disabled={nameSaving}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveName}
-                    disabled={nameSaving}
-                    className="flex-1 px-4 py-2 bg-green-500 text-white rounded-xl font-bold disabled:opacity-50"
-                  >
-                    {nameSaving ? "Saving..." : "Save"}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setIsEditingName(true)}
-                className="group flex items-center gap-2"
-              >
-                <h2 className="text-2xl font-bold text-white">{displayName}</h2>
-                <span className="text-white/50 group-hover:text-white/80 transition-colors">
-                  ✏️
-                </span>
-              </button>
-            )}
-
-            {/* Email */}
-            {profile?.email && (
-              <p className="text-white/60 mt-1">{profile.email}</p>
-            )}
+            <p className="text-white/75 text-sm">Your gamer name</p>
+            <h2 className="text-2xl font-bold text-white">{gamerName}</h2>
 
             {/* Member since */}
-            <p className="text-white/40 text-sm mt-2">
+            <p className="text-white/75 text-sm mt-2">
               Member since {formatMemberSince(profile?.createdAt ?? null)}
             </p>
           </div>
@@ -320,17 +211,6 @@ export function ProfilePage() {
               View All →
             </Link>
           </div>
-
-          {/* Gaming handle display */}
-          {rankings.handle && (
-            <div className="bg-yellow-500/20 rounded-xl p-3 mb-4 border border-yellow-400/30 flex items-center justify-between">
-              <div>
-                <span className="text-white/60 text-sm">Your gamer name:</span>
-                <span className="ml-2 font-bold text-white">{rankings.handle}</span>
-              </div>
-              <span className="text-2xl">🎮</span>
-            </div>
-          )}
 
           {/* Rankings grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -428,6 +308,9 @@ export function ProfilePage() {
           Sign Out
         </button>
       </section>
+
+      {/* The parent's right to delete the account (COPPA 312.6) */}
+      <DeleteAccount handle={profile?.handle ?? null} userId={session?.user?.id ?? null} />
     </div>
   );
 }

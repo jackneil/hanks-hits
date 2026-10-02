@@ -11,7 +11,7 @@ description: "Parallel recursive review — standalone (generated 2026-07-21; up
 - **Stack**: TypeScript · Next.js 16 + React 19 · React Three Fiber + Rapier · Zustand · next-auth v5 · Drizzle ORM + PostgreSQL · Tailwind v4 + DaisyUI · Vitest
 
 ## Default Lens Selection
-Always on: **Guardrails**, **Security** (next-auth v5 + API routes: `/api/auth` (signup + nextauth), `/api/progress`, `/api/roms` unauthenticated asset proxy, `/api/leaderboards`, `/api/profile`, `/api/gaming-profile`), **Access Control** (per-user data isolation — progress / profile / leaderboards are keyed by user; one user must never read or write another's data), **Data Integrity & Schema Safety** (Drizzle ORM + migrations under `packages/db`; the Zod `progress-schemas.ts` that gate every save), **Testing** (Vitest).
+Always on: **Guardrails**, **Security** (next-auth v5 + API routes: `/api/auth` (next-auth, Google sign-in only; an account keeps only the Google subject id, see `design/ACCOUNTS_COPPA.md`), `/api/progress`, `/api/roms` unauthenticated asset proxy, `/api/leaderboards`, `/api/profile`, `/api/gaming-profile`), **Access Control** (per-user data isolation — progress / profile / leaderboards are keyed by user; one user must never read or write another's data), **Data Integrity & Schema Safety** (Drizzle ORM + migrations under `packages/db`; the Zod `progress-schemas.ts` that gate every save), **Testing** (Vitest).
 Usually on: Logic & Edge Cases, Maintainability, Simplicity & Reuse, UX & Flow (kid-facing UI), Observability & Debuggability (ROM proxy, auth, Railway logs).
 Usually off: none — this is a full-stack app with UI, API, and DB, so most lenses are in play.
 (Still allow runtime override — if changes clearly involve an "off" lens, include it.)

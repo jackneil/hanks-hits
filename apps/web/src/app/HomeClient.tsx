@@ -451,7 +451,17 @@ export function HomeClient({ categories }: HomeClientProps) {
         {/* The notices for the open-source software in the clip maker and
             Retro Arcade (FFmpeg LGPL-2.1, Mediabunny MPL-2.0, and EmulatorJS
             and its cores under the GPL ask for them). */}
-        <nav aria-label="Site information" className="max-w-6xl mx-auto mt-2 flex justify-center">
+        <nav aria-label="Site information" className="max-w-6xl mx-auto mt-2 flex flex-wrap justify-center gap-x-4">
+          {/* COPPA 312.4(d) and (e): a clearly labeled link on the home page
+              to what an account keeps and why (the notice on the sign-in
+              page, design/ACCOUNTS_COPPA.md). The full privacy notice of
+              PR #42pr replaces this target with /privacy. */}
+          <Link
+            href="/login#for-grown-ups"
+            className="inline-flex min-h-[44px] items-center px-2 font-semibold text-white underline underline-offset-4 hover:text-cyan-200"
+          >
+            Privacy for grown-ups
+          </Link>
           <Link
             href="/licenses"
             className="inline-flex min-h-[44px] items-center px-2 font-semibold text-white underline underline-offset-4 hover:text-cyan-200"

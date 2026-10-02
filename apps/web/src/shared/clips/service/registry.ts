@@ -9,8 +9,10 @@
  * next-auth's SessionProvider) publishes the signed-in user id each time the
  * session changes, on every page. The clip service and the library client
  * listen, so an owner change is seen when it happens (for example a sign-in
- * on the /login page, where no game is mounted), not only when a game page
- * mounts again (plan 7.1 owner rules, plan 8.1 owner partitions).
+ * that another tab completes while this tab shows a page with no game), not
+ * only when a game page mounts again (plan 7.1 owner rules, plan 8.1 owner
+ * partitions). A sign-in in this tab leaves the page for Google and comes
+ * back with a full page load.
  * A published null means "next-auth has no session". That is also what
  * next-auth reports when its own fetch failed (offline), so a listener must
  * not treat null as a confirmed guest without its own check.

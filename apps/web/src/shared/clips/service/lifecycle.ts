@@ -16,11 +16,15 @@
  *   and focused; the tab it took the lock from stops ("other-tab"). A hidden
  *   tab lets the lock go. Without Web Locks every tab captures.
  * - Owner changes (ownerChangeAction): the ring of a guest run is kept only
- *   when sign-in completes within 60 s of that run's end, in this tab, with no
- *   new run. Every other change purges the ring: user to other user, user to
- *   guest, and a bfcache restore with a different owner. The service keeps
- *   the run's end for the ring (not for one game mount), and hears a sign-in
- *   on the session bus when it happens, also on the /login page.
+ *   when this tab sees the sign-in complete within 60 s of that run's end,
+ *   with no new run. Every other change purges the ring: user to other user,
+ *   user to guest, and a bfcache restore with a different owner. The service
+ *   keeps the run's end for the ring (not for one game mount), and hears a
+ *   sign-in on the session bus when it happens, also on a page with no game.
+ *   Sign-in is Google only (#26i) and leaves the page, so a sign-in in this
+ *   tab comes back with a full page load and the in-memory ring is gone. The
+ *   tab sees a sign-in complete only when another tab of the browser does it
+ *   (next-auth tells every open tab of the new session).
  *
  * Nothing touches window, document or navigator at import time.
  */

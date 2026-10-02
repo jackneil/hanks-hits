@@ -112,15 +112,10 @@ export function LoginButton({ showLabelOnMobile = false, variant = "header" }: L
     );
   }
 
-  // Logged in - show avatar dropdown
-  const userImage = session.user.image;
-  const userName = session.user.name || session.user.email || "Player";
-  const initials = userName
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  // Logged in: the made-up gamer name, never a real name, email or photo
+  // (COPPA, lib/auth-privacy.ts). A player without a gamer name yet is "Player".
+  const gamerName = session.user.handle || "Player";
+  const avatarLetter = gamerName.charAt(0).toUpperCase();
 
   const handleSignOut = async () => {
     setDropdownOpen(false);
@@ -133,23 +128,23 @@ export function LoginButton({ showLabelOnMobile = false, variant = "header" }: L
         ref={triggerRef}
         tabIndex={0}
         role="button"
+        aria-label={`My account: ${gamerName}`}
+        aria-expanded={dropdownOpen}
         className="btn btn-ghost btn-circle avatar cursor-pointer"
         onClick={() => setDropdownOpen(!dropdownOpen)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setDropdownOpen(!dropdownOpen);
+          }
+        }}
       >
         <div className="w-10 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
-          {userImage ? (
-            <img
-              src={userImage}
-              alt={userName}
-              onError={(e) => {
-                // Fallback to initials on image load failure
-                e.currentTarget.style.display = 'none';
-                e.currentTarget.nextElementSibling?.classList.remove('hidden');
-              }}
-            />
-          ) : null}
-          <div className={`bg-primary text-primary-content flex items-center justify-center w-full h-full text-lg font-bold ${userImage ? 'hidden' : ''}`}>
-            {initials}
+          <div
+            data-testid="gamer-avatar"
+            className="bg-primary text-primary-content flex items-center justify-center w-full h-full text-lg font-bold"
+          >
+            {avatarLetter}
           </div>
         </div>
       </div>
@@ -160,12 +155,9 @@ export function LoginButton({ showLabelOnMobile = false, variant = "header" }: L
           className="absolute right-0 top-full mt-3 z-[60] p-2 shadow-lg bg-base-100 rounded-box w-52 menu menu-sm"
         >
           <li className="menu-title">
-            <span className="text-base font-bold">{userName}</span>
-            {session.user.email && (
-              <span className="text-xs text-base-content/60">
-                {session.user.email}
-              </span>
-            )}
+            <span className="text-xs text-base-content/70">Your gamer name</span>
+            {/* menu-title greys its text; the name is the point, so full contrast. */}
+            <span className="text-base font-bold text-base-content">{gamerName}</span>
           </li>
           <div className="divider my-0" />
           <li>

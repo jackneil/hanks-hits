@@ -71,7 +71,7 @@ interface GameShellProps {
   inPlay?: boolean;
   showHomeButton?: boolean;
   showPauseButton?: boolean;
-  /** Hide the sign-in control (e.g. on the login/signup pages themselves) */
+  /** Hide the sign-in control (e.g. on the sign-in page itself) */
   showLoginButton?: boolean;
   pauseOnBlur?: boolean;
   headerClassName?: string;

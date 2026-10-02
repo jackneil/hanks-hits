@@ -6,7 +6,7 @@ vi.mock("next-auth/react", async (importOriginal) => {
   return {
     ...actual,
     useSession: () => ({
-      data: { user: { id: "u1", name: "Hank", email: null } },
+      data: { user: { id: "u1", handle: "TurboFox42" } },
       status: "authenticated",
       update: vi.fn(),
     }),
@@ -35,14 +35,7 @@ beforeEach(() => {
     vi.fn((input: string) => {
       switch (input) {
         case "/api/profile":
-          return json({
-            id: "u1",
-            name: "Hank",
-            email: null,
-            image: null,
-            createdAt: "2026-01-01T00:00:00.000Z",
-            emailVerified: false,
-          });
+          return json({ handle: "TurboFox42", createdAt: "2026-01-01T00:00:00.000Z" });
         case "/api/progress":
           return json({ progress: [] });
         case "/api/leaderboards/my-ranks":
@@ -61,13 +54,13 @@ afterEach(() => {
 });
 
 describe("ProfilePage leaderboard name setting", () => {
-  it("is findable in the profile card, next to the kid's name", async () => {
+  it("is findable in the profile card, next to the kid's gamer name", async () => {
     render(<ProfilePage />);
 
     const toggle = await screen.findByRole("switch", { name: LEADERBOARD_NAME_LABEL });
     await waitFor(() => expect(toggle).toBeEnabled());
 
-    const card = screen.getByRole("heading", { name: "Hank" }).closest("section");
+    const card = screen.getByRole("heading", { name: "TurboFox42" }).closest("section");
     expect(card).not.toBeNull();
     expect(within(card as HTMLElement).getByRole("switch")).toBe(toggle);
   });

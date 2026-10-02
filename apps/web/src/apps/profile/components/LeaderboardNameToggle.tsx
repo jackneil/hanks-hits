@@ -8,13 +8,15 @@ import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
  *
  * It reads and writes the setting through GET and PATCH
  * /api/gaming-profile. When the setting is off, the leaderboards leave
- * the kid out. The label says only what this switch does: it is not the
- * account name and not a clip name (those are separate controls).
+ * the kid out. The label says only what this switch does: it is not a
+ * clip name (that is a separate control). An account has no other name:
+ * it keeps no real name (COPPA, lib/auth-privacy.ts).
  *
- * A kid gets a gamer name (and a gaming profile) the first time a game
- * with a leaderboard saves a score above 0 (POST /api/progress/[appId]).
- * Before that, PATCH has no profile to change, so the switch stays
- * off-limits and says why. The read-aloud button speaks that reason and
+ * A kid gets a gamer name (and a gaming profile) on first sign-in
+ * (lib/auth.ts). If that failed, the first game with a leaderboard that
+ * saves a score above 0 makes it (POST /api/progress/[appId]). Until
+ * then, PATCH has no profile to change, so the switch stays off-limits
+ * and says why. The read-aloud button speaks that reason and
  * the save status too, so a kid who cannot read knows why the switch is
  * grey and whether the change saved.
  */

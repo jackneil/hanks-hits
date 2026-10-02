@@ -939,7 +939,7 @@ The platform runs on Railway (auto-deploys on push to `master`) and is well past
 - [x] Next.js 16 + React 19 app, DaisyUI kid theme ("Hank's Hits")
 - [x] Home page that auto-discovers games from their `metadata.ts`
 - [x] Monster-truck 3D game (R3F + Rapier) plus a full library of games and fun-apps (2048, Snake, Asteroids, Hill Climb, Cookie Clicker, Chess, weather, jokes, drawing, virtual pet, …)
-- [x] Auth (next-auth) + cloud progress save (PostgreSQL via Drizzle) with Zod-validated writes
+- [x] Auth (next-auth, Google sign-in only; an account keeps only the Google subject id and a random gamer name, see `design/ACCOUNTS_COPPA.md`) + cloud progress save (PostgreSQL via Drizzle) with Zod-validated writes. Words that a player types stay on the device (`design/LOCAL_WORDS.html`), and a grown-up can delete the account from the profile page (`DELETE /api/account`)
 - [x] Leaderboards + profile stats
 - [x] One-file site rebranding (`apps/web/src/config/site.json`)
 - [ ] **Ongoing:** more games/apps as kids dream them up, plus platform polish

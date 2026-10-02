@@ -53,7 +53,7 @@ run "build"                     pnpm --filter web build
 # The build regenerates the game-metadata lookup. If that produced an uncommitted
 # change, the committed copy is stale - catch it here instead of shipping drift.
 GEN="src/shared/lib/gameMetadata.generated.ts"
-if [ -f "${GEN}" ] && ! git -C "${ROOT}" diff --quiet -- "apps/web/${GEN}"; then
+if [ -f "${WEB}/${GEN}" ] && ! git -C "${ROOT}" diff --quiet -- "apps/web/${GEN}"; then
   echo "" >&2
   echo "[ci-gate] build regenerated ${GEN} but it is not committed - push BLOCKED." >&2
   echo "   Run: (cd apps/web && pnpm build) then commit the regenerated file." >&2

@@ -54,8 +54,8 @@ test("safari chrome: every page gives the root and body the header bar's colour,
       [...new Set([...document.querySelectorAll('a[href^="/games/"], a[href^="/apps/"]')].map((a) => a.getAttribute("href")!))],
     );
     expect(games.length).toBeGreaterThan(20);
-    // The pages outside the game shell too: the home page, the lists, the sign-in pages.
-    const pages = ["/", "/leaderboards", "/trophies", "/profile", "/login", "/signup", "/licenses"];
+    // The pages outside the game shell too: the home page, the lists, the sign-in page.
+    const pages = ["/", "/leaderboards", "/trophies", "/profile", "/login", "/licenses"];
     const wrong: string[] = [];
     for (const route of [...pages, ...games].filter(wanted)) {
       await page.goto(route, { waitUntil: "load" });

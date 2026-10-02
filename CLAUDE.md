@@ -129,7 +129,7 @@ When Hank asks for something:
 |-----------|--------|-------|
 | **Hosting** | Railway only | PostgreSQL + web app |
 | **Framework** | Next.js 16 + React 19 | App Router |
-| **Auth** | next-auth (Auth.js) + credentials | Already wired (login + cloud save) |
+| **Auth** | next-auth (Auth.js), Google sign-in only | Already wired (login + cloud save). An account keeps only the Google subject id, never an email, name or photo (COPPA): see `design/ACCOUNTS_COPPA.md` |
 | **Database** | PostgreSQL + Drizzle ORM | Already wired (progress sync) |
 | **Styling** | Tailwind + DaisyUI | Kid-friendly theme |
 | **3D Games** | React Three Fiber + Rapier | For monster truck, etc |

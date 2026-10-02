@@ -189,7 +189,10 @@ const quoridorSchema = z.object({
 // players to continue their journey across devices
 const partyMemberSchema = z.object({
   name: boundedString,
-  health: z.enum(["good", "fair", "poor", "very poor"]),
+  // The game's HealthStatus values (games/oregon-trail/types). "very poor"
+  // with a space never matched, so every save after a member got that sick
+  // was rejected.
+  health: z.enum(["good", "fair", "poor", "very_poor"]),
   isSick: z.boolean(),
   sickDays: z.number().min(0).max(365),
   leftBehind: z.boolean(),
