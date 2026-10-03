@@ -32,6 +32,12 @@ import { installAudioMock } from "@/__tests__/audio-mock";
 import { SYNCED_STORES, type SyncedStoreEntry } from "@/__tests__/synced-stores";
 import { DRIVERS, READ_ONLY, SYNC, int, pick, seeded } from "@/__tests__/store-drivers";
 
+// Stores capture initial timestamps during import, so freeze their clock too.
+vi.hoisted(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+  vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
+});
+
 const STEPS_PER_STORE = 190; // 33 stores: about 6,000 actions per run.
 const SEED = 20261002;
 
@@ -46,8 +52,6 @@ const actionsOf = (entry: SyncedStoreEntry) =>
     .sort();
 
 beforeAll(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
-  vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
   installAudioMock();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
