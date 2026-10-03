@@ -851,7 +851,41 @@ save.
 - The next save writes the board row again, because the route reads the
   score from the full saved blob.
 
-**How the server merges a save.** The client (`useAuthSync`) sends
+**Optional revision protocol (server foundation).** GET includes `protocol: 1`
+and an opaque `revision` for the returned canonical row, or `null` when no row
+exists. A conditional POST includes that exact `baseRevision` and the mounted
+account's `expectedOwnerId`. Omit `baseRevision` for the existing protocol;
+explicit `null` means create only if the row is still absent. Invalid revisions
+are rejected, never treated as an ordinary save.
+
+- All POSTs, including old clients, and DELETE take the same per-owner/app
+  transaction advisory lock before reading the row. The lock is a separate SQL
+  command so a waiting transaction reads the winner's committed state. This
+  serializes writes without adding a save timeout or rejecting concurrent saves.
+- A matching revision makes the incoming blob the continuation base, including
+  idle progress with an unchanged player timestamp. The field rules and final
+  schema validation still apply. The success response contains the canonical
+  stored `data` and new `revision`, read back inside the transaction.
+- A stale revision returns 409 `revision_conflict` with current canonical data
+  and revision, without writing either progress or leaderboard. A changed owner
+  returns 409 `owner_changed` without revealing the current account's data.
+- Revisions hash owner, app, row id and driver-visible update time. Every
+  cooperating write advances that time by at least one millisecond, even for a
+  no-op or a backward wall clock. Deleting and recreating a row changes its id.
+- Deploy this server and drain old server instances before enabling a client
+  that depends on revisions. Old browser clients can continue using legacy
+  requests against the new server. Rolling back the server requires first
+  disabling revision clients; the old server ignores their preconditions.
+- Client integration is separate. It must retain the acknowledged canonical
+  base, immutable sent snapshot and later local edits independently. A lost
+  acknowledgement is not permission to overwrite a new revision: fetch and
+  reconcile, retain both alternatives on a real conflict, and never retry as a
+  legacy unconditional write. A beacon is not an acknowledgement.
+
+No database migration is required. This foundation does not complete #69 or
+change any browser client's save behavior by itself.
+
+**How the legacy server merge works.** The client (`useAuthSync`) sends
 `merge: true` with each save after the first sync. The route merges the
 save with the stored row in `src/lib/progress-merge.ts`.
 
