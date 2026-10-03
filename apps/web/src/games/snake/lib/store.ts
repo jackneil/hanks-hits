@@ -34,6 +34,8 @@ export type SnakeProgress = {
 };
 
 export type SnakeGameState = {
+  /** Transient recording boundary, never part of saved progress. */
+  clipRunId: number;
   // Game board
   gridSize: number;
 
@@ -123,6 +125,7 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
     (set, get) => ({
       // Initial state
       gridSize: GRID_SIZE,
+      clipRunId: 0,
       ...createInitialGameState(),
       bestBeforeRun: 0,
       lastRunNewBest: false,
@@ -132,6 +135,7 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
       startGame: () => {
         const initialState = createInitialGameState();
         set({
+          clipRunId: get().clipRunId + 1,
           ...initialState,
           status: "playing",
           bestBeforeRun: get().progress.highScore,

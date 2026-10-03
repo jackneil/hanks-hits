@@ -40,7 +40,7 @@ const run = (seconds: number, spanSec = seconds): ChipRun => ({ seconds, spanSec
 describe("result chip clip actions (plan 11.4, decision D1)", () => {
   it("offers one action for a run of 30 s or less: Watch the whole run (m:ss), at the chip's button size", () => {
     renderWithClips(<ResultChipClipActions />, { fake: afterRun(16.08) });
-    expect(labels()).toEqual([watchRunLabel("0:16")]);
+    expect(labels()).toEqual(["Put it on the leaderboard", watchRunLabel("0:16")]);
     for (const button of screen.getAllByRole("button")) {
       expect(button.className).toMatch(/(^|\s)min-h-14(\s|$)/);
       expect(button.className).toMatch(/(^|\s)short:min-h-11(\s|$)/);
@@ -54,7 +54,7 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
 
   it("offers Watch the end and Make the whole run a video (m:ss) for a longer run", () => {
     renderWithClips(<ResultChipClipActions />, { fake: afterRun(42.5) });
-    expect(labels()).toEqual([RESULT_ACTION_COPY.watchEnd, wholeRunLabel("0:42")]);
+    expect(labels()).toEqual(["Put it on the leaderboard", RESULT_ACTION_COPY.watchEnd, wholeRunLabel("0:42")]);
   });
 
   it("never offers Record a video or Take a picture (they stay in the Capture menu)", () => {
@@ -116,6 +116,18 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     ]);
     renderWithClips(<ResultChipClipActions />, { fake: afterRun(16.08) });
     expect(screen.getByRole("button", { name: watchRunLabel("0:16") }).getAttribute("data-spoken")).toBe("Watch the whole run, 16 seconds");
+  });
+
+  it("the publish entry prepares only the frozen run end and never publishes automatically", async () => {
+    const fake = afterRun(42);
+    renderWithClips(<ResultChipClipActions />, { fake });
+    const token = vi.mocked(fake.service.beginPress).mock.results[0].value as PressToken;
+    fake.advanceCapture(3);
+    fireEvent.click(screen.getByRole("button", { name: "Put it on the leaderboard" }));
+    await flush(6);
+    expect(fake.service.clipRun).toHaveBeenCalledWith(token, "end");
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
+    expect(screen.getByTestId("clip-viewer-video")).toBeInTheDocument();
   });
 
   it("Watch the whole run clips exactly the run: never footage from before its start, and not the result screen", async () => {
@@ -194,7 +206,7 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
       vi.advanceTimersByTime(2000); // 6 s of capture since the run ended: 42 + 6 > 45 + 1 + 1
     });
     expect(wholeRun()).toBeNull();
-    expect(labels()).toEqual([RESULT_ACTION_COPY.watchEnd]);
+    expect(labels()).toEqual(["Put it on the leaderboard", RESULT_ACTION_COPY.watchEnd]);
   });
 
   it("keeps the whole-run button while capture is stopped at the break (the ring does not move)", () => {
@@ -211,9 +223,10 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     expect(screen.queryByRole("button", { name: wholeRunLabel("0:42") })).not.toBeNull();
   });
 
-  it("shows nothing when the game reported no run", () => {
+  it("keeps a preparation entry with an explanation when the game reported no run", () => {
     renderWithClips(<ResultChipClipActions />, { snapshot: AT_GAME_OVER });
-    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(screen.getByRole("button", { name: "Put it on the leaderboard" })).toBeEnabled();
+    expect(screen.getByText(/Prepare a video first/)).toBeInTheDocument();
   });
 
   it("does not leave keyboard focus on a clip button after a mouse press", () => {

@@ -1,20 +1,28 @@
+import { getGameAudio, setGameSpeakerEnabled, type GameAudioChannel } from "@/shared/lib/audio";
 // Sound manager using Web Audio API - no external files needed!
 // All sounds are generated programmatically
 
-class SoundManager {
-  private audioContext: AudioContext | null = null;
+export class SoundManager {
+  private channel: GameAudioChannel | null = null;
   private enabled = true;
   private masterVolume = 0.5;
 
-  private getContext(): AudioContext {
-    if (!this.audioContext) {
-      this.audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    }
-    return this.audioContext;
+  private getContext(): BaseAudioContext | null {
+    const audio = getGameAudio();
+    if (!audio) return null;
+    if (!this.channel || this.channel.disposed) this.channel = audio.channel("monster-truck");
+    audio.unlock();
+    return this.channel.context;
+  }
+
+  dispose() {
+    this.channel?.dispose();
+    this.channel = null;
   }
 
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
+    setGameSpeakerEnabled("monster-truck", enabled);
   }
 
   setVolume(volume: number) {
@@ -22,15 +30,14 @@ class SoundManager {
   }
 
   resume() {
-    if (this.audioContext?.state === 'suspended') {
-      this.audioContext.resume();
-    }
+    getGameAudio()?.unlock();
   }
 
   // Coin collect - bright, satisfying "cha-ching"
   playCoin() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const osc1 = ctx.createOscillator();
@@ -49,7 +56,7 @@ class SoundManager {
 
     osc1.connect(gain);
     osc2.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.channel!.input);
 
     osc1.start(now);
     osc2.start(now);
@@ -61,6 +68,7 @@ class SoundManager {
   playStar() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const notes = [523, 659, 784, 1047, 1319]; // C5, E5, G5, C6, E6
@@ -77,7 +85,7 @@ class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.35);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.channel!.input);
 
       osc.start(startTime);
       osc.stop(startTime + 0.35);
@@ -88,6 +96,7 @@ class SoundManager {
   playHorn() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const osc1 = ctx.createOscillator();
@@ -106,7 +115,7 @@ class SoundManager {
 
     osc1.connect(gain);
     osc2.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.channel!.input);
 
     osc1.start(now);
     osc2.start(now);
@@ -118,6 +127,7 @@ class SoundManager {
   playNos() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     // White noise burst with bandpass filter
@@ -145,7 +155,7 @@ class SoundManager {
 
     noise.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.channel!.input);
 
     noise.start(now);
     noise.stop(now + 0.6);
@@ -155,6 +165,7 @@ class SoundManager {
   playCrash() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const osc = ctx.createOscillator();
@@ -168,7 +179,7 @@ class SoundManager {
     gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
 
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.channel!.input);
 
     osc.start(now);
     osc.stop(now + 0.2);
@@ -178,6 +189,7 @@ class SoundManager {
   playDestroy() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const bufferSize = ctx.sampleRate * 0.25;
@@ -200,7 +212,7 @@ class SoundManager {
 
     noise.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.channel!.input);
 
     noise.start(now);
   }
@@ -209,6 +221,7 @@ class SoundManager {
   playLanding() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const osc = ctx.createOscillator();
@@ -222,7 +235,7 @@ class SoundManager {
     gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
 
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.channel!.input);
 
     osc.start(now);
     osc.stop(now + 0.12);
@@ -232,6 +245,7 @@ class SoundManager {
   playFlip() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const notes = [440, 554, 659, 880, 1047];
@@ -248,7 +262,7 @@ class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.25);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.channel!.input);
 
       osc.start(startTime);
       osc.stop(startTime + 0.25);
@@ -259,6 +273,7 @@ class SoundManager {
   playUpgrade() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const notes = [220, 330, 440, 550, 660, 770];
@@ -274,7 +289,7 @@ class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.channel!.input);
 
       osc.start(startTime);
       osc.stop(startTime + 0.08);
@@ -285,6 +300,7 @@ class SoundManager {
   playUnlock() {
     if (!this.enabled) return;
     const ctx = this.getContext();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const fanfare = [
@@ -308,7 +324,7 @@ class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.channel!.input);
 
       osc.start(startTime);
       osc.stop(startTime + duration);
@@ -319,6 +335,7 @@ class SoundManager {
   startEngine(): () => void {
     if (!this.enabled) return () => {};
     const ctx = this.getContext();
+    if (!ctx) return () => {};
 
     const osc = ctx.createOscillator();
     const lfo = ctx.createOscillator();
@@ -339,7 +356,7 @@ class SoundManager {
     lfo.connect(lfoGain);
     lfoGain.connect(osc.frequency);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.channel!.input);
 
     osc.start();
     lfo.start();

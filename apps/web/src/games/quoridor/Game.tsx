@@ -1,5 +1,9 @@
 "use client";
 
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { paintQuoridor } from "./lib/clipRenderer";
+
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { useQuoridorStore } from "./lib/store";
@@ -553,6 +557,7 @@ export function QuoridorGame() {
   // how hard) are on it.
   const [hasStarted, setHasStarted] = useState(false);
   const held = useShellHold();
+  useSemanticClips(store, paintQuoridor, { phase: !hasStarted || store.status !== "playing" ? "idle" : held || store.paused ? "hold" : "playing", runId: store.clipRunId, score: store.progress.currentWinStreak, best: store.progress.bestWinStreak });
   const box = usePlayBox({ fit: true });
   const layout = quoridorLayout(box);
   const geometry: BoardGeometry = { square: layout.square, groove: layout.groove };

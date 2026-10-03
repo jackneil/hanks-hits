@@ -1,75 +1,16 @@
 /**
- * Leaderboard clips: the API contract (design/LEADERBOARD_CLIPS.html).
- *
- * This module is the single source of the routes, limits, request fields,
- * response shapes and error codes. The server routes and the kid UI (PR B)
- * import it. It has no imports and no server code, so it is safe in a
- * browser bundle.
- *
- * Routes (every state change needs a same-origin request, see
- * src/lib/same-origin.ts):
- * - GET    /api/leaderboard-clips              -> 200 LeaderboardClipConfigResponse
- * - POST   /api/leaderboard-clips?appId=<game> multipart (UPLOAD_FIELDS)
- *                                              -> 201 UploadLeaderboardClipResponse
- * - GET    /api/leaderboard-clips/[id]/video   -> 302 to a signed bucket link (10 minutes)
- * - GET    /api/leaderboard-clips/[id]/poster  -> 302 to a signed bucket link (10 minutes)
- * - POST   /api/leaderboard-clips/[id]/report  -> 200 ReportLeaderboardClipResponse
- * - DELETE /api/leaderboard-clips/[id]         optional JSON body DeleteLeaderboardClipRequest
- *                                              -> 200 DeleteLeaderboardClipResponse
- * - GET    /api/leaderboards/[appId]           -> 200 LeaderboardApiResponse
- *                                              (entry.clip, myEntry.clip, myEntry.clipStatus,
- *                                              myClip)
- *
- * Who can do what:
- * - Upload: a signed-in player who has a row on the game's leaderboard
- *   (spec section 1: "A player who is on a leaderboard can attach a video").
- *   With no row the answer is 409 no_board_entry, before the server reads
- *   the body (the game is in the URL: LEADERBOARD_CLIPS_API.upload). The
- *   board row comes from the progress sync, so the kid UI saves the
- *   progress (and waits for the answer) before it uploads. One clip for each player and game; the
- *   newest upload replaces the old one (D2). The clip is public at once (D3).
- * - Video and poster: anybody for a public clip of a player who shows on
- *   the leaderboards and still has a row on the game's board (so every
- *   clip that anybody can watch is on a board, where a viewer can report
- *   it); the owner also for their own clip that does not show (a report
- *   hid it, the player hides from the leaderboards, or the row is gone).
- *   Anything else is 404, also for an admin.
- * - The kill switch (LEADERBOARD_CLIPS=off) turns off the upload, the video,
- *   the poster and the report (503 clips_off), and every entry's clip is
- *   null. Delete still works, so a player can always take a video off: for
- *   that, myClip (and myEntry) still give the player their OWN clip while
- *   the bucket settings are valid. Show a player for it only when GET
- *   /api/leaderboard-clips says enabled; else show only "Take my video off".
- * - Report: anybody, rate limited by network address. The clip is hidden at
- *   once (D8). A second report of a hidden clip is also 200.
- * - Delete: the owner, or an admin (ADMIN_USER_IDS, optional; it gives
- *   the power to delete any clip and nothing more). Only an admin can set
- *   keepForLegalReport (section 7).
- *
- * The kid UI shows the upload button only when GET /api/leaderboard-clips
- * says enabled, the game clip is an MP4 (a WebM clip from a tier V browser
- * fails the check: bad_video/not_mp4), the player is signed in, and the game
- * has a board. The player's own clip (with its status) is in
- * LeaderboardApiResponse.myClip for any period, also when the player has no
- * row in that period: the "Take my video off" button and the "Your video
- * was hidden" note read it from there.
- *
- * The signed link in the 302 works for 10 minutes. A player that is paused
- * for longer and then seeks gets an error from the bucket: load the route
- * URL again (it is a new link each time).
- *
- * Every error is JSON: LeaderboardClipErrorResponse. Show the kid a message
- * that you choose from `code`; the `error` text is for grown-ups and logs.
+ * Shared game videos: one current video per player and game. Any signed-in
+ * player can publish a run, including a first run without a score-board row.
+ * Public runs are discoverable via GET ?appId=; hidden/private profiles are
+ * visible only to their owner. Numeric boards also attach matching clips.
+ * POST and DELETE require x-hh-expected-owner matching the current session.
+ * Disabled deployments serve no public media or uploads; owner removal works.
  */
 
 /** The paths of the routes. */
 export const LEADERBOARD_CLIPS_API = {
   config: "/api/leaderboard-clips",
-  /**
-   * The game is in the URL as well as in the form (the two must be the
-   * same), so the server checks the player's board row before it reads the
-   * body: a player who is not on the board sends no video for nothing.
-   */
+  /** The game is checked before reading a potentially large multipart body. */
   upload: (appId: string) => `/api/leaderboard-clips?${UPLOAD_QUERY.appId}=${encodeURIComponent(appId)}`,
   video: (id: string) => `/api/leaderboard-clips/${encodeURIComponent(id)}/video`,
   poster: (id: string) => `/api/leaderboard-clips/${encodeURIComponent(id)}/poster`,
@@ -150,7 +91,7 @@ export const UPLOAD_FIELDS = {
   poster: "poster",
   /** The game id, for example "asteroids". */
   appId: "appId",
-  /** The run's own score as the game reported it (a decimal number, for example "1790" or "523.7"). */
+  /** Optional run score reported by the game. Omit unknown scores; never invent zero. */
   runScore: "runScore",
 } as const;
 
@@ -164,8 +105,8 @@ export interface LeaderboardClipConfigResponse {
 /** What the leaderboard shows for a public clip. */
 export interface LeaderboardClipSummary {
   id: string;
-  /** The run's own score (not the board score). */
-  runScore: number;
+  /** The run's own score, or null when the game/run has no numeric score. */
+  runScore: number | null;
   durationMs: number;
   width: number;
   height: number;
@@ -189,6 +130,8 @@ export interface UploadLeaderboardClipResponse {
   clip: MyLeaderboardClip & { status: "public" };
   /** True when this upload replaced the player's older clip for the game. */
   replaced: boolean;
+  /** Whether the publisher currently allows their runs in public listings. */
+  publicListing: boolean;
 }
 
 /** POST /api/leaderboard-clips/[id]/report. */
@@ -215,6 +158,8 @@ export type LeaderboardClipErrorCode =
   | "wrong_origin"
   /** 401: the player must sign in. */
   | "sign_in"
+  /** 409: the active account differs from the account that opened the action. */
+  | "owner_changed"
   /** 413: the upload, the video or the poster is larger than the limits. */
   | "too_big"
   /** 408: the upload body did not arrive in time. */
@@ -229,10 +174,8 @@ export type LeaderboardClipErrorCode =
   | "too_many_reports"
   /** 400: the form is not multipart, or a field is missing. */
   | "bad_form"
-  /** 400: the game has no clips or no leaderboard. */
+  /** 400: not a supported recording game. */
   | "bad_game"
-  /** 409: the player has no row on the game's leaderboard yet. Save the progress, then try again. */
-  | "no_board_entry"
   /** 400: the run score is not a number from 0 to the game's limit. */
   | "bad_score"
   /** 400: the video failed the MP4 checks (reason: Mp4RejectReason). */
@@ -303,4 +246,11 @@ export interface LeaderboardApiResponse {
   totalPlayers: number;
   period: "all" | "week" | "month";
   scoreType: "high_score" | "wins" | "fastest_time";
+}
+
+/** A bounded newest-first list of public runs, independent of score rankings. */
+export interface SharedGameRunsResponse {
+  enabled: boolean;
+  runs: { handle: string; clip: LeaderboardClipSummary }[];
+  myClip: LeaderboardApiMyClip | null;
 }

@@ -59,7 +59,7 @@ function makeMockContext() {
 function makeManager() {
   const mock = makeMockContext();
   const manager = new FourWheelerSounds(
-    () => mock.context as unknown as AudioContext,
+    () => ({ context: mock.context as unknown as BaseAudioContext, input: {} as AudioNode, resume: () => { void mock.context.resume(); } }),
     async () => null,
   );
   return { manager, ...mock };
@@ -165,7 +165,7 @@ describe("recording ownership and node cleanup", () => {
     });
     const load = vi.fn(() => pending);
     const manager = new FourWheelerSounds(
-      () => mock.context as unknown as AudioContext,
+      () => ({ context: mock.context as unknown as BaseAudioContext, input: {} as AudioNode, resume: () => { void mock.context.resume(); } }),
       load,
     );
     const settle = async () => {

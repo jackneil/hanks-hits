@@ -40,7 +40,7 @@ import type {
 } from "../contract";
 import type { BucketSettings, LeaderboardClipsEnv } from "../config";
 import { runStoreContract } from "./storeContract";
-import { GOOD_VIDEO, POSTER_WITH_COMMENT, SAME_SITE, deleteRequest, reportRequest, uploadRequest } from "./requests";
+import { GOOD_VIDEO, POSTER_WITH_COMMENT, SAME_SITE, deleteRequest as buildDeleteRequest, reportRequest, uploadRequest as buildUploadRequest } from "./requests";
 
 const DB_URL = process.env.TEST_DATABASE_URL;
 const S3_ENDPOINT = process.env.TEST_S3_ENDPOINT;
@@ -52,6 +52,13 @@ const session = vi.hoisted(() => ({ userId: null as string | null }));
 vi.mock("@/lib/auth", () => ({
   auth: async () => (session.userId ? { user: { id: session.userId } } : null),
 }));
+
+function uploadRequest(parts: Parameters<typeof buildUploadRequest>[0] = {}) {
+  return buildUploadRequest({ ...parts, headers: { "x-hh-expected-owner": session.userId ?? "", ...parts.headers } });
+}
+function deleteRequest(id: string, body?: unknown) {
+  return buildDeleteRequest(id, body, { ...SAME_SITE, "x-hh-expected-owner": session.userId ?? "" });
+}
 
 type DbModule = typeof import("@hank-neil/db");
 
@@ -168,6 +175,28 @@ describe.skipIf(!DB_URL)("leaderboard clips on a real Postgres", () => {
         return (result.rows[0] as { n: number }).n;
       },
     };
+  });
+
+  it("retries a generated handle collision without changing the other player's identity", async () => {
+    await resetTables();
+    await addUser(KID_A);
+    await addUser(KID_B);
+    const generator = await import("@/lib/handle-generator");
+    const { createDbClipStore } = await import("../store");
+    const store = createDbClipStore(scratch.db);
+    const first = await store.publicationSlot(KID_B, "retro-arcade");
+    const [profile] = await scratch.db.select().from(scratch.gamingProfiles);
+    const handle = vi.spyOn(generator, "generateHandle").mockReturnValueOnce(profile.handle);
+    try {
+      const second = await store.publicationSlot(KID_A, "retro-arcade");
+      expect(second.profileId).not.toBe(first.profileId);
+      expect(handle.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const profiles = await scratch.db.select().from(scratch.gamingProfiles);
+      expect(profiles).toHaveLength(2);
+      expect(new Set(profiles.map((row) => row.handle)).size).toBe(2);
+    } finally {
+      handle.mockRestore();
+    }
   });
 
   it("lets only one of six uploads that start at the same moment take the slot (advisory lock)", async () => {
@@ -306,6 +335,9 @@ describe.skipIf(!DB_URL)("leaderboard clips on a real Postgres", () => {
 
     beforeEach(async () => {
       await resetTables();
+      // Each test owns a clean, uniquely named LOCAL bucket, including when
+      // a preceding assertion failed before its explicit removal step.
+      for (const key of await listKeys("")) await s3.fetch(bucketUrl(key), { method: "DELETE" });
       for (const id of [KID_A, KID_B, ADMIN]) await addUser(id);
       session.userId = null;
       vi.spyOn(console, "log").mockImplementation(() => {});
@@ -342,7 +374,7 @@ describe.skipIf(!DB_URL)("leaderboard clips on a real Postgres", () => {
     }
 
     it("says the feature is on", async () => {
-      const response = routes.clips.GET();
+      const response = await routes.clips.GET(new Request("https://hankshits.com/api/leaderboard-clips"));
       expect(((await response.json()) as LeaderboardClipConfigResponse).enabled).toBe(true);
     });
 
@@ -413,16 +445,22 @@ describe.skipIf(!DB_URL)("leaderboard clips on a real Postgres", () => {
       expect((await board(KID_A)).myEntry).toMatchObject({ clipStatus: "none", clip: null });
     });
 
-    it("refuses a player with no row on the game's board (409), and stores nothing", async () => {
-      await addBoardEntry(KID_A, "breakout");
+    it("publishes a first run without any score-board row", async () => {
       session.userId = KID_A;
-      const response = await routes.clips.POST(await uploadRequest({ appId: "asteroids" }));
-      expect(response.status).toBe(409);
-      expect(((await response.json()) as { code: string }).code).toBe("no_board_entry");
-      expect(await listKeys("lb/")).toEqual([]);
+      const response = await routes.clips.POST(await uploadRequest({ appId: "asteroids", runScore: null }));
+      expect(response.status).toBe(201);
+      const body = await response.json();
+      expect(body.clip.runScore).toBeNull();
+      expect(await listKeys("lb/")).toHaveLength(2);
+      const rows = await scratch.db.execute(scratch.sql`SELECT * FROM leaderboard_entries`);
+      expect(rows.rows).toHaveLength(0);
+      session.userId = null;
+      const feed = await routes.clips.GET(new Request("https://hankshits.com/api/leaderboard-clips?appId=asteroids"));
+      expect(await feed.json()).toMatchObject({ enabled: true, myClip: null, runs: [{ clip: { id: body.clip.id, runScore: null } }] });
+      expect((await media(body.clip.id, "video", null)).status).toBe(302);
     });
 
-    it("plays a clip to anybody only while its owner has a row on the board; the owner always finds it in myClip", async () => {
+    it("keeps a public run watchable without a score-board row; the owner always finds it in myClip", async () => {
       await putBoardEntry(KID_A, 500);
       const clip = await upload(KID_A);
       expect((await media(clip.clip.id, "video", null)).status).toBe(302);
@@ -431,10 +469,10 @@ describe.skipIf(!DB_URL)("leaderboard clips on a real Postgres", () => {
       const week = await board(KID_A, "asteroids", "week");
       expect(week.myEntry).toBeNull();
       expect(week.myClip).toMatchObject({ clipStatus: "public", clip: { id: clip.clip.id } });
-      // The board row is gone: nobody else can play it, the owner still can (and can delete it).
+      // Removing the ranked score does not remove the separately published run.
       await removeBoardEntry(KID_A, "asteroids");
-      expect((await media(clip.clip.id, "video", null)).status).toBe(404);
-      expect((await media(clip.clip.id, "video", KID_B)).status).toBe(404);
+      expect((await media(clip.clip.id, "video", null)).status).toBe(302);
+      expect((await media(clip.clip.id, "video", KID_B)).status).toBe(302);
       expect((await media(clip.clip.id, "video", KID_A)).status).toBe(302);
       expect((await board(KID_A)).myClip).toMatchObject({ clipStatus: "public", clip: { id: clip.clip.id } });
       session.userId = KID_A;

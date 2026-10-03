@@ -40,7 +40,7 @@ const AREAS_SIDEWAYS = '"scene progress" "scene supplies" "pace party"';
  * (three screens) and Continue Trail was under the fold on most days
  * (phone UX audit 2026-09-29).
  */
-export function Travel() {
+export function Travel({ onCaptureCanvas }: { onCaptureCanvas?: (canvas: HTMLCanvasElement | null) => void } = {}) {
   const st = useOregonTrailStore();
   const nextLm = LANDMARKS[st.currentLandmarkIndex + 1];
   const toNext = nextLm ? nextLm.milesFromStart - st.milesTraveled : 0;
@@ -88,7 +88,7 @@ export function Travel() {
         }}
       >
         <div className="relative" style={{ gridArea: "scene" }}>
-          <TravelScene />
+          <TravelScene onCaptureCanvas={onCaptureCanvas} />
           <div className="absolute left-2 top-2 flex items-center gap-2">
             <ReadAloudButton text={speak} variant="icon" />
             <span className="rounded bg-black/45 px-2 py-1 text-lg font-bold text-white">Day {st.currentDay}</span>

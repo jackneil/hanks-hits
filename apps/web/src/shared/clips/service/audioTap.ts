@@ -34,6 +34,7 @@
  */
 
 import { getGameAudioTapPoint, onGameAudioCreated, type GameAudio } from "@/shared/lib/audio/gameAudio";
+import { startIframeGameAudioCapture, type IframeAudioCapture } from "@/shared/lib/audio/iframeCapture";
 import type { ClockAnchor } from "../protocol";
 
 export const TAP_WORKLET_URL = "/clips/tap-worklet.js";
@@ -85,6 +86,8 @@ const defaultBus: TapBusApi = { getTapPoint: getGameAudioTapPoint, onCreated: on
 
 export class AudioTap {
   private readonly bus: TapBusApi;
+  private readonly includeIframes: boolean;
+  private iframeCapture: IframeAudioCapture | null = null;
   private readonly createNode: (context: BaseAudioContext) => TapNode;
   private readonly workletUrl: string;
   private readonly now: () => number;
@@ -111,6 +114,7 @@ export class AudioTap {
 
   constructor(deps: AudioTapDeps = {}) {
     this.bus = deps.bus ?? defaultBus;
+    this.includeIframes = deps.bus === undefined;
     this.createNode = deps.createNode ?? ((context) => new AudioWorkletNode(context, TAP_PROCESSOR, NODE_OPTIONS) as unknown as TapNode);
     this.workletUrl = deps.workletUrl ?? TAP_WORKLET_URL;
     this.now = deps.now ?? (() => performance.now());
@@ -134,11 +138,14 @@ export class AudioTap {
       if (generation !== this.generation) return;
       void this.connect(bus, generation);
     });
+    if (this.includeIframes) this.iframeCapture = startIframeGameAudioCapture();
   }
 
   /** Stop: the worklet posts its last part batch and ends; the nodes leave the graph. */
   detach(): void {
     this.generation++;
+    this.iframeCapture?.dispose();
+    this.iframeCapture = null;
     this.unsubscribeCreated?.();
     this.unsubscribeCreated = null;
     this.teardownNode(false);
@@ -152,6 +159,7 @@ export class AudioTap {
   suspend(): void {
     if (this.suspended) return;
     this.suspended = true;
+    this.iframeCapture?.suspend();
     this.stopAnchors();
     const node = this.node;
     if (!node) return;
@@ -168,6 +176,7 @@ export class AudioTap {
   resume(): void {
     if (!this.suspended) return;
     this.suspended = false;
+    this.iframeCapture?.resume();
     const node = this.node;
     if (!node) return;
     if (!this.connectGraph(node)) return;

@@ -1,5 +1,9 @@
 "use client";
 
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { paintCheckers } from "./lib/clipRenderer";
+
+
 import { useEffect, useState } from "react";
 import { Board } from "./components/Board";
 import { TurnStrip } from "./components/TurnStrip";
@@ -72,6 +76,7 @@ export function CheckersGame() {
   });
 
   const over = status !== "playing";
+  useSemanticClips(store, paintCheckers, { phase: !hasStarted || over ? "idle" : held || store.paused ? "hold" : "playing", runId: store.clipRunId, score: progress.currentWinStreak, best: progress.bestWinStreak });
   // Force save immediately on game end
   useEffect(() => {
     if (over) forceSync();

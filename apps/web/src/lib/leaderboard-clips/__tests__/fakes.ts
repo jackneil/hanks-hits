@@ -16,7 +16,7 @@ import {
   UPLOAD_WINDOW_MS,
   type ClipRow,
   type ClipStore,
-  type BoardSlot,
+  type PublicationSlot,
   type ClipWithOwner,
   type NewClipRow,
   type UploadSlot,
@@ -136,11 +136,21 @@ export class MemoryClipStore implements ClipStore {
     this.uploads = this.uploads.filter((upload) => upload.id !== slotId);
   }
 
-  async boardSlot(userId: string, appId: string): Promise<BoardSlot | null> {
+  async publicationSlot(userId: string, appId: string): Promise<PublicationSlot> {
+    const profileId = this.ensureProfile(userId);
+    const clip = await this.clipOf(profileId, appId);
+    return { profileId, currentClipId: clip?.id ?? null, publicListing: this.profiles.get(profileId)!.showOnLeaderboards };
+  }
+
+  async publicRuns(appId: string, limit: number) {
+    return [...this.clips.values()].filter((clip) => clip.appId === appId && clip.status === "public" && this.profiles.get(clip.gamingProfileId)?.showOnLeaderboards)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id))
+      .slice(0, Math.min(50, Math.max(1, limit))).map((clip) => ({ clip, handle: `Player${clip.gamingProfileId}` }));
+  }
+
+  async ownClip(userId: string, appId: string) {
     const profile = this.profileOf(userId);
-    if (!profile || !this.onBoard(profile.id, appId)) return null;
-    const current = [...this.clips.values()].find((clip) => clip.gamingProfileId === profile.id && clip.appId === appId);
-    return { profileId: profile.id, currentClipId: current?.id ?? null };
+    return profile ? this.clipOf(profile.id, appId) : null;
   }
 
   async replaceClip(row: NewClipRow): Promise<{ replacedId: string | null }> {
@@ -161,7 +171,7 @@ export class MemoryClipStore implements ClipStore {
       id: row.id,
       gamingProfileId: row.gamingProfileId,
       appId: row.appId,
-      runScore: row.runScore,
+      runScore: row.runScore ?? null,
       durationMs: row.durationMs,
       width: row.width,
       height: row.height,
@@ -182,7 +192,6 @@ export class MemoryClipStore implements ClipStore {
       clip: { ...clip },
       ownerUserId: profile.userId,
       showOnLeaderboards: profile.showOnLeaderboards,
-      onBoard: this.onBoard(clip.gamingProfileId, clip.appId),
     };
   }
 

@@ -1,4 +1,5 @@
 "use client";
+import { SHARING_COPY } from "./copy";
 
 /**
  * The clip viewer (plan 11.4, 12): a sheet at z-2500, full screen on phones
@@ -66,6 +67,10 @@ import {
   type SavePlatform,
 } from "./copy";
 import { ClipTile } from "./ClipTile";
+import { ClipPublishPanel } from "./ClipPublishPanel";
+import { useClipSession } from "./useClipSession";
+import { currentSessionUser } from "../service/registry";
+import { ownerKeyFor } from "../library/ownerKey";
 import { ClipWords } from "./ClipWords";
 import { clipGameInfo, formatDuration } from "./format";
 import { KeepGlyph, PlayGlyph, SaveGlyph, ShareGlyph, TrashGlyph } from "./glyphs";
@@ -86,6 +91,7 @@ interface LoadedMedia {
   /** The stored file under its plan 12 name. The same object for every Share and Save tap. */
   file: File;
   url: string;
+  owner: ReturnType<typeof currentSessionUser>;
 }
 
 /** What the share sheet said about one clip. */
@@ -100,11 +106,11 @@ interface ShareTrouble {
 const ACTION = "btn h-auto min-h-14 w-full gap-2 px-4 py-2 text-lg font-semibold normal-case whitespace-normal touch-manipulation";
 
 /**
- * The clip (a video or a picture) in its box. On a phone it fills the box,
- * which grows into the free space above the buttons. On a wider screen it
- * is at most half the screen high, so the dialog keeps its size.
+ * Keep the media and its native controls inside the same explicit box at
+ * every breakpoint. Additional publishing controls scroll with the sheet;
+ * they must never shrink the wrapper underneath an intrinsic-height video.
  */
-const MEDIA_FILL = "w-full object-contain max-sm:absolute max-sm:inset-0 max-sm:h-full sm:max-h-[50dvh]";
+const MEDIA_FILL = "absolute inset-0 h-full w-full object-contain";
 
 function initialView(target: ViewerTarget): ViewState {
   return target.kind === "clip" ? { kind: "clip", id: target.id, fromGame: null } : target;
@@ -133,11 +139,13 @@ function troubleFor(outcome: ShareOutcome["kind"], id: string, before: ShareTrou
 
 export function ClipViewer({ target, onClose }: ClipViewerProps) {
   const ui = useClipUi();
+  const session = useClipSession();
   const uiState = useClipUiState();
   const service = useClipService();
   const browserCanShare = useSyncExternalStore(subscribeToNothing, () => canShareHere(), () => false);
   const [view, setView] = useState<ViewState>(() => initialView(target));
-  const [records, setRecords] = useState<ClipRecord[] | null>(null);
+  const [loadedRecords, setLoadedRecords] = useState<{ owner: ReturnType<typeof currentSessionUser>; items: ClipRecord[] } | null>(null);
+  const records = loadedRecords?.owner === session ? loadedRecords.items : null;
   const [media, setMedia] = useState<LoadedMedia | null>(null);
   const [mediaFailedId, setMediaFailedId] = useState<string | null>(null);
   const [status, setStatus] = useState<{ id: string; text: string } | null>(null);
@@ -155,14 +163,16 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
   useEffect(() => {
     if (!service) return;
     let alive = true;
+    const captured = session;
     const load = () => {
       service.library.list().then(
-        (list) => {
-          if (alive) setRecords(list);
+        async (list) => {
+          const key = await ownerKeyFor(captured?.userId);
+          if (alive && currentSessionUser() === captured) setLoadedRecords({ owner: captured, items: list.filter((item) => item.ownerKey === key) });
         },
         (error: unknown) => {
           logClipUiFailure("list", error);
-          if (alive) setRecords([]);
+          if (alive && currentSessionUser() === captured) setLoadedRecords({ owner: captured, items: [] });
         },
       );
     };
@@ -172,7 +182,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
       alive = false;
       unsubscribe();
     };
-  }, [service]);
+  }, [service, session]);
 
   const record = view.kind === "clip" && records ? (records.find((item) => item.id === view.id) ?? null) : null;
   const recordId = record?.id ?? null;
@@ -190,9 +200,11 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
     if (!service || !recordId) return;
     let alive = true;
     let url: string | null = null;
+    const captured = session;
     service.library.file(recordId).then(
-      (stored) => {
-        if (!alive) return;
+      async (stored) => {
+        const key = await ownerKeyFor(captured?.userId);
+        if (!alive || currentSessionUser() !== captured || recordRef.current?.ownerKey !== key) return;
         const current = recordRef.current;
         let file = stored;
         if (current && current.id === recordId) {
@@ -203,7 +215,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
           }
         }
         url = typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : "";
-        setMedia({ id: recordId, file, url });
+        setMedia({ id: recordId, file, url, owner: captured });
       },
       (error: unknown) => {
         logClipUiFailure("read", error);
@@ -214,7 +226,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
       alive = false;
       if (url && typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(url);
     };
-  }, [service, recordId]);
+  }, [service, recordId, session]);
 
   // Opening a clip marks it watched: the new-clip chip goes away.
   const recoveredClipId = uiState.recoveredClipId;
@@ -255,7 +267,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
   const recoveredWords = recoveredId ? [RECOVERED_COPY.say, RECOVERED_COPY.watch] : [];
 
   const platform = ui.platform();
-  const readyMedia = media && recordId && media.id === recordId ? media : null;
+  const readyMedia = media && recordId && media.id === recordId && media.owner === session ? media : null;
   const statusText = status && status.id === recordId ? status.text : null;
   const showStatus = (text: string | null) => {
     if (text && recordId) setStatus({ id: recordId, text });
@@ -429,6 +441,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
       ...recoveredWords,
       note,
       watchWords,
+      !isPicture ? SHARING_COPY.putItOnTheLeaderboardWatchYour : null,
       statusText,
       ...(confirmWords ?? [...buttons, isKept ? VIEWER_COPY.kept : VIEWER_COPY.keep, VIEWER_COPY.delete]),
     ]
@@ -446,9 +459,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
       onClick={onShare}
       className={`${ACTION} ${saveFirst ? SECONDARY_ACTION : "btn-primary"}`}
     >
-      <ShareGlyph />
-      {VIEWER_COPY.share}
-    </button>
+      <ShareGlyph />{SHARING_COPY.shareWithAnotherApp}</button>
   ) : null;
   const highlightSave = saveFirst || saveHighlightId === recordId;
   const saveButton = (
@@ -545,15 +556,12 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
               <p className="text-base">{VIEWER_COPY.brokenNext}</p>
             </div>
           ) : (
-            // On a phone the clip takes the free space between the title row
-            // and the buttons pinned at the bottom (flex-1), and the video
-            // fills that box, centered with object-contain. Its own size never
-            // pushes the buttons down: it is positioned in the box. On a wider
-            // screen the dialog keeps its size (the clip is at most half the
-            // screen high).
+            // Reserve a bounded, nonshrinking player. The Sheet scrolls when
+            // publishing and local actions need more room, including on a
+            // short landscape screen. Native controls stay inside this box.
             <div
               data-testid="clip-viewer-media"
-              className="relative mb-3 flex min-h-40 items-center justify-center overflow-hidden rounded-xl bg-slate-950 max-sm:flex-1"
+              className="relative mb-3 flex h-[clamp(10rem,40dvh,25rem)] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-950"
             >
               {readyMedia && record ? (
                 isPicture ? (
@@ -590,11 +598,13 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
             </div>
           )}
 
-          {/* The thumb zone: pinned to the bottom of a phone screen. */}
-          <div data-testid="clip-viewer-actions" className="mt-auto flex flex-col pt-2">
+          {/* All actions remain reachable through the Sheet's scroll area. */}
+          <div data-testid="clip-viewer-actions" className="mt-auto flex shrink-0 flex-col pt-2">
             <p role="status" aria-live="polite" data-testid="clip-viewer-status" className="mb-2 min-h-6 text-center text-base font-semibold">
               {statusText}
             </p>
+            {record && !isPicture && !broken && <ClipPublishPanel key={`${record.id}:${session?.userId ?? "guest"}`} record={record} file={readyMedia?.file ?? null} />}
+
 
             {confirmBlock ??
               (broken ? (

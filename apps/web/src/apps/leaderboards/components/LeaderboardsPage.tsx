@@ -10,6 +10,8 @@ import {
 } from "@/shared/lib/gameMetadata.generated";
 import { getPlayableHref } from "@/shared/lib/app-routing";
 import { plural } from "@/shared/lib/pluralize";
+import { GAME_VIDEO_IDS } from "@/lib/game-video-games";
+import { SharedRuns } from "@/shared/clips/ui/SharedRuns";
 import { LEADERBOARD_ENABLED_GAMES } from "@/lib/leaderboard-extractors";
 
 interface MyRank {
@@ -31,7 +33,7 @@ interface MyRanksData {
 const FLOATING_ICONS = ["🏆", "⭐", "🎮", "👑", "💎", "🔥", "⚡", "🎯", "🥇", "🌟"];
 
 // Get leaderboard games with their metadata
-const LEADERBOARD_GAMES = LEADERBOARD_ENABLED_GAMES.map((appId) => {
+const LEADERBOARD_GAMES = GAME_VIDEO_IDS.map((appId) => {
   const meta = getGameMetadata(appId);
   return {
     appId,
@@ -54,7 +56,7 @@ function getRankBadge(rank: number): { emoji: string; color: string; glow: strin
 }
 
 export function LeaderboardsPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const [selectedGame, setSelectedGame] = useState<string>(
     LEADERBOARD_GAMES[0]?.appId || "2048"
   );
@@ -369,14 +371,14 @@ export function LeaderboardsPage() {
 
             {/* Leaderboard content */}
             <div className="p-4 md:p-6">
-              <Leaderboard
+              {LEADERBOARD_ENABLED_GAMES.some((id) => id === selectedGame) ? <Leaderboard
                 appId={selectedGame}
                 gameName={selectedGameMeta.name}
                 icon={selectedGameMeta.icon}
                 showPeriodSelector={true}
                 showTitle={false}
                 compact={false}
-              />
+              /> : <SharedRuns appId={selectedGame} />}
             </div>
           </div>
         </section>

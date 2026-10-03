@@ -1,5 +1,9 @@
 "use client";
-import { useEffect } from "react";
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+import { oregonClipState, paintOregon, type HuntClipResult } from "./lib/clipRenderer";
+import { useHuntPauseStore } from "./lib/huntPause";
+import { useEffect, useState } from "react";
 import { useOregonTrailStore, type OregonTrailSyncData } from "./lib/store";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { IOSInstallPrompt } from "@/shared/components/IOSInstallPrompt";
@@ -14,6 +18,15 @@ import { GameUI } from "./components/GameUI";
 export default function OregonTrailGame() {
   const store = useOregonTrailStore();
   const { gamePhase } = store;
+  const [nativeCanvas, setNativeCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [huntResult, setHuntResult] = useState<HuntClipResult | null>(null);
+  const clipHeld = useShellHold();
+  const huntPaused = useHuntPauseStore(s => s.paused);
+  const clipPlaying = store.gameStarted && gamePhase !== "victory" && gamePhase !== "game_over";
+  useSemanticClips(oregonClipState(store, huntResult), paintOregon, {
+    phase: !clipPlaying ? "idle" : clipHeld || (gamePhase === "hunting" && huntPaused) ? "hold" : "playing",
+    score: store.milesTraveled, best: 0,
+  }, gamePhase === "hunting" || gamePhase === "travel" ? nativeCanvas : null);
 
   // Cloud sync for authenticated users
   const { forceSync } = useAuthSync<OregonTrailSyncData>({
@@ -41,13 +54,13 @@ export default function OregonTrailGame() {
       case "store":
         return <Store />;
       case "travel":
-        return <Travel />;
+        return <Travel onCaptureCanvas={setNativeCanvas} />;
       case "event":
         return <Event />;
       case "river":
         return <River />;
       case "hunting":
-        return <Hunting />;
+        return <Hunting onCaptureCanvas={setNativeCanvas} onCaptureResult={setHuntResult} />;
       case "landmark":
       case "victory":
       case "game_over":

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   allCopyStrings,
+  SHARING_COPY,
   BUTTON_NAMES,
   buttonTooltip,
   CLIP_REASON_CODES,
@@ -51,7 +52,7 @@ const NEVER: Array<[string, RegExp]> = [
 
 const SIGN_IN = /sign[\s-]?in|log[\s-]?in|sign[\s-]?up|account|password/i;
 
-const strings = allCopyStrings();
+const strings = [...allCopyStrings(), ...Object.values(SHARING_COPY)];
 
 describe("clip copy table (plan 11.6)", () => {
   it("reads a real, non-trivial table", () => {
@@ -84,10 +85,15 @@ describe("clip copy table (plan 11.6)", () => {
     }
   });
 
-  it("has no sign-in prompt on any clip surface", () => {
-    for (const text of strings) {
+  it("local capture and device sharing never require sign-in", () => {
+    for (const text of allCopyStrings()) {
       expect(text, text).not.toMatch(SIGN_IN);
     }
+  });
+
+  it("public publishing explicitly asks a guest to sign in and never publishes automatically", () => {
+    expect(SHARING_COPY.signInToPublishThisVideo).toBe("Sign in to publish this video");
+    expect(SHARING_COPY.prepareAGameplayVideoWatchItThen).toContain("Nothing is published automatically");
   });
 
   it("gives every ClipReasonCode kid words and a separate next step", () => {

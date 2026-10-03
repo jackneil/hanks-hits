@@ -1,7 +1,9 @@
 'use client';
 
 import { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, type RootState } from '@react-three/fiber';
+import { useRunClips } from '@/shared/clips/useRunClips';
+import { monsterTruckClipState } from './lib/clipState';
 import { Physics } from '@react-three/rapier';
 import type { RapierRigidBody } from '@react-three/rapier';
 
@@ -18,6 +20,7 @@ import { useCombinedControls } from './hooks/useControls';
 import { useGameStore, type MonsterTruckProgress } from './lib/store';
 import { useAuthSync } from '@/shared/hooks/useAuthSync';
 import { useShellHold } from '@/shared/hooks/useShellHold';
+import { wantGameAudio } from '@/shared/lib/audio';
 import { sounds } from './lib/sounds';
 import { WORLD } from './lib/constants';
 import { toggleTilt } from './lib/tiltToggle';
@@ -101,6 +104,7 @@ function GameScene({
 
 // Main game component
 export function MonsterTruckGame() {
+  useEffect(() => wantGameAudio(), []);
   const vehicleRef = useRef<RapierRigidBody | null>(null);
   const [speed, setSpeed] = useState(0);
   // The player starts the game. The 3D world loads behind the start overlay,
@@ -142,6 +146,14 @@ export function MonsterTruckGame() {
   const nosCharge = useGameStore((s) => s.nosCharge);
   const nosMaxCharge = useGameStore((s) => s.nosMaxCharge);
   const soundEnabled = useGameStore((s) => s.soundEnabled);
+  useEffect(() => sounds.setEnabled(soundEnabled), [soundEnabled]);
+  const clipCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [clipCanvasReady, setClipCanvasReady] = useState(false);
+  const onCanvasCreated = useCallback(({ gl }: RootState) => {
+    clipCanvasRef.current = gl.domElement;
+    setClipCanvasReady(true);
+  }, []);
+  useRunClips(clipCanvasRef, monsterTruckClipState(store, held, clipCanvasReady));
 
   // Controls
   const handleHorn = useCallback(() => {
@@ -218,6 +230,7 @@ export function MonsterTruckGame() {
             (phone UX audit 2026-09-29, S15). The scene renders on demand
             while the start card is up. */}
         <Canvas
+          onCreated={onCanvasCreated}
           shadows={!isCoarse}
           dpr={isCoarse ? 1 : [1, 1.5]}
           frameloop={hasStarted ? 'always' : 'demand'}

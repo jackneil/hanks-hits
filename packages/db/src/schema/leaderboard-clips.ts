@@ -43,8 +43,8 @@ export const leaderboardClips = pgTable(
       .notNull()
       .references(() => gamingProfiles.id, { onDelete: "cascade" }),
     appId: text("app_id").notNull(),
-    // The run's own score, normalized like a board score (toBoardScore).
-    runScore: bigint("run_score", { mode: "number" }).notNull(),
+    // Optional run score, normalized like a board score. Unknown scores remain NULL.
+    runScore: bigint("run_score", { mode: "number" }),
     // Measured by the server from the MP4.
     durationMs: integer("duration_ms").notNull(),
     width: integer("width").notNull(),

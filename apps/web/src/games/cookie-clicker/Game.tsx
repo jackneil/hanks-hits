@@ -1,5 +1,10 @@
 "use client";
 
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { paintCookies } from "./lib/clipRenderer";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useCookieClickerStore, type CookieClickerProgress } from "./lib/store";
 import {
@@ -32,6 +37,8 @@ export function CookieClickerGame() {
   // The bakery is live from mount, so a local gate gives the player a real
   // start moment. Nothing bakes and no golden cookie appears before Play.
   const [hasStarted, setHasStarted] = useState(false);
+  const clipHeld = useShellHold();
+  useSemanticClips(store, paintCookies, { phase: !hasStarted ? "idle" : clipHeld ? "hold" : "playing", score: store.cookies, best: 0 });
   const [showOfflinePopup, setShowOfflinePopup] = useState(false);
   const [offlineEarnings, setOfflineEarnings] = useState(0);
   const tickRef = useRef<NodeJS.Timeout | null>(null);

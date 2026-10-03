@@ -1,5 +1,6 @@
 "use client";
 
+import { getGameAudio, type GameAudioChannel } from "@/shared/lib/audio";
 import { useEffect, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
@@ -283,7 +284,7 @@ function AirToyEffects() {
   const matrix = useRef(new THREE.Object3D()),
     color = useRef(new THREE.Color());
   const { playerPos, playerSpeedRef } = useGameContext();
-  const audio = useRef<AudioContext | null>(null),
+  const audio = useRef<GameAudioChannel | null>(null),
     soundCooldown = useRef(0);
   useEffect(() => {
     for (const mesh of [bombs.current, poofs.current, scorches.current])
@@ -303,7 +304,8 @@ function AirToyEffects() {
     });
     return () => {
       unsubscribe();
-      void audio.current?.close();
+      audio.current?.dispose();
+      audio.current = null;
     };
   }, [playerPos, playerSpeedRef]);
   useFrame((_, rawDt) => {
@@ -318,8 +320,11 @@ function AirToyEffects() {
       if (store.progress.settings.soundEnabled && soundCooldown.current === 0) {
         soundCooldown.current = 0.12;
         try {
-          const ctx = audio.current ?? (audio.current = new AudioContext());
-          void ctx.resume();
+          const bus = getGameAudio();
+          if (!bus) return;
+          if (!audio.current || audio.current.disposed) audio.current = bus.channel("four-wheeler-3d:air-effects");
+          const ctx = audio.current.context;
+          bus.unlock();
           const buffer = ctx.createBuffer(
               1,
               Math.floor(ctx.sampleRate * 0.55),
@@ -337,7 +342,7 @@ function AirToyEffects() {
           gain.gain.value = 0.12;
           source.connect(filter);
           filter.connect(gain);
-          gain.connect(ctx.destination);
+          gain.connect(audio.current.input);
           source.onended = () => {
             source.disconnect();
             filter.disconnect();

@@ -1,5 +1,10 @@
 "use client";
 
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { paintSnake } from "./lib/clipRenderer";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+
+
 import { useEffect, useCallback, useRef } from "react";
 import { useSnakeStore, type SnakeProgress } from "./lib/store";
 import {
@@ -226,6 +231,8 @@ function Hud({ column, syncNote }: { column: boolean; syncNote: string }) {
 export function SnakeGame() {
   const store = useSnakeStore();
   const { status, progress, tick, setDirection } = store;
+  const clipHeld = useShellHold();
+  useSemanticClips(store, paintSnake, { phase: status === "playing" ? clipHeld ? "hold" : "playing" : status === "paused" ? "hold" : "idle", runId: store.clipRunId, score: store.score, best: progress.highScore });
   const rootRef = useRef<HTMLDivElement>(null);
   const isCoarse = useCoarsePointer();
 

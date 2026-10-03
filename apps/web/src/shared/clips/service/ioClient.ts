@@ -205,6 +205,11 @@ export class IoClient {
 
   // ---- owner ---------------------------------------------------------------
 
+  /** Changes even when an account switches away and back during an operation. */
+  get sessionGeneration(): number {
+    return this.ownerVersion;
+  }
+
   /** The owner key of the library now (see the file comment). */
   ownerKey(): Promise<string> {
     return this.resolveOwner().then((owner) => owner.key);
@@ -228,9 +233,16 @@ export class IoClient {
   private async readOwner(version: number): Promise<{ key: string; confirmed: boolean }> {
     try {
       const key = await ownerKeyFor(await this.readUserId());
-      if (version === this.ownerVersion) this.confirmOwner(key);
-      return { key: this.owner ?? key, confirmed: true };
+      // A logout can invalidate this read while the new session is still
+      // unresolved. Never relabel that stale answer as a confirmed new owner.
+      if (version !== this.ownerVersion) return this.resolveOwner();
+      // The session bus may finish hashing its authoritative owner while this
+      // request is pending, without another generation change.
+      if (this.owner !== null) return { key: this.owner, confirmed: true };
+      this.confirmOwner(key);
+      return { key, confirmed: true };
     } catch (error) {
+      if (version !== this.ownerVersion) return this.resolveOwner();
       // Values-free: the error type only. Not kept: the next call reads again.
       this.log(`[clips] the signed-in player could not be read (${(error as { name?: string } | null)?.name ?? "Error"}); using the last known player`);
       if (this.owner !== null) return { key: this.owner, confirmed: true };
@@ -315,6 +327,17 @@ export class IoClient {
 
   update(id: string, patch: Extract<IoCmd, { t: "update" }>["patch"]): Promise<ClipRecord> {
     return this.oneAnswer({ t: "update", id, patch }, [], (event) => (event.t === "updated" ? event.record : undefined));
+  }
+
+  /** An account-bound change. Check again after lazy worker startup, before
+   * posting any mutation. A command already in flight retains its fixed owner.
+   */
+  updateForSession(id: string, patch: Extract<IoCmd, { t: "update" }>["patch"], ownerKey: string, generation: number): Promise<ClipRecord> {
+    return this.oneAnswer({ t: "update", id, patch }, [], (event) => (event.t === "updated" ? event.record : undefined), undefined, () => {
+      if (this.owner !== ownerKey || this.ownerVersion !== generation) {
+        throw new IoError("bad-command", "The player changed. Open your clip again before sharing.");
+      }
+    });
   }
 
   usage(ownerKey: string): Promise<{ bytes: number; budget: number; count: number }> {
@@ -533,6 +556,7 @@ export class IoClient {
     transfer: Transferable[],
     pick: (event: IoEvent) => T | undefined,
     doneType?: IoEvent["t"],
+    beforePost?: () => void,
   ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       void this.post(cmd, transfer, {
@@ -557,16 +581,22 @@ export class IoClient {
           return true;
         },
         fail: reject,
-      });
+      }, beforePost);
     });
   }
 
-  private async post(cmd: IoCmd, transfer: Transferable[], pending: Pending | null): Promise<void> {
+  private async post(cmd: IoCmd, transfer: Transferable[], pending: Pending | null, beforePost?: () => void): Promise<void> {
     let worker: IoWorkerLike;
     try {
       worker = await this.ensureWorker();
     } catch (error) {
       pending?.fail(new IoError("worker-failed", `the io worker did not start (${(error as { name?: string } | null)?.name ?? "Error"})`));
+      return;
+    }
+    try {
+      beforePost?.();
+    } catch (error) {
+      pending?.fail(error instanceof IoError ? error : new IoError("bad-command", "The player changed."));
       return;
     }
     const rid = this.nextRid++;

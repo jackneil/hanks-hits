@@ -60,8 +60,12 @@ interface DustParticle {
   size: number;
 }
 
-export function TravelScene() {
+export function TravelScene({ onCaptureCanvas }: { onCaptureCanvas?: (canvas: HTMLCanvasElement | null) => void } = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    onCaptureCanvas?.(canvasRef.current);
+    return () => onCaptureCanvas?.(null);
+  }, [onCaptureCanvas]);
   const animationRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const scrollRef = useRef({ mountains: 0, hills: 0, ground: 0 });

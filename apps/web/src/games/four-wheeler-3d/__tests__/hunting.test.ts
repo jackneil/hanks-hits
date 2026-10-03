@@ -11,6 +11,9 @@ import {
   retrieveCarcass,
   sellHuntingKills,
   stepWildlife,
+  syncWildlifeRemoval,
+  moveMountedWildlife,
+  removeLiveWildlife,
   tagWildlife,
   WILDLIFE_COUNT,
   wolfReset,
@@ -340,5 +343,36 @@ describe("wolf policy", () => {
   });
   it("retains source payout coverage for every species", () => {
     expect(ANIMAL_TYPES).toHaveLength(8);
+  });
+});
+
+
+describe("live wildlife synchronization", () => {
+  it("reconciles removals and restores without replacing simulation identities", () => {
+    const first = animal("buck", 10, 20, "first");
+    const second = animal("wolf", 30, 40, "second");
+    const originalPosition = first.position;
+    const population = [first, second];
+    syncWildlifeRemoval(population, ["first"]);
+    expect(first.alive).toBe(false);
+    expect(second.alive).toBe(true);
+    syncWildlifeRemoval(population, []);
+    expect(first.alive).toBe(true);
+    expect(first.position).toBe(originalPosition);
+    removeLiveWildlife(second);
+    expect(second.alive).toBe(false);
+    expect(population).toEqual([first, second]);
+  });
+
+  it("moves a ridden animal horizontally without overwriting its other simulation state", () => {
+    const mounted = animal();
+    mounted.position.y = 4;
+    mounted.speed = 12;
+    const rider = { x: 15, y: 90, z: 25 };
+    moveMountedWildlife(mounted, rider, 1.25);
+    expect(mounted.position).toEqual({ x: 15, y: 4, z: 25 });
+    expect(mounted.heading).toBe(1.25);
+    expect(mounted.speed).toBe(12);
+    expect(rider).toEqual({ x: 15, y: 90, z: 25 });
   });
 });

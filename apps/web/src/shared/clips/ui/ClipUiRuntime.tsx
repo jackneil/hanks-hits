@@ -1,4 +1,5 @@
 "use client";
+import { SHARING_COPY } from "./copy";
 
 /**
  * ClipUiRuntime: the shared state of the clip surfaces (the controller), and
@@ -29,11 +30,14 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type React from "react";
+import { resumeGuestPublish } from "@/shared/clips";
+import { useClipSession } from "./useClipSession";
 
 import { useClipService, useClipSnapshot } from "../service/context";
 import type { ClipServiceApi, ClipSnapshot } from "../service/contract";
 import { CaptureMenu } from "./CaptureMenu";
 import { ClipSettingsSheet } from "./ClipSettingsSheet";
+import { Sheet } from "./Sheet";
 import { ClipViewer } from "./ClipViewer";
 import { detectSavePlatform, subscribeToNothing } from "./platform";
 import { ClipUiContext, serverUiState } from "./uiContext";
@@ -54,6 +58,9 @@ interface Latest {
 /** The controller and the sheets of one page. */
 function useClipUiRuntime({ pauseGame, resumeGame }: ClipUiHost): { controller: ClipUiController; sheets: React.ReactNode } {
   const service = useClipService();
+  const session = useClipSession();
+  const [resumeError, setResumeError] = useState(false);
+  const [resumeAttempt, setResumeAttempt] = useState(0);
   const snapshot = useClipSnapshot();
 
   // The controller lives as long as the page. It reads the newest service,
@@ -77,6 +84,14 @@ function useClipUiRuntime({ pauseGame, resumeGame }: ClipUiHost): { controller: 
   useEffect(() => () => controller.store.dispose(), [controller]);
 
   const state = useSyncExternalStore(controller.store.subscribe, controller.store.getState, serverUiState);
+  useEffect(() => {
+    if (!service || !session?.userId) return;
+    let alive = true;
+    void resumeGuestPublish().then((id) => {
+      if (alive && id) controller.openViewer({ kind: "clip", id });
+    }).catch(() => { if (alive) setResumeError(true); });
+    return () => { alive = false; };
+  }, [controller, service, session, resumeAttempt]);
   const isClient = useSyncExternalStore(subscribeToNothing, () => true, () => false);
 
   // A clip or a Capture menu that waited for the end of a run opens at the next break.
@@ -124,6 +139,10 @@ function useClipUiRuntime({ pauseGame, resumeGame }: ClipUiHost): { controller: 
 
   const sheets = (
     <>
+      {resumeError && !sheet && <Sheet title={SHARING_COPY.yourPreparedVideo} variant="menu" onClose={() => setResumeError(false)} readAloudText={() => SHARING_COPY.weCouldnTReopenYourPreparedVideo}>
+        <p>{SHARING_COPY.weCouldNotReopenYourPreparedVideo}</p>
+        <button className="btn btn-primary mt-3 min-h-12" onClick={() => { setResumeError(false); setResumeAttempt((n) => n + 1); }}>{SHARING_COPY.tryOpeningMyVideoAgain}</button>
+      </Sheet>}
       {sheet?.kind === "menu" && <CaptureMenu token={sheet.token} />}
       {sheet?.kind === "viewer" && (
         <ClipViewer

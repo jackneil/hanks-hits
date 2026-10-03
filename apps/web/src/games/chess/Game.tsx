@@ -1,5 +1,9 @@
 "use client";
 
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { paintChess } from "./lib/clipRenderer";
+
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Chessboard } from "react-chessboard";
 import type { Square } from "chess.js";
@@ -115,6 +119,7 @@ export function ChessGame() {
   });
 
   const over = store.status !== "playing";
+  useSemanticClips(store, paintChess, { phase: !hasStarted || over ? "idle" : held || store.paused ? "hold" : "playing", runId: store.clipRunId, score: store.progress.currentWinStreak, best: store.progress.bestWinStreak });
   // Force save immediately on game end
   useEffect(() => {
     if (over) forceSync();

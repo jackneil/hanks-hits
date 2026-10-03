@@ -311,8 +311,8 @@ describe("game audio goes through the shared bus", () => {
       expect(existsSync(join(WEB_ROOT, documentPath)), documentPath).toBe(true);
       const host = join(WEB_ROOT, hostPath);
       expect(existsSync(host), hostPath).toBe(true);
-      expect(readFileSync(host, "utf8"), `${hostPath} must use buildAudioShimSource()`).toMatch(
-        /\bbuildAudioShimSource\s*\(/
+      expect(readFileSync(host, "utf8"), `${hostPath} must inject the audio shim before game scripts`).toMatch(
+        /\b(?:buildAudioShimSource|withGameAudioShim)\s*\(/
       );
     }
   });

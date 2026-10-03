@@ -1,5 +1,9 @@
 "use client";
 
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { paintMemory } from "./lib/clipRenderer";
+
+
 import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from "react";
 import { useMemoryMatchStore } from "./lib/store";
 import { CARD_GAP, EDGE, GAP, STATS_COLUMN, STATS_ROW, memoryLayout } from "./lib/layout";
@@ -259,6 +263,7 @@ export function MemoryMatchGame() {
   // round's clock stops there, like under the pause menu. Only a stop the
   // hold made is undone when it ends (the pause menu owns its own).
   const held = useShellHold();
+  useSemanticClips(store, paintMemory, { phase: !hasStarted || store.isWon ? "idle" : held || store.pausedAt !== null ? "hold" : "playing", runId: store.clipRunId, score: store.matchedPairs, best: 0 });
   const pausedByHold = useRef(false);
   useEffect(() => {
     const state = useMemoryMatchStore.getState();

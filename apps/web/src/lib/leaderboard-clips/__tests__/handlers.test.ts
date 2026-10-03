@@ -10,6 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { GAME_VIDEO_IDS } from "@/lib/game-video-games";
 import { jpegHasMetadata } from "@/shared/lib/jpeg";
 
 import { legalHoldKey, posterKey, videoKey } from "../bucket";
@@ -30,6 +31,7 @@ import {
   UploadGate,
   boundaryMarks,
   handleConfig,
+  handleRuns,
   handleDelete as deleteClip,
   handleMedia,
   handleReport as reportClip,
@@ -46,9 +48,10 @@ import {
   POSTER_WITH_COMMENT,
   SAME_SITE,
   UDTA_VIDEO,
-  deleteRequest,
+  deleteRequest as buildDeleteRequest,
   reportRequest,
-  uploadRequest,
+  uploadRequest as buildUploadRequest,
+  type UploadParts,
   uploadUrl,
 } from "./requests";
 
@@ -70,6 +73,14 @@ const routeDeps = vi.hoisted(() => ({ current: null as ClipDeps | null }));
 vi.mock("../runtime", () => ({ defaultClipDeps: () => routeDeps.current! }));
 import { POST as uploadRoute } from "@/app/api/leaderboard-clips/route";
 import { DELETE as deleteRoute } from "@/app/api/leaderboard-clips/[id]/route";
+
+let browserUser: { id: string | null };
+function uploadRequest(parts: UploadParts = {}) {
+  return buildUploadRequest({ ...parts, headers: { "x-hh-expected-owner": browserUser?.id ?? "", ...parts.headers } });
+}
+function deleteRequest(id: string, body?: unknown, headers: Record<string, string> = SAME_SITE) {
+  return buildDeleteRequest(id, body, { ...headers, "x-hh-expected-owner": browserUser?.id ?? "" });
+}
 
 const KID = "user-kid-0001";
 const OTHER_KID = "user-kid-0002";
@@ -98,6 +109,7 @@ function harness(): Harness {
   const bucket = new MemoryBucket();
   const env: LeaderboardClipsEnv = { ...ENV };
   const user = { id: KID as string | null };
+  browserUser = user;
   const clock = { now: new Date("2026-10-02T12:00:00.000Z") };
   const reports = { allowed: true, ips: [] as string[] };
   bucket.clock = () => clock.now;
@@ -188,6 +200,7 @@ describe("POST /api/leaderboard-clips (upload)", () => {
         hiddenAt: null,
       },
       replaced: false,
+      publicListing: true,
     });
     // The objects are in the bucket under lb/<id>, and the video is the device's own bytes.
     const video = h.bucket.objects.get(videoKey(body.clip.id))!;
@@ -357,7 +370,6 @@ describe("POST /api/leaderboard-clips (upload)", () => {
     ["no video", { video: null }],
     ["no poster", { poster: null }],
     ["no game", { appId: null }],
-    ["no run score", { runScore: null }],
     ["a video that is text", { video: "not a file" }],
   ])("refuses a form with %s (bad_form)", async (_name, parts) => {
     const h = harness();
@@ -367,7 +379,7 @@ describe("POST /api/leaderboard-clips (upload)", () => {
     expect(h.bucket.objects.size).toBe(0);
   });
 
-  it.each(["snake", "2048", "weather", "nope", "constructor"])("refuses the game %j (bad_game)", async (appId) => {
+  it.each(["drawing-app", "toy-finder", "weather", "nope", "constructor"])("refuses the game %j (bad_game)", async (appId) => {
     const h = harness();
     const response = await handleUpload(await uploadRequest({ appId }), h.deps);
     expect(response.status).toBe(400);
@@ -402,23 +414,16 @@ describe("POST /api/leaderboard-clips (upload)", () => {
     expect(h.store.uploads).toHaveLength(1);
   });
 
-  it("refuses a player who is not on the game's board (409 no_board_entry), stores nothing, makes no profile", async () => {
+  it("publishes a first run without a board row or profile and preserves unknown score as null", async () => {
     const h = harness();
-    // KID has a profile and rows on other boards, but no asteroids row.
-    h.store.removeBoardEntry(KID, "asteroids");
-    let response = await handleUpload(await uploadRequest(), h.deps);
-    expect(response.status).toBe(409);
-    expect((await errorOf(response)).code).toBe("no_board_entry");
-    // ADMIN has no profile at all.
     h.user.id = ADMIN;
-    response = await handleUpload(await uploadRequest(), h.deps);
-    expect(response.status).toBe(409);
     expect(h.store.profileOf(ADMIN)).toBeUndefined();
-    expect(h.bucket.objects.size).toBe(0);
-    expect(h.store.clips.size).toBe(0);
-    // It counts toward the daily limit, though it read no body (the board is checked first).
-    expect(h.store.uploads.filter((upload) => upload.finishedAt !== null)).toHaveLength(2);
-    expect(h.deps.uploadGate.active).toBe(0);
+    const response = await handleUpload(await uploadRequest({ runScore: null }), h.deps);
+    expect(response.status).toBe(201);
+    expect((await response.json()).clip.runScore).toBeNull();
+    expect(h.store.profileOf(ADMIN)).toBeDefined();
+    expect(h.store.boardEntries.size).toBe(2 * leaderboardClipGames().length);
+    expect(h.store.clips.size).toBe(1);
   });
 
   /** An upload body that counts how often the server pulls it. */
@@ -442,31 +447,16 @@ describe("POST /api/leaderboard-clips (upload)", () => {
     return { request, pulled };
   }
 
-  it("checks the board row before the gate and the body: a player with no row takes no place and sends nothing", async () => {
+  it.each([null, "another-owner"])("rejects expected-owner %s before reading any body or claiming a slot", async (owner) => {
     const h = harness();
-    const gate = new UploadGate(1);
-    h.deps.uploadGate = gate;
-    h.store.removeBoardEntry(KID, "asteroids");
     const { request, pulled } = countedUpload();
+    if (owner === null) request.headers.delete("x-hh-expected-owner");
+    else request.headers.set("x-hh-expected-owner", owner);
     const response = await handleUpload(request, h.deps);
     expect(response.status).toBe(409);
-    expect((await errorOf(response)).code).toBe("no_board_entry");
+    expect((await errorOf(response)).code).toBe("owner_changed");
     expect(pulled.chunks).toBe(0);
-    expect(gate.active).toBe(0);
-  });
-
-  it("refuses three fresh accounts with no board row before the gate, so a kid on the board still gets in", async () => {
-    const h = harness();
-    for (const id of ["fresh-1", "fresh-2", "fresh-3"]) {
-      h.store.addUser(id);
-      h.user.id = id;
-      const { request, pulled } = countedUpload("asteroids", { "x-forwarded-for": `198.51.100.${id.slice(-1)}` });
-      expect((await handleUpload(request, h.deps)).status).toBe(409);
-      expect(pulled.chunks).toBe(0);
-    }
-    expect(h.deps.uploadGate.active).toBe(0);
-    h.user.id = KID;
-    await uploadGood(h);
+    expect(h.store.uploads).toHaveLength(0);
   });
 
   it("needs the game in the URL (?appId=), and the same game in the form", async () => {
@@ -480,7 +470,7 @@ describe("POST /api/leaderboard-clips (upload)", () => {
     expect(pulled.chunks).toBe(0);
     expect(h.store.uploads).toHaveLength(0);
     // A game in the URL that is not a clip game.
-    response = await handleUpload(await uploadRequest({ queryAppId: "snake" }), h.deps);
+    response = await handleUpload(await uploadRequest({ queryAppId: "weather" }), h.deps);
     expect((await errorOf(response)).code).toBe("bad_game");
     // The URL and the form name different games (the board row was checked for the URL's game).
     response = await handleUpload(await uploadRequest({ appId: "breakout", queryAppId: "asteroids" }), h.deps);
@@ -489,11 +479,11 @@ describe("POST /api/leaderboard-clips (upload)", () => {
     expect(h.bucket.objects.size).toBe(0);
   });
 
-  it("checks the board row before the MP4 (the cheap database check first)", async () => {
+  it("still validates MP4 content for a first run without a board row", async () => {
     const h = harness();
     h.store.removeBoardEntry(KID, "asteroids");
     const response = await handleUpload(await uploadRequest({ video: UDTA_VIDEO }), h.deps);
-    expect((await errorOf(response)).code).toBe("no_board_entry");
+    expect((await errorOf(response)).code).toBe("bad_video");
   });
 
   it("refuses a video over 16 MiB", async () => {
@@ -696,7 +686,7 @@ describe("POST /api/leaderboard-clips (upload)", () => {
           handleUpload(
             new Request(uploadUrl(), {
               method: "POST",
-              headers: { ...SAME_SITE, "content-type": "multipart/form-data; boundary=x", "content-length": "16000000", "x-forwarded-for": ip },
+              headers: { ...SAME_SITE, "content-type": "multipart/form-data; boundary=x", "content-length": "16000000", "x-forwarded-for": ip, "x-hh-expected-owner": id },
               body,
               duplex: "half",
             } as RequestInit),
@@ -839,19 +829,19 @@ describe("GET /api/leaderboard-clips/[id]/video and /poster", () => {
     expect((await handleMedia(id, "video", h.deps)).status).toBe(302);
   });
 
-  it("shows a clip whose owner has no row on the game's board (any more) to that player only", async () => {
+  it("keeps a public run watchable after its score-board row is removed", async () => {
     const h = harness();
     const id = await publicClip(h);
     h.store.removeBoardEntry(KID, "asteroids");
     for (const viewer of [null, OTHER_KID]) {
       h.user.id = viewer;
-      expect((await handleMedia(id, "video", h.deps)).status, String(viewer)).toBe(404);
+      expect((await handleMedia(id, "video", h.deps)).status, String(viewer)).toBe(302);
     }
     h.user.id = KID;
     expect((await handleMedia(id, "video", h.deps)).status).toBe(302);
-    // Another player cannot learn that it exists through DELETE either.
+    // Public watch does not grant another player permission to remove the run.
     h.user.id = OTHER_KID;
-    expect((await handleDelete(deleteRequest(id), id, h.deps)).status).toBe(404);
+    expect((await handleDelete(deleteRequest(id), id, h.deps)).status).toBe(403);
   });
 
   it("shows the clip of a player who hides from the leaderboards to that player only", async () => {
@@ -1123,12 +1113,11 @@ describe("uploadBoundary and boundaryMarks", () => {
 
 
 describe("real route bounded-reader adapters", () => {
-  it.each(["signed out", "off", "not on board", "busy"])("does not read an upload when %s", async (reason) => {
+  it.each(["signed out", "off", "busy"])("does not read an upload when %s", async (reason) => {
     const h = harness();
     routeDeps.current = h.deps;
     if (reason === "signed out") h.user.id = null;
     if (reason === "off") h.env.LEADERBOARD_CLIPS = "off";
-    if (reason === "not on board") h.store.removeBoardEntry(KID, "asteroids");
     if (reason === "busy") vi.spyOn(h.deps.uploadGate, "tryEnter").mockReturnValue(false);
     const request = await uploadRequest();
     const reader = vi.spyOn(request.body!, "getReader");
@@ -1161,5 +1150,69 @@ describe("real route bounded-reader adapters", () => {
     const reader = vi.spyOn(request.body!, "getReader");
     expect((await deleteRoute(request, { params: Promise.resolve({ id }) })).status).toBe(401);
     expect(reader).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Shared runs feed", () => {
+  it.each(GAME_VIDEO_IDS)("publishes and anonymously discovers a first unscored %s run", async (appId) => {
+    const h = harness();
+    h.user.id = ADMIN;
+    const uploaded = await handleUpload(await uploadRequest({ appId, runScore: null }), h.deps);
+    expect(uploaded.status).toBe(201);
+    const id = (await uploaded.json()).clip.id;
+    h.user.id = null;
+    const feed = await handleRuns(appId, h.deps);
+    expect(await feed.json()).toMatchObject({ enabled: true, runs: [{ clip: { id, runScore: null } }], myClip: null });
+    expect((await handleMedia(id, "video", h.deps)).status).toBe(302);
+  });
+
+  it("shows a first run anonymously without leaking the owner ID or inventing a score", async () => {
+    const h = harness();
+    h.user.id = ADMIN;
+    const uploaded = await handleUpload(await uploadRequest({ runScore: null }), h.deps);
+    const id = (await uploaded.json()).clip.id;
+    h.user.id = null;
+    const response = await handleRuns("asteroids", h.deps);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    const feed = await response.json();
+    expect(feed).toMatchObject({ enabled: true, runs: [{ clip: { id, runScore: null } }], myClip: null });
+    expect(JSON.stringify(feed)).not.toContain(ADMIN);
+    expect((await handleMedia(id, "video", h.deps)).status).toBe(302);
+  });
+
+  it("reports a private publication accurately without changing the player's privacy setting", async () => {
+    const h = harness();
+    h.store.profileOf(KID)!.showOnLeaderboards = false;
+    const body = await uploadGood(h);
+    expect(body.publicListing).toBe(false);
+    expect(h.store.profileOf(KID)!.showOnLeaderboards).toBe(false);
+  });
+
+  it("suppresses private/hidden runs publicly and keeps owner state available while disabled", async () => {
+    const h = harness();
+    const id = (await uploadGood(h)).clip.id;
+    h.store.profileOf(KID)!.showOnLeaderboards = false;
+    let response = await handleRuns("asteroids", h.deps);
+    expect(await response.json()).toMatchObject({ runs: [], myClip: { clip: { id } } });
+    await h.store.hideClip(id, h.clock.now);
+    h.env.LEADERBOARD_CLIPS = "off";
+    response = await handleRuns("asteroids", h.deps);
+    expect(await response.json()).toMatchObject({ enabled: false, runs: [], myClip: { clipStatus: "hidden", clip: { id } } });
+    expect((await handleDelete(deleteRequest(id), id, h.deps)).status).toBe(200);
+  });
+
+  it("rejects an account switch before reading a delete body", async () => {
+    const h = harness();
+    const id = (await uploadGood(h)).clip.id;
+    const request = deleteRequest(id);
+    h.user.id = OTHER_KID;
+    const read = vi.fn();
+    const response = await deleteClip(metadata(request), read, id, h.deps);
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe("owner_changed");
+    expect(read).not.toHaveBeenCalled();
+    expect(h.store.clips.has(id)).toBe(true);
   });
 });

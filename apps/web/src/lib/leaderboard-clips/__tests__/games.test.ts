@@ -4,9 +4,12 @@
  * decimal from 0 to the bound of the game's board field in its progress
  * schema, made whole like a board score.
  */
+import { readdirSync } from "node:fs";
+import path from "node:path";
+import { GAME_VIDEO_IDS, isGameVideoGame } from "@/lib/game-video-games";
 import { describe, expect, it } from "vitest";
 
-import { VALID_APP_IDS, type ValidAppId } from "@hank-neil/db/schema";
+import { type ValidAppId } from "@hank-neil/db/schema";
 import { MAX_BOARD_SCORE } from "@/lib/leaderboard-schemas";
 import { GAME_METADATA } from "@/shared/lib/gameMetadata.generated";
 
@@ -30,13 +33,27 @@ const CLIP_GAMES = [
 ];
 
 describe("isLeaderboardClipGame", () => {
-  it("is exactly the games with clips: true and a leaderboard", () => {
-    expect([...leaderboardClipGames()].sort()).toEqual(CLIP_GAMES);
-    const fromMetadata = VALID_APP_IDS.filter((id) => GAME_METADATA[id]?.clips === true);
-    expect([...fromMetadata].sort()).toEqual(CLIP_GAMES);
+  it("covers every game directory explicitly and requires recording metadata", () => {
+    const directories = readdirSync(path.resolve(__dirname, "../../../games"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+    expect([...GAME_VIDEO_IDS]).toEqual(directories);
+    expect(GAME_VIDEO_IDS).toHaveLength(26);
+    for (const id of GAME_VIDEO_IDS) {
+      expect(isGameVideoGame(id)).toBe(true);
+      expect(GAME_METADATA[id]?.clips, id).toBe(true);
+      expect(isLeaderboardClipGame(id), id).toBe(true);
+    }
+    expect([...leaderboardClipGames()].sort()).toEqual([...GAME_VIDEO_IDS]);
   });
 
-  it.each(["snake", "2048", "chess", "weather", "achievements", "nope", "constructor", "__proto__", "", 7, null])(
+  it("supports games without a progress schema or score board", () => {
+    expect(isLeaderboardClipGame("four-wheeler-adventure")).toBe(true);
+    expect(isLeaderboardClipGame("retro-arcade")).toBe(true);
+    expect(boardScoreField("four-wheeler-adventure")).toBeNull();
+    expect(boardScoreField("retro-arcade")).toBeNull();
+  });
+
+  it.each(["weather", "achievements", "nope", "constructor", "__proto__", "", 7, null])(
     "refuses %j",
     (appId) => {
       expect(isLeaderboardClipGame(appId)).toBe(false);

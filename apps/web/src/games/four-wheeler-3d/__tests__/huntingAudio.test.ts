@@ -32,7 +32,9 @@ it("plays a bounded high-pass noise burst and disconnects every shot node", () =
     createBiquadFilter: () => filter,
     createGain: () => gain,
   };
-  playRifleShot(ctx as unknown as AudioContext);
+  const output = {} as AudioNode;
+  playRifleShot(ctx as unknown as BaseAudioContext, output);
+  expect(gain.connect).toHaveBeenCalledExactlyOnceWith(output);
   expect(ctx.createBuffer).toHaveBeenCalledWith(1, 8640, 48000);
   expect(samples.some((value) => value !== 0)).toBe(true);
   expect(

@@ -332,6 +332,8 @@ export interface ClipUiController {
    * next break instead (with a reply that says so).
    */
   openMenu(token: PressToken | null, source: MenuSource): void;
+  /** Named sharing uses the universal shell overlay hold, including continuous games. */
+  openSharingMenu(): void;
   /**
    * Open the viewer. During play the game pauses first where it can. In a
    * run that cannot pause, a clip opens at the next break instead (the
@@ -524,6 +526,17 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
         case "none":
           return;
       }
+    },
+
+    openSharingMenu() {
+      const service = deps.service();
+      if (!service || store.getState().sheet) return;
+      const token = service.beginPress();
+      // Release the gesture without capture; retain its frozen timeline bounds for the preview.
+      if (token) service.endPress(token, { upAtMs: token.downAtMs, moved: false, cancelled: true });
+      store.setPendingMenu(false);
+      // Sheet registers a shell overlay hold. Closing releases it without changing the game's pause menu.
+      store.setSheet({ kind: "menu", token, source: "pause-menu", pausedByUs: false });
     },
 
     openMenu(token, source) {

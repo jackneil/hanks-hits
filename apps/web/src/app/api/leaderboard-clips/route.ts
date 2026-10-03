@@ -1,5 +1,5 @@
 import { readBody, CLIP_UPLOAD_BODY } from "@/lib/read-body";
-import { handleConfig, handleUpload } from "@/lib/leaderboard-clips/handlers";
+import { handleConfig, handleRuns, handleUpload } from "@/lib/leaderboard-clips/handlers";
 import { defaultClipDeps } from "@/lib/leaderboard-clips/runtime";
 
 /**
@@ -12,8 +12,9 @@ import { defaultClipDeps } from "@/lib/leaderboard-clips/runtime";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET() {
-  return handleConfig(defaultClipDeps());
+export function GET(request: Request) {
+  const appId = new URL(request.url).searchParams.get("appId");
+  return appId === null ? handleConfig(defaultClipDeps()) : handleRuns(appId, defaultClipDeps());
 }
 
 export function POST(request: Request) {

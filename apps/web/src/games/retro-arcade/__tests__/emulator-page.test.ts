@@ -12,11 +12,12 @@ import { SYSTEMS, SYSTEM_IDS } from "../lib/constants";
  */
 const WEB_ROOT = join(__dirname, "..", "..", "..", "..");
 const PAGE = readFileSync(join(WEB_ROOT, "public", "emulator", "index.html"), "utf8");
-const INLINE_SCRIPT = (() => {
-  const match = /<script>([\s\S]*?)<\/script>/.exec(PAGE);
-  if (!match) throw new Error("the emulator page has no inline script");
-  return match[1];
-})();
+const INLINE_SCRIPTS = [...PAGE.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+if (INLINE_SCRIPTS.length === 0) throw new Error("the emulator page has no inline scripts");
+/** Classic scripts execute in document order: first the realm shim, then the game host. */
+function runInlineScripts(win: PageWindow): void {
+  for (const source of INLINE_SCRIPTS) new Function("window", "document", source)(win, document);
+}
 const BODY = (() => {
   const match = /<body>([\s\S]*?)<script>/.exec(PAGE);
   if (!match) throw new Error("the emulator page has no body markup");
@@ -39,7 +40,7 @@ function runPage(params: Record<string, string>, extra: Record<string, unknown> 
   };
   let error: Error | null = null;
   try {
-    new Function("window", "document", INLINE_SCRIPT)(win, document);
+    runInlineScripts(win);
   } catch (e) {
     error = e as Error;
   }
@@ -94,7 +95,7 @@ describe("emulator page", () => {
     win.parent = win;
     let error: Error | null = null;
     try {
-      new Function("window", "document", INLINE_SCRIPT)(win, document);
+      runInlineScripts(win);
     } catch (e) {
       error = e as Error;
     }

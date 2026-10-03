@@ -40,6 +40,8 @@ export type ChessProgress = {
 };
 
 export type GameState = {
+  /** Transient recording boundary, never part of saved progress. */
+  clipRunId: number;
   // Chess.js instance (not persisted)
   game: Chess;
   fen: string;
@@ -144,6 +146,7 @@ export const useChessStore = create<GameState & GameActions>()(
   persist(
     (set, get) => ({
       // Initial state
+      clipRunId: 0,
       game: createGame(),
       fen: new Chess().fen(),
       gameMode: "ai",
@@ -338,6 +341,7 @@ export const useChessStore = create<GameState & GameActions>()(
           : { ...state.progress, gameMode: mode, difficulty, playerColor, lastModified: Date.now() };
 
         set({
+          clipRunId: get().clipRunId + 1,
           progress,
           game: newGameInstance,
           fen: newGameInstance.fen(),

@@ -10,11 +10,17 @@
  * server. It gives this config the base URL in E2E_BASE_URL and gives the
  * spec "playwright/test" through NODE_PATH.
  *
- * The check writes nothing to the server. A clip lives only in the test
+ * By default the check writes nothing to the server. E2E_PUBLISH=1 adds real local-only sign-in, upload, signed-out feed discovery and playback. A clip lives only in the test
  * browser (its own library in OPFS or IndexedDB), and the browser closes
  * after each game.
  *
  * Environment:
+ *   E2E_PUBLISH        "1": publish captured files on localhost only; use E2E_ROUTES
+ *                       for a small set (the real per-account daily limit applies).
+ *   E2E_PUBLISH_EMAIL  isolated synthetic account; {game} expands to the game id
+ *                       (for example video-{game}@example.test); default all-games-video@example.test
+ *   E2E_PUBLISH_PASSWORD isolated account password; default ClipTest-2026-local-only
+ *   E2E_RETRO_GAME     catalog SNES title; default Super Mario World
  *   E2E_ROUTES          a comma-separated list of routes, for example
  *                       /games/asteroids,/games/flappy-bird: only those games
  *   CLIPS_E2E_CHANNEL   "chrome" (default, the branded Chrome that kids
@@ -34,7 +40,10 @@
  *                       INFO row (an idle kid makes no sound), and so are
  *                       the motion rows of a game whose driver plays a
  *                       step (the game can wait for that tap).
- *   CLIPS_E2E_PATH      "result-chip": the kid never taps the clip button
+ *   CLIPS_E2E_PATH      "sharing": use the named Share gameplay entry and
+ *                       Preview last 30 seconds to publish, including games
+ *                       that never end. Use this for the all-game publish sweep.
+ *                       "result-chip": the kid never taps the clip button
  *                       and clips the run from the result chip. Use it for
  *                       games whose run ends by itself, for example
  *                       CLIPS_E2E_IDLE=1 E2E_ROUTES=/games/blitz-bomber.

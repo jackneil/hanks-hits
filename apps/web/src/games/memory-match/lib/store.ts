@@ -38,6 +38,8 @@ export type MemoryMatchProgress = {
 
 // Current game state
 export type GameState = {
+  /** Transient recording boundary, never part of saved progress. */
+  clipRunId: number;
   // Game board
   cards: Card[];
   flippedCards: number[]; // indices of currently flipped cards (max 2)
@@ -120,6 +122,7 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
   persist(
     (set, get) => ({
       // Initial state
+      clipRunId: 0,
       cards: createCards("medium", "animals"),
       flippedCards: [],
       matchedPairs: 0,
@@ -283,6 +286,7 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
         const changed = newDifficulty !== state.difficulty || newTheme !== state.theme;
 
         set({
+          clipRunId: get().clipRunId + 1,
           ...(changed
             ? { progress: { ...state.progress, difficulty: newDifficulty, theme: newTheme, updatedAt: Date.now() } }
             : {}),

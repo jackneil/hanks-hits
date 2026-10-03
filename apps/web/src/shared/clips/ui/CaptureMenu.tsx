@@ -1,4 +1,5 @@
 "use client";
+import { SHARING_COPY } from "./copy";
 
 /**
  * The Capture menu (plan 11.4). It opens from a hold on the clip button, a
@@ -21,7 +22,7 @@
  * break (the pause menu, a start or result card). The voice says the same.
  */
 
-import type React from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
@@ -41,6 +42,8 @@ import {
   TilesGlyph,
 } from "./glyphs";
 import { Sheet } from "./Sheet";
+import { currentSessionUser } from "../service/registry";
+import { useClipSession } from "./useClipSession";
 
 export interface CaptureMenuProps {
   /** The press that opened the menu. "Clip the last 30 seconds" clips up to its frozen end. */
@@ -50,7 +53,7 @@ export interface CaptureMenuProps {
 interface MenuRow {
   id: "wake" | "clipLast" | "record" | "stop" | "picture" | "myClips" | "settings";
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   onSelect: () => void;
 }
 
@@ -61,6 +64,17 @@ const ROW_BASE =
 
 export function CaptureMenu({ token }: CaptureMenuProps) {
   const ui = useClipUi();
+  const session = useClipSession();
+  const [preparation, setPreparation] = useState<{ owner: typeof session; busy: boolean; error: string } | null>(null);
+  const preparing = preparation?.owner === session && preparation.busy;
+  const prepareError = preparation?.owner === session ? preparation.error : "";
+  const request = useRef<symbol | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; request.current = null; };
+  }, []);
+  useEffect(() => () => { request.current = null; }, [session]);
   const service = useClipService();
   const snapshot = useClipSnapshot();
   const sheet = useClipUiState().sheet;
@@ -117,8 +131,28 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
     rows.push(settings);
   }
 
+  const prepare = async () => {
+    if (request.current) return;
+    const operation = Symbol("prepare");
+    const captured = session;
+    const originalSheet = ui.store.getState().sheet;
+    request.current = operation;
+    const current = () => mounted.current && request.current === operation && currentSessionUser() === captured && ui.store.getState().sheet === originalSheet;
+    setPreparation({ owner: captured, busy: true, error: "" });
+    try {
+      const result = await service.clipLast(30, token ?? undefined);
+      if (!current()) return;
+      if (result.ok) ui.replaceSheet({ kind: "viewer", target: { kind: "clip", id: result.record.id } });
+      else if (!result.refused) setPreparation({ owner: captured, busy: false, error: SHARING_COPY.thereIsNotAVideoReadyYet });
+    } catch {
+      if (current()) setPreparation({ owner: captured, busy: false, error: SHARING_COPY.theVideoCouldNotBePreparedKeep });
+    } finally {
+      if (current()) setPreparation((before) => before?.owner === captured ? { ...before, busy: false } : before);
+      if (request.current === operation) request.current = null;
+    }
+  };
   const readAloudText = () =>
-    [MENU_COPY.title, note ? `${note.say} ${note.next}` : null, ...rows.map((row) => row.label), closeLabel]
+    [MENU_COPY.title, SHARING_COPY.prepareAGameplayVideoWatchItThen, SHARING_COPY.previewLast30SecondsToPublish, note ? `${note.say} ${note.next}` : null, ...rows.map((row) => row.label), closeLabel]
       .filter(Boolean)
       .join(". ");
 
@@ -131,6 +165,9 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
       closeLabel={closeLabel}
       readAloudText={readAloudText}
     >
+      <p className="mb-3">{SHARING_COPY.prepareAGameplayVideoWatchItThen2}</p>
+      <button className="btn btn-primary mb-3 min-h-14 h-auto whitespace-normal" disabled={preparing || recording} onClick={() => void prepare()}>{preparing ? SHARING_COPY.preparingVideo : SHARING_COPY.previewLast30SecondsToPublish}</button>
+      {prepareError && <p role="status" className="mb-3">{prepareError}</p>}
       {note && (
         <p data-testid="capture-menu-reason" className="mb-3 rounded-xl bg-base-200 px-4 py-3 text-base leading-snug">
           <ClipWords text={`${note.say} ${note.next}`} />
