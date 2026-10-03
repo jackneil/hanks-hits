@@ -566,7 +566,7 @@ function GameShellFrame({
         </div>
 
         {showLeaderboard && <div data-testid="game-share-bar" className="fixed inset-x-0 top-[var(--shell-header-h)] z-[1000] flex h-11 items-center justify-center gap-2 border-b border-white/10 bg-slate-950 px-2 text-white">
-          <ShareGameplayButton className="btn-ghost text-sm" />
+          <ShareGameplayButton className="btn-primary text-sm" />
           <LeaderboardButton appId={appId} variant="full" className="text-sm shadow-none" />
         </div>}
 
