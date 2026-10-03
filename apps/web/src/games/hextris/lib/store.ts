@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameStatus,
   type Block,
@@ -104,8 +106,12 @@ const defaultProgress: HextrisProgress = {
   totalBlocksMatched: 0,
   longestChain: 0,
   soundEnabled: true,
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// Settings are not progress: a device that changed only a setting holds
+// nothing that must win over the account (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("hextris", { defaults: defaultProgress, ignore: ["soundEnabled"] });
 
 function createEmptyStacks(): Block[][] {
   return [[], [], [], [], [], []];
@@ -251,11 +257,10 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
         set({
           status: "game-over",
           lastRunNewBest: state.score > state.runStartBest,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             highScore: Math.max(state.progress.highScore, state.score),
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -488,7 +493,11 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
     }),
     {
       name: "hextris-game-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
       }),
     }

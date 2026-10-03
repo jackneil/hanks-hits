@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 
 import { emptyWatermarks, evaluate, type Watermarks } from "./evaluate";
 
@@ -11,6 +12,8 @@ export type AchievementsProgress = {
 };
 
 const defaultProgress: AchievementsProgress = { unlocked: {}, lastModified: 0 };
+
+const UNTOUCHED = defineUntouchedProgress("achievements", { defaults: defaultProgress });
 
 type AchievementsState = {
   progress: AchievementsProgress;
@@ -103,7 +106,11 @@ export const useAchievementsStore = create<AchievementsState>()(
     }),
     {
       name: "achievements-progress",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
         watermarks: state.watermarks,
         celebrationQueue: state.celebrationQueue,

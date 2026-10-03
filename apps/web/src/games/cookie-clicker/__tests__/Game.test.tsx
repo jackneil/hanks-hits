@@ -13,7 +13,7 @@ import { mockPointer, resetPointerMock } from "@/__tests__/pointer-mock";
 import { fingerTap } from "@/__tests__/finger-mock";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
-  useAuthSync: vi.fn(),
+  useAuthSync: vi.fn(() => ({ ready: true })),
 }));
 
 vi.mock("@/shared/components/FullscreenButton", () => ({

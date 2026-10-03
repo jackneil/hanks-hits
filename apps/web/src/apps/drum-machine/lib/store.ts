@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameStatus,
   type SequencerPattern,
@@ -7,6 +8,7 @@ import {
   DRUM_KITS,
   DEFAULT_BPM,
   GRID_STEPS,
+  MAX_PATTERN_STEPS,
   createEmptyPattern,
 } from "./constants";
 
@@ -73,6 +75,9 @@ type DrumMachineActions = {
   loadBeat: (beat: SavedBeat) => void;
   deleteBeat: (beatId: string) => void;
 
+  /** The sound switch: a player's choice, so it stamps the time. */
+  toggleSound: () => void;
+
   // Progress
   getProgress: () => DrumMachineProgress;
   setProgress: (data: DrumMachineProgress) => void;
@@ -92,8 +97,18 @@ const defaultProgress: DrumMachineProgress = {
     totalPlayTime: 0,
     padsHit: 0,
   },
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// The sound switch did not stamp the time before the sync-time fix.
+const UNTOUCHED = defineUntouchedProgress("drum-machine", {
+  defaults: defaultProgress,
+  ignore: ["settings"],
+  // The items that a player makes (addListItems: an item made here and not
+  // saved yet joins progress that the page takes). `max` is the schema's
+  // bound (progress-schemas.ts); saveBeat adds at the end.
+  lists: { savedBeats: { id: "id", max: 100, order: "newestLast", time: "createdAt" } },
+});
 
 function createInitialState(): Partial<DrumMachineState> {
   return {
@@ -310,7 +325,7 @@ export const useDrumMachineStore = create<DrumMachineState & DrumMachineActions>
       extendPattern: () => {
         const state = get();
         const kit = DRUM_KITS.find(k => k.id === state.currentKitId);
-        if (!kit) return;
+        if (!kit || state.patternLength >= MAX_PATTERN_STEPS) return;
 
         const newLength = state.patternLength + 16;
         const pattern = { ...state.pattern };
@@ -437,6 +452,7 @@ export const useDrumMachineStore = create<DrumMachineState & DrumMachineActions>
 
       deleteBeat: (beatId) => {
         const state = get();
+        if (!state.progress.savedBeats.some(b => b.id === beatId)) return;
         set({
           progress: {
             ...state.progress,
@@ -446,12 +462,25 @@ export const useDrumMachineStore = create<DrumMachineState & DrumMachineActions>
         });
       },
 
+      toggleSound: () =>
+        set((state) => ({
+          progress: {
+            ...state.progress,
+            settings: { ...state.progress.settings, soundEnabled: !state.progress.settings.soundEnabled },
+            lastModified: Date.now(),
+          },
+        })),
+
       getProgress: () => get().progress,
       setProgress: (data) => set({ progress: data }),
     }),
     {
       name: "drum-machine-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
       }),
     }

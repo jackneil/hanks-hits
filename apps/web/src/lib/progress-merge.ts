@@ -324,7 +324,8 @@ function reconcileByName(
  * Timestamp-based merge with field-aware reconciliation.
  *
  * - If only one side has data, it wins outright.
- * - Otherwise the side with the newer timestamp is the base, and monotonic
+ * - Otherwise the side with the newer timestamp is the base (on equal
+ *   timestamps, the stored server side), and monotonic
  *   counters / unlockables from the older side are folded in so a stale blob
  *   can never erase earned progress.
  */
@@ -359,6 +360,7 @@ export function mergeProgress(
   const localTime = localTimestamp || 0;
   const serverTime = serverTimestamp || 0;
 
+  // Equal timestamps do not prove shared lineage. Preserve the stored row.
   const serverWins = serverTime >= localTime;
   const winner = serverWins ? serverData : localData;
   const loser = serverWins ? localData : serverData;
@@ -467,8 +469,13 @@ export function resolveMergedSave(
   existing: { data: AppProgressData; updatedAt: Date },
   appId: string,
   validate: ProgressValidator,
+  options: { continuation?: boolean } = {},
 ): MergedSave {
-  const merged = mergeForSave(incoming, existing, appId);
+  // Only the route's successful atomic revision comparison grants this.
+  // Player timestamps do not order two versions of the same acknowledged save.
+  const merged: MergeResult = options.continuation
+    ? { data: reconcileFields(incoming, existing.data, appId)[0], base: "local", source: "merged", conflicts: [] }
+    : mergeForSave(incoming, existing, appId);
   const full = validate(merged.data);
   if (full.success) {
     return {

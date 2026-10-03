@@ -1,6 +1,8 @@
 // store.ts - Cookie Clicker Zustand store with persistence
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { automaticStamp, sameProgress } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type BuildingId,
   type UpgradeId,
@@ -90,7 +92,11 @@ interface CookieClickerActions {
 
   // Offline progress
   calculateOfflineProgress: () => number;
-  applyOfflineProgress: () => number;
+  /**
+   * The bake while away. `synced`: the bakery is the account's (useAuthSync's
+   * first sync is done), so the bake stamps the time (automaticStamp).
+   */
+  applyOfflineProgress: (synced?: boolean) => number;
 
   // Settings
   toggleSound: () => void;
@@ -130,8 +136,11 @@ const defaultProgress: CookieClickerProgress = {
   unlockedAchievements: [],
   soundEnabled: true,
   lastTick: Date.now(),
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// lastTick is a clock (the time of the last bake), not a player's change.
+const UNTOUCHED = defineUntouchedProgress("cookie-clicker", { layout: "flat", defaults: defaultProgress, ignore: ["lastTick", "soundEnabled"] });
 
 const GOLDEN_COOKIE_EFFECTS: GoldenCookieEffect[] = [
   "frenzy",
@@ -219,6 +228,12 @@ export const useCookieClickerStore = create<
             frenzyEndTime: newFrenzyMultiplier === 1 ? 0 : s.frenzyEndTime,
             clickFrenzyEndTime: newClickFrenzyMultiplier === 1 ? 0 : s.clickFrenzyEndTime,
             lastTick: now,
+            // The bake runs 20 times a second while the page is open: a
+            // continuous change keeps the time (shared/lib/progressStamp.ts).
+            // A stamp here made an idle bakery newer than every purchase on
+            // another device, and its saves replaced them. The baked cookies
+            // reach the account with the kid's next action, and
+            // totalCookiesBaked merges by its maximum.
           }));
         }
       },
@@ -521,6 +536,7 @@ export const useCookieClickerStore = create<
         const maxFromProduction = cps * 60 * 15;
         const maxFromBank = state.cookies * 0.1;
         const bonus = Math.min(maxFromProduction, maxFromBank);
+        if (bonus <= 0) return;
 
         set((s) => ({
           cookies: s.cookies + bonus,
@@ -546,14 +562,20 @@ export const useCookieClickerStore = create<
         return cps * (cappedMs / 1000);
       },
 
-      applyOfflineProgress: () => {
+      applyOfflineProgress: (synced = true) => {
         const earned = get().calculateOfflineProgress();
 
         if (earned > 0) {
+          // The page runs this when useAuthSync is ready. On the account's
+          // progress (synced) the bake while away is progress
+          // (automaticStamp). On the device's copy (the account cannot be
+          // reached, or a guest) it keeps the time: a stamp made an old copy
+          // newer than the account's purchases.
           set((s) => ({
             cookies: s.cookies + earned,
             totalCookiesBaked: s.totalCookiesBaked + earned,
             lastTick: Date.now(),
+            lastModified: automaticStamp(s.lastModified, synced),
           }));
         }
 
@@ -594,11 +616,13 @@ export const useCookieClickerStore = create<
           floatingTexts: [],
           goldenCookie: null,
           lastTick: Date.now(),
-          lastModified: Date.now(),
         });
       },
 
       resetProgress: () => {
+        // A reset is the player's choice: its time wins over the account. A
+        // reset of a bakery that is already new changes nothing.
+        const unchanged = sameProgress(get().getProgress(), defaultProgress, ["lastModified", "lastTick"]);
         set({
           ...defaultProgress,
           cookiesPerClick: GAME_CONFIG.BASE_CLICK_VALUE,
@@ -611,7 +635,7 @@ export const useCookieClickerStore = create<
           floatingTexts: [],
           goldenCookie: null,
           lastTick: Date.now(),
-          lastModified: Date.now(),
+          lastModified: unchanged ? get().lastModified : Date.now(),
         });
       },
 
@@ -654,7 +678,11 @@ export const useCookieClickerStore = create<
     }),
     {
       name: "cookie-clicker-storage",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         cookies: state.cookies,
         totalCookiesBaked: state.totalCookiesBaked,
         totalClicks: state.totalClicks,

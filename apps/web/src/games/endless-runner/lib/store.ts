@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist, type PersistStorage } from "zustand/middleware";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { PROGRESS_TIME_MARKER, defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameState,
   type Player as PlayerType,
@@ -51,8 +53,12 @@ const defaultProgress: EndlessRunnerProgress = {
   gamesPlayed: 0,
   unlockedCharacters: ["speedy-sam"],
   selectedCharacter: "speedy-sam",
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// The picked character (one that the kid already has) is a setting, not
+// progress (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("endless-runner", { defaults: defaultProgress, ignore: ["selectedCharacter"] });
 
 // Full game state
 export type EndlessRunnerState = {
@@ -178,8 +184,12 @@ function createCoins(startId: number, obstacleX: number): CoinType[] {
   return coins;
 }
 
-/** What the store keeps in localStorage. */
-type PersistedRunner = { progress: EndlessRunnerProgress };
+/**
+ * What the store keeps in localStorage: the progress, and the marker of a
+ * save of the code after the sync-time fix (markSaved,
+ * shared/lib/untouchedProgress.ts).
+ */
+type PersistedRunner = { progress: EndlessRunnerProgress; [PROGRESS_TIME_MARKER]?: number };
 
 /**
  * localStorage for the store that writes only when the progress changes.
@@ -533,11 +543,7 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
         if (!state.progress.unlockedCharacters.includes(id)) return;
 
         set({
-          progress: {
-            ...state.progress,
-            selectedCharacter: id,
-            lastModified: Date.now(),
-          },
+          progress: stampIfChanged(state.progress, { ...state.progress, selectedCharacter: id }),
         });
       },
 
@@ -547,7 +553,11 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
     {
       name: "endless-runner-storage",
       storage: progressStorage(),
-      partialize: (state) => ({ progress: state.progress }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({ progress: state.progress }),
     }
   )
 );

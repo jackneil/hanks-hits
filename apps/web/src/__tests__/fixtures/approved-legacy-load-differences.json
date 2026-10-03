@@ -1,0 +1,28 @@
+{
+  "deploy 86a1fe0 monster-truck device=played row=equal": [
+    "device:coins=50"
+  ],
+  "deploy 86a1fe0 oregon-trail device=played row=equal": [
+    "device:departureMonth=\"april\"",
+    "device:gameStarted=true",
+    "device:leaderName=\"Synthetic Kid\"",
+    "device:occupation=\"farmer\"",
+    "device:party[]={\"health\":\"good\",\"id\":\"m0\",\"isSick\":false,\"leftBehind\":false,\"name\":\"Synthetic A\",\"sickDays\":0}",
+    "device:party[]={\"health\":\"good\",\"id\":\"m1\",\"isSick\":false,\"leftBehind\":false,\"name\":\"Synthetic B\",\"sickDays\":0}",
+    "device:supplies.food=100",
+    "device:supplies.money=380"
+  ],
+  "deploy 904bc09 monster-truck device=played row=equal": [
+    "device:coins=50"
+  ],
+  "deploy 904bc09 oregon-trail device=played row=equal": [
+    "device:departureMonth=\"april\"",
+    "device:gameStarted=true",
+    "device:leaderName=\"Synthetic Kid\"",
+    "device:occupation=\"farmer\"",
+    "device:party[]={\"health\":\"good\",\"id\":\"m0\",\"isSick\":false,\"leftBehind\":false,\"name\":\"Synthetic A\",\"sickDays\":0}",
+    "device:party[]={\"health\":\"good\",\"id\":\"m1\",\"isSick\":false,\"leftBehind\":false,\"name\":\"Synthetic B\",\"sickDays\":0}",
+    "device:supplies.food=100",
+    "device:supplies.money=380"
+  ]
+}

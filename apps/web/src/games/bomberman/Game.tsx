@@ -424,15 +424,7 @@ export function BombermanGame() {
     }
   });
 
-  const toggleSound = () => {
-    store.setProgress({
-      ...store.progress,
-      settings: {
-        ...store.progress.settings,
-        soundEnabled: !store.progress.settings.soundEnabled,
-      },
-    });
-  };
+  const toggleSound = () => store.toggleSound();
   const soundLabel = soundEnabled ? SOUND_LABELS.on : SOUND_LABELS.off;
 
   const pad = isCoarse ? (

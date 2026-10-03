@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   GRID_WIDTH,
   GRID_HEIGHT,
@@ -129,6 +130,8 @@ type BombermanActions = {
   update: (deltaTime: number) => void;
 
   // Progress
+  /** The sound switch: a player's choice, so it stamps the time. */
+  toggleSound: () => void;
   getProgress: () => BombermanProgress;
   setProgress: (data: BombermanProgress) => void;
 };
@@ -145,8 +148,11 @@ const defaultProgress: BombermanProgress = {
     soundEnabled: true,
     difficulty: "normal",
   },
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// The sound switches did not stamp the time before the sync-time fix.
+const UNTOUCHED = defineUntouchedProgress("bomberman", { defaults: defaultProgress, ignore: ["settings"] });
 
 // Generate empty grid
 function createEmptyGrid(): Tile[][] {
@@ -755,12 +761,25 @@ export const useBombermanStore = create<BombermanState & BombermanActions>()(
         });
       },
 
+      toggleSound: () =>
+        set((state) => ({
+          progress: {
+            ...state.progress,
+            settings: { ...state.progress.settings, soundEnabled: !state.progress.settings.soundEnabled },
+            lastModified: Date.now(),
+          },
+        })),
+
       getProgress: () => get().progress,
       setProgress: (data) => set({ progress: data }),
     }),
     {
       name: "bomberman-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
       }),
     }

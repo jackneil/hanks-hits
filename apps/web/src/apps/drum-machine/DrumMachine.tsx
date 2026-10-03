@@ -7,6 +7,7 @@ import {
   MIN_BPM,
   MAX_BPM,
   COLORS,
+  MAX_PATTERN_STEPS,
 } from "./lib/constants";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer, useShortViewport } from "@/shared/hooks";
@@ -314,15 +315,7 @@ export function DrumMachine() {
     }
   };
 
-  const toggleSound = () => {
-    store.setProgress({
-      ...store.progress,
-      settings: {
-        ...store.progress.settings,
-        soundEnabled: !store.progress.settings.soundEnabled,
-      },
-    });
-  };
+  const toggleSound = () => store.toggleSound();
 
   if (!kit) return null;
 
@@ -394,8 +387,13 @@ export function DrumMachine() {
           <button
             type="button"
             onClick={() => store.extendPattern()}
+            disabled={store.patternLength >= MAX_PATTERN_STEPS}
             aria-label="More steps"
-            className="h-11 w-11 rounded bg-slate-600 font-bold text-white hover:bg-slate-500"
+            className={`h-11 w-11 rounded font-bold ${
+              store.patternLength >= MAX_PATTERN_STEPS
+                ? "cursor-not-allowed bg-slate-800 text-slate-500"
+                : "bg-slate-600 text-white hover:bg-slate-500"
+            }`}
           >
             +
           </button>

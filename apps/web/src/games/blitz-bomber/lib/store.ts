@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameState,
   type DifficultyLevel,
@@ -49,8 +51,12 @@ const defaultProgress: BlitzBomberProgress = {
     soundEnabled: true,
     difficulty: "normal",
   },
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// Settings are not progress: a device that changed only a setting holds
+// nothing that must win over the account (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("blitz-bomber", { defaults: defaultProgress, ignore: ["settings"] });
 
 // Full game state
 type BlitzBomberState = {
@@ -169,11 +175,10 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
         set({
           bombs: [...state.bombs, newBomb],
           bombIdCounter: state.bombIdCounter + 1,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             totalBombsDropped: state.progress.totalBombsDropped + 1,
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -346,13 +351,12 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
         set({
           gameState: "crashed",
           isNewHighScore,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             highScore: Math.max(state.progress.highScore, state.score),
             crashes: state.progress.crashes + 1,
             gamesPlayed: state.progress.gamesPlayed + 1,
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -366,15 +370,14 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
           gameState: "landed",
           score: finalScore,
           isNewHighScore,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             highScore: Math.max(state.progress.highScore, finalScore),
             successfulLandings: state.progress.successfulLandings + 1,
             levelsCompleted: state.progress.levelsCompleted + 1,
             highestLevel: Math.max(state.progress.highestLevel, state.level + 1),
             gamesPlayed: state.progress.gamesPlayed + 1,
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -415,28 +418,26 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
       setDifficulty: (difficulty: DifficultyLevel) => {
         const state = get();
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             settings: {
               ...state.progress.settings,
               difficulty,
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
       setSoundEnabled: (enabled: boolean) => {
         const state = get();
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             settings: {
               ...state.progress.settings,
               soundEnabled: enabled,
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -445,7 +446,11 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
     }),
     {
       name: "blitz-bomber-progress",
-      partialize: (state) => ({ progress: state.progress }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({ progress: state.progress }),
     }
   )
 );

@@ -4,6 +4,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { PADDLE, BALL_CONFIG, LIVES, PADDLE_LIMIT, SPARKS_PER_TOUCH } from "./constants";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 
 export type BallType = "blue" | "orange" | "yellow-dot";
 
@@ -102,8 +103,10 @@ const defaultProgress: ArkanoidProgress = {
   totalGamesPlayed: 0,
   totalBallsSpawned: 0,
   highestMultiplier: 1,
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+const UNTOUCHED = defineUntouchedProgress("arkanoid", { defaults: defaultProgress });
 
 export const useArkanoidStore = create<State & Actions>()(
   persist(
@@ -252,7 +255,11 @@ export const useArkanoidStore = create<State & Actions>()(
     }),
     {
       name: "arkanoid-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
         soundEnabled: state.soundEnabled,
       }),

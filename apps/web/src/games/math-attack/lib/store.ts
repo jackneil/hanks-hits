@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import { type Difficulty, type Operation } from "./constants";
 
 export interface MathAttackProgress {
@@ -61,8 +62,12 @@ const defaultProgress: MathAttackProgress = {
     soundEnabled: true,
     difficulty: "8yo",
   },
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// Settings are not progress: a device that changed only a setting holds
+// nothing that must win over the account (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("math-attack", { layout: "flat", defaults: defaultProgress, ignore: ["settings"] });
 
 export const useMathAttackStore = create<MathAttackState>()(
   persist(
@@ -120,11 +125,13 @@ export const useMathAttackStore = create<MathAttackState>()(
         })),
 
       incrementCombo: () =>
-        set((state) => ({
-          combo: state.combo + 1,
-          longestCombo: Math.max(state.longestCombo, state.combo + 1),
-          lastModified: Date.now(),
-        })),
+        set((state) => {
+          const longestCombo = Math.max(state.longestCombo, state.combo + 1);
+          // Only a new longest combo is progress.
+          return longestCombo === state.longestCombo
+            ? { combo: state.combo + 1 }
+            : { combo: state.combo + 1, longestCombo, lastModified: Date.now() };
+        }),
 
       resetCombo: () => set({ combo: 0 }),
 
@@ -164,16 +171,18 @@ export const useMathAttackStore = create<MathAttackState>()(
         }),
 
       setDifficulty: (difficulty) =>
-        set((state) => ({
-          settings: { ...state.settings, difficulty },
-          lastModified: Date.now(),
-        })),
+        set((state) =>
+          state.settings.difficulty === difficulty
+            ? {}
+            : { settings: { ...state.settings, difficulty }, lastModified: Date.now() }
+        ),
 
       setSoundEnabled: (enabled) =>
-        set((state) => ({
-          settings: { ...state.settings, soundEnabled: enabled },
-          lastModified: Date.now(),
-        })),
+        set((state) =>
+          state.settings.soundEnabled === enabled
+            ? {}
+            : { settings: { ...state.settings, soundEnabled: enabled }, lastModified: Date.now() }
+        ),
 
       getProgress: () => {
         const state = get();
@@ -206,7 +215,11 @@ export const useMathAttackStore = create<MathAttackState>()(
     }),
     {
       name: "math-attack-progress",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         highScore: state.highScore,
         totalCorrect: state.totalCorrect,
         totalAnswered: state.totalAnswered,
