@@ -28,22 +28,36 @@ const GAME_FILE = "src/games/fixture-game/Game.tsx";
 /** A path under src/shared. */
 const SHARED_FILE = "src/shared/fixture/Control.tsx";
 /** A legacy audio file (it skips the audio ban, not this rule). */
-const LEGACY_AUDIO_FILE = LEGACY_AUDIO_SITE_PATHS.find((file) => file.endsWith(".tsx"));
+const LEGACY_AUDIO_FILE = LEGACY_AUDIO_SITE_PATHS.find((file) => /\.[jt]sx?$/.test(file));
 /** Test paths, where the rule is off. */
 const GAME_TEST_FILE = "src/games/fixture-game/__tests__/Game.test.tsx";
 const SHARED_TEST_FILE = "src/shared/fixture/__tests__/Control.test.tsx";
 
 let eslint: ESLint;
+let legacyEslint: ESLint;
 
-beforeAll(() => {
+beforeAll(async () => {
   eslint = new ESLint({
     cwd: WEB_ROOT,
     overrideConfigFile: path.join(WEB_ROOT, "eslint.config.mjs"),
   });
+  expect(LEGACY_AUDIO_FILE, "the legacy list must name a JavaScript or TypeScript file").toBeDefined();
+  // Remaining legacy audio modules can be plain .ts stores. Resolve the
+  // REAL file's complete config, then give these JSX fixtures a TSX parser
+  // filename. A synthetic legacy path would miss the exact-path exemption.
+  const legacyConfig = await eslint.calculateConfigForFile(path.join(WEB_ROOT, LEGACY_AUDIO_FILE!));
+  expect(legacyConfig).toBeDefined();
+  legacyEslint = new ESLint({
+    cwd: WEB_ROOT,
+    overrideConfigFile: true,
+    overrideConfig: [{ ...legacyConfig, language: "@/js", files: ["**/*.tsx"] }],
+  });
 });
 
 async function lint(code: string, filePath: string) {
-  const [result] = await eslint.lintText(code, { filePath: path.join(WEB_ROOT, filePath) });
+  const engine = filePath === LEGACY_AUDIO_FILE ? legacyEslint : eslint;
+  const fixturePath = filePath === LEGACY_AUDIO_FILE ? "src/fixture-legacy-audio.tsx" : filePath;
+  const [result] = await engine.lintText(code, { filePath: path.join(WEB_ROOT, fixturePath) });
   const fatal = result.messages.filter((m) => m.fatal);
   expect(fatal, "the fixture must parse").toEqual([]);
   return result.messages;
@@ -315,7 +329,7 @@ export function Fixture({ act }: { act: () => void }) {
 describe("hanks-hits/no-pointerup-position ESLint rule", () => {
   it("covers all of src", () => {
     expect(POINTER_RELEASE_LINT_FILES).toEqual(["src/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"]);
-    expect(LEGACY_AUDIO_FILE, "the legacy list must name a .tsx file").toBeDefined();
+    expect(LEGACY_AUDIO_FILE, "the legacy list must name a JavaScript or TypeScript file").toBeDefined();
   });
 
   for (const [where, filePath] of [
