@@ -1,2 +1,2 @@
-/** The deployed B0 revision, used by both rollback and no-regression proofs. */
-export const ROLLBACK_COMMIT = "ed95adf";
+/** The deployed revision foundation, used by rollback and no-regression proofs. */
+export const ROLLBACK_COMMIT = "83021f4";
