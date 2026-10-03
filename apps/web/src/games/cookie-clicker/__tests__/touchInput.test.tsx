@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/shared/clips/replay/useSemanticClips", () => ({ useSemanticClips: vi.fn() }));
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+
 vi.mock("@/shared/hooks/useAuthSync", () => ({
   useAuthSync: vi.fn(() => ({ ready: true })),
 }));
@@ -30,6 +33,7 @@ function start() {
 
 beforeEach(() => {
   localStorage.clear();
+  vi.mocked(useSemanticClips).mockClear();
   vi.useFakeTimers();
   act(() => {
     useCookieClickerStore.setState({ totalClicks: 0, cookies: 0 });
@@ -43,6 +47,25 @@ afterEach(() => {
 });
 
 describe("Cookie Clicker taps", () => {
+  it("records the same actual 100 ms pressed state shown by a real finger tap", () => {
+    mockPointer(true);
+    render(<CookieClickerGame />);
+    start();
+    const cookie = screen.getByRole("button", { name: "cookie" });
+    const capturePressed = () => (vi.mocked(useSemanticClips).mock.calls.at(-1)?.[0] as { pressed: boolean }).pressed;
+    expect(capturePressed()).toBe(false);
+    fingerDown(cookie, { id: 1, x: 20, y: 20 });
+    expect(useCookieClickerStore.getState().totalClicks).toBe(1);
+    expect(cookie).toHaveClass("scale-95");
+    expect(capturePressed()).toBe(true);
+    act(() => { vi.advanceTimersByTime(99); });
+    expect(capturePressed()).toBe(true);
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(cookie).toHaveClass("scale-100");
+    expect(capturePressed()).toBe(false);
+    fingerUp(cookie, { id: 1 });
+    expect(useCookieClickerStore.getState().totalClicks).toBe(1);
+  });
   it("counts a two-thumb mash: every finger down is a tap, with no click at all", () => {
     mockPointer(true);
     render(<CookieClickerGame />);

@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Hunting } from "../components/Hunting";
+import { TravelScene } from "../components/TravelScene";
 import { useOregonTrailStore } from "../lib/store";
 import { HUNTING_TIME } from "../lib/constants";
 import { useHuntPauseStore } from "../lib/huntPause";
@@ -44,6 +45,28 @@ afterEach(() => {
 });
 
 describe("Oregon Trail hunt", () => {
+  it("keeps the new native canvas registered when travel and hunting replace one another", () => {
+    const capture = vi.fn();
+    const view = render(<TravelScene onCaptureCanvas={capture} />);
+    const travel = view.container.querySelector("canvas");
+    expect(travel).not.toBeNull();
+    expect(capture).toHaveBeenLastCalledWith(travel);
+    capture.mockClear();
+    view.rerender(<Hunting onCaptureCanvas={capture} />);
+    const hunt = view.container.querySelector("canvas");
+    expect(hunt).not.toBeNull();
+    expect(hunt).not.toBe(travel);
+    // The old passive cleanup used to run AFTER Hunting's ref attachment,
+    // ending with null and recording a static journey instead of the hunt.
+    expect(capture.mock.calls.map(([canvas]) => canvas)).toEqual([null, hunt]);
+    capture.mockClear();
+    view.rerender(<TravelScene onCaptureCanvas={capture} />);
+    const nextTravel = view.container.querySelector("canvas");
+    expect(nextTravel).not.toBe(hunt);
+    expect(capture.mock.calls.map(([canvas]) => canvas)).toEqual([null, nextTravel]);
+    view.unmount();
+    expect(capture).toHaveBeenLastCalledWith(null);
+  });
   it("releases the real capture canvas when the last bullet opens the result card", () => {
     useOregonTrailStore.setState(s => ({ supplies: { ...s.supplies, ammunition: 1 } }));
     const capture = vi.fn();

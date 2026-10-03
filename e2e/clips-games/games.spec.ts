@@ -133,6 +133,7 @@ import { RowReport } from "../clips/lib/report";
 import { Finger, wanted } from "../phone/touch";
 import { driverFor, hasDriverFor, IDLE, startActions, type Driver, type PlayContext } from "./lib/drivers";
 import { PUBLISH, signInForPublishing, publishAndWatch } from "./lib/publishJourney";
+import { captureDiagnostics } from "./lib/captureDiagnostics";
 import {
   changedPixels,
   decodeErrors,
@@ -721,6 +722,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
   });
   // The Cloudflare beacon would count each test as a real visit to the site.
   await context.route(/cloudflareinsights\.com/, (route) => route.abort());
+  const saveCaptureDiagnostics = await captureDiagnostics(context);
   const page = await context.newPage();
   const errors = watchErrors(page);
   /** The last time the check saw the clip button on the page: the clip UI had loaded (a ui load retry recovered). */
@@ -1349,6 +1351,21 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       progress("publish, signed-out discovery and playback verified");
       report.check("public sharing: actual upload, signed-out discovery and playback", true, published, "real UI publish; identical public bytes; feed and direct watch play by touch");
     }
+  } catch (error) {
+    // Preserve the failing control and full locator call log before finally closes the page.
+    await page.screenshot({ path: testInfo.outputPath(`${game.id}-exception.png`) }).catch(() => undefined);
+    let detail = error instanceof Error ? error.stack ?? `${error.name}: ${error.message}` : String(error);
+    for (const secret of [process.env.E2E_PUBLISH_PASSWORD, process.env.E2E_PUBLISH_EMAIL]) {
+      if (secret) detail = detail.split(secret).join("[redacted]");
+    }
+    try {
+      const artifact = testInfo.outputPath(`${game.id}-exception.txt`);
+      writeFileSync(artifact, detail);
+      await testInfo.attach("journey-exception", { path: artifact, contentType: "text/plain" });
+    } catch {
+      // Evidence capture must never replace the original journey failure.
+    }
+    throw error;
   } finally {
     // 8. Errors.
     const origin = originOf(baseURL);
@@ -1420,6 +1437,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
     if (otherFailed.length) report.info("network: other failed requests", otherFailed.map((r) => `${short(r.url)}: ${r.error}`).join(" | "));
     noteLoad(report, "at the end");
     if (report.failures().length) await page.screenshot({ path: testInfo.outputPath(`${game.id}-end.png`) }).catch(() => undefined);
+    await saveCaptureDiagnostics(page, testInfo).catch(() => undefined);
     await context.close();
   }
 }

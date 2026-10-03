@@ -898,6 +898,23 @@
       }
     });
 
+    // This pinned, self-hosted release is updated with our verified vendor
+    // command. 4.2.3 otherwise checks the public CDN on localhost during
+    // construction, with no opt-out and no rejection handler. Disable only
+    // that optional check before the loader constructs the emulator; keep
+    // the vendored bytes, normal fetch behavior and same-origin CSP intact.
+    Object.defineProperty(window, 'EmulatorJS', {
+      configurable: true,
+      set: function(Emulator) {
+        Emulator.prototype.checkForUpdates = function() {};
+        Object.defineProperty(window, 'EmulatorJS', {
+          configurable: true,
+          writable: true,
+          value: Emulator,
+        });
+      },
+    });
+
     // Load the EmulatorJS loader script
 
     const script = document.createElement('script');

@@ -38,7 +38,8 @@ export function CookieClickerGame() {
   // start moment. Nothing bakes and no golden cookie appears before Play.
   const [hasStarted, setHasStarted] = useState(false);
   const clipHeld = useShellHold();
-  useSemanticClips(store, paintCookies, { phase: !hasStarted ? "idle" : clipHeld ? "hold" : "playing", score: store.cookies, best: 0 });
+  const [cookiePressed, setCookiePressed] = useState(false);
+  useSemanticClips({ ...store, pressed: cookiePressed }, paintCookies, { phase: !hasStarted ? "idle" : clipHeld ? "hold" : "playing", score: store.cookies, best: 0 });
   const [showOfflinePopup, setShowOfflinePopup] = useState(false);
   const [offlineEarnings, setOfflineEarnings] = useState(0);
   const tickRef = useRef<NodeJS.Timeout | null>(null);
@@ -167,7 +168,7 @@ export function CookieClickerGame() {
       className="relative flex shrink-0 flex-col items-center justify-center"
       style={layout.sideways ? { flex: 1, minWidth: 0 } : { height: layout.cookieArea }}
     >
-      <CookieButton disabled={!hasStarted} size={layout.cookie} />
+      <CookieButton disabled={!hasStarted} size={layout.cookie} isPressed={cookiePressed} onPressedChange={setCookiePressed} />
       {/* A phone kid taps; the words say so (audit S5). */}
       <div className="mt-1 text-center text-base leading-tight text-amber-900">
         {isCoarse
@@ -310,10 +311,19 @@ function GoldenCookie() {
 // COOKIE BUTTON COMPONENT
 // ============================================================================
 
-function CookieButton({ disabled = false, size }: { disabled?: boolean; size: number }) {
+function CookieButton({ disabled = false, size, isPressed, onPressedChange }: {
+  disabled?: boolean;
+  size: number;
+  isPressed: boolean;
+  onPressedChange: (pressed: boolean) => void;
+}) {
   const clickCookie = useCookieClickerStore((s) => s.clickCookie);
   const floatingTexts = useCookieClickerStore((s) => s.floatingTexts);
-  const [isPressed, setIsPressed] = useState(false);
+  const pressTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = pressTimers.current;
+    return () => { for (const timer of timers) clearTimeout(timer); timers.clear(); };
+  }, []);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Every finger counts: the tap runs on pointerdown, so two thumbs mashing
@@ -338,10 +348,16 @@ function CookieButton({ disabled = false, size }: { disabled?: boolean; size: nu
       clickCookie(x, y);
 
       // Squish animation
-      setIsPressed(true);
-      setTimeout(() => setIsPressed(false), 100);
+      // The same existing 100 ms pressed state drives both the live cookie
+      // and its recording; capture never invents motion from a tap counter.
+      onPressedChange(true);
+      const timer = setTimeout(() => {
+        pressTimers.current.delete(timer);
+        onPressedChange(false);
+      }, 100);
+      pressTimers.current.add(timer);
     },
-    [disabled, clickCookie]
+    [disabled, clickCookie, onPressedChange]
   );
   const cookieTap = usePointerTap<HTMLButtonElement>(handleTap);
 

@@ -1,5 +1,5 @@
 /** Real user actions for semantic boards, native 3D canvases and iframe games. */
-import type { Locator } from "playwright/test";
+import type { CDPSession, Locator } from "playwright/test";
 import { startActions, type Driver, type PlayContext } from "./drivers";
 
 async function play({ page, finger }: PlayContext) {
@@ -69,9 +69,20 @@ export const ADDITIONAL_DRIVERS: Record<string, () => Driver> = {
     let key = 0;
     const keys = ["C", "A", "T", "ENTER", "D", "O", "G", "ENTER", "S", "U", "N", "ENTER", "H", "A", "T", "ENTER", "B", "A", "T", "ENTER", "C", "A", "R", "ENTER"];
     return boardDriver("enters and submits three-letter guesses on the on-screen keyboard", async ({ page, finger }) => {
-      await finger.tap(page.getByTestId("wordle-keyboard").locator(`[data-key="${keys[key++ % keys.length]}"]`));
+      const keyboard = page.getByTestId("wordle-keyboard");
+      if (!await keyboard.isVisible()) {
+        // A submitted guess can end the round before the next driver step.
+        // The result chip reveals its real restart action after a short grace.
+        const again = page.getByRole("button", { name: /Play again/i });
+        if (await again.isVisible() && await again.isEnabled()) {
+          await finger.tap(again);
+          key = 0;
+        }
+        return;
+      }
+      await finger.tap(keyboard.locator(`[data-key="${keys[key++ % keys.length]}"]`));
     }, async ({ page }) => page.getByTestId("wordle-grid").evaluate((grid) => grid.innerHTML), async (ctx) => {
-      await ctx.finger.tap(ctx.page.getByTestId("age-picker").getByRole("button", { name: /4yo/ }));
+      await ctx.finger.tap(ctx.page.getByTestId("age-picker").getByRole("button", { name: "👶 4yo", exact: true }));
       await play(ctx);
     });
   },
@@ -89,11 +100,26 @@ export const ADDITIONAL_DRIVERS: Record<string, () => Driver> = {
     note: "starts a journey, buys oxen and ammunition, then hunts with real field taps",
     async start(ctx) {
       const { page, finger } = ctx;
-      await play(ctx);
-      await page.getByLabel("Your name", { exact: true }).fill("Trail Tester");
-      await finger.tap(page.getByTestId("oregon-setup-name").getByRole("button", { name: "Next ▶", exact: true }));
-      await finger.tap(page.getByTestId("oregon-setup-party").getByRole("button", { name: "Next ▶", exact: true }));
-      await finger.tap(page.getByRole("button", { name: "🐂 Start the journey!", exact: true }));
+      const start = page.getByRole("button", { name: "▶ Start Journey!", exact: true });
+      if (await start.isVisible()) {
+        await finger.tap(start);
+        await page.getByLabel("Your name", { exact: true }).fill("Trail Tester");
+        await finger.tap(page.getByTestId("oregon-setup-name").getByRole("button", { name: "Next ▶", exact: true }));
+        await finger.tap(page.getByTestId("oregon-setup-party").getByRole("button", { name: "Next ▶", exact: true }));
+        await finger.tap(page.getByRole("button", { name: "🐂 Start the journey!", exact: true }));
+      } else {
+        // Cloud saves restore the journey directly, without a start card.
+        // Restart this synthetic account's trip through the same confirmation
+        // a player uses, retaining its name/job/family choices and buying anew.
+        const restart = page.getByRole("button", { name: "Restart game", exact: true }).filter({ visible: true });
+        if (!await restart.isVisible()) {
+          await finger.tap(page.getByRole("button", { name: "Pause game", exact: true }));
+        }
+        await restart.waitFor({ state: "visible" });
+        await finger.tap(restart);
+        await finger.tap(page.getByRole("button", { name: "Confirm restart", exact: true }));
+      }
+      await page.getByTestId("oregon-store").waitFor({ state: "visible" });
       await finger.tap(page.getByRole("button", { name: /^Buy .*oxen/i }));
       // Enough ammunition to keep playing across a completed hunt during slow capture.
       for (let pack = 0; pack < 5; pack++) await finger.tap(page.getByRole("button", { name: /^Buy .*bullets/i }));
@@ -116,24 +142,80 @@ export const ADDITIONAL_DRIVERS: Record<string, () => Driver> = {
       await page.waitForTimeout(800);
     },
   }),
-  "monster-truck": () => gasDriver("Gas", "Horn"),
+  "monster-truck": monsterTruckDriver,
   "four-wheeler-3d": () => ({ ...gasDriver("Gas", "Honk the horn"), start: async ({ page, finger }) => { await finger.tap(page.getByRole("button", { name: "▶ Play!", exact: true })); } }),
   "four-wheeler-adventure": () => ({
     note: "holds the original game's iframe gas pedal",
     async begin({ page, finger }) { await finger.hold(page.frameLocator('iframe[title="Four-Wheeler Adventure"]').locator("#btnGas")); },
     async step({ page }) { await page.waitForTimeout(150); },
   }),
-  "retro-arcade": () => ({
-    note: "opens catalog Super Mario World, starts a one-player save, and uses its visible emulator controls",
+  "retro-arcade": () => {
+    const navigate = async ({ page, finger }: PlayContext) => {
+      const pad = page.frameLocator('[data-testid="emulator-view"] iframe').locator(".ejs_dpad_main");
+      const box = await pad.boundingBox();
+      if (!box) throw new Error("the emulator direction pad is not visible");
+      await finger.holdAt(box.x + box.width * .85, box.y + box.height / 2, 200);
+      const fire = page.frameLocator('[data-testid="emulator-view"] iframe').locator(".ejs_virtualGamepad_right .b_a");
+      await finger.tap(fire);
+      await page.waitForTimeout(200);
+    };
+    const step = async ({ page, finger }: PlayContext) => {
+      const jump = page.frameLocator('[data-testid="emulator-view"] iframe').locator(".ejs_virtualGamepad_right .b_a");
+      const box = await jump.boundingBox();
+      if (!box) throw new Error("the emulator jump button is not visible");
+      // Stay safely at the level entrance. A held real press spans emulator
+      // frames even when a busy machine processes a quick tap between them.
+      await finger.holdAt(box.x + box.width / 2, box.y + box.height / 2, 150);
+      await page.waitForTimeout(250);
+    };
+    return {
+    note: "opens Super Mario World, navigates to a level, then jumps safely at its entrance with visible touch controls",
     async start({ page, finger }) {
       await finger.tap(page.getByTestId("console-snes"));
       const title = process.env.E2E_RETRO_GAME ?? "Super Mario World";
-      await finger.tap(page.getByTestId("catalog-game").filter({ hasText: title }).first().locator("button:not([aria-label])"));
+      await page.getByPlaceholder("Search SNES games...", { exact: true }).fill(title);
+      const game = page.getByTestId("catalog-game")
+        .filter({ has: page.getByRole("heading", { name: title, exact: true }) })
+        .locator("button:not([aria-label])");
+      await game.scrollIntoViewIfNeeded();
+      await finger.tap(game);
       const notice = page.getByRole("button", { name: "Play", exact: true });
-      if (await notice.isVisible().catch(() => false)) await finger.tap(notice);
-      await page.getByTestId("emulator-view").locator("iframe").waitFor();
+      const emulator = page.getByTestId("emulator-view").locator("iframe");
+      // Catalog selection is delayed briefly; a notice may appear after the touch.
+      await notice.or(emulator).first().waitFor();
+      if (await notice.isVisible()) await finger.tap(notice);
+      await emulator.waitFor();
       const frame = page.frameLocator('[data-testid="emulator-view"] iframe');
+      await frame.locator("canvas.ejs_canvas").waitFor({ timeout: 90_000 });
+      // On a desktop-sized touch screen EJS defaults the pad to disabled.
+      // Enable it through its own settings, after startup's brief pad sizing.
+      await page.waitForTimeout(1000);
       const start = frame.locator(".ejs_virtualGamepad_bottom .b_start");
+      if (!await start.isVisible()) {
+        const menu = frame.locator(".ejs_menu_bar");
+        const opener = frame.locator(".ejs_virtualGamepad_open");
+        // EJS hides the Settings text from accessibility while it is open,
+        // but retains that same text in the button's DOM for its tooltip.
+        const settings = menu.locator(".ejs_menu_button").filter({ hasText: /^Settings$/ });
+        if (await menu.evaluate(el => el.classList.contains("ejs_menu_bar_hidden"))) {
+          await finger.tap(opener);
+        }
+        await frame.locator(".ejs_menu_bar:not(.ejs_menu_bar_hidden)").waitFor();
+        // Finger dispatches raw touches; let the 400 ms slide finish first.
+        await page.waitForTimeout(450);
+        await finger.tap(settings);
+        await finger.tap(frame.locator(".ejs_settings_main_bar:visible").filter({ hasText: /^Virtual Gamepad$/ }));
+        await finger.tap(frame.locator(".ejs_settings_main_bar:visible").filter({ hasText: /^Virtual Gamepad/ }));
+        await finger.tap(frame.getByRole("button", { name: "Enabled", exact: true }));
+        await finger.tap(settings);
+        // The opener ignores repeated presses for two seconds. Dismiss the
+        // bar as a player would, so it cannot cover the bottom-row pad keys.
+        await page.waitForTimeout(2100);
+        if (!await menu.evaluate(el => el.classList.contains("ejs_menu_bar_hidden"))) {
+          await finger.tap(opener);
+          await page.waitForTimeout(450);
+        }
+      }
       await start.waitFor({ timeout: 90_000 });
       // SMW: title, first save slot, one-player choice, then its opening story.
       // These are actual pad presses; no emulator memory or injected game input.
@@ -146,17 +228,103 @@ export const ADDITIONAL_DRIVERS: Record<string, () => Driver> = {
       await finger.tap(accept);
       await page.waitForTimeout(16_000);
       await finger.tap(accept);
+      // Leave Yoshi's House on the overworld and enter the first level to
+      // the right before filling the recording with actual running/jumping.
+      await page.waitForTimeout(2000);
+      const direction = await frame.locator(".ejs_dpad_main").boundingBox();
+      if (!direction) throw new Error("the emulator direction pad is not visible");
+      await finger.holdAt(direction.x + direction.width * .85, direction.y + direction.height / 2, 750);
+      await page.waitForTimeout(500);
+      await finger.tap(accept);
+      await page.waitForTimeout(2000);
+    },
+    async begin(ctx) {
+      // Under load the title/story can take longer than wall-clock waits.
+      // Finish navigation first, then give the rolling buffer a separate
+      // 40 seconds of safe level play before the check offers a clip.
+      const navigationUntil = Date.now() + 32_000;
+      while (Date.now() < navigationUntil) await navigate(ctx);
+      const playUntil = Date.now() + 40_000;
+      while (Date.now() < playUntil) await step(ctx);
+    },
+    step,
+  };
+  },
+};
+
+/** Steer around the spawn ramp; back away if the visible speedometer stalls. */
+function monsterTruckDriver(): Driver {
+  let cdp: CDPSession | undefined;
+  let started = 0;
+  let stoppedSince = 0;
+  let reverseUntil = 0;
+  let turnUntil = 0;
+  let lastHorn = 0;
+  let pedalName = "Gas";
+  let reversals = 0;
+  let steps = 0;
+  let minMph = Infinity;
+  let maxMph = 0;
+  let lastMph = 0;
+  return {
+    note: "drives with gas and steering; reads the speedometer and reverses away from obstacles",
+    seen: () => `${steps} driving steps; MPH ${minMph}-${maxMph}, last ${lastMph}; ${reversals} obstacle recoveries using the brake/reverse pedal`,
+    async begin({ page, finger }) {
+      cdp ??= await page.context().newCDPSession(page);
+      started = Date.now();
+      stoppedSince = reverseUntil = 0;
+      turnUntil = started + 1500;
+      pedalName = "Gas";
+      await finger.hold(page.getByRole("button", { name: pedalName, exact: true }));
     },
     async step({ page, finger }) {
-      const pad = page.frameLocator('[data-testid="emulator-view"] iframe').locator(".ejs_dpad_main");
-      const box = await pad.boundingBox();
-      if (box) await finger.holdAt(box.x + box.width * .85, box.y + box.height / 2, 200);
-      const fire = page.frameLocator('[data-testid="emulator-view"] iframe').locator(".ejs_virtualGamepad_right .b_a");
-      if (await fire.isVisible()) await finger.tap(fire);
-      await page.waitForTimeout(200);
+      const now = Date.now();
+      const mph = Number(await page.getByTestId("monster-truck-speed").textContent());
+      if (!Number.isFinite(mph)) throw new Error("Monster Truck speedometer is not numeric");
+      steps++;
+      minMph = Math.min(minMph, mph);
+      maxMph = Math.max(maxMph, mph);
+      lastMph = mph;
+      if (mph <= 1 && now - started > 1000 && now >= reverseUntil) {
+        stoppedSince ||= now;
+        if (now - stoppedSince >= 350) {
+          reverseUntil = now + 1500;
+          turnUntil = reverseUntil + 1200;
+          stoppedSince = 0;
+          reversals++;
+        }
+      } else stoppedSince = 0;
+      const nextPedal = now < reverseUntil ? "Brake" : "Gas";
+      const pedal = page.getByRole("button", { name: nextPedal, exact: true });
+      if (nextPedal !== pedalName || !finger.holding) {
+        pedalName = nextPedal;
+        await finger.hold(pedal);
+      }
+      if (now - lastHorn > 1500) {
+        lastHorn = now;
+        await finger.tap(page.getByRole("button", { name: "Horn", exact: true }));
+        // Reset the primary after a two-thumb tap; do not trust a helper's
+        // held flag to prove that Chromium still has that touch pressed.
+        await finger.hold(pedal);
+      }
+      if (now < turnUntil || (now - started) % 6000 < 500) {
+        // A held second thumb, unlike a tap, produces a real steering turn.
+        // CDP requires touchEnd to have NO points. End the gesture completely,
+        // then reapply the primary via Finger so its state matches Chromium.
+        const primary = { ...await finger.center(pedal), id: 1 };
+        const secondary = { ...await finger.center(page.getByRole("button", {
+          name: now < reverseUntil ? "Steer left" : "Steer right", exact: true,
+        })), id: 2 };
+        await cdp!.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [primary, secondary] });
+        try { await page.waitForTimeout(200); }
+        finally {
+          await cdp!.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+          await finger.hold(pedal);
+        }
+      } else await page.waitForTimeout(150);
     },
-  }),
-};
+  };
+}
 
 function gasDriver(gas: string, horn: string): Driver {
   let last = 0;

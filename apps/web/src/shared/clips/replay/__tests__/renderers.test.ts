@@ -103,6 +103,18 @@ describe("semantic game recordings", () => {
     expect(JSON.stringify(capture(paintMemory, { ...s, cards: [{ ...cards[0], isFlipped: true }] }))).toContain("🦊");
     expect(capture(paintMemory, { ...s, currentTime: 2300 })).toContainEqual(["fillText", "2 seconds", 320, 697]);
   });
+  it("scales the whole recorded cookie and its chocolate chips only during a real press", () => {
+    const s = useCookieClickerStore.getState();
+    const idle = capture(paintCookies, { ...s, pressed: false });
+    const pressed = capture(paintCookies, { ...s, pressed: true });
+    expect(idle).toContainEqual(["scale", 1, 1]);
+    const scale = pressed.findIndex(command => command[0] === "scale");
+    const restored = pressed.findIndex(command => command[0] === "restore");
+    expect(pressed[scale]).toEqual(["scale", 0.95, 0.95]);
+    expect(pressed.slice(scale, restored).filter(command => command[0] === "arc" && command[3] === 13)).toHaveLength(7);
+    const oddCount = capture(paintCookies, { ...s, totalClicks: s.totalClicks + 1, pressed: false });
+    expect(oddCount.filter(command => command[0] !== "fillText")).toEqual(idle.filter(command => command[0] !== "fillText"));
+  });
   it("shows Cookie Clicker purchases and real tap feedback", () => {
     const s = useCookieClickerStore.getState();
     const initial = capture(paintCookies, s);
