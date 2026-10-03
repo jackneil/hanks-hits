@@ -1,0 +1,267 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cloud word preservation prerequisite</title><style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-muted: #555;
+    --bg: #fafaf7;
+    --bg-card: #fff;
+    --accent: #2266aa;
+    --accent-bg: #e7f0fa;
+    --warn: #b3681c;
+    --warn-bg: #fcf3e7;
+    --danger: #b32424;
+    --danger-bg: #fbe9e7;
+    --ok: #1f7a3f;
+    --ok-bg: #e8f4ec;
+    --border: #d8d4cc;
+    --code-bg: #f3efe8;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1;
+      --fg-muted: #a8a5a0;
+      --bg: #161616;
+      --bg-card: #1f1f1f;
+      --accent: #6aa8e8;
+      --accent-bg: #1a2935;
+      --warn: #e0a85b;
+      --warn-bg: #3a2d18;
+      --danger: #ea7670;
+      --danger-bg: #3a1f1c;
+      --ok: #6acd8e;
+      --ok-bg: #1c3327;
+      --border: #2e2e2e;
+      --code-bg: #232323;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 .25rem;
+    line-height: 1.2;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin: 2.5rem 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 .5rem;
+    color: var(--fg-muted);
+  }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  /* Metadata strip under title */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin: .5rem 0 2rem;
+    padding: .75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: .9rem;
+  }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+
+  /* Status badges - drop into a <span class="badge X"> */
+  .badge {
+    display: inline-block;
+    padding: .15rem .6rem;
+    border-radius: 99px;
+    font-size: .8rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .badge.ok       { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn     { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger   { background: var(--danger-bg); color: var(--danger); }
+  .badge.info     { background: var(--accent-bg); color: var(--accent); }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+  }
+  nav.toc h2 {
+    margin: 0 0 .5rem;
+    font-size: .9rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--fg-muted);
+    border: none;
+    padding: 0;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+  nav.toc li { margin: .15rem 0; }
+
+  /* Callouts - drop into <aside class="callout warn"> ... </aside> */
+  aside.callout {
+    margin: 1rem 0;
+    padding: .9rem 1.1rem;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  aside.callout.warn   { border-color: var(--warn);   background: var(--warn-bg); }
+  aside.callout.danger { border-color: var(--danger); background: var(--danger-bg); }
+  aside.callout.ok     { border-color: var(--ok);     background: var(--ok-bg); }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child  { margin-bottom: 0; }
+
+  /* Code */
+  code {
+    font-family: var(--mono);
+    font-size: .92em;
+    background: var(--code-bg);
+    padding: .12em .35em;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: .88rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left;
+    padding: .55rem .8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: .9rem;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Task checklist - use <ul class="tasks"> + <li><input type="checkbox" disabled> ...</li> */
+  ul.tasks { list-style: none; padding-left: 0; }
+  ul.tasks li {
+    padding: .25rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+  }
+  ul.tasks input[type="checkbox"] { margin-top: .4rem; }
+
+  /* Mermaid diagram wrappers */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  /* If mermaid fails (no network), fall back to showing the source in a code block */
+  .diagram pre.mermaid-source {
+    text-align: left;
+    display: none;
+  }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+
+  blockquote {
+    border-left: 3px solid var(--border);
+    padding: .2rem 1rem;
+    margin: 1rem 0;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  /* Print: paginate cleanly, drop the dark-mode flip, expand TOC */
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    nav.toc { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+</style></head><body><main class="wrap"><h1>Part C prerequisite: preserve existing cloud words before replacement</h1>
+<p>Status: compatibility implementation in local review, 2026-10-03. No production migration, publication or cutover is authorized for this branch yet. This addresses the remaining ordinary-save data-loss defect in the two-wave Part C review. It does not restart that broad review.</p>
+<h2>Outcome and boundaries</h2>
+<p>An old client can save before a device runs word recovery. That save must update game progress without destroying pre-existing recoverable words. New typed values in requests are stripped and never added to recovery storage after cutover. The transitional recovery store contains only values already persisted by the prior release. No claim that all users or devices have recovered them is made.</p>
+<h2>Storage contract</h2>
+<p>Add a separate PostgreSQL table, <code>legacy_progress_words</code>, with progress_id as a foreign key to app_progress.id ON DELETE CASCADE; source_revision, extraction_version, payload JSONB, and captured_at. The composite primary key is (progress_id, source_revision, extraction_version). Ownership and app identity come only from joining the parent app_progress row to the authenticated user. There is no caller-supplied owner or global archive-ID lookup. Payload contains only the reviewed legacy field inventory with existing entity identifiers, not a complete gameplay blob. Account deletion cascades through users to app_progress to the recovery row. Explicit deletion of cloud progress also removes its associated recovery row; ordinary save and device capture do not.</p>
+<p>Keep immutable versioned snapshots. Exact source revision and extraction version deduplicate retries; never overwrite a previous candidate. The usual row produces one snapshot because post-cutover writers strip incoming words. Versioned records also preserve an unexpected second stored legacy source without discarding the earlier one. Such a source triggers a values-free rollout diagnostic. Recovery returns each distinct candidate so the device can preserve rather than guess.</p>
+<h2>Transaction contract</h2>
+<ol><li>Under the revision foundation's existing owner/app advisory transaction lock, read the current progress row and validate any conditional revision before changing anything.</li>
+<li>Extract legacy fields from the stored row only. Never extract them from the request. Before an upsert can remove or replace them, insert the durable recovery snapshot in the same database transaction.</li>
+<li>Sanitize both request and existing progress, validate and reconcile as normal, then write progress. Commit archive and progress atomically. If the database fails, both roll back, leaving the original source intact; retain the client's normal retry journal. Do not add a timeout, rate gate, payload refusal or capture-ack requirement to valid saves.</li>
+<li>Revision conflicts and keepExisting return sanitized data and perform no destructive write. All success, GET, aggregate and strict ACK paths sanitize ordinary responses. Recovery failure cannot change the canonical revision or game state.</li></ol>
+<h2>Recovery contract</h2>
+<p>An authenticated no-cache GET resolves the app from the allowlisted route and owner from the server session. Require a captured expected-owner assertion in a request header, compare it with the authenticated session before querying, and return a mismatch without any words when they differ. The assertion never authorizes a lookup or selects its owner. The client additionally verifies its captured owner and generation before committing; an A page with B cookies must never persist B words into A storage. Do not place owner assertions or typed values in URLs or logs. It reads immutable archived candidates plus any still-present legacy source under a consistent database snapshot. Return candidates separately with source revision and extraction version; do not guess which journey or entity they belong to. Deduplicate exact same-source copies only. The client checks its owner generation, commits candidates to its local-word transaction, and may record a values-free capture receipt. A receipt neither deletes the cloud source nor proves recovery on other devices. No typed values appear in logs, URLs, analytics or ordinary progress responses.</p>
+<h2>Rollout contract</h2>
+<ol><li>Finish and land B1 first. Prepare additive schema migration, server tests and compatibility release. The migration and release each need the appropriate exact production authorization; no migration runs from application startup.</li>
+<li>Deploy a compatibility server with preservation/recovery code present but sanitizing replacement disabled. Verify every active writer is on that compatible version, including background jobs, and old processes are drained. Preserve the current behavior until this is proven.</li>
+<li>Enable sanitizing replacement only after schema, all-writer compatibility and recovery readiness are verified. The switch is a separately authorized production change. Requests from old browsers are handled by the compatible server; no browser acknowledgement gates saves. Make the cutover atomic with writes: compatible writers take a shared transaction advisory lock for the cutover policy, then their existing owner/app lock, and read the database policy row in a separate statement after acquiring the locks, under Read Committed isolation. Read the request body before entering this transaction. The separately authorized cutover takes the exclusive policy lock and flips that row. Thus pre-cutover writes finish before the switch commits, and subsequent writes read enabled mode; an in-flight request cannot later persist using stale disabled mode. Shared locks preserve normal save concurrency; no timeout or request refusal is added. Include the policy row in the additive migration. Old binaries that do not honor this lock must already be drained.</li>
+<li>After cutover, rollback targets only a preservation-capable server and never re-enables collection of incoming words. Do not roll back to a binary that can overwrite progress without the handoff. A failure to verify writer drainage blocks cutover, not ordinary pre-cutover saving.</li>
+<li>Client migration and local recovery ship with ordinary-response sanitization. Existing retained data remains clearly disclosed as transitional. Retirement of raw fields, archive rows, backups and PITR is a later separately approved operation. Waiting is not a capture proof.</li></ol>
+<h2>Proof required before implementation can be called ready</h2>
+<ul><li>Real PostgreSQL tests: old-client POST before recovery; replace/merge/conditional saves; two competing requests; failure after archive insertion but before progress commit; no-op and conflict; parent deletion races; archive foreign-key cascades.</li>
+<li>Recovery of original words after a successful sanitized save, without newly submitted text entering any stored row or log.</li>
+<li>Consistent recovery during concurrent first capture; no missing or cross-owner candidates, and replay idempotency. Specifically freeze the client session at A while server cookies authenticate B: the request must return no words and commit nothing to A storage.</li>
+<li>Rollout simulation covering a legacy request in flight at cutover, app restarts and rollback to the compatible release.</li>
+<li>Document all progress writers and test multiple distinct stored legacy versions and exact-source retry deduplication; never drop a prior snapshot.</li>
+<li>Account and cloud-progress deletion remove recovery data while unrelated users remain untouched. Retention and physical-erasure claims are kept separate from SQL row removal.</li></ul>
+<p>Review status: three initial reviewers completed the focused prerequisite review. One validated owner-binding gap was fixed using B1's expected-owner pattern. Targeted second-wave verification passed for owner binding and the explicit cutover barrier; no remaining concrete design defect was found. This is planning evidence only, not implementation, test or deployment evidence. Source evidence: B1 ed85f08 app/api/progress/[appId]/route.ts stores finalData in its upsert; app-progress.ts already uses foreign-key cascades; Part A account-deletion.ts deletes users and relies on those cascades. This plan preserves those ownership and transactional patterns.</p></main><section><h2>Implementation and rollout receipt</h2><p>The only application progress writer found in apps/web/src, apps/web/scripts and packages is POST /api/progress/[appId]. It now acquires the shared policy lock before the existing owner/app lock, then reads the policy in a separate statement. Incoming-body reading remains outside the transaction. Word extraction is version 1. Candidates retain field paths and existing IDs, with no invented match for legacy Oregon journeys. The new GET /api/progress/[appId]/legacy-words requires the session owner in x-hh-expected-owner, performs owner-bound lookups in a read-only Repeatable Read transaction, and uses private, no-store responses.</p><p>Migration packages/db/drizzle/0002_legacy_progress_words.sql adds two tables and one disabled policy row. It does not rewrite app_progress. It must be applied with separate approval before deploying this compatibility server. The prior clips migration 0001 is still unapplied in production and is not a prerequisite for these tables; do not blindly apply every pending migration. Drizzle metadata generation is local only. No startup migration exists.</p><p>Once the compatibility release is live, verify every writer deployment uses this protocol and all old processes are drained. Cutover additionally waits for Part C client recovery and local storage readiness, its browser gates and explicit approval. The SQL below is documentation, not a startup task:</p><pre>BEGIN;
+SELECT pg_advisory_xact_lock(hashtextextended('hh:progress-word-policy:v1', 0));
+UPDATE progress_word_policy SET enabled = true WHERE id = 'local-only';
+COMMIT;</pre><p>Never switch this policy back to false after cutover. Roll back only to a preservation-capable binary. Before cutover, normal word behavior continues and snapshots are not collected on ordinary saves. During enabled mode, each changing save captures only the old stored source, strips both inputs and ordinary outputs, and commits archive plus gameplay atomically. A revision conflict or keepExisting outcome does not archive or overwrite the row. Recovery reads both archives and the current source, so unchanged/conflicting saves remain recoverable.</p><p>Current targeted evidence: 96 tests pass across the real PostgreSQL route suite, route stand-in, sync roundtrip and extraction suite. This includes failure after archive insertion, exact-source recovery, competing saves, owner mismatch, account/progress deletion cascades and the shared/exclusive cutover barrier. Full release gate and implementation review are still pending. No user interface changed; Part C must consume these candidates transactionally before its cutover. Physical retirement of historical data and backups is separate and remains unauthorized.</p></section></body></html>

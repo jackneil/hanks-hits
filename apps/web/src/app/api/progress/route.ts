@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { db, eq } from "@hank-neil/db";
 import { appProgress } from "@hank-neil/db/schema";
 import { checkProgressRateLimit } from "@/lib/rate-limit";
+import { readWordPolicy } from "@/lib/progress-word-storage";
+import { stripProgressWords } from "@/lib/progress-words";
 import { describeError } from "@/lib/describe-error";
 
 /**
@@ -37,10 +39,11 @@ export async function GET() {
       orderBy: (progress, { desc }) => [desc(progress.updatedAt)],
     });
 
+    const wordsLocal = await readWordPolicy(db);
     // Transform to response format
     const progressList = allProgress.map((p) => ({
       appId: p.appId,
-      data: p.data,
+      data: wordsLocal ? stripProgressWords(p.appId, p.data) : p.data,
       updatedAt: p.updatedAt.toISOString(),
       lastSyncedAt: p.lastSyncedAt?.toISOString() || null,
     }));

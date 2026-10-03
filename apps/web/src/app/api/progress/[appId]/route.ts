@@ -9,6 +9,8 @@ import {
   type ValidAppId,
   type AppProgressData,
 } from "@hank-neil/db/schema";
+import { stripProgressWords } from "@/lib/progress-words";
+import { lockWordPolicy, readWordPolicy, preserveProgressWords } from "@/lib/progress-word-storage";
 import { progressRevision, nextProgressTime } from "@/lib/progress-revision";
 import { resolveMergedSave } from "@/lib/progress-merge";
 import { validateProgress } from "@/lib/progress-schemas";
@@ -238,7 +240,7 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     return NextResponse.json({
-      data: progress.data,
+      data: (await readWordPolicy(db)) ? stripProgressWords(appId, progress.data) : progress.data,
       protocol: 1,
       revision: progressRevision(progress),
       lastSyncedAt: progress.lastSyncedAt?.toISOString() || null,
@@ -327,30 +329,25 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    // SECURITY: Validate progress data against game-specific schema
-    // This prevents users from POSTing arbitrary data like {"coins": 999999999}
-    const validation = validateProgress(appId as ValidAppId, data);
-    if (!validation.success) {
-      console.warn(
-        `Invalid progress data for ${appId} from user ${session.user.id}:`,
-        validation.error
-      );
-      return NextResponse.json(
-        { error: validation.error },
-        { status: 400 }
-      );
-    }
-
     const userId = session.user.id;
     return await db.transaction(async (tx) => {
+      // Body reading is finished before entering the cutover barrier.
+      await lockWordPolicy(tx);
       await lockProgress(tx, userId, appId);
+      const wordsLocal = await readWordPolicy(tx);
+      const clean = <T,>(value: T): T => wordsLocal ? stripProgressWords(appId, value) : value;
+      const validation = validateProgress(appId as ValidAppId, clean(data));
+      if (!validation.success) {
+        console.warn(`[progress] ${appId}: invalid incoming progress`);
+        return NextResponse.json({ error: validation.error }, { status: 400 });
+      }
       const where = and(eq(appProgress.userId, userId), eq(appProgress.appId, appId));
       const existing = await tx.query.appProgress.findFirst({ where });
       const currentRevision = existing ? progressRevision(existing) : null;
       if (conditional && baseRevision !== currentRevision) {
         return NextResponse.json({
           error: "The saved progress changed", code: "revision_conflict", protocol: 1,
-          data: existing?.data ?? null, revision: currentRevision,
+          data: clean(existing?.data ?? null), revision: currentRevision,
           updatedAt: existing?.updatedAt.toISOString() ?? null,
         }, { status: 409 });
       }
@@ -377,7 +374,7 @@ export async function POST(request: Request, context: RouteContext) {
         const outcome = resolveMergedSave(
           validation.data as AppProgressData,
           {
-            data: existing.data as AppProgressData,
+            data: clean(existing.data) as AppProgressData,
             updatedAt: existing.updatedAt,
           },
           appId,
@@ -392,7 +389,7 @@ export async function POST(request: Request, context: RouteContext) {
           // change (which is newer than the row). Values-free log.
           console.warn(
             `[progress] ${appId}: kept the newer stored row for user ${userId}; ` +
-              `it fails the schema of today, so the older save was not merged into it: ${outcome.error}`
+              `it fails the schema of today, so the older save was not merged into it`
           );
           return NextResponse.json(
             {
@@ -410,7 +407,7 @@ export async function POST(request: Request, context: RouteContext) {
           console.warn(
             `[progress] ${appId}: the merged save failed re-validation for user ${userId}; ` +
               `kept the newer side (${outcome.base === "local" ? "incoming save" : "stored row"}) ` +
-              `and left out [${outcome.leftOut.join(", ")}]: ${outcome.mergeError}`
+              `and left out [${outcome.leftOut.join(", ")}]`
           );
         }
 
@@ -440,6 +437,10 @@ export async function POST(request: Request, context: RouteContext) {
         }
       }
 
+      // Capture the OLD stored source, never the request. An error here or in
+      // the upsert rolls back both writes, retaining the original durable copy.
+      if (wordsLocal && existing) await preserveProgressWords(tx, existing);
+      finalData = clean(finalData);
       const now = nextProgressTime(existing?.updatedAt);
       const progressId = crypto.randomUUID();
 
@@ -492,7 +493,7 @@ export async function POST(request: Request, context: RouteContext) {
         updatedAt: stored.updatedAt.toISOString(),
         merged: merge && conflicts.length === 0,
         conflicts,
-        ...(conditional ? { protocol: 1, data: stored.data, revision: progressRevision(stored) } : {}),
+        ...(conditional ? { protocol: 1, data: clean(stored.data), revision: progressRevision(stored) } : {}),
       });
     });
   } catch (error) {
