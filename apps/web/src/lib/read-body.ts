@@ -39,6 +39,8 @@
  * See design/ARCHITECTURE.md, section "Request bodies".
  */
 
+import { MAX_UPLOAD_REQUEST_BYTES } from "./leaderboard-clips/contract";
+
 export interface BodyLimits {
   /** The largest body, in bytes. A positive whole number. */
   readonly maxBytes: number;
@@ -48,6 +50,9 @@ export interface BodyLimits {
    * request that does not finish.
    */
   readonly timeoutMs: number | null;
+  /** Optional moving-window upload rate floor. Progress saves never set it. */
+  readonly minBytesPerSec?: number;
+  readonly graceMs?: number;
 }
 
 export interface JsonLimits extends BodyLimits {
@@ -69,6 +74,8 @@ export type BodyFailure =
   | "too_big"
   /** The whole body did not arrive in timeoutMs. */
   | "timeout"
+  /** An explicitly configured upload rate floor was not met. */
+  | "too_slow"
   /** The stream failed (the client went away), or the body was already read. */
   | "broken";
 
@@ -152,6 +159,17 @@ export const PROGRESS_SAVE_BODY: JsonLimits = Object.freeze({
   maxJsonAllocations: 1_000_000,
 });
 
+/** Clip uploads alone have a moving speed floor and a five-minute deadline. */
+export const CLIP_UPLOAD_BODY: BodyLimits = Object.freeze({
+  maxBytes: MAX_UPLOAD_REQUEST_BYTES,
+  timeoutMs: 5 * 60 * 1000,
+  minBytesPerSec: 8 * 1024,
+  graceMs: 15_000,
+});
+
+/** Owner/admin delete accepts only a tiny optional JSON object. */
+export const CLIP_DELETE_BODY: BodyLimits = Object.freeze({ maxBytes: 1024, timeoutMs: 10_000 });
+
 /** Throw on limits that a caller wrote wrong. A route must not run with a limit it did not choose. */
 function assertLimits(limits: BodyLimits): void {
   if (!limits || typeof limits !== "object") {
@@ -161,11 +179,15 @@ function assertLimits(limits: BodyLimits): void {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw new TypeError("read-body: maxBytes must be a positive whole number of bytes.");
   }
-  if (timeoutMs === null) return;
-  if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+  if (timeoutMs !== null && (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
     throw new TypeError(
       "read-body: timeoutMs must be a positive number of milliseconds, or null for no time limit."
     );
+  }
+  const floor = limits.minBytesPerSec ?? 0;
+  if (!Number.isFinite(floor) || floor < 0) throw new TypeError("read-body: invalid upload rate floor.");
+  if (floor > 0 && (!Number.isFinite(limits.graceMs) || (limits.graceMs ?? 0) <= 0)) {
+    throw new TypeError("read-body: an upload rate floor needs a positive graceMs window.");
   }
 }
 
@@ -284,12 +306,28 @@ async function readStream(
   }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const late =
-    timeoutMs === null
-      ? null
-      : new Promise<StreamResult>((resolve) => {
-          timer = setTimeout(() => resolve({ ok: false, why: "timeout" }), timeoutMs);
-        });
+  let ticker: ReturnType<typeof setInterval> | undefined;
+  const floor = limits.minBytesPerSec ?? 0;
+  const late = timeoutMs === null && floor === 0 ? null : new Promise<StreamResult>((resolve) => {
+    if (timeoutMs !== null) timer = setTimeout(() => resolve({ ok: false, why: "timeout" }), timeoutMs);
+    if (floor > 0) {
+      const windowMs = limits.graceMs!;
+      const started = Date.now();
+      const samples = [{ at: started, total: 0 }];
+      ticker = setInterval(() => {
+        const now = Date.now();
+        samples.push({ at: now, total: progress.received });
+        if (now - started < windowMs) return;
+        let base = 0;
+        while (base + 1 < samples.length && samples[base + 1].at <= now - windowMs) base++;
+        samples.splice(0, base);
+        const from = samples[0];
+        if (progress.received - from.total < floor * (now - from.at) / 1000) {
+          resolve({ ok: false, why: "too_slow" });
+        }
+      }, Math.max(1, Math.min(1000, windowMs)));
+    }
+  });
 
   /** Set when the result is known, so a read that is still waiting does not keep the chunks. */
   let settled = false;
@@ -324,6 +362,7 @@ async function readStream(
   } finally {
     settled = true;
     clearTimeout(timer);
+    clearInterval(ticker);
     // Over a limit, late, or broken: stop the stream, so no more bytes
     // come in. A body that ended needs no cancel.
     if (!ended) reader.cancel().catch(() => undefined);
@@ -382,14 +421,14 @@ export async function readJson(request: Request, limits: JsonLimits): Promise<Js
 /** The HTTP status for a failed read: 413 for too big, 408 for late, 400 for the rest. */
 export function bodyFailureStatus(why: JsonFailure): 400 | 408 | 413 {
   if (why === "too_big" || why === "too_many_values") return 413;
-  if (why === "timeout") return 408;
+  if (why === "timeout" || why === "too_slow") return 408;
   return 400;
 }
 
 /** A short message for a failed read. It never quotes the body. */
 export function bodyFailureMessage(why: JsonFailure): string {
   if (why === "too_big" || why === "too_many_values") return "The request is too big.";
-  if (why === "timeout") return "The request took too long to arrive.";
+  if (why === "timeout" || why === "too_slow") return "The request took too long to arrive.";
   return "The request is not valid.";
 }
 

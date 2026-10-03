@@ -42,6 +42,9 @@ COPY packages/db ./packages/db
 # (checked downloads). Remove a local copy that the build context can hold.
 RUN rm -rf apps/web/public/emulator/ejs/*/source
 
+# Non-secret bucket endpoint used to compile allowed media origins.
+ARG LEADERBOARD_CLIPS_S3_ENDPOINT
+
 # Build the app
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter web build

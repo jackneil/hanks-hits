@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--
+  jacked artifact template — for plans, specs, research, checkpoints.
+  Replace placeholders, keep what you need, delete sections you don't.
+  Opens cleanly in any browser, offline. Mermaid diagrams load from CDN.
+-->
+<title>Leaderboard Clips: watch how a player got their score</title>
+
+<!-- Metadata block — adjust fields per artifact type -->
+<meta name="jacked:type" content="spec">
+<meta name="jacked:status" content="draft">
+<meta name="jacked:branch" content="clips/leaderboard">
+<meta name="jacked:date" content="2026-10-01">
+<meta name="jacked:project" content="hanks-hits">
+
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-muted: #555;
+    --bg: #fafaf7;
+    --bg-card: #fff;
+    --accent: #2266aa;
+    --accent-bg: #e7f0fa;
+    --warn: #b3681c;
+    --warn-bg: #fcf3e7;
+    --danger: #b32424;
+    --danger-bg: #fbe9e7;
+    --ok: #1f7a3f;
+    --ok-bg: #e8f4ec;
+    --border: #d8d4cc;
+    --code-bg: #f3efe8;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1;
+      --fg-muted: #a8a5a0;
+      --bg: #161616;
+      --bg-card: #1f1f1f;
+      --accent: #6aa8e8;
+      --accent-bg: #1a2935;
+      --warn: #e0a85b;
+      --warn-bg: #3a2d18;
+      --danger: #ea7670;
+      --danger-bg: #3a1f1c;
+      --ok: #6acd8e;
+      --ok-bg: #1c3327;
+      --border: #2e2e2e;
+      --code-bg: #232323;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 .25rem;
+    line-height: 1.2;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin: 2.5rem 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 .5rem;
+    color: var(--fg-muted);
+  }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  /* Metadata strip under title */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin: .5rem 0 2rem;
+    padding: .75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: .9rem;
+  }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+
+  /* Status badges — drop into a <span class="badge X"> */
+  .badge {
+    display: inline-block;
+    padding: .15rem .6rem;
+    border-radius: 99px;
+    font-size: .8rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .badge.ok       { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn     { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger   { background: var(--danger-bg); color: var(--danger); }
+  .badge.info     { background: var(--accent-bg); color: var(--accent); }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+  }
+  nav.toc h2 {
+    margin: 0 0 .5rem;
+    font-size: .9rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--fg-muted);
+    border: none;
+    padding: 0;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+  nav.toc li { margin: .15rem 0; }
+
+  /* Callouts — drop into <aside class="callout warn"> ... </aside> */
+  aside.callout {
+    margin: 1rem 0;
+    padding: .9rem 1.1rem;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  aside.callout.warn   { border-color: var(--warn);   background: var(--warn-bg); }
+  aside.callout.danger { border-color: var(--danger); background: var(--danger-bg); }
+  aside.callout.ok     { border-color: var(--ok);     background: var(--ok-bg); }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child  { margin-bottom: 0; }
+
+  /* Code */
+  code {
+    font-family: var(--mono);
+    font-size: .92em;
+    background: var(--code-bg);
+    padding: .12em .35em;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: .88rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left;
+    padding: .55rem .8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: .9rem;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Task checklist — use <ul class="tasks"> + <li><input type="checkbox" disabled> ...</li> */
+  ul.tasks { list-style: none; padding-left: 0; }
+  ul.tasks li {
+    padding: .25rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+  }
+  ul.tasks input[type="checkbox"] { margin-top: .4rem; }
+
+  /* Mermaid diagram wrappers */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  /* If mermaid fails (no network), fall back to showing the source in a code block */
+  .diagram pre.mermaid-source {
+    text-align: left;
+    display: none;
+  }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+
+  blockquote {
+    border-left: 3px solid var(--border);
+    padding: .2rem 1rem;
+    margin: 1rem 0;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  /* Print: paginate cleanly, drop the dark-mode flip, expand TOC */
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    nav.toc { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+<h1>Leaderboard Clips: watch how a player got their score</h1>
+
+<div class="meta">
+  <div class="kv"><span class="k">Status:</span><span class="v"><span class="badge info">draft for build</span></span></div>
+  <div class="kv"><span class="k">Date:</span><span class="v">2026-10-01</span></div>
+  <div class="kv"><span class="k">Branch:</span><span class="v">clips/leaderboard</span></div>
+  <div class="kv"><span class="k">Type:</span><span class="v">spec (replaces the leaderboard part of GAMEPLAY_CLIPS.html Phase 7)</span></div>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#goal">Goal and what exists today</a></li>
+    <li><a href="#decisions">Decisions</a></li>
+    <li><a href="#flow">What a kid sees</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#data">Data model and routes</a></li>
+    <li><a href="#validation">Upload checks</a></li>
+    <li><a href="#moderation">Grown-up check, report and takedown</a></li>
+    <li><a href="#retention">Retention and deletion</a></li>
+    <li><a href="#privacy">Privacy (COPPA)</a></li>
+    <li><a href="#security">Security</a></li>
+    <li><a href="#cost">Cost</a></li>
+    <li><a href="#verify">Tests and verification</a></li>
+    <li><a href="#prereqs">Prerequisites and production writes</a></li>
+    <li><a href="#tasks">Work breakdown</a></li>
+  </ol>
+</nav>
+
+<h2 id="goal">1. Goal and what exists today</h2>
+<p><strong>Jack, 2026-10-01:</strong> "when i said share i really meant they could share to the leaderboard so other people on our website could see how they played and got their score".</p>
+<p><strong>Goal.</strong> A player who is on a leaderboard can attach a video of a run to their entry. Anybody who opens that leaderboard on hankshits.com can tap the entry and watch the run.</p>
+<p><strong>What exists today</strong> (research 2026-10-01, file:line evidence in the research report):</p>
+<ul>
+  <li>Clips are on in production (<code>CLIPS_MODE=on</code>). A clip is made and kept on the player's own device (OPFS or IndexedDB). "Share" opens the phone's share sheet. Nothing goes to the site. On the real iPhone SE, the game-over clip path works (4 of 4 runs, h264 1280x720 30 fps, AAC 48 kHz stereo, 3.6 to 4.8 MB for 22 to 30 s).</li>
+  <li>A leaderboard row is one best value for each (gaming profile, game, score type). It keeps no run, no run time and no history. A score is the best value in the synced progress, so the server cannot tell which run made it. Only signed-in players have rows. The public name is a made-up handle (for example ThunderHero89), never the account name.</li>
+  <li>All 13 clip games have a leaderboard: arkanoid, asteroids, blitz-bomber, bomberman, breakout, dino-runner, endless-runner, flappy-bird, hextris, hill-climb, math-attack, platformer, space-invaders. For 12 of them the board value is a per-run best. For platformer it is a sum of stars over many runs.</li>
+  <li>The 12 board games with no clips (2048, snake, cookie-clicker, trivia, monster-truck, four-wheeler-3d, oregon-trail, chess, checkers, quoridor, wordle, memory-match) need the DOM-replay engine (GAMEPLAY_CLIPS.html Phase 4) before they can make a clip. This spec makes them work the day they get clips, with no extra change.</li>
+  <li>Production today: 4 accounts (all Google sign-in), 25 leaderboard rows. Traffic is small, so a grown-up can check every video by hand.</li>
+</ul>
+
+<h2 id="decisions">2. Decisions</h2>
+<table>
+<tr><th>#</th><th>Decision</th><th>Why</th></tr>
+<tr><td>D1</td><td><strong>Video, not a move-log replay.</strong> The entry carries an MP4 that the player's own device made.</td><td>The clip system already makes the video on the device for all 13 games. A move-log replay needs a deterministic simulation for each game (physics games are not deterministic across browsers). The DOM games get video through Phase 4.</td></tr>
+<tr><td>D2</td><td><strong>One clip for each player and game.</strong> The player picks the run at game over. The newest upload replaces the old one.</td><td>A kid wants to show a fun run, not only the best one. One clip per entry keeps storage and review small. The label shows the run's own score, so a clip of a lower run never claims the board score.</td></tr>
+<tr><td>D3</td><td><strong>No approval step. A clip is public as soon as the upload checks pass.</strong></td><td>Owner decision (Jack, 2026-10-01): "i definitely dont want to be in charge of approving stuff. they are just showing their game not even their own voice or anything. this is just video sharing of game play that is fine". The clip is game picture and game sound only (D7). Accepted risk: a forged client can send a valid MP4 with a picture that is not the game. The guards need nobody: sign-in, rate limits, the box checks (section 6) and the Report button (D8).</td></tr>
+<tr><td>D4</td><td><strong>Upload through our server, play from the bucket.</strong> The server checks the bytes, then stores them. A viewer gets a short-lived signed link to the bucket.</td><td>Checking before storing means a bad file never reaches the bucket. Playing from the bucket costs nothing for egress (Railway buckets: egress free) and does not send video through Cloudflare, whose terms limit video on the free CDN.</td></tr>
+<tr><td>D5</td><td><strong>A new Railway bucket <code>hanks-hits-clips</code> in the storage project <code>hanks-hits-storage</code></strong>, beside the ROM bucket.</td><td>Same provider and billing as the ROMs. $0.015 per GB-month, free operations and egress.</td></tr>
+<tr><td>D6</td><td><strong>The feature is off unless it is set up.</strong> It turns on only when the bucket settings are set. <code>LEADERBOARD_CLIPS=off</code> is the kill switch.</td><td>A kid clone that is put online with no bucket shows no upload button and no broken player.</td></tr>
+<tr><td>D7</td><td><strong>A clip is game picture and game sound only.</strong> No name is painted into it. The upload check rejects metadata boxes.</td><td>This is already how clips are made (GAMEPLAY_CLIPS.html section 10). It keeps the video free of personal information.</td></tr>
+<tr><td>D8</td><td><strong>Report hides at once; nobody has to review.</strong> Any viewer can report a video, and it is hidden at once. The player can put another run on the board. The owner can remove their own video. An optional admin list (<code>ADMIN_USER_IDS</code>) can remove any video from the viewer sheet, for an emergency only.</td><td>Zero work for a grown-up, and a fast way to take a bad video down. Abuse of the report button costs only a hidden video.</td></tr>
+</table>
+
+<h2 id="flow">3. What a kid sees</h2>
+<p>All words below are UI copy. They are short, they have a read-aloud line, and they contain no dashes.</p>
+<table>
+<tr><th>Where</th><th>What</th><th>Words</th></tr>
+<tr><td>Game over, signed in, game has a board</td><td>A new button in the result chip, beside "Watch the whole run" or "Watch the end"</td><td>"🏆 Put it on the leaderboard"</td></tr>
+<tr><td>After the tap</td><td>The run clip is made (the same clip as "Watch the whole run" or "Watch the end"), then sent. A progress ring shows while it sends.</td><td>"It's on the leaderboard! Everybody can watch it now."</td></tr>
+<tr><td>Game over, guest</td><td>The same button opens sign-in</td><td>"Sign in to put your run on the leaderboard"</td></tr>
+<tr><td>Leaderboard row with a public clip</td><td>A 44 px "▶" button on the row. It opens a viewer sheet with the video, the handle, the run's score and a read-aloud button.</td><td>"▶ Watch" (aria: "Watch ThunderHero89's run: 1,790 points")</td></tr>
+<tr><td>My own row, video hidden by a report</td><td>A small note, once</td><td>"Your video was hidden. Put another run on the leaderboard!"</td></tr>
+<tr><td>My own row or my viewer sheet</td><td>A remove button</td><td>"Take my video off" then "Done! Your video is gone."</td></tr>
+<tr><td>Viewer sheet</td><td>A report button</td><td>"Report this video" then "Thanks! We hid it."</td></tr>
+<tr><td>Platformer (a total, not a run)</td><td>The label names the run, not the board value</td><td>"Watch a level run: 3 stars"</td></tr>
+</table>
+<p>A run longer than the replay ring (60 s, or 30 s on a low-memory phone) sends its last 30 seconds, the same as "Watch the end". Upload failures show a kid message and a "Try again" button. The clip stays in My Clips.</p>
+
+<h2 id="architecture">4. Architecture</h2>
+<div class="diagram">
+  <pre class="mermaid">
+flowchart LR
+  A[Game over, result chip] -->|tap Put it on the leaderboard| B[clipRun on the device]
+  B --> C[POST /api/leaderboard-clips<br/>MP4 + poster + game + run score]
+  C --> D{Server checks<br/>session, game, rate, MP4 boxes}
+  D -->|bad| E[400, kid message]
+  D -->|good| F[(Bucket: lb/id.mp4, lb/id.jpg)]
+  D --> G[(leaderboard_clips row: public<br/>the old clip is deleted)]
+  G --> K[GET /api/leaderboards/appId<br/>entry.clip]
+  L -->|Report| H[row: hidden at once]
+  K --> L[Viewer sheet]
+  L -->|GET /api/leaderboard-clips/id/video| M[302 to a 10 min signed bucket link]
+  </pre>
+  <pre class="mermaid-source">Game over -> clipRun -> POST /api/leaderboard-clips (checks) -> bucket + public row (old clip deleted) -> leaderboard API returns clip -> viewer -> 302 signed bucket link; Report -> hidden</pre>
+</div>
+
+<h2 id="data">5. Data model and routes</h2>
+<h3>Table <code>leaderboard_clips</code> (one Drizzle migration)</h3>
+<table>
+<tr><th>Column</th><th>Type</th><th>Notes</th></tr>
+<tr><td>id</td><td>text, primary key</td><td>24 random URL-safe characters (no meaning, not guessable)</td></tr>
+<tr><td>gaming_profile_id</td><td>uuid, FK to gaming_profiles, ON DELETE CASCADE</td><td>An account delete removes the row (the sweeper then removes the objects)</td></tr>
+<tr><td>app_id</td><td>text</td><td>Must be in VALID_APP_IDS, clip-enabled, and have a leaderboard extractor</td></tr>
+<tr><td>run_score</td><td>bigint</td><td>The run's own score as the game reported it, normalized the same way as board scores (floor or ceil by score type)</td></tr>
+<tr><td>duration_ms, width, height, bytes</td><td>integer</td><td>Measured by the server from the MP4, never taken from the client</td></tr>
+<tr><td>has_audio</td><td>boolean</td><td>From the MP4</td></tr>
+<tr><td>status</td><td>enum: public, hidden</td><td>hidden after a report or an admin removal</td></tr>
+<tr><td>created_at, hidden_at</td><td>timestamptz</td><td></td></tr>
+</table>
+<p>A unique index on (gaming_profile_id, app_id): one clip for each player and game. A new upload stores its objects first, then replaces the row in one transaction, then deletes the old objects.</p>
+<h3>Routes</h3>
+<table>
+<tr><th>Route</th><th>Who</th><th>What</th></tr>
+<tr><td>POST /api/leaderboard-clips?appId=&lt;game&gt;</td><td>signed-in player on the game's board</td><td>multipart: video (MP4), poster (JPEG, at most 64 KB), appId (the same game as the URL), runScore. Checks (section 6), stores, makes the row public, deletes the player's older clip for that game. The game in the URL lets the server check the board row before it reads the body.</td></tr>
+<tr><td>GET /api/leaderboard-clips/[id]/video and /poster</td><td>anybody for a public clip; the owner also for a hidden one</td><td>302 to a signed bucket link that lasts 10 minutes. <code>Cache-Control: private, max-age=60</code>.</td></tr>
+<tr><td>POST /api/leaderboard-clips/[id]/report</td><td>anybody, rate limited by IP</td><td>public to hidden, at once</td></tr>
+<tr><td>DELETE /api/leaderboard-clips/[id]</td><td>the owner, or an admin (ADMIN_USER_IDS, optional)</td><td>Deletes the row and the objects</td></tr>
+<tr><td>GET /api/leaderboards/[appId]</td><td>anybody (exists)</td><td>Each entry gets <code>clip: { id, runScore, durationMs, width, height } | null</code> for a public clip of a shown profile. <code>myEntry</code> also gets <code>clipStatus</code> (none, public, hidden), and <code>myClip</code> has the player's own clip for every period. While the kill switch is on, the entries get no clip, but the player still gets their own clip, so they can take it off (section 7).</td></tr>
+</table>
+<p>The CSP <code>media-src</code> and <code>img-src</code> get the bucket host (<code>https://t3.storageapi.dev</code>). A redirect target must match the source list (CSP3 section 7.6).</p>
+
+<h2 id="validation">6. Upload checks (server, before anything is stored)</h2>
+<ul>
+  <li>Signed in. The feature is set up and not switched off. The game is clip-enabled and has a board. The Content-Type is the one a browser sends for a form (<code>multipart/form-data; boundary=...</code> and nothing more).</li>
+  <li>Rate limit in the database (not in memory): 10 uploads each day for each account, 1 at a time.</li>
+  <li>The player has a row on the game's board (the progress sync writes it; an upload never makes a gaming profile). With no row the answer is 409, before the body is read.</li>
+  <li>A place in the server's upload gate: 3 uploads at the same time, 1 for each network address. The body must arrive in 5 minutes, and after 15 seconds every 15-second window must bring 8 KiB a second, so a body that stops cannot hold a place. A form with more parts than its four fields is refused before the parse.</li>
+  <li>Size: at most 16 MiB. Poster: a JPEG of at most 64 KB, with APP1 to APP15 and COM segments removed by the server.</li>
+  <li>An ISO-BMFF box walk (no third-party parser): <code>ftyp</code> first; <code>moov</code> before <code>mdat</code> (fast start); exactly one video track, <code>avc1</code>; at most one audio track, <code>mp4a</code>; width and height from the capture presets (landscape 1280x720 or portrait 720x1280, or a size the capture code scales to); duration from 1 s to 61 s; no <code>udta</code> and no <code>meta</code> box anywhere. Anything else is rejected.</li>
+  <li><code>runScore</code> is a finite number from 0 to the game's progress-schema bound, normalized like a board score.</li>
+</ul>
+<p>The checks prove the format, not the picture. A forged client can still send a valid MP4 with any picture. That risk is accepted (D3); the Report button takes such a video down at once.</p>
+
+<h2 id="moderation">7. Report and removal (no review queue)</h2>
+<ul>
+  <li><strong>Nobody approves anything.</strong> There is no queue, no notification and no admin page (D3).</li>
+  <li><strong>Report:</strong> any viewer, rate limited by IP. The clip is hidden at once. The player sees "Your video was hidden" once, and can put another run on the board.</li>
+  <li><strong>Remove:</strong> the owner can take their video off at any time. An account on the optional <code>ADMIN_USER_IDS</code> list sees the same remove button on every video, for an emergency only.</li>
+  <li><strong>Unsafe content</strong> (if it ever happens): for child sexual abuse material, the law (18 U.S.C. 2258A) requires a report to NCMEC after actual knowledge, and keeping the material for 1 year. The admin remove action has a "Keep for a legal report" choice that moves the objects to a private prefix with no public link, in place of a delete. The law does not require monitoring (2258A(f)).</li>
+</ul>
+
+<h2 id="retention">8. Retention and deletion (COPPA section 312.10)</h2>
+<table>
+<tr><th>Case</th><th>When the video is deleted</th></tr>
+<tr><td>Removed by the owner or an admin</td><td>At once</td></tr>
+<tr><td>Replaced by a newer upload</td><td>At once</td></tr>
+<tr><td>Hidden by a report</td><td>After 30 days</td></tr>
+<tr><td>Public</td><td>After 12 months, or when the account is deleted</td></tr>
+<tr><td>Account deleted (by the 24-month rule of #42, or by request)</td><td>The row by cascade; the objects by the sweeper within 24 hours</td></tr>
+</table>
+<p>The sweeper runs on the retention schedule that #42 adds (<code>instrumentation.ts</code>). It deletes rows past their time and any bucket object with no row. Railway buckets have no lifecycle rules, so the app does this itself.</p>
+
+<h2 id="privacy">9. Privacy (COPPA)</h2>
+<ul>
+  <li>A clip has no child's image or voice and no name, so it is not personal information by itself (16 CFR 312.2 (8)). It is stored with an account that has an email, so the operator holds it as part of that account (312.2 (11)), the same as progress today.</li>
+  <li>The public sees the made-up handle, the score and the video. There is no messaging, so the handle is not online contact information.</li>
+  <li>The clip is made by the game's own capture code, so it carries no image or voice of the child and no name (D7). No personal information goes public with it.</li>
+  <li>The privacy notice (#42) gets one more part: players can put a video of a game run on the leaderboard; it shows only the game picture and game sound; anybody can watch it; the retention times in section 8. Section 312.4(d)(2) requires the notice to say whether a child can make information public.</li>
+  <li><strong>#26i</strong> (signup collects a child's email with no parental notice) is fixed in its own PR: Google sign-in that keeps only Google's subject id, no email form. It is not tied to this feature.</li>
+</ul>
+
+<h2 id="security">10. Security</h2>
+<ul>
+  <li>The bucket is private. Only the server holds its keys. Every viewer link is signed and lasts 10 minutes.</li>
+  <li>Object keys are random ids. A listing of the bucket is never exposed.</li>
+  <li>The remove route checks the owner (the session's gaming profile) or ADMIN_USER_IDS on every request, with the same-origin check the site uses.</li>
+  <li>Uploads are bounded (size, count per day, one at a time, the upload gate, a moving rate floor) and checked before any write. Every request body on the site is read with a byte limit (<code>src/lib/read-body.ts</code>), also the Auth.js sign-in routes.</li>
+  <li>Logs are values-free: game id, status code, sizes. Never the user id, the handle or the bytes.</li>
+  <li>The S3 signing uses a small, pinned, dependency-free library (<code>aws4fetch</code>). It gets a supply-chain review (/lockdown) before the merge.</li>
+</ul>
+
+<h2 id="cost">11. Cost</h2>
+<p>At 3.5 MB a clip: 1,000 public clips is 3.5 GB, about $0.06 a month on a Railway bucket. Egress from the bucket is free. Upload traffic into Railway is free. There is no human time in the loop.</p>
+
+<h2 id="verify">12. Tests and verification</h2>
+<ul>
+  <li>Unit: the box walker (good files from real device clips, and bad files: extra track, <code>udta</code>, wrong codec, no fast start, too long, truncated); score normalizing; rate limit; retention rules; admin authorization; the leaderboard API shape.</li>
+  <li>Integration: the routes against a local Postgres and a local S3-compatible server, including the CSP header.</li>
+  <li>Real data: the migration and the leaderboard API change against a clone of the production database (<code>createdb -T</code> style, local).</li>
+  <li>UI: <code>/qa</code> and the phone gate at the four phone sizes; the result-chip button, the viewer sheet and the admin page are touch-only reachable with 44 px targets.</li>
+  <li>Live: after the deploy, on the real iPhone SE: game over, Put it on the leaderboard, then watch it from another browser that is signed out. Report it, check that it is hidden, remove it. Read back the bucket object, the row and the public API at each step.</li>
+</ul>
+
+<h2 id="prereqs">13. Prerequisites and production writes</h2>
+<table>
+<tr><th>Item</th><th>State</th><th>Needs</th></tr>
+<tr><td>#61pr: clip button taps on the iPhone (release point)</td><td>open, gate green</td><td>Jack's merge</td></tr>
+<tr><td>#42: privacy notice and retention schedule</td><td>draft branch clips/p0-3-privacy</td><td>Jack's facts: a mailing address that is not his home, a phone number that is not personal, an email</td></tr>
+<tr><td>#26i: signup and parental notice</td><td>open</td><td>Its own PR (not a gate for this feature)</td></tr>
+<tr><td>Create bucket <code>hanks-hits-clips</code> in <code>hanks-hits-storage</code></td><td>production write</td><td>Jack's grant</td></tr>
+<tr><td>Set <code>LEADERBOARD_CLIPS_S3_*</code> (endpoint, bucket, key id, secret) on hanks-garage, and add them to <code>.railway/railway.ts</code> with preserve(). <code>ADMIN_USER_IDS</code> is optional (emergency remove only).</td><td>production write</td><td>Jack's grant</td></tr>
+<tr><td>Run the migration that adds <code>leaderboard_clips</code></td><td>production DDL</td><td>Jack's grant</td></tr>
+</table>
+
+<h2 id="tasks">14. Work breakdown</h2>
+<ol>
+  <li>PR A (server): migration, box walker, routes (upload, play, report, remove), sweeper hook, CSP, tests. Behind the "set up" check (D6), so it can merge before the bucket exists.</li>
+  <li>PR B (kid UI): the result-chip button and its upload flow (run score from the game through ResultChip to the upload), the leaderboard row button and viewer sheet, my-row status, report, remove, read-aloud, phone gate.</li>
+  <li>Production steps (each with Jack's grant): bucket, variables, migration; then the live verification in section 12.</li>
+  <li>The DOM games get the same button when Phase 4 gives them clips. No change to this design is needed.</li>
+</ol>
+
+<hr>
+<p style="color: var(--fg-muted); font-size: .85rem; text-align: center;">Spec for Hank's Hits leaderboard clips. Sources: research report 2026-10-01 (leaderboard system, clip handoff, hosting and kid safety), design/GAMEPLAY_CLIPS.html.</p>
+</div>
+<!-- Mermaid: render diagrams, fail gracefully if CDN unreachable -->
+<script type="module">
+  try {
+    const mermaid = (await import("https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs")).default;
+    mermaid.initialize({
+      // startOnLoad listens for DOMContentLoaded, which can already have fired by the time
+      // the awaited import resolves; run explicitly so diagrams never silently render blank.
+      startOnLoad: false,
+      theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default",
+      flowchart: { curve: "basis" },
+      securityLevel: "loose"
+    });
+    await mermaid.run({ querySelector: "pre.mermaid" });
+  } catch (err) {
+    // Network unreachable or import failed — show source instead of broken diagrams.
+    document.querySelectorAll(".diagram").forEach(d => d.classList.add("failed"));
+    console.warn("mermaid load failed, diagrams shown as source:", err);
+  }
+</script>
+
+</body>
+</html>

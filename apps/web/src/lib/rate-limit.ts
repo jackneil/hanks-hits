@@ -162,7 +162,7 @@ export function checkRomProxyRateLimit(ip: string): RateLimitResult {
 /**
  * Helper to extract IP from request headers
  */
-export function getClientIP(request: Request): string {
+export function getClientIP(request: Request | { headers: Headers }): string {
   // SECURITY: the LEFTMOST X-Forwarded-For entry is fully client-controlled (a
   // client can prepend any value), so it must never key a rate-limit bucket.
   // Prefer x-real-ip, which the trusted Railway edge proxy sets to the real
@@ -186,4 +186,9 @@ export function getClientIP(request: Request): string {
 
   // Fallback - shouldn't happen in production
   return "unknown";
+}
+
+/** A public clip report hides immediately: limit one network to 20 per hour. */
+export function checkClipReportRateLimit(ip: string): RateLimitResult {
+  return checkRateLimit(`clip-report:${ip}`, 20, 60 * 60 * 1000);
 }

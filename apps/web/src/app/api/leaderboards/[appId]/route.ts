@@ -10,6 +10,13 @@ import {
 import { leaderboardQuerySchema, TIME_PERIODS } from "@/lib/leaderboard-schemas";
 import { hasLeaderboardSupport, getGameScoreType } from "@/lib/leaderboard-extractors";
 import { describeError } from "@/lib/describe-error";
+import type {
+  LeaderboardApiMyClip,
+  LeaderboardApiMyEntry,
+  LeaderboardApiResponse,
+} from "@/lib/leaderboard-clips/contract";
+import { NO_CLIP, clipsForEntries, myClipFields } from "@/lib/leaderboard-clips/leaderboard";
+import { defaultClipDeps } from "@/lib/leaderboard-clips/runtime";
 
 type RouteContext = {
   params: Promise<{ appId: string }>;
@@ -24,6 +31,12 @@ type RouteContext = {
  * - limit: 1-100 (default: 100)
  * - offset: pagination offset (default: 0)
  * - includeMe: include current user's rank even if not in top N
+ *
+ * Leaderboard clips (design/LEADERBOARD_CLIPS.html): each entry has
+ * clip (a public clip, or null), myEntry has clipStatus and clip, and myClip
+ * (includeMe=true and signed in) has the player's own clip for every period,
+ * also when myEntry is null. The clip lookup never fails the board
+ * (src/lib/leaderboard-clips/leaderboard.ts).
  */
 export async function GET(request: Request, context: RouteContext) {
   try {
@@ -133,6 +146,15 @@ export async function GET(request: Request, context: RouteContext) {
 
     const totalPlayers = Number(countResult[0]?.count || 0);
 
+    // The public clips of the listed players (all of them show on the
+    // leaderboards: the query above filters on showOnLeaderboards).
+    const clipDeps = defaultClipDeps();
+    const clips = await clipsForEntries(
+      clipDeps,
+      appId,
+      entries.map((entry) => entry.gamingProfileId)
+    );
+
     // Build leaderboard with ranks
     // Note: For tie-breaking, we use achievedAt (earlier wins)
     const leaderboard = entries.map((entry, index) => ({
@@ -141,14 +163,19 @@ export async function GET(request: Request, context: RouteContext) {
       score: Number(entry.score),
       additionalStats: entry.additionalStats,
       achievedAt: entry.achievedAt?.toISOString() || null,
+      clip: clips.byProfile.get(entry.gamingProfileId) ?? null,
     }));
 
     // Get current user's entry if authenticated and includeMe is true
-    let myEntry = null;
+    let myEntry: LeaderboardApiMyEntry | null = null;
+    let myClip: LeaderboardApiMyClip | null = null;
     if (userId && includeMe) {
       const profile = await db.query.gamingProfiles.findFirst({
         where: eq(gamingProfiles.userId, userId),
       });
+      // The player's own clip, whatever the period and whether or not
+      // the player has a row in it.
+      myClip = profile ? await myClipFields(clipDeps, appId, profile.id) : NO_CLIP;
 
       if (profile) {
         // Get user's rank
@@ -197,18 +224,21 @@ export async function GET(request: Request, context: RouteContext) {
             rank,
             handle: profile.handle,
             score: Number(userEntry[0].score),
+            ...myClip,
           };
         }
       }
     }
 
-    return NextResponse.json({
+    const body: LeaderboardApiResponse = {
       leaderboard,
       myEntry,
+      myClip,
       totalPlayers,
       period,
       scoreType, // Added for client-side score formatting
-    });
+    };
+    return NextResponse.json(body);
   } catch (error) {
     console.error("GET /api/leaderboards error:", describeError(error));
     return NextResponse.json(

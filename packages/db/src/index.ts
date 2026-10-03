@@ -15,7 +15,7 @@ export * from "./schema";
 
 // Export common drizzle operators for use in other packages
 // This ensures version consistency across the monorepo
-export { eq, and, or, ne, gt, gte, lt, lte, like, ilike, sql, asc, desc } from "drizzle-orm";
+export { eq, and, or, ne, gt, gte, lt, lte, like, ilike, inArray, isNull, sql, asc, desc } from "drizzle-orm";
 
 // Export types
 export type Database = typeof db;

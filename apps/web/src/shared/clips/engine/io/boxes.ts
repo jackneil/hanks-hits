@@ -14,6 +14,14 @@ export class BoxError extends Error {
   }
 }
 
+/** A byte range holds more boxes than the caller allows (readBoxes `maxBoxes`). */
+export class TooManyBoxesError extends BoxError {
+  constructor(readonly maxBoxes: number) {
+    super(`more than ${maxBoxes} boxes`);
+    this.name = "TooManyBoxesError";
+  }
+}
+
 /** The position of one box in a byte range. */
 export interface BoxInfo {
   type: string;
@@ -117,11 +125,21 @@ export function writeFourCC(bytes: Uint8Array, offset: number, type: string): vo
 /**
  * Reads the boxes that follow each other in [start, end).
  * A size of 0 means "to the end of the range". A size of 1 means a 64-bit size follows.
+ *
+ * `maxBoxes` stops the read at the first box past the limit (TooManyBoxesError),
+ * so a range of millions of tiny boxes costs no more than the limit. Pass it
+ * for a file from a stranger (the leaderboard clip upload check does).
  */
-export function readBoxes(bytes: Uint8Array, start = 0, end = bytes.length): BoxInfo[] {
+export function readBoxes(
+  bytes: Uint8Array,
+  start = 0,
+  end = bytes.length,
+  maxBoxes = Number.POSITIVE_INFINITY
+): BoxInfo[] {
   const boxes: BoxInfo[] = [];
   let offset = start;
   while (offset < end) {
+    if (boxes.length >= maxBoxes) throw new TooManyBoxesError(maxBoxes);
     if (end - offset < 8) {
       throw new BoxError(`${end - offset} bytes after the last box at ${offset}`);
     }
