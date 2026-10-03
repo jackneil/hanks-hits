@@ -421,7 +421,7 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
 
   it("uses the same revision for a legacy database timestamp with sub-millisecond precision", async () => {
     const first = await (await compareSave(await cookieClickerBlob(1000), null)).json();
-    await scratch!.db.execute(scratch!.sql.raw("UPDATE app_progress SET updated_at = '2026-10-02 12:00:00.123456'"));
+    await scratch!.db.execute(scratch!.sql.raw("UPDATE app_progress SET updated_at = date_trunc('milliseconds', updated_at) + interval '456 microseconds'"));
     const before = await cloud();
     vi.spyOn(Date, "now").mockReturnValue(new Date(before.updatedAt!).getTime());
     const response = await compareSave({ ...first.data, cookies: 1100 }, before.revision);
