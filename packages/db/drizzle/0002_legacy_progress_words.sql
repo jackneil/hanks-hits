@@ -1,3 +1,8 @@
+-- Run in a transaction. These bounds apply only to migration DDL, never saves.
+SET LOCAL lock_timeout = '5s';
+--> statement-breakpoint
+SET LOCAL statement_timeout = '30s';
+--> statement-breakpoint
 CREATE TABLE "legacy_progress_words" (
 	"progress_id" text NOT NULL,
 	"source_revision" text NOT NULL,

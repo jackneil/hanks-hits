@@ -107,9 +107,9 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     process.env.DATABASE_URL = scratchUrl.toString();
     vi.resetModules();
     scratch = await import("@hank-neil/db");
-    for (const statement of migrationStatements()) {
-      await scratch.db.execute(scratch.sql.raw(statement));
-    }
+    await scratch.db.transaction(async (tx) => {
+      for (const statement of migrationStatements()) await tx.execute(scratch!.sql.raw(statement));
+    });
     // The route gets the same module instance as `scratch`.
     route = await import("../route");
   });
@@ -623,35 +623,38 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
   });
 
   it("cutover waits for compatible writers and later writes use the enabled policy", async () => {
-    const { db, sql, appProgress, eq } = scratch!;
-    const { lockWordPolicy, readWordPolicy } = await import("@/lib/progress-word-storage");
+    const { db, sql } = scratch!;
+    const { readWordPolicy } = await import("@/lib/progress-word-storage");
     await save("weather", weatherWords("Before barrier"), false);
     let signalLocked!: () => void;
     let releaseWriter!: () => void;
     const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
     const release = new Promise<void>((resolve) => { releaseWriter = resolve; });
-    const writer = db.transaction(async (tx) => {
-      await lockWordPolicy(tx);
+    const blocker = db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([ids.user, "weather"])}, 0))`);
       signalLocked();
       await release;
-      expect(await readWordPolicy(tx)).toBe(false);
-      await tx.update(appProgress).set({ data: weatherWords("Last compatible write"), updatedAt: new Date() }).where(eq(appProgress.appId, "weather"));
     });
     await locked;
+    const writer = save("weather", weatherWords("Last compatible write"), false);
+    const waitingCount = async () => {
+      const waiting = await db.execute(sql`SELECT count(*)::int AS count FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`);
+      return (waiting.rows[0] as { count: number }).count;
+    };
+    try { await vi.waitFor(async () => expect(await waitingCount()).toBe(1), { timeout: 10000 }); }
+    catch (error) { releaseWriter(); await blocker; await writer; throw error; }
     let cutoverDone = false;
     const cutover = db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('hh:progress-word-policy:v1', 0))`);
       await tx.execute(sql`UPDATE progress_word_policy SET enabled = true WHERE id = 'local-only'`);
     }).then(() => { cutoverDone = true; });
     try {
-      await vi.waitFor(async () => {
-        const waiting = await db.execute(sql`SELECT count(*)::int AS count FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`);
-        expect(waiting.rows[0]).toMatchObject({ count: 1 });
-      }, { timeout: 10000 });
+      await vi.waitFor(async () => expect(await waitingCount()).toBe(2), { timeout: 10000 });
       expect(cutoverDone).toBe(false);
     } finally {
       releaseWriter();
-      await writer;
+      await blocker;
+      expect((await writer).status).toBe(200);
       await cutover;
     }
     expect(await readWordPolicy(db)).toBe(true);
@@ -672,6 +675,90 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     expect(deleted.status).toBe(200);
     expect(await scratch!.db.select().from(scratch!.legacyProgressWords)).toHaveLength(0);
     expect((await (await recoverWords()).json()).candidates).toEqual([]);
+  });
+
+  it("deduplicates two archive attempts for the identical stored revision", async () => {
+    await save("weather", weatherWords("Same source"), false);
+    const { preserveProgressWords } = await import("@/lib/progress-word-storage");
+    const row = await rowOf("weather");
+    await scratch!.db.transaction(async (tx) => {
+      await preserveProgressWords(tx, row!);
+      await preserveProgressWords(tx, row!);
+    });
+    expect(await scratch!.db.select().from(scratch!.legacyProgressWords)).toHaveLength(1);
+  });
+
+  it("holds a coherent recovery snapshot when progress is deleted between its two reads", async () => {
+    await save("weather", weatherWords("Snapshot words"), false);
+    await enableLocalWords();
+    await save("weather", weatherWords("Ignored"), false);
+    const { db } = scratch!;
+    let parentRead!: () => void;
+    let resumeRecovery!: () => void;
+    const read = new Promise<void>((resolve) => { parentRead = resolve; });
+    const resume = new Promise<void>((resolve) => { resumeRecovery = resolve; });
+    const realTransaction = db.transaction.bind(db);
+    const interception = vi.spyOn(db, "transaction").mockImplementation((fn, config) => realTransaction(async (tx) => {
+      if (config?.isolationLevel !== "repeatable read") return fn(tx);
+      const query = { ...tx.query, appProgress: {
+        ...tx.query.appProgress,
+        findFirst: async (options: Parameters<typeof tx.query.appProgress.findFirst>[0]) => {
+          const row = await tx.query.appProgress.findFirst(options);
+          parentRead();
+          await resume;
+          return row;
+        },
+      } };
+      return fn(new Proxy(tx, { get: (target, key) => key === "query" ? query : Reflect.get(target, key) }));
+    }, config));
+    const recovery = recoverWords();
+    try {
+      await read;
+      const deleted = await route.DELETE(new Request("http://localhost/api/progress/weather", { method: "DELETE" }), {
+        params: Promise.resolve({ appId: "weather" }),
+      });
+      expect(deleted.status).toBe(200);
+    } finally {
+      resumeRecovery();
+      interception.mockRestore();
+    }
+    const response = await recovery;
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).toContain("Snapshot words");
+    expect((await (await recoverWords()).json()).candidates).toEqual([]);
+  });
+
+  it("rolls back the bounded additive migration under old-writer contention, then retries cleanly", async () => {
+    const { db, sql } = scratch!;
+    // This is the isolated scratch database, never an external database.
+    await db.execute(sql.raw("DROP TABLE legacy_progress_words, progress_word_policy"));
+    const statements = readFileSync(path.join(migrationsDir, "0002_legacy_progress_words.sql"), "utf8")
+      .split("--> statement-breakpoint").map((statement) => statement.trim()).filter(Boolean);
+    const migrate = () => db.transaction(async (tx) => {
+      for (const statement of statements) await tx.execute(sql.raw(statement));
+    });
+    let ready!: () => void;
+    let release!: () => void;
+    const locked = new Promise<void>((resolve) => { ready = resolve; });
+    const resume = new Promise<void>((resolve) => { release = resolve; });
+    const writer = db.transaction(async (tx) => {
+      await tx.execute(sql.raw("LOCK TABLE app_progress IN ROW EXCLUSIVE MODE"));
+      ready();
+      await resume;
+    });
+    await locked;
+    try {
+      await expect(migrate()).rejects.toMatchObject({ cause: { code: "55P03" } });
+      const absent = await db.execute(sql.raw("SELECT to_regclass('legacy_progress_words') AS archive, to_regclass('progress_word_policy') AS policy"));
+      expect(absent.rows[0]).toEqual({ archive: null, policy: null });
+    } finally {
+      release();
+      await writer;
+      await migrate();
+    }
+    expect((await db.execute(sql.raw("SHOW lock_timeout"))).rows[0]).toEqual({ lock_timeout: "0" });
+    expect((await db.execute(sql.raw("SHOW statement_timeout"))).rows[0]).toEqual({ statement_timeout: "0" });
+    expect((await save("weather", weatherWords("Normal save after migration"), false)).status).toBe(200);
   });
 
 });
