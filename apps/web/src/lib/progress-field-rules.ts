@@ -343,7 +343,7 @@ export const PROGRESS_FIELD_RULES: {
   "joke-generator": {
     favorites: LIST,
     ratings: LIST,
-    seenJokeIds: neither("The kid starts the jokes again. apps/joke-generator/lib/store.ts:213 `set({ seenJokeIds: [] })`"),
+    seenJokeIds: neither("The kid starts the jokes again. apps/joke-generator/lib/store.ts:246 `set({ seenJokeIds: [], lastModified: Date.now() })`"),
     lastCategory: SETTING,
     jokesViewed: max("apps/joke-generator/lib/store.ts:179 `jokesViewed: state.jokesViewed + 1`"),
     jokesCopied: max("apps/joke-generator/lib/store.ts:186 `jokesCopied: state.jokesCopied + 1`"),
@@ -502,7 +502,7 @@ export const PROGRESS_FIELD_RULES: {
     highScore: max("games/math-attack/lib/store.ts:152 `highScore: Math.max(state.highScore, state.score)`"),
     totalCorrect: max("games/math-attack/lib/store.ts:109 `totalCorrect: state.totalCorrect + 1`"),
     totalAnswered: max("games/math-attack/lib/store.ts:110 `totalAnswered: state.totalAnswered + 1`"),
-    longestCombo: max("games/math-attack/lib/store.ts:125 `longestCombo: Math.max(state.longestCombo, state.combo + 1)`"),
+    longestCombo: max("games/math-attack/lib/store.ts:129 `const longestCombo = Math.max(state.longestCombo, state.combo + 1)`"),
     "problemsSolved.+": max("games/math-attack/lib/store.ts:105 `newProblemsSolved[operation] = (newProblemsSolved[operation] || 0) + 1`"),
     "problemsSolved.-": max("games/math-attack/lib/store.ts:105 `newProblemsSolved[operation] = (newProblemsSolved[operation] || 0) + 1`"),
     "problemsSolved.×": max("games/math-attack/lib/store.ts:105 `newProblemsSolved[operation] = (newProblemsSolved[operation] || 0) + 1`"),

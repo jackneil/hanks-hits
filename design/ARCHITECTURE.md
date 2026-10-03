@@ -1018,7 +1018,8 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
   needs). A stamp there makes an idle page newer than what the kid did on
   another device, and its saves replace that. Equal-time saves retain
   the stored row, with only the reviewed field reconciliation applied.
-  Lineage-aware automatic progress remains part of B2.
+  Cookie Clicker opts into revision-based continuation after initial sync;
+  other games' lineage-aware automatic progress remains part of B2.
 - A page that changes progress by itself waits for `ready` from
   `useAuthSync`. Then the change applies to the account's progress, not to
   an old copy on the device. When the account cannot be reached for
@@ -1063,7 +1064,8 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
   tab that still runs the old code, a rollback, a wrong clock).
 - Every touched device sends its progress with `merge: true`. The server's
   last-write rule decides, including guest play. There is no guest/lineage
-  classifier in B1. The conflict protocol and per-store guest merge are #69i.
+  classifier in B1. Cookie's durable recovery records are an explicit exception
+  before this first-sync selection; per-store guest merging remains #69i.
 - After the first GET, the hook reads live progress again. If an untouched
   device was played during that request, its live snapshot follows the
   touched rule. New account list items join that snapshot using the store's
@@ -1086,6 +1088,36 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
   all use the same ownership check.
 - Equal-time saves keep the stored row under master's existing conflict
   ordering. Equal timestamps do not establish shared lineage.
+
+**Cookie continuation and recovery.** Cookie Clicker alone supplies the optional
+`ProgressContinuation` adapter to `useAuthSync`. A canonical revision is paired
+with its exact data before offline baking starts. Retained local progress that
+did not adopt the returned canonical row requires a choice; it cannot borrow
+that row's revision. Every subsequent send, including beacons, uses conditional
+POSTs. The server foundation must already be deployed with old server writers
+drained before this client is released.
+
+The Cookie session keeps acknowledged, immutable sent, and live snapshots
+separately. It retries an unknown outcome with the same sent snapshot. A 409
+can recover automatically only when canonical data equals the expected sent
+result (lost acknowledgement) or the old base (an intervening no-op). Otherwise
+the game presents both alternatives. Cookie balances and overlapping offline
+earnings are never added together. Successful acknowledgements preserve later
+local edits and transient frenzy/golden-cookie state.
+
+Each writer uses a separate `cookie-clicker-sync-<uuid>-storage` journal. The
+suffix is cleared on sign-out and foreign-owner purge. Recovery includes all
+unresolved same-owner journals and pre-choice backups. A choice folds reviewed
+records from every offered alternative, while its wallet comes only from the
+selected copy. Original copies remain actionable until acknowledgement. Exact
+writer-key/serial receipts retire incorporated copies without deleting another
+tab's concurrently changed record. Failed storage remains in memory and is
+reported visibly. Account/lifecycle checks reject late responses and prevent
+recreating data after sign-out. Cookie storage events retain the current writer's
+progress instead of treating another tab's timestamp as a canonical revision.
+
+The shared hook's existing behavior remains for games without this adapter.
+This does not complete the all-game reconciliation and two-device proof in #69.
 
 **Enforcement:**
 
@@ -1129,9 +1161,9 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
   four cases (18 differing values); additional differences still fail.
 
 **Deferred to #69i.** Per-store client record rules, weight-based base
-selection, refused guest-fold recovery, lineage/base-version handling,
+selection, refused guest-fold recovery, lineage/base-version handling outside Cookie,
 missing-owner guest classification, the signout-broadcast transition gap,
-and no-time legacy loads remain part of B2. Preserve `wip/sync-stamps-full`
+and broader legacy recovery remain part of B2. Preserve `wip/sync-stamps-full`
 until that work is complete.
 
 ---

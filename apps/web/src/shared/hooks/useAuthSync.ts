@@ -27,14 +27,17 @@ import {
   isClearedOnSignOut,
 } from "@/lib/storage-keys";
 
+import type { ProgressContinuation, ProgressRead } from "@/shared/lib/progressContinuation";
+
 type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
-type UseAuthSyncOptions<T> = {
+type UseAuthSyncOptions<T extends AppProgressData> = {
   appId: ValidAppId;
   localStorageKey: string;
   getState: () => T;
   setState: (data: T) => void;
   debounceMs?: number;
+  continuation?: ProgressContinuation<T>;
   onSyncComplete?: (source: "local" | "server") => void;
 };
 
@@ -188,6 +191,7 @@ export function useAuthSync<T extends AppProgressData>({
   setState,
   debounceMs = 2000,
   onSyncComplete,
+  continuation,
 }: UseAuthSyncOptions<T>): UseAuthSyncReturn {
   // Every synced key MUST be cleared by signOutAndClear, or the next kid on
   // a shared device inherits (and uploads) this one's progress. The scan test
@@ -275,6 +279,8 @@ export function useAuthSync<T extends AppProgressData>({
   const getStateRef = useRef(getState);
   const setStateRef = useRef(setState);
   const onSyncCompleteRef = useRef(onSyncComplete);
+  const continuationRef = useRef(continuation);
+  continuationRef.current = continuation;
 
   useEffect(() => {
     getStateRef.current = getState;
@@ -421,6 +427,10 @@ export function useAuthSync<T extends AppProgressData>({
       }
       const theirs = progressFromSave(appId, saved);
       if (!theirs) return;
+      if (continuationRef.current?.active) {
+        continuationRef.current.observeOtherTab(theirs as T);
+        return;
+      }
       const theirTime = extractTimestamp(theirs as AppProgressData) ?? 0;
       const ours = getStateRef.current();
       const ourTime = extractTimestamp(ours as AppProgressData) ?? 0;
@@ -492,10 +502,7 @@ export function useAuthSync<T extends AppProgressData>({
   /**
    * Fetch progress from server
    */
-  const fetchFromServer = useCallback(async (): Promise<{
-    data: T | null;
-    lastSyncedAt: string | null;
-  } | null> => {
+  const fetchFromServer = useCallback(async (): Promise<ProgressRead<T> | null> => {
     try {
       const res = await fetch(`/api/progress/${appId}`);
       if (!res.ok) {
@@ -514,6 +521,13 @@ export function useAuthSync<T extends AppProgressData>({
    */
   const saveToServer = useCallback(
     async (data: T, merge = false): Promise<SaveResult> => {
+      if (continuationRef.current?.active) {
+        setSyncStatus("syncing");
+        const result = await continuationRef.current.save(data);
+        setSyncStatus(result.ok ? "synced" : "error");
+        if (result.ok) setLastSynced(new Date());
+        return result;
+      }
       try {
         setSyncStatus("syncing");
 
@@ -702,6 +716,17 @@ export function useAuthSync<T extends AppProgressData>({
       return;
     }
 
+    const continuationContext = (canonical: ProgressRead<T>) => ({
+      ownerId: userId, canonical, live: getStateRef.current(),
+      maySave: () => !sessionMoved() && !deviceChangedUnderPage(),
+    });
+    if (continuationRef.current?.recover(continuationContext(serverResult))) {
+      if (sessionMoved()) return;
+      markSynced(userId);
+      setSyncStatus("synced");
+      onSyncCompleteRef.current?.("local");
+      return;
+    }
     const serverData = serverResult.data as T | null;
     // The first GET may take long enough for the player to create progress.
     // Judge that live progress as touched, so the normal server LWW rule
@@ -775,7 +800,8 @@ export function useAuthSync<T extends AppProgressData>({
       lastSavedRef.current = sameProgress(now, account) ? JSON.stringify(now) : JSON.stringify(account);
     };
     /** The first sync is done: this device's progress is the account's (or builds on it). */
-    const synced = (source: "local" | "server") => {
+    const synced = (source: "local" | "server", canonical = serverResult, related = true) => {
+      continuationRef.current?.begin(continuationContext(canonical), related);
       markSynced(userId);
       setSyncStatus("synced");
       onSyncCompleteRef.current?.(source);
@@ -817,7 +843,12 @@ export function useAuthSync<T extends AppProgressData>({
         return;
       }
       noteSaved(sent);
-      synced("local");
+      if (continuationRef.current) {
+        const canonical = await fetchFromServer();
+        if (sessionMoved()) return;
+        if (!canonical) { scheduleRetry(); return; }
+        synced("local", canonical, sameProgress(canonical.data, sent));
+      } else synced("local");
       return;
     }
 
@@ -854,7 +885,12 @@ export function useAuthSync<T extends AppProgressData>({
         return;
       }
       take(sent, JSON.stringify(current), sent);
-      synced("local");
+      if (continuationRef.current) {
+        const canonical = await fetchFromServer();
+        if (sessionMoved()) return;
+        if (!canonical) { scheduleRetry(); return; }
+        synced("local", canonical, sameProgress(canonical.data, sent));
+      } else synced("local");
       return;
     }
 
@@ -893,13 +929,17 @@ export function useAuthSync<T extends AppProgressData>({
     // The account added nothing to what this device sent (the device's save
     // is the account's progress): a change during the sync builds on it.
     const nothingNew = sameProgress(merged.data, localState);
+    let related = true;
     if (stale || (changedDuringSync && (nothingNew || (localTs ?? 0) > accountTs))) {
+      // Keeping local play does not mean it descends from this returned row.
+      // Another device may have committed between the first GET and re-fetch.
+      related = !stale && nothingNew;
       noteKnown(localState);
       lastSavedRef.current = localJson;
     } else {
       take(merged.data as T, localJson, merged.data as T);
     }
-    synced("server");
+    synced("server", merged, related);
   }, [
     appId,
     waitForHydration,
@@ -910,6 +950,7 @@ export function useAuthSync<T extends AppProgressData>({
     noteKnown,
     noteSaved,
     enterForeignOwner,
+    deviceChangedUnderPage,
     session?.user?.id,
   ]);
 
@@ -957,7 +998,7 @@ export function useAuthSync<T extends AppProgressData>({
         const latest = getStateRef.current();
         const latestStr = JSON.stringify(latest);
         if (!uploadable(appId, latest) || latestStr === lastSavedRef.current) return;
-        noteSaved(latest);
+        if (!continuationRef.current?.active) noteSaved(latest);
         // merge:true — the server folds this into any concurrent write from
         // another tab/device instead of blind-overwriting it.
         await saveToServer(latest, true);
@@ -986,7 +1027,7 @@ export function useAuthSync<T extends AppProgressData>({
 
     const data = getStateRef.current();
     if (!uploadable(appId, data)) return;
-    noteSaved(data);
+    if (!continuationRef.current?.active) noteSaved(data);
     await saveToServer(data, true);
   }, [appId, isAuthenticated, saveToServer, ownerMaySave, noteSaved]);
 
@@ -1075,6 +1116,11 @@ export function useAuthSync<T extends AppProgressData>({
       const dataStr = JSON.stringify(data);
       if (!uploadable(appId, data) || dataStr === lastSavedRef.current) return; // nothing unsaved
 
+      if (continuationRef.current?.active) {
+        continuationRef.current.flush(data);
+        return;
+      }
+
       // merge:true so this best-effort write can never blind-overwrite a
       // newer save that raced it.
       const payload = JSON.stringify({ data, merge: true });
@@ -1103,6 +1149,10 @@ export function useAuthSync<T extends AppProgressData>({
         const data = getStateRef.current();
         const dataStr = JSON.stringify(data);
         if (uploadable(appId, data) && dataStr !== lastSavedRef.current) {
+          if (continuationRef.current?.active) {
+            continuationRef.current.flush(data);
+            return;
+          }
           lastSavedRef.current = dataStr;
           // merge:true — same race protection as the unload beacon.
           const payload = JSON.stringify({ data, merge: true });
@@ -1113,6 +1163,10 @@ export function useAuthSync<T extends AppProgressData>({
       }
     };
   }, [appId, isAuthenticated, ownerMaySave]);
+
+  // This cleanup runs after the final flush. A temporary session "loading"
+  // transition must not disable strict saves when authentication returns.
+  useEffect(() => () => continuationRef.current?.deactivate(), []);
 
   return {
     isAuthenticated,

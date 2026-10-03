@@ -27,7 +27,8 @@
  *   the time. A stamp there made an idle page newer than what the kid did
  *   on another device, and the idle page's saves replaced it. Equal-time
  *   saves retain the stored row and reconcile reviewed record fields.
- *   Lineage-aware automatic progress remains part of B2.
+ *   Cookie uses acknowledged server revisions for continuation; other games'
+ *   lineage-aware automatic progress remains part of B2.
  *
  * src/__tests__/progress-stamp-fuzz.test.ts drives every synced store with
  * seeded random actions and holds each store to these rules.

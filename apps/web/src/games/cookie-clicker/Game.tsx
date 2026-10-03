@@ -12,6 +12,8 @@ import {
   getAchievementById,
   type BuildingId,
 } from "./lib/constants";
+import { SaveConflict } from "./components/SaveConflict";
+import { useCookieSync } from "./lib/useCookieSync";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { usePlayBox } from "@/shared/hooks/usePlayBox";
@@ -51,10 +53,13 @@ export function CookieClickerGame() {
     }
   }, []);
 
+  const bakerySync = useCookieSync();
+
   // Cloud sync for authenticated users
   const { ready, synced } = useAuthSync<CookieClickerProgress>({
     appId: "cookie-clicker",
     localStorageKey: "cookie-clicker-storage",
+    continuation: bakerySync.continuation,
     getState: () => store.getProgress(),
     setState: (data) => store.setProgress(data),
     debounceMs: 5000, // Cookie clicker state changes frequently
@@ -196,6 +201,8 @@ export function CookieClickerGame() {
           </div>
         )}
       </header>
+
+      <SaveConflict view={bakerySync.view} local={store.getProgress()} choose={bakerySync.choose} retry={bakerySync.retry} />
 
       {/* The cookie and the shop: side by side sideways, stacked upright. */}
       <main
