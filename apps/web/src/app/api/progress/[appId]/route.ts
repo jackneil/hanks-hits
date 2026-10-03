@@ -9,6 +9,7 @@ import {
   type ValidAppId,
   type AppProgressData,
 } from "@hank-neil/db/schema";
+import { progressRevision, nextProgressTime } from "@/lib/progress-revision";
 import { resolveMergedSave } from "@/lib/progress-merge";
 import { validateProgress } from "@/lib/progress-schemas";
 import { checkProgressDeleteRateLimit, checkProgressRateLimit } from "@/lib/rate-limit";
@@ -27,6 +28,11 @@ type RouteContext = {
 };
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Separate command before SELECT: a waiter then gets a fresh Read Committed snapshot. */
+async function lockProgress(tx: Tx, userId: string, appId: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([userId, appId])}, 0))`);
+}
 
 /** The UNIQUE constraint on gaming_profiles.handle (migration 0000). */
 const HANDLE_UNIQUE_CONSTRAINT = "gaming_profiles_handle_unique";
@@ -224,6 +230,8 @@ export async function GET(request: Request, context: RouteContext) {
     if (!progress) {
       return NextResponse.json({
         data: null,
+        protocol: 1,
+        revision: null,
         lastSyncedAt: null,
         message: "No saved progress found",
       });
@@ -231,6 +239,8 @@ export async function GET(request: Request, context: RouteContext) {
 
     return NextResponse.json({
       data: progress.data,
+      protocol: 1,
+      revision: progressRevision(progress),
       lastSyncedAt: progress.lastSyncedAt?.toISOString() || null,
       updatedAt: progress.updatedAt.toISOString(),
     });
@@ -290,10 +300,24 @@ export async function POST(request: Request, context: RouteContext) {
     const body = read.value;
     // A body that is not an object (null, a number) has no data: the check
     // below answers 400. Destructuring null threw, and the route answered 500.
-    const { data, merge = false } = (typeof body === "object" && body !== null ? body : {}) as {
+    const { data, merge = false, baseRevision, expectedOwnerId } = (typeof body === "object" && body !== null ? body : {}) as {
       data?: AppProgressData;
       merge?: boolean;
+      baseRevision?: string | null;
+      expectedOwnerId?: string;
     };
+
+    const conditional = typeof body === "object" && body !== null && Object.hasOwn(body, "baseRevision");
+    if (conditional) {
+      if (baseRevision !== null && (typeof baseRevision !== "string" || !/^[a-f0-9]{64}$/.test(baseRevision))) {
+        return NextResponse.json({ error: "Invalid save revision" }, { status: 400 });
+      }
+      // Session cookies may change before a mounted page observes the account switch.
+      // Never use a supplied owner as authorization, and reveal no new owner's row.
+      if (expectedOwnerId !== session.user.id) {
+        return NextResponse.json({ error: "The signed-in account changed", code: "owner_changed" }, { status: 409 });
+      }
+    }
 
     // Basic type check
     if (!data || typeof data !== "object") {
@@ -318,27 +342,32 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const userId = session.user.id;
-    // SECURITY: persist the VALIDATED/parsed payload, not the raw request body —
-    // otherwise unknown keys that Zod strips from validation.data are still stored
-    // verbatim. validation.data is bounded by the schema; `data` is attacker-shaped.
-    let finalData: AppProgressData = validation.data as AppProgressData;
-    let conflicts: string[] = [];
+    return await db.transaction(async (tx) => {
+      await lockProgress(tx, userId, appId);
+      const where = and(eq(appProgress.userId, userId), eq(appProgress.appId, appId));
+      const existing = await tx.query.appProgress.findFirst({ where });
+      const currentRevision = existing ? progressRevision(existing) : null;
+      if (conditional && baseRevision !== currentRevision) {
+        return NextResponse.json({
+          error: "The saved progress changed", code: "revision_conflict", protocol: 1,
+          data: existing?.data ?? null, revision: currentRevision,
+          updatedAt: existing?.updatedAt.toISOString() ?? null,
+        }, { status: 409 });
+      }
 
-    // If merging, fetch existing first and merge. Ordering comes from the
-    // progress blobs' own lastModified (validated + bounded by the zod schema);
-    // the row's updatedAt only breaks ties when a blob carries no timestamp.
-    // Field-aware reconcile (the app's reviewed table in
-    // progress-field-rules.ts) means a stale/default blob can never erase
-    // earned records (see mergeForSave + the wipe regression tests).
-    if (merge) {
-      const existing = await db.query.appProgress.findFirst({
-        where: and(
-          eq(appProgress.userId, userId),
-          eq(appProgress.appId, appId)
-        ),
-      });
+      // SECURITY: persist the VALIDATED/parsed payload, not the raw request body —
+      // otherwise unknown keys that Zod strips from validation.data are still stored
+      // verbatim. validation.data is bounded by the schema; `data` is attacker-shaped.
+      let finalData: AppProgressData = validation.data as AppProgressData;
+      let conflicts: string[] = [];
 
-      if (existing) {
+      // If merging, fetch existing first and merge. Ordering comes from the
+      // progress blobs' own lastModified (validated + bounded by the zod schema);
+      // the row's updatedAt only breaks ties when a blob carries no timestamp.
+      // Field-aware reconcile (the app's reviewed table in
+      // progress-field-rules.ts) means a stale/default blob can never erase
+      // earned records (see mergeForSave + the wipe regression tests).
+      if ((merge || conditional) && existing) {
         // SECURITY: the merged blob is re-validated before it is stored —
         // max() and array-union combine two individually-valid blobs, and the
         // result must still satisfy the schema's bounds. When it does not,
@@ -352,7 +381,8 @@ export async function POST(request: Request, context: RouteContext) {
             updatedAt: existing.updatedAt,
           },
           appId,
-          (blob) => validateProgress(appId as ValidAppId, blob)
+          (blob) => validateProgress(appId as ValidAppId, blob),
+          { continuation: conditional }
         );
 
         if (outcome.kind === "keepExisting") {
@@ -409,16 +439,14 @@ export async function POST(request: Request, context: RouteContext) {
           }
         }
       }
-    }
 
-    const now = new Date();
-    const progressId = crypto.randomUUID();
+      const now = nextProgressTime(existing?.updatedAt);
+      const progressId = crypto.randomUUID();
 
-    // TRANSACTION: Save progress, then sync the leaderboard in a savepoint.
-    // The progress blob is the player's save. The board row is a copy of a
-    // number already inside that blob, so a board failure must never take
-    // the save down with it.
-    await db.transaction(async (tx) => {
+      // TRANSACTION: Save progress, then sync the leaderboard in a savepoint.
+      // The progress blob is the player's save. The board row is a copy of a
+      // number already inside that blob, so a board failure must never take
+      // the save down with it.
       // 1. UPSERT progress: Insert or update atomically
       await tx
         .insert(appProgress)
@@ -457,13 +485,15 @@ export async function POST(request: Request, context: RouteContext) {
           );
         }
       }
-    });
-
-    return NextResponse.json({
-      success: true,
-      updatedAt: now.toISOString(),
-      merged: merge && conflicts.length === 0,
-      conflicts,
+      const stored = await tx.query.appProgress.findFirst({ where });
+      if (!stored) throw new Error("Progress write returned no row");
+      return NextResponse.json({
+        success: true,
+        updatedAt: stored.updatedAt.toISOString(),
+        merged: merge && conflicts.length === 0,
+        conflicts,
+        ...(conditional ? { protocol: 1, data: stored.data, revision: progressRevision(stored) } : {}),
+      });
     });
   } catch (error) {
     console.error("POST /api/progress error:", describeError(error));
@@ -509,26 +539,15 @@ export async function DELETE(request: Request, context: RouteContext) {
       );
     }
 
-    // Find and delete progress (cascade will delete transactions)
-    const existing = await db.query.appProgress.findFirst({
-      where: and(
-        eq(appProgress.userId, session.user.id),
-        eq(appProgress.appId, appId)
-      ),
-    });
-
-    if (!existing) {
-      return NextResponse.json(
-        { error: "No progress found to delete" },
-        { status: 404 }
-      );
-    }
-
-    // Capture userId before transaction (guaranteed to exist after auth check)
     const userId = session.user.id;
-
-    // TRANSACTION: Delete progress and leaderboard entry atomically
-    await db.transaction(async (tx) => {
+    return await db.transaction(async (tx) => {
+      await lockProgress(tx, userId, appId);
+      const existing = await tx.query.appProgress.findFirst({
+        where: and(eq(appProgress.userId, userId), eq(appProgress.appId, appId)),
+      });
+      if (!existing) {
+        return NextResponse.json({ error: "No progress found to delete" }, { status: 404 });
+      }
       // Delete progress
       await tx.delete(appProgress).where(eq(appProgress.id, existing.id));
 
@@ -545,11 +564,7 @@ export async function DELETE(request: Request, context: RouteContext) {
           )
         );
       }
-    });
-
-    return NextResponse.json({
-      success: true,
-      deleted: true,
+      return NextResponse.json({ success: true, deleted: true });
     });
   } catch (error) {
     console.error("DELETE /api/progress error:", describeError(error));

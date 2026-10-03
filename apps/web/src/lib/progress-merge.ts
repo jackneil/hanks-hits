@@ -469,8 +469,13 @@ export function resolveMergedSave(
   existing: { data: AppProgressData; updatedAt: Date },
   appId: string,
   validate: ProgressValidator,
+  options: { continuation?: boolean } = {},
 ): MergedSave {
-  const merged = mergeForSave(incoming, existing, appId);
+  // Only the route's successful atomic revision comparison grants this.
+  // Player timestamps do not order two versions of the same acknowledged save.
+  const merged: MergeResult = options.continuation
+    ? { data: reconcileFields(incoming, existing.data, appId)[0], base: "local", source: "merged", conflicts: [] }
+    : mergeForSave(incoming, existing, appId);
   const full = validate(merged.data);
   if (full.success) {
     return {

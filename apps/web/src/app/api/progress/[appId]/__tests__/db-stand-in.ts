@@ -229,7 +229,12 @@ export function createDbStandIn() {
       }
     };
 
-    return { insert, query, delete: del, transaction };
+    // Atomicity/concurrent lock behavior is proved on real Postgres, not modeled here.
+    const execute = (statement: { sqlText?: string }) => stmt(() => {
+      if (!statement.sqlText?.includes("pg_advisory_xact_lock")) throw new Error("stand-in: unsupported execute");
+      return [];
+    });
+    return { insert, query, delete: del, transaction, execute };
   }
 
   const db = executor({
