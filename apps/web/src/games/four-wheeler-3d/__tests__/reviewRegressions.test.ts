@@ -10,8 +10,11 @@ import { displaySpeedMph } from "../lib/displaySpeed";
 import { wheelGeometry } from "../components/models/WheelModel";
 import { nearestInteraction } from "../lib/interactions";
 import { startRadio } from "../lib/radioAudio";
+import { installAudioMock, removeAudioMock } from "@/__tests__/audio-mock";
+import { getGameAudio } from "@/shared/lib/audio";
 
 afterEach(() => {
+  removeAudioMock();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -147,39 +150,29 @@ describe("optional radio failure isolation", () => {
     expect(() => startRadio([220], "sine", unavailable)()).not.toThrow();
     expect(unavailable).toHaveBeenCalledOnce();
   });
-  it("closes a rejected context and reports unavailable without an unhandled rejection", async () => {
-    const close = vi.fn(async () => {});
-    vi.stubGlobal(
-      "AudioContext",
-      class {
-        resume = () => Promise.reject(new Error("blocked"));
-        close = close;
-      },
-    );
+  it("releases its channel after rejected resume without closing shared game audio", async () => {
+    const mock = installAudioMock({ initialState: "suspended", resumeAllowed: false });
+    const context = getGameAudio()!.context;
     const unavailable = vi.fn();
     startRadio([220], "sine", unavailable);
     await vi.waitFor(() => expect(unavailable).toHaveBeenCalledOnce());
-    expect(close).toHaveBeenCalledOnce();
+    expect(mock.lastContext().close).not.toHaveBeenCalled();
+    expect(getGameAudio()!.context).toBe(context);
+    expect(mock.lastContext().createOscillator).not.toHaveBeenCalled();
   });
-  it("ignores a late resume after unmount", async () => {
+  it("ignores a late resume after unmount without closing shared game audio", async () => {
+    const mock = installAudioMock({ initialState: "running" });
+    getGameAudio();
+    const context = mock.lastContext();
     let resume!: () => void;
-    const create = vi.fn(),
-      close = vi.fn(async () => {});
-    vi.stubGlobal(
-      "AudioContext",
-      class {
-        resume = () => new Promise<void>((r) => (resume = r));
-        close = close;
-        createOscillator = create;
-      },
-    );
-    const unavailable = vi.fn(),
-      stop = startRadio([220], "sine", unavailable);
+    context.resume.mockImplementation(() => new Promise<void>((resolve) => { resume = resolve; }));
+    const unavailable = vi.fn();
+    const stop = startRadio([220], "sine", unavailable);
     stop();
     resume();
-    await Promise.resolve();
-    expect(create).not.toHaveBeenCalled();
+    await mock.flush();
+    expect(context.createOscillator).not.toHaveBeenCalled();
     expect(unavailable).not.toHaveBeenCalled();
-    expect(close).toHaveBeenCalledOnce();
+    expect(context.close).not.toHaveBeenCalled();
   });
 });

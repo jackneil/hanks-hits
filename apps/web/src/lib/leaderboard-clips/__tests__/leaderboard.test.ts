@@ -53,7 +53,7 @@ describe("clipsForEntries", () => {
     expect(Object.keys(clips.byProfile.get(a)!).sort()).toEqual(["durationMs", "height", "id", "runScore", "width"]);
   });
 
-  it("is empty when clips are off, for a game with no clips, and for no profiles", async () => {
+  it("is empty when clips are off, for an app without gameplay clips, and for no profiles", async () => {
     const off = await setup({ ...ENV, LEADERBOARD_CLIPS: "off" });
     await off.store.replaceClip(clipRow(off.a, "asteroids"));
     expect((await clipsForEntries(off.deps, "asteroids", [off.a])).byProfile.size).toBe(0);
@@ -61,8 +61,8 @@ describe("clipsForEntries", () => {
     await clone.store.replaceClip(clipRow(clone.a, "asteroids"));
     expect((await clipsForEntries(clone.deps, "asteroids", [clone.a])).byProfile.size).toBe(0);
     const { store, deps, a } = await setup();
-    await store.replaceClip(clipRow(a, "snake"));
-    expect((await clipsForEntries(deps, "snake", [a])).byProfile.size).toBe(0);
+    await store.replaceClip(clipRow(a, "weather"));
+    expect((await clipsForEntries(deps, "weather", [a])).byProfile.size).toBe(0);
     expect((await clipsForEntries(deps, "asteroids", [])).byProfile.size).toBe(0);
   });
 
@@ -120,7 +120,7 @@ describe("myClipFields", () => {
     expect((await clipsForEntries(off.deps, "asteroids", [off.a])).byProfile.size).toBe(0);
   });
 
-  it("says none when the bucket is not set up (or not valid), for a game with no clips, and when the lookup fails", async () => {
+  it("says none when the bucket is not set up (or not valid), for an app without gameplay clips, and when the lookup fails", async () => {
     const clone = await setup({});
     await clone.store.replaceClip(clipRow(clone.a, "asteroids"));
     expect(await myClipFields(clone.deps, "asteroids", clone.a)).toEqual({ clipStatus: "none", clip: null });
@@ -128,8 +128,8 @@ describe("myClipFields", () => {
     await incomplete.store.replaceClip(clipRow(incomplete.a, "asteroids"));
     expect(await myClipFields(incomplete.deps, "asteroids", incomplete.a)).toEqual({ clipStatus: "none", clip: null });
     const { store, deps, a } = await setup();
-    await store.replaceClip(clipRow(a, "snake"));
-    expect(await myClipFields(deps, "snake", a)).toEqual({ clipStatus: "none", clip: null });
+    await store.replaceClip(clipRow(a, "weather"));
+    expect(await myClipFields(deps, "weather", a)).toEqual({ clipStatus: "none", clip: null });
     store.clipOf = async () => {
       throw new Error("down");
     };

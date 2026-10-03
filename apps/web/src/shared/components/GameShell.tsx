@@ -16,7 +16,9 @@ import { FullscreenButton } from "./FullscreenButton";
 import { LoginButton } from "./LoginButton";
 import { RestartConfirmationDialog } from "./RestartConfirmationDialog";
 import { RestartGameButton } from "./RestartGameButton";
-import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
+import { isGameVideoGame } from "@/lib/game-video-games";
+import dynamic from "next/dynamic";
+const ShareGameplayButton = dynamic(() => import("@/shared/clips/ui/ShareGameplayButton").then((module) => module.ShareGameplayButton), { loading: () => <span role="status" className="px-3 text-sm">Loading sharing...</span> });
 import { GAME_METADATA } from "../lib/gameMetadata.generated";
 import { shellHasPlay, useGameBreaks } from "../lib/gameBreaks";
 import {
@@ -341,7 +343,7 @@ function GameShellFrame({
   }, [enterShell, leaveShell]);
 
   // Check if this game has leaderboard support
-  const showLeaderboard = !!appId && hasLeaderboardSupport(appId);
+  const showLeaderboard = !!appId && isGameVideoGame(appId);
 
   // What the game CAN do, not what it can do this second: many games turn
   // canPause off between runs and wire onPause/onResume, and the header
@@ -417,7 +419,7 @@ function GameShellFrame({
   // the screen, and the play box slid under the header.
   return (
     <ShellSheetActionsContext.Provider value={sheetActions}>
-      <div className="relative w-full min-h-[calc(100dvh-var(--bottom-sheet-space,0px))] pt-[var(--shell-header-h)]">
+      <div className="relative w-full min-h-[calc(100dvh-var(--bottom-sheet-space,0px))] pt-[var(--shell-header-h)]" style={showLeaderboard ? { paddingTop: "calc(var(--shell-header-h) + 44px)" } : undefined}>
         {/* Header bar. A solid background: the old backdrop-blur was a
             glassmorphism tell, and a backdrop-filter also becomes the
             containing block for position: fixed children, which trapped
@@ -563,6 +565,11 @@ function GameShellFrame({
               overlapping the then-absolutely-centered title — found by /qa). */}
         </div>
 
+        {showLeaderboard && <div data-testid="game-share-bar" className="fixed inset-x-0 top-[var(--shell-header-h)] z-[1000] flex h-11 items-center justify-center gap-2 border-b border-white/10 bg-slate-950 px-2 text-white">
+          <ShareGameplayButton className="btn-ghost text-sm" />
+          <LeaderboardButton appId={appId} variant="full" className="text-sm shadow-none" />
+        </div>}
+
         {/* The orientation tip: once per session, never over the start card,
             and the game is held while it shows (OrientationWarning.tsx). */}
         {preferredOrientation && (
@@ -571,7 +578,7 @@ function GameShellFrame({
 
         {/* The play box: the screen under the header (PLAY_BOX_CLASSES). */}
         <PlayBoxContext.Provider value={playBoxRef}>
-          <div ref={playBoxRef} data-play-box="" data-testid="game-shell-play-box" className={PLAY_BOX_CLASSES}>
+          <div ref={playBoxRef} data-play-box="" data-testid="game-shell-play-box" className={PLAY_BOX_CLASSES} style={showLeaderboard ? { height: "calc(100dvh - var(--shell-header-h) - 44px - var(--bottom-sheet-space,0px))" } : undefined}>
             {children}
           </div>
         </PlayBoxContext.Provider>
@@ -603,7 +610,7 @@ function GameShellFrame({
             {/* The menu reads every button here out loud, in this order
                 (PauseMenu reads the visible label of each child button, so
                 the "Clips" entry is spoken too, plan 11.4) */}
-            {clip && <clip.ClipsPauseEntry />}
+            {showLeaderboard && <ShareGameplayButton className="btn-lg w-full" />}
             {showLeaderboard && (
               <LeaderboardButton
                 appId={appId}

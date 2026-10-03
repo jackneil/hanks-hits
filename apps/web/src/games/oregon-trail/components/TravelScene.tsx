@@ -60,8 +60,14 @@ interface DustParticle {
   size: number;
 }
 
-export function TravelScene() {
+export function TravelScene({ onCaptureCanvas }: { onCaptureCanvas?: (canvas: HTMLCanvasElement | null) => void } = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Detach the old source during the same commit that attaches Hunting's
+  // canvas. A passive cleanup here could overwrite the new hunt ref with null.
+  const setCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    canvasRef.current = canvas;
+    onCaptureCanvas?.(canvas);
+  }, [onCaptureCanvas]);
   const animationRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const scrollRef = useRef({ mountains: 0, hills: 0, ground: 0 });
@@ -615,7 +621,7 @@ export function TravelScene() {
 
   return (
     <div data-testid="oregon-scene" className="relative h-36 w-full overflow-hidden rounded-lg shadow-lg short:h-32">
-      <canvas ref={canvasRef} className="h-full w-full" />
+      <canvas ref={setCanvas} className="h-full w-full" />
       {/* Weather indicator overlay */}
       <div className="pointer-events-none absolute right-2 top-2 rounded bg-black/45 px-2 py-1 text-sm text-white">
         {(WEATHER_CONDITIONS[weather] || WEATHER_CONDITIONS.clear).emoji} {(WEATHER_CONDITIONS[weather] || WEATHER_CONDITIONS.clear).name}

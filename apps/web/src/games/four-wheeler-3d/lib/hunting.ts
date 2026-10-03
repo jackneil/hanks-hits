@@ -124,6 +124,31 @@ export function buildWildlife(
   return result;
 }
 
+/** Reconcile persistence into the live simulation without replacing animal identities. */
+export function syncWildlifeRemoval(
+  animals: WildlifeAnimal[],
+  removedIds: readonly string[],
+): void {
+  const removed = new Set(removedIds);
+  for (const animal of animals) animal.alive = !removed.has(animal.id);
+}
+
+/** Move a ridden animal with its rider; ground height remains owned by rendering. */
+export function moveMountedWildlife(
+  animal: WildlifeAnimal,
+  rider: AdventurePosition,
+  heading: number,
+): void {
+  animal.position.x = rider.x;
+  animal.position.z = rider.z;
+  animal.heading = heading;
+}
+
+/** Update transient simulation immediately after a persisted removal event. */
+export function removeLiveWildlife(animal: WildlifeAnimal): void {
+  animal.alive = false;
+}
+
 export type WildlifeContext = {
   player: AdventurePosition;
   mode: TravelMode;

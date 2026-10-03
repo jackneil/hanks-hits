@@ -476,6 +476,7 @@
 </head>
 <body>
   <canvas id="game"></canvas>
+  <canvas id="private-labels" data-clips-ignore aria-hidden="true" style="position:fixed;inset:0;pointer-events:none"></canvas>
 
   <div class="hud">
     <div class="badge" id="stars">⭐ 0 / 0</div>
@@ -720,7 +721,10 @@
    ========================================================================= */
 
 const canvas = document.getElementById('game');
-let ctx = canvas.getContext('2d');   // 'let' so we can briefly redirect drawing onto the Details preview canvas
+const gameContext = canvas.getContext('2d');
+const privateLabels = document.getElementById('private-labels');
+const privateContext = privateLabels.getContext('2d');
+let ctx = gameContext;   // 'let' so we can briefly redirect drawing onto the Details preview canvas
 
 // Make the canvas match the window size (and stay sharp on retina screens).
 let W, H, DPR;
@@ -729,6 +733,8 @@ function resize() {
   W = window.innerWidth; H = window.innerHeight;
   canvas.width = W * DPR; canvas.height = H * DPR;
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  privateLabels.width = W * DPR; privateLabels.height = H * DPR;
+  privateLabels.style.width = W + 'px'; privateLabels.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
 window.addEventListener('resize', resize);
@@ -2395,6 +2401,8 @@ function pop(x, y) {
    DRAW — paint everything onto the screen
    ========================================================================= */
 function draw() {
+  privateContext.setTransform(1, 0, 0, 1, 0, 0);
+  privateContext.clearRect(0, 0, privateLabels.width, privateLabels.height);
   if (inSpace) { drawSpace(); return; }           // 🌌 the outer-space scene
   if (onPlanet) { drawPlanet(); return; }         // 🪐 the planet-surface scene
   // Camera presets change zoom + tilt; raising the gun scope overrides to a clean zoom.
@@ -3472,7 +3480,12 @@ function drawPerson(gx, gy, angle, chuteH, showChute) {
 
   ctx.restore();
 
-  if (playerShirt.text && !camoOn) {   // the word on your shirt, floating as a readable tag (hidden under camo)
+  if (playerShirt.text && !camoOn) {   // Private customization is visible locally, outside recorded gameplay.
+    const previousContext = ctx;
+    if (ctx === gameContext) {
+      privateContext.setTransform(ctx.getTransform());
+      ctx = privateContext;
+    }
     ctx.save(); ctx.translate(gx, gy - chuteH - 24);
     ctx.font = 'bold 9px Trebuchet MS'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const w = ctx.measureText(playerShirt.text).width + 8;
@@ -3480,6 +3493,7 @@ function drawPerson(gx, gy, angle, chuteH, showChute) {
     ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; roundRect(-w/2, -7, w, 13, 5); ctx.stroke();
     ctx.fillStyle = '#fff'; ctx.fillText(playerShirt.text, 0, 0);
     ctx.restore();
+    ctx = previousContext;
   }
 
   // open parachute above (only when actually parachuting — not when perched in a stand)

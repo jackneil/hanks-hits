@@ -49,6 +49,8 @@ export type LastMove =
 
 // Complete game state
 export type GameState = {
+  /** Transient recording boundary, never part of saved progress. */
+  clipRunId: number;
   // Board state
   positions: Record<Player, Position>;
   walls: Wall[];
@@ -139,6 +141,7 @@ type BoardState = Omit<GameState, "gameMode" | "difficulty" | "progress">;
 
 function createBoardState(): BoardState {
   return {
+    clipRunId: 0,
     positions: createInitialPositions(),
     walls: [],
     wallsRemaining: { 1: WALLS_PER_PLAYER, 2: WALLS_PER_PLAYER },
@@ -391,6 +394,7 @@ export const useQuoridorStore = create<GameState & GameActions>()(
           const changed = gameMode !== state.gameMode || nextDifficulty !== state.difficulty;
           set({
             ...createBoardState(),
+            clipRunId: state.clipRunId + 1,
             wallOrientation: state.wallOrientation,
             gameMode,
             difficulty: nextDifficulty,

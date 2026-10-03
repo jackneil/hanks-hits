@@ -66,6 +66,36 @@ export function runStoreContract(name: string, setup: () => Promise<StoreHarness
       await h.addUser("kid-b");
     });
 
+    it("creates one generated profile for concurrent first publishers without inventing board entries", async () => {
+      const slots = await Promise.all(Array.from({ length: 6 }, () => h.store.publicationSlot("kid-a", "retro-arcade")));
+      expect(new Set(slots.map((slot) => slot.profileId)).size).toBe(1);
+      expect(slots.every((slot) => slot.currentClipId === null)).toBe(true);
+      const row = clipRow(slots[0].profileId, "retro-arcade", { runScore: null });
+      await h.store.replaceClip(row);
+      expect((await h.store.ownClip("kid-a", "retro-arcade"))?.runScore).toBeNull();
+      expect((await h.store.publicRuns("retro-arcade", 50)).map((run) => run.clip.id)).toEqual([row.id]);
+      expect(await h.store.ownClip("kid-b", "retro-arcade")).toBeNull();
+    });
+
+    it("lists newest public runs, excluding hidden clips and private profiles while retaining owner removal", async () => {
+      const a = await h.store.publicationSlot("kid-a", "asteroids");
+      const b = await h.store.publicationSlot("kid-b", "asteroids");
+      const first = clipRow(a.profileId, "asteroids", { createdAt: at(0) });
+      const second = clipRow(b.profileId, "asteroids", { createdAt: at(1000) });
+      await h.store.replaceClip(first);
+      await h.store.replaceClip(second);
+      expect((await h.store.publicRuns("asteroids", 1)).map((run) => run.clip.id)).toEqual([second.id]);
+      expect(await h.store.publicRuns("chess", 50)).toEqual([]);
+      await h.setShowOnLeaderboards("kid-b", false);
+      expect((await h.store.publicRuns("asteroids", 50)).map((run) => run.clip.id)).toEqual([first.id]);
+      expect((await h.store.ownClip("kid-b", "asteroids"))?.id).toBe(second.id);
+      await h.store.hideClip(first.id, at(2000));
+      expect(await h.store.publicRuns("asteroids", 50)).toEqual([]);
+      expect((await h.store.ownClip("kid-a", "asteroids"))?.status).toBe("hidden");
+      await h.deleteUser("kid-b");
+      expect(await h.store.ownClip("kid-b", "asteroids")).toBeNull();
+    });
+
     it("allows 10 uploads in 24 hours, then says daily_limit with the wait", async () => {
       for (let i = 0; i < LEADERBOARD_CLIP_LIMITS.uploadsPerDay; i++) {
         const slot = await h.store.claimUploadSlot("kid-a", at(i * MINUTE));
@@ -112,24 +142,14 @@ export function runStoreContract(name: string, setup: () => Promise<StoreHarness
       expect(code).toBe("23503");
     });
 
-    it("finds the board slot only for a player with a row on the game's board, with the current clip", async () => {
-      // No profile at all.
-      expect(await h.store.boardSlot("kid-a", "asteroids")).toBeNull();
-      // A profile, but a row on another game only, or in another score type.
-      await h.addBoardEntry("kid-b", "breakout");
-      await h.addBoardEntry("kid-b", "asteroids", "wins");
-      expect(await h.store.boardSlot("kid-b", "asteroids")).toBeNull();
-      // On the board: the profile, and no clip yet.
-      const a = await h.addBoardEntry("kid-a", "asteroids");
-      expect(await h.store.boardSlot("kid-a", "asteroids")).toEqual({ profileId: a, currentClipId: null });
-      // With a clip: its id (the clip of another game is not this game's).
-      const row = clipRow(a, "asteroids");
+    it("finds the current publication regardless of ranked score rows", async () => {
+      const first = await h.store.publicationSlot("kid-a", "asteroids");
+      const row = clipRow(first.profileId, "asteroids");
       await h.store.replaceClip(row);
-      await h.store.replaceClip(clipRow(a, "breakout"));
-      expect(await h.store.boardSlot("kid-a", "asteroids")).toEqual({ profileId: a, currentClipId: row.id });
-      // The row is gone: no slot.
-      await h.removeBoardEntry("kid-a", "asteroids");
-      expect(await h.store.boardSlot("kid-a", "asteroids")).toBeNull();
+      await h.store.replaceClip(clipRow(first.profileId, "breakout"));
+      expect(await h.store.publicationSlot("kid-a", "asteroids")).toEqual({ profileId: first.profileId, currentClipId: row.id, publicListing: true });
+      await h.setShowOnLeaderboards("kid-a", false);
+      expect((await h.store.publicationSlot("kid-a", "asteroids")).publicListing).toBe(false);
     });
 
     it("keeps one clip for each player and game; the newest replaces the old", async () => {
@@ -145,12 +165,12 @@ export function runStoreContract(name: string, setup: () => Promise<StoreHarness
       expect((await h.store.clipOf(profile, "breakout"))?.id).toBe(other.id);
     });
 
-    it("finds a clip with its owner, the leaderboard setting and the board row", async () => {
+    it("finds a clip with its owner and privacy setting independently of ranked scores", async () => {
       const profile = await h.addBoardEntry("kid-a", "asteroids");
       const row = clipRow(profile, "asteroids");
       await h.store.replaceClip(row);
       const found = await h.store.findClip(row.id);
-      expect(found).toMatchObject({ ownerUserId: "kid-a", showOnLeaderboards: true, onBoard: true });
+      expect(found).toMatchObject({ ownerUserId: "kid-a", showOnLeaderboards: true });
       expect(found!.clip).toMatchObject({ id: row.id, runScore: 1790, status: "public", hiddenAt: null });
       expect(found!.clip.createdAt.toISOString()).toBe(row.createdAt.toISOString());
       await h.setShowOnLeaderboards("kid-a", false);
@@ -159,7 +179,7 @@ export function runStoreContract(name: string, setup: () => Promise<StoreHarness
       // A row in another score type is not the game's board.
       await h.removeBoardEntry("kid-a", "asteroids");
       await h.addBoardEntry("kid-a", "asteroids", "wins");
-      expect((await h.store.findClip(row.id))?.onBoard).toBe(false);
+      expect((await h.store.findClip(row.id))?.clip.id).toBe(row.id);
     });
 
     it("hides a clip at a report, once; a second report says already hidden", async () => {

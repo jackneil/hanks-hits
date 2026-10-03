@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withGameAudioShim } from "@/shared/lib/audio/audioShim";
 import { FourWheelerAdventureGame } from "../Game";
 
 const gameHtml = "<!doctype html><html><body>four-wheeler</body></html>";
@@ -28,7 +29,7 @@ describe("Four-Wheeler restart intent", () => {
 
     const iframe = view.container.querySelector("iframe");
     expect(iframe).not.toBeNull();
-    expect(iframe?.getAttribute("srcdoc")).toBe(gameHtml);
+    expect(iframe?.getAttribute("srcdoc")).toBe(withGameAudioShim(gameHtml));
 
     // The first non-zero nonce was supplied before the asynchronous child
     // content mounted. A later nonce must still replace the mounted iframe.
@@ -37,7 +38,7 @@ describe("Four-Wheeler restart intent", () => {
       expect(view.container.querySelector("iframe")).not.toBe(iframe);
     });
     expect(view.container.querySelector("iframe")?.getAttribute("srcdoc")).toBe(
-      gameHtml
+      withGameAudioShim(gameHtml)
     );
   });
 });

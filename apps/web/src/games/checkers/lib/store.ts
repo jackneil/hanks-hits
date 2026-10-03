@@ -54,6 +54,8 @@ export type CheckersProgress = {
 };
 
 export type GameState = {
+  /** Transient recording boundary, never part of saved progress. */
+  clipRunId: number;
   board: PieceType[][];
   currentPlayer: Player;
   selectedPiece: Position | null;
@@ -132,6 +134,7 @@ const UNTOUCHED = defineUntouchedProgress("checkers", {
 export const useCheckersStore = create<GameState & GameActions>()(
   persist(
     (set, get) => ({
+      clipRunId: 0,
       board: createInitialBoard(),
       currentPlayer: "red",
       selectedPiece: null,
@@ -243,6 +246,7 @@ export const useCheckersStore = create<GameState & GameActions>()(
           : { ...state.progress, difficulty: newDifficulty, variant: newVariant, gameMode: newMode, lastModified: Date.now() };
 
         set({
+          clipRunId: get().clipRunId + 1,
           progress,
           board: createInitialBoard(),
           currentPlayer: "red",

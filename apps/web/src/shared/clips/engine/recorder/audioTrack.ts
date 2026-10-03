@@ -18,6 +18,7 @@
  *   is kept): no game sound is recorded. resume() puts it back.
  */
 
+import { startIframeGameAudioCapture, type IframeAudioCapture } from "@/shared/lib/audio/iframeCapture";
 import { getGameAudioTapPoint, onGameAudioCreated } from "@/shared/lib/audio/gameAudio";
 
 /** The parts of the shared bus that the tap uses. */
@@ -37,6 +38,8 @@ type DestinationContext = BaseAudioContext & { createMediaStreamDestination?: ()
 
 export class RecorderAudio {
   private readonly bus: RecorderAudioBus;
+  private readonly includeIframes: boolean;
+  private iframeCapture: IframeAudioCapture | null = null;
   private readonly log: (message: string) => void;
   private context: BaseAudioContext | null = null;
   private tap: AudioNode | null = null;
@@ -48,6 +51,7 @@ export class RecorderAudio {
 
   constructor(deps: RecorderAudioDeps = {}) {
     this.bus = deps.bus ?? defaultBus;
+    this.includeIframes = deps.bus === undefined;
     this.log = deps.log ?? ((m) => console.warn(m));
   }
 
@@ -61,10 +65,13 @@ export class RecorderAudio {
     this.detach();
     this.onChange = onChange;
     this.unsubscribe = this.bus.onCreated((bus) => this.connect(bus.context));
+    if (this.includeIframes) this.iframeCapture = startIframeGameAudioCapture();
   }
 
   /** Stops the tap: the node leaves the graph and its track ends. */
   detach(): void {
+    this.iframeCapture?.dispose();
+    this.iframeCapture = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.onChange = null;
@@ -76,12 +83,14 @@ export class RecorderAudio {
   suspend(): void {
     if (this.suspended) return;
     this.suspended = true;
+    this.iframeCapture?.suspend();
     this.disconnectGraph();
   }
 
   resume(): void {
     if (!this.suspended) return;
     this.suspended = false;
+    this.iframeCapture?.resume();
     this.connectGraph();
   }
 

@@ -20,7 +20,7 @@ export const POSTER_WITH_COMMENT = fixture("poster-ffmpeg-com.jpg");
 
 export const SITE = "https://hankshits.com";
 /** The headers of a fetch() from a page of this site. */
-export const SAME_SITE = { "sec-fetch-site": "same-origin", origin: SITE, host: "hankshits.com" } as const;
+export const SAME_SITE = { "x-hh-expected-owner": "user-kid-0001", "sec-fetch-site": "same-origin", origin: SITE, host: "hankshits.com" } as const;
 /** The headers of a fetch() from another site. */
 export const OTHER_SITE = { "sec-fetch-site": "cross-site", origin: "https://evil.example", host: "hankshits.com" } as const;
 
@@ -62,6 +62,7 @@ export async function uploadRequest(parts: UploadParts = {}, base = SITE): Promi
   const body = new Uint8Array(await encoded.arrayBuffer());
   const headers: Record<string, string> = {
     ...SAME_SITE,
+    "x-hh-expected-owner": "user-kid-0001",
     "content-type": encoded.headers.get("content-type")!,
     ...(parts.noLength ? {} : { "content-length": parts.length ?? String(body.length) }),
     ...parts.headers,
@@ -83,7 +84,7 @@ export function deleteRequest(
   const text = body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body);
   return new Request(new URL(LEADERBOARD_CLIPS_API.remove(id), base), {
     method: "DELETE",
-    headers: text === undefined ? headers : { ...headers, "content-type": "application/json" },
+    headers: { "x-hh-expected-owner": "user-kid-0001", ...headers, ...(text === undefined ? {} : { "content-type": "application/json" }) },
     body: text,
   });
 }

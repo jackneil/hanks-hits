@@ -1,9 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { hasLeaderboardSupport } from "@/lib/leaderboard-extractors";
+import dynamic from "next/dynamic";
+const SharedRuns = dynamic(() => import("@/shared/clips/ui/SharedRuns").then((module) => module.SharedRuns), { loading: () => <p role="status">Loading shared runs...</p> });
+const PublicClipViewer = dynamic(() => import("@/shared/clips/ui/PublicClipViewer").then((module) => module.PublicClipViewer));
+import type { LeaderboardClipSummary } from "@/lib/leaderboard-clips/contract";
 import { plural } from "@/shared/lib/pluralize";
 
 export interface LeaderboardEntry {
+  clip?: LeaderboardClipSummary | null;
   rank: number;
   handle: string;
   score: number;
@@ -102,6 +108,8 @@ export function Leaderboard({
   limit = 100,
   compact = false,
 }: LeaderboardProps) {
+  const [watch, setWatch] = useState<{ id: string; handle: string } | null>(null);
+  const [hiddenVideos, setHiddenVideos] = useState<Set<string>>(() => new Set());
   const [period, setPeriod] = useState<"all" | "week" | "month">(initialPeriod);
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,6 +117,7 @@ export function Leaderboard({
   const [scoreType, setScoreType] = useState<ScoreType>("high_score");
 
   const fetchLeaderboard = useCallback(async () => {
+    if (!hasLeaderboardSupport(appId)) { setLoading(false); return; }
     setLoading(true);
     setError(null);
 
@@ -153,6 +162,8 @@ export function Leaderboard({
   const handleRetry = () => {
     fetchLeaderboard();
   };
+
+  if (!hasLeaderboardSupport(appId)) return <SharedRuns key={appId} appId={appId} />;
 
   // Period selector buttons
   const PeriodSelector = () => (
@@ -285,7 +296,7 @@ export function Leaderboard({
                       role="row"
                       data-current-player={isCurrentUser || undefined}
                       className={`
-                        flex items-center gap-3 p-3 border-b border-slate-700/50
+                        flex flex-wrap items-center gap-3 p-3 border-b border-slate-700/50
                         transition-colors
                         ${
                           // One background per row. The player's own row
@@ -326,6 +337,8 @@ export function Leaderboard({
                         )}
                       </div>
 
+                      {entry.clip && !hiddenVideos.has(entry.clip.id) && <button className="btn btn-sm min-h-11 shrink-0" aria-label={`Watch ${entry.handle}'s gameplay`} onClick={() => setWatch({ id: entry.clip!.id, handle: entry.handle })}>Watch</button>}
+
                       {/* Score */}
                       <div role="cell" className="w-24 text-right font-bold tabular-nums">
                         {formatScore(entry.score, scoreType)}
@@ -342,6 +355,8 @@ export function Leaderboard({
         )}
       </div>
 
+      <SharedRuns key={appId} appId={appId} />
+      {watch && <PublicClipViewer id={watch.id} handle={watch.handle} onClose={() => setWatch(null)} onHidden={(id) => setHiddenVideos((before) => new Set([...before, id]))} />}
       {/* Screen reader announcement */}
       {data && (
         <div className="sr-only" role="status" aria-live="polite">

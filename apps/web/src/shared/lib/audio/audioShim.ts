@@ -177,3 +177,12 @@ ${AUDIO_SHIM_END_MARKER}`;
 export function buildAudioShimSource(): string {
   return SHIM_SOURCE;
 }
+
+/** Add the shim before game scripts in our trusted, same-origin srcdoc document. */
+export function withGameAudioShim(html: string): string {
+  if (html.includes(AUDIO_SHIM_BEGIN_MARKER)) return html;
+  const script = `<script>${buildAudioShimSource()}</script>`;
+  return /<head(?:\s[^>]*)?>/i.test(html)
+    ? html.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${script}`)
+    : script + html;
+}

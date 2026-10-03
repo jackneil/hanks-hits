@@ -120,18 +120,20 @@
  * playwright.config.ts beside this file).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { cpus, loadavg } from "node:os";
 import path from "node:path";
 
 import { expect, test, type Browser, type ConsoleMessage, type Locator, type Page } from "playwright/test";
 
 import { MIN_CLIP_SECONDS } from "../../apps/web/src/shared/clips/service/contract";
-import { MENU_COPY } from "../../apps/web/src/shared/clips/ui/copy";
+import { MENU_COPY, SHARING_COPY } from "../../apps/web/src/shared/clips/ui/copy";
 import { readMetadataLiterals } from "../../apps/web/src/shared/lib/metadataLiterals";
 import { RowReport } from "../clips/lib/report";
 import { Finger, wanted } from "../phone/touch";
-import { driverFor, IDLE, startActions, type Driver, type PlayContext } from "./lib/drivers";
+import { driverFor, hasDriverFor, IDLE, startActions, type Driver, type PlayContext } from "./lib/drivers";
+import { PUBLISH, signInForPublishing, publishAndWatch } from "./lib/publishJourney";
+import { captureDiagnostics } from "./lib/captureDiagnostics";
 import {
   changedPixels,
   decodeErrors,
@@ -145,6 +147,7 @@ import {
   probeClip,
   savePng,
   scanFrames,
+  semanticBoardPicture,
   startsWithFtyp,
   withoutHud,
   type FrameStats,
@@ -224,6 +227,10 @@ const SOUND_MIN_PEAK_DB = -50;
  * run ends by itself, for example Blitz Bomber with CLIPS_E2E_IDLE=1.
  */
 const RESULT_CHIP_ONLY = process.env.CLIPS_E2E_PATH === "result-chip";
+/** The visible named entry, including continuous games that never reach a result. */
+const SHARING_ONLY = process.env.CLIPS_E2E_PATH === "sharing";
+/** The named menu can preview retained footage while automatic capture rests. */
+const SHARING_CLIP_STATES = new Set(["ready", "made", "resting", "suspended"]);
 
 /** Button states where the result chip offers a run clip (ResultChipClipActions.tsx RUN_CLIP_STATES). */
 const RUN_CLIP_STATES = new Set(["ready", "made", "suspended", "resting", "saving"]);
@@ -288,7 +295,7 @@ interface ClipGame {
   route: string;
   /** The module folder (src/games/<id> or src/apps/<id>). */
   dir: string;
-  /** The module calls setGameSpeakerEnabled: it has a sound switch, so it makes sound. */
+  /** This game promises audible gameplay, through the shared switch or a native audio graph. */
   soundSwitch: boolean;
 }
 
@@ -306,6 +313,7 @@ function sourceFiles(dir: string): string[] {
  * from readMetadataLiterals, a module needs a name, an emoji and a
  * category, and its id is its folder name when it has none.
  */
+const NATIVE_AUDIO_GAMES = new Set(["monster-truck", "four-wheeler-3d", "four-wheeler-adventure", "retro-arcade"]);
 function clipGames(): ClipGame[] {
   const games: ClipGame[] = [];
   for (const kind of ["games", "apps"] as const) {
@@ -318,7 +326,7 @@ function clipGames(): ClipGame[] {
       if (!existsSync(metaFile)) continue;
       const fields = readMetadataLiterals(readFileSync(metaFile, "utf8"));
       if (fields.clips !== true || !fields.name || !fields.emoji || !fields.category) continue;
-      const soundSwitch = sourceFiles(dir).some((file) => /\bsetGameSpeakerEnabled\(/.test(readFileSync(file, "utf8")));
+      const soundSwitch = NATIVE_AUDIO_GAMES.has(fields.id ?? entry.name) || sourceFiles(dir).some((file) => /\bsetGameSpeakerEnabled\(/.test(readFileSync(file, "utf8")));
       games.push({ id: fields.id ?? entry.name, name: fields.name, route: `/${kind}/${entry.name}`, dir, soundSwitch });
     }
   }
@@ -338,7 +346,7 @@ function checkoutCommit(): string {
 
 // ---------------------------------------------------------------- the summary row
 
-type ClipPath = "button" | "break-button" | "result-chip" | "none";
+type ClipPath = "sharing" | "button" | "break-button" | "result-chip" | "none";
 
 interface SummaryRow {
   id: string;
@@ -389,6 +397,31 @@ async function clipState(page: Page): Promise<string> {
 
 /** The longest wait for a quiet machine before a game starts. */
 const QUIET_WAIT_MS = 4 * 60_000;
+/** The run's unique output folder survives Playwright replacing a failed worker. */
+const QUIET_PREFLIGHT_RECEIPT = OUT ? path.join(OUT, "quiet-preflight.json") : null;
+function readQuietPreflightReceipt(): boolean {
+  if (!QUIET_PREFLIGHT_RECEIPT) return false;
+  try {
+    const receipt = JSON.parse(readFileSync(QUIET_PREFLIGHT_RECEIPT, "utf8")) as { exhausted?: unknown; waitedMs?: unknown; cores?: unknown };
+    return receipt.exhausted === true && typeof receipt.waitedMs === "number" && receipt.waitedMs >= QUIET_WAIT_MS && receipt.cores === cpus().length;
+  } catch { return false; }
+}
+/** One exhausted preflight covers this run's busy period, including worker restarts. */
+let quietPreflightExhausted = readQuietPreflightReceipt();
+function recordQuietPreflight(exhausted: boolean, waitedMs = 0, load = loadavg()[0]): void {
+  quietPreflightExhausted = exhausted;
+  if (!QUIET_PREFLIGHT_RECEIPT) return;
+  try {
+    if (exhausted) {
+      mkdirSync(OUT, { recursive: true });
+      writeFileSync(QUIET_PREFLIGHT_RECEIPT, JSON.stringify({ exhausted: true, waitedMs, cores: cpus().length, load, endedAt: new Date().toISOString() }) + "\n");
+    } else {
+      rmSync(QUIET_PREFLIGHT_RECEIPT, { force: true });
+    }
+  } catch {
+    console.warn("[clips] quiet preflight receipt could not be saved; this worker still keeps its preflight state");
+  }
+}
 
 /**
  * Waits, up to QUIET_WAIT_MS, until the 1-minute load average is at most
@@ -400,16 +433,34 @@ const QUIET_WAIT_MS = 4 * 60_000;
  * starts anyway after the wait; the warm-up row then judges nothing and
  * gives the load.
  */
-async function waitForQuietMachine(report: RowReport): Promise<number> {
+async function waitForQuietMachine(report: RowReport, gameId: string): Promise<number> {
   const cores = cpus().length;
+  const initialLoad = loadavg()[0];
+  if (initialLoad <= cores) {
+    recordQuietPreflight(false);
+    return 0;
+  }
+  if (quietPreflightExhausted) {
+    report.info("reused exhausted quiet-machine preflight", `still busy (${initialLoad.toFixed(1)} on ${cores} cores)`, "the preceding preflight exhausted its 4-minute wait during this busy period; started anyway, with all quality checks and load records retained");
+    console.log(`[clips:${gameId}] quiet preflight already exhausted; still busy: load ${initialLoad.toFixed(1)}, ${cores} cores; proceeding with quality checks`);
+    return 0;
+  }
   const from = Date.now();
+  let loggedAt = from;
+  console.log(`[clips:${gameId}] waiting for quiet machine: load ${initialLoad.toFixed(1)}, ${cores} cores (up to ${QUIET_WAIT_MS / 1000}s)`);
   while (loadavg()[0] > cores && Date.now() - from < QUIET_WAIT_MS) {
     await new Promise((resolve) => setTimeout(resolve, 5_000));
+    if (Date.now() - loggedAt >= 15_000) {
+      loggedAt = Date.now();
+      console.log(`[clips:${gameId}] quiet preflight ${Math.floor((Date.now() - from) / 1000)}s: load ${loadavg()[0].toFixed(1)}, ${cores} cores`);
+    }
   }
   const waited = Date.now() - from;
+  const load = loadavg()[0];
+  recordQuietPreflight(load > cores && waited >= QUIET_WAIT_MS, waited, load);
   if (waited >= 1_000) {
-    const load = loadavg()[0];
     report.info("waited for a quiet machine", `${(waited / 1000).toFixed(0)} s`, load > cores ? `still busy (${load.toFixed(1)} on ${cores} cores): started anyway` : `load ${load.toFixed(1)} on ${cores} cores`);
+    console.log(`[clips:${gameId}] quiet preflight finished after ${(waited / 1000).toFixed(0)}s: load ${load.toFixed(1)}, ${cores} cores; ${load > cores ? "still busy, proceeding" : "quiet"}`);
   }
   return waited;
 }
@@ -418,6 +469,7 @@ async function waitForQuietMachine(report: RowReport): Promise<number> {
 function noteLoad(report: RowReport, when: string): void {
   const load = loadavg()[0];
   const cores = cpus().length;
+  if (load <= cores) recordQuietPreflight(false);
   report.info(`machine load ${when}`, `${load.toFixed(1)} (1 min), ${cores} cores`, load > cores ? "busy: capture can warm slowly or rest from the load" : undefined);
 }
 
@@ -638,6 +690,8 @@ const describePlayback = (p: Playback | null) =>
 async function checkGame(game: ClipGame, browser: Browser, baseURL: string, report: RowReport, row: SummaryRow, t0: number): Promise<void> {
   const testInfo = test.info();
   const timeLeft = () => testInfo.timeout - (Date.now() - t0);
+  const progress = (message: string) => console.log(`[clips:${game.id}] +${((Date.now() - t0) / 1000).toFixed(0)}s ${message}`);
+  progress(`starting ${SHARING_ONLY ? "named sharing" : RESULT_CHIP_ONLY ? "result chip" : "clip button"} journey; load ${loadavg()[0].toFixed(1)}, ${cpus().length} cores`);
 
   // 1. The server says capture is on.
   const config = await clipsConfig(baseURL);
@@ -652,14 +706,15 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
   }
 
   // The wait is not the game's time: the test's limit grows by it.
-  const waited = await waitForQuietMachine(report);
+  const waited = await waitForQuietMachine(report, game.id);
   if (waited > 0) testInfo.setTimeout(testInfo.timeout + waited);
   noteLoad(report, "at the start");
   const driver: Driver = driverFor(game.id);
   report.info("driver", driver.note ?? "taps Play and lets the game run");
-  report.info("sound switch in the code", game.soundSwitch ? "yes (setGameSpeakerEnabled)" : "no");
+  report.info("audible gameplay expected", game.soundSwitch ? "yes (shared sound policy or native audio graph)" : "no");
 
   const context = await browser.newContext({
+    baseURL,
     viewport: VIEWPORT,
     hasTouch: true,
     acceptDownloads: true,
@@ -667,6 +722,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
   });
   // The Cloudflare beacon would count each test as a real visit to the site.
   await context.route(/cloudflareinsights\.com/, (route) => route.abort());
+  const saveCaptureDiagnostics = await captureDiagnostics(context);
   const page = await context.newPage();
   const errors = watchErrors(page);
   /** The last time the check saw the clip button on the page: the clip UI had loaded (a ui load retry recovered). */
@@ -681,22 +737,38 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
     const finger = new Finger(page, (type, touchPoints) => cdp.send("Input.dispatchTouchEvent", { type: type as "touchStart", touchPoints }));
     const ctx: PlayContext = { page, finger };
 
+    if (PUBLISH) {
+      progress("signing in through the intended test-account form");
+      await signInForPublishing(page, finger, baseURL, game.route);
+      progress("sign-in complete");
+    }
+
     // 2. Open the game and start it.
     const response = await page.goto(game.route, { waitUntil: "domcontentloaded" });
     if (!report.check("page answers", response?.ok() ?? false, `status ${response?.status() ?? "none"}`, "200")) return;
     await page.locator("[data-play-box]").waitFor({ state: "attached", timeout: SHELL_MOUNT_MS });
     const button = page.getByTestId("clip-button");
-    const buttonShows = await button.waitFor({ state: "visible", timeout: 30_000 }).then(
+    const shellShare = page.getByTestId("game-share-bar").getByRole("button", { name: SHARING_COPY.shareGameplay, exact: true });
+    // Retro's fullscreen emulator covers the shell with its own named controls.
+    // Select the actual foreground control instead of a CSS-visible covered one.
+    const visibleSharingEntry = async () => {
+      const emulator = page.getByTestId("emulator-view");
+      return await emulator.isVisible().catch(() => false)
+        ? emulator.getByRole("button", { name: SHARING_COPY.shareGameplay, exact: true })
+        : shellShare;
+    };
+    const entry = SHARING_ONLY ? await visibleSharingEntry() : button;
+    const buttonShows = await entry.waitFor({ state: "visible", timeout: 30_000 }).then(
       () => true,
       () => false,
     );
     if (buttonShows) buttonSeenAt = Date.now();
     if (
       !report.check(
-        "the clip button shows on the start card",
+        SHARING_ONLY ? "Share gameplay is discoverable before play" : "the clip button shows on the start card",
         buttonShows,
         `state ${await clipState(page)}`,
-        "a visible [data-testid=clip-button]",
+        SHARING_ONLY ? "a visible named Share gameplay button in the game share bar" : "a visible [data-testid=clip-button]",
         buttonShows ? undefined : `this checkout (${checkoutCommit()}) says clips: true; is the server older than this checkout?`,
       )
     ) {
@@ -704,6 +776,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       return;
     }
 
+    progress("starting game through its controls");
     await (driver.start ?? defaultStart)(ctx);
     const overlay = page.getByTestId("game-start-overlay");
     const started = await overlay.waitFor({ state: "hidden", timeout: 10_000 }).then(
@@ -720,6 +793,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       report.info("orientation tip", "tapped Keep playing");
     }
     await driver.begin?.(ctx);
+    progress("gameplay started");
 
     // 3. Play, then make the clip.
     const playStart = Date.now();
@@ -733,11 +807,18 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       if (driver.step) await driver.step(ctx);
       else await page.waitForTimeout(150);
     };
+    let lastCaptureProgress = 0;
     const look = async (): Promise<string> => {
       const value = await clipState(page);
       if (value !== "absent") buttonSeenAt = Date.now();
       const state = states.note(value);
       warm.note(state);
+      if (Date.now() - lastCaptureProgress >= 15_000) {
+        lastCaptureProgress = Date.now();
+        const load = loadavg()[0];
+        if (load <= cpus().length) recordQuietPreflight(false);
+        progress(`capture ${value}; play ${((Date.now() - playStart) / 1000).toFixed(0)}s${driver.confirmedActions ? `; confirmed board changes ${driver.confirmedActions()}` : ""}; load ${load.toFixed(1)}`);
+      }
       await noteReply();
       return state;
     };
@@ -794,6 +875,31 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       return false;
     };
 
+    const actionsConfirmed = () => IDLE || !driver.confirmedActions || driver.confirmedActions() >= 2;
+    const tapSharing = async (when: string): Promise<void> => {
+      tapTries++;
+      // Opening the named entry freezes the end of the gameplay, before any
+      // sheet interaction. Never tap the old glyph or a result clip action here.
+      pressAt = Date.now();
+      progress("tapping Share gameplay");
+      const shareGameplay = await visibleSharingEntry();
+      await expect(shareGameplay).toBeVisible();
+      const sharePoint = await finger.center(shareGameplay);
+      if (!sharePoint) throw new Error("Share gameplay has no visible hit target");
+      expect(await shareGameplay.evaluate((control, point) => control.contains(document.elementFromPoint(point.x, point.y)), sharePoint), "the named Share gameplay control is in front and touchable").toBe(true);
+      await finger.tap(shareGameplay);
+      await finger.release();
+      const menu = page.getByTestId("capture-menu");
+      await expect(menu, "Share gameplay opens its menu immediately, even during a continuous game").toBeVisible({ timeout: 5000 });
+      const preview = menu.getByRole("button", { name: SHARING_COPY.previewLast30SecondsToPublish, exact: true });
+      await expect(preview).toBeEnabled();
+      progress("sharing menu open; tapping Preview last 30 seconds to publish");
+      await finger.tap(preview);
+      progress("preview requested; waiting for viewer");
+      tapWhen = when;
+      report.check("sharing: named entry opens the preview action", true, "Share gameplay -> Preview last 30 seconds to publish", "both actions reached by touch; no glyph or result-chip fallback");
+    };
+
     let path: ClipPath = "none";
     let runs = 1;
     let runStart = playStart;
@@ -817,7 +923,12 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
           chipSince = Date.now();
           breaks.push({ from: chipSince - RUN_END_SLACK_MS, to: null });
         }
-        const action = await resultClipAction(page);
+        if (SHARING_ONLY && SHARING_CLIP_STATES.has(state) && actionsConfirmed()) {
+          await tapSharing(`at the end of run ${runs}`);
+          path = "sharing";
+          break;
+        }
+        const action = SHARING_ONLY ? null : await resultClipAction(page);
         if (action) {
           await page.waitForTimeout(CHIP_GRACE_MS);
           await finger.release();
@@ -845,7 +956,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
           // The last run: the header clip button at the break clips the ring (the last seconds of
           // play and the result screen). Before that, the kid plays again: a clip made in play
           // holds more play than one made on the result screen.
-          if (!RESULT_CHIP_ONLY && CLIP_AT_BREAK.has(state)) {
+          if (!SHARING_ONLY && !RESULT_CHIP_ONLY && CLIP_AT_BREAK.has(state)) {
             await page.waitForTimeout(CHIP_GRACE_MS);
             if (await tapClipButton(`at the break after run ${runs}`)) path = "break-button";
           }
@@ -862,9 +973,14 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
         await driver.begin?.(ctx);
         continue;
       }
-      if (state === "ready" && !RESULT_CHIP_ONLY) {
+      if (!RESULT_CHIP_ONLY && (SHARING_ONLY ? SHARING_CLIP_STATES.has(state) : state === "ready")) {
         readySince ??= Date.now();
-        if (Date.now() - readySince >= (eager ? EAGER_PLAY_MS : EXTRA_PLAY_MS)) {
+        if (Date.now() - readySince >= (eager ? EAGER_PLAY_MS : EXTRA_PLAY_MS) && (!SHARING_ONLY || actionsConfirmed())) {
+          if (SHARING_ONLY) {
+            await tapSharing(`after ${((Date.now() - runStart) / 1000).toFixed(1)} s of real play in run ${runs}`);
+            path = "sharing";
+            break;
+          }
           if (await tapClipButton(eager ? `after ${EAGER_PLAY_MS / 1000} s of play in run ${runs} (a run had ended with no clip)` : `after ${EXTRA_PLAY_MS / 1000} s more play`)) {
             path = "button";
             break;
@@ -887,16 +1003,19 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       report.check(`the clip button warms up in ${WARM_LIMIT_SEC} s (quiet machine)`, warm.warmMs / 1000 <= WARM_LIMIT_SEC, warmText, `<= ${WARM_LIMIT_SEC} s of "warming" at a load <= ${cores}`);
     }
     if (driver.seen) report.info("driver: what it saw", driver.seen() ?? "nothing");
+    if (driver.confirmedActions && !IDLE) report.check("driver: real touches changed the board", driver.confirmedActions() >= 2, `${driver.confirmedActions()} confirmed visible changes`, "at least two; video motion is checked independently below");
     if (
       !report.check(
         "the kid can make a clip",
         path !== "none",
-        path === "button" || path === "break-button"
+        path === "sharing"
+          ? `Share gameplay tapped ${tapWhen}`
+          : path === "button" || path === "break-button"
           ? `clip button tapped ${tapWhen} at ${((Date.now() - playStart) / 1000).toFixed(1)} s`
           : path === "result-chip"
             ? `result chip: "${resultLabel}"`
             : `no way in ${runs} run(s) and ${tapTries} tap(s): button ${states.last}`,
-        "a ready clip button, a clip button on the result chip, or the clip button at a break",
+        SHARING_ONLY ? "the visible Share gameplay entry and its Preview action" : "a ready clip button, a clip button on the result chip, or the clip button at a break",
       )
     ) {
       await page.screenshot({ path: testInfo.outputPath(`${game.id}-no-clip.png`) });
@@ -959,12 +1078,13 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
         await noteReply();
         return viewerOpen();
       });
-      if (!report.check("the result chip's clip button opens the viewer", open, open ? "the viewer is open" : "no viewer", "[data-testid=clip-viewer] in 30 s")) {
+      if (!report.check(path === "sharing" ? "sharing: Preview opens the viewer without waiting for the run to end" : "the result chip's clip button opens the viewer", open, open ? "the viewer is open" : "no viewer", "[data-testid=clip-viewer] in 30 s")) {
         await page.screenshot({ path: testInfo.outputPath(`${game.id}-no-viewer.png`) });
         return;
       }
     }
     await finger.release();
+    progress("viewer opened; validating playback and captured file");
     report.info("kid replies seen", replies.join(" | ") || "none");
 
     // 5. The viewer. It shows "loading" until it has read the clip's library row; then the video, or broken, or missing.
@@ -1111,7 +1231,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
           "not muted, volume > 0, and the decoded sound bytes rise while it plays (webkitAudioDecodedByteCount)",
         );
       } else {
-        report.info("the viewer's sound (the game has no sound switch)", heardText);
+        report.info("the viewer's sound (the game has no declared gameplay audio)", heardText);
       }
     }
 
@@ -1200,15 +1320,15 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       // An idle kid leaves out the driver's step: such a game can wait for a tap, so its picture may stand still.
       const motionJudged = !(IDLE && driver.idleSkipsStep);
       const gap = longestFrameGap(ffprobe!, file);
-      await checkPicture(report, ffmpeg!, file, game.id, v.width, v.height, length, screens, motionJudged, gap);
+      await checkPicture(report, ffmpeg!, file, game.id, v.width, v.height, length, screens, motionJudged, gap, driver.motion === "turn-based");
     }
     const audio = probe.audio[0];
     row.audioCodec = audio ? audio.codec : "none";
     const audioText = audio ? `${probe.audio.length} stream: ${audio.codec}${audio.profile ? ` ${audio.profile}` : ""}, ${audio.sampleRate ?? "?"} Hz, ${audio.channels ?? "?"} ch` : "no sound track";
     if (game.soundSwitch) {
-      report.check("sound: the file has a sound track (the game has a sound switch)", !!audio, audioText, "a sound track");
+      report.check("sound: the file has a sound track (the game has expected gameplay audio)", !!audio, audioText, "a sound track");
     } else {
-      report.info("sound: track (the game has no sound switch)", audioText);
+      report.info("sound: track (the game has no declared gameplay audio)", audioText);
     }
     if (audio) {
       const level = loudness(ffmpeg!, file);
@@ -1221,10 +1341,31 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
           `peak >= ${SOUND_MIN_PEAK_DB} dB (silence is -91 dB); the driver makes a sound, so the clip must hold it`,
         );
       } else {
-        report.info("sound: level (volumedetect)", levelText, game.soundSwitch ? "an idle kid makes no sound: INFO only" : "the game makes no sound");
+        report.info("sound: level (volumedetect)", levelText, game.soundSwitch ? "an idle kid makes no sound: INFO only" : "no declared gameplay audio");
       }
     }
     if (probe.other.length) report.info("other streams", probe.other.join(", "));
+    if (PUBLISH) {
+      progress("publishing captured video through UI; verifying signed-out feed and watch");
+      const published = await publishAndWatch({ browser, page, finger, viewer, baseURL, game, file });
+      progress("publish, signed-out discovery and playback verified");
+      report.check("public sharing: actual upload, signed-out discovery and playback", true, published, "real UI publish; identical public bytes; feed and direct watch play by touch");
+    }
+  } catch (error) {
+    // Preserve the failing control and full locator call log before finally closes the page.
+    await page.screenshot({ path: testInfo.outputPath(`${game.id}-exception.png`) }).catch(() => undefined);
+    let detail = error instanceof Error ? error.stack ?? `${error.name}: ${error.message}` : String(error);
+    for (const secret of [process.env.E2E_PUBLISH_PASSWORD, process.env.E2E_PUBLISH_EMAIL]) {
+      if (secret) detail = detail.split(secret).join("[redacted]");
+    }
+    try {
+      const artifact = testInfo.outputPath(`${game.id}-exception.txt`);
+      writeFileSync(artifact, detail);
+      await testInfo.attach("journey-exception", { path: artifact, contentType: "text/plain" });
+    } catch {
+      // Evidence capture must never replace the original journey failure.
+    }
+    throw error;
   } finally {
     // 8. Errors.
     const origin = originOf(baseURL);
@@ -1296,6 +1437,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
     if (otherFailed.length) report.info("network: other failed requests", otherFailed.map((r) => `${short(r.url)}: ${r.error}`).join(" | "));
     noteLoad(report, "at the end");
     if (report.failures().length) await page.screenshot({ path: testInfo.outputPath(`${game.id}-end.png`) }).catch(() => undefined);
+    await saveCaptureDiagnostics(page, testInfo).catch(() => undefined);
     await context.close();
   }
 }
@@ -1323,6 +1465,7 @@ async function checkPicture(
   screens: Array<{ fromSec: number; toSec: number }>,
   motionJudged: boolean,
   gap: { gapSec: number; fromSec: number } | null,
+  turnBased: boolean,
 ): Promise<void> {
   const testInfo = test.info();
   const motionRow = (check: string, ok: boolean, value: string, limit: string) => {
@@ -1384,7 +1527,7 @@ async function checkPicture(
   let frames = 0;
   try {
     frames = await scanFrames(ffmpeg, file, { fromSec: 0, toSec: null, fps: MOVE_SAMPLE_FPS, width, height }, (raw, atSec) => {
-      const frame = withoutHud(raw);
+      const frame = turnBased ? semanticBoardPicture(raw, id) : withoutHud(raw);
       if (previous) {
         if (changedPixels(previous.frame, frame, MOVE_LUMA_STEPS) < MOVE_MIN_PIXELS) {
           if (open) open.toSec = atSec;
@@ -1405,16 +1548,16 @@ async function checkPicture(
     report.check("picture: the clip's frames decode", false, firstLine(error instanceof Error ? error.message : String(error)), `every frame, ${MOVE_SAMPLE_FPS} a second`);
     return;
   }
-  const useSpan = spanMove.frames >= 2;
+  const useSpan = !turnBased && spanMove.frames >= 2;
   const move = useSpan ? spanMove : playMove;
   const playSec = playMove.frames / MOVE_SAMPLE_FPS;
   motionRow(
-    useSpan ? "picture: it moves between 25% and 75%" : "picture: it moves in the play part of the clip (25% to 75% is a result screen)",
+    useSpan ? "picture: it moves between 25% and 75%" : "picture: it moves in the play part of the clip",
     move.frames >= 2 && move.most >= MOVE_MIN_PIXELS,
     move.frames >= 2
       ? `up to ${move.most} pixels changed by > ${MOVE_LUMA_STEPS} (${((move.most / a.pixels.length) * 100).toFixed(2)}%)${move.at >= 0 ? ` at ${move.at.toFixed(1)} s` : ""}; ${move.frames} frames; ${playSec.toFixed(1)} s of play in the clip`
       : `no play to measure: ${playSec.toFixed(1)} s of the clip is outside a result screen`,
-    `>= ${MOVE_MIN_PIXELS} pixels in one frame (the score's band or chip blanked)`,
+    `>= ${MOVE_MIN_PIXELS} pixels in one frame (${turnBased ? "actual board or cookie pixels only; semantic headers, status, counters and footers excluded" : "the score band or chip blanked"})`,
   );
   const seconds = (w: { fromSec: number; toSec: number }) => w.toSec - w.fromSec;
   const onScreen = (w: { fromSec: number; toSec: number }) =>
@@ -1429,6 +1572,11 @@ async function checkPicture(
     );
   }
   const longest = judged.reduce<{ fromSec: number; toSec: number } | null>((best, w) => (!best || seconds(w) > seconds(best) ? w : best), null);
+  if (turnBased && motionJudged) {
+    report.info("picture: board waits between moves", `longest still stretch ${longest ? seconds(longest).toFixed(1) : "0.0"} s`, "allowed only for action-confirmed boards; nonblank picture, changed gameplay pixels and complete frame timing remain required");
+    report.check("video: board capture has no missing-frame hole", gap !== null && gap.gapSec <= STILL_LIMIT_SEC, gap ? `${gap.gapSec.toFixed(2)} s longest gap` : "frame times unavailable", `<= ${STILL_LIMIT_SEC} s`);
+    return;
+  }
   motionRow(
     `picture: it never stands still for more than ${STILL_LIMIT_SEC} s`,
     frames > 1 && (!longest || seconds(longest) <= STILL_LIMIT_SEC),
@@ -1443,6 +1591,7 @@ async function checkPicture(
 
 test("clip games: the source has games with clips: true", () => {
   expect(GAMES.length, "no metadata.ts under src/games or src/apps has clips: true").toBeGreaterThan(0);
+  expect(GAMES.filter((game) => !hasDriverFor(game.id)).map((game) => game.id), "every advertised game needs real user actions").toEqual([]);
   const raw = process.env.E2E_ROUTES?.trim();
   if (raw) {
     const routes = raw.split(",").map((r) => r.trim().replace(/\/+$/, "")).filter(Boolean);

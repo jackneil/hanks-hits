@@ -39,10 +39,6 @@ const ADOPTED = /\buseShellHold\s*\(|\bonShellOverlayOpen=/;
  */
 const EXEMPT: { module: string; reason: string }[] = [
   {
-    module: "games/cookie-clicker",
-    reason: "an idle game: time passes by design, with offline earnings; a held clock would be a bug there",
-  },
-  {
     module: "apps/virtual-pet",
     reason: "an idle pet: its needs grow by design while the kid is away",
   },

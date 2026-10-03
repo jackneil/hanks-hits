@@ -22,6 +22,7 @@ export type {
 
 export {
   buildAudioShimSource,
+  withGameAudioShim,
   AUDIO_SHIM_BEGIN_MARKER,
   AUDIO_SHIM_END_MARKER,
   AUDIO_SHIM_GLOBAL,
@@ -32,3 +33,5 @@ export type {
   RealmAudioBusEntry,
   WindowWithAudioShim,
 } from "./audioShim";
+
+export { watchIframeGameAudio } from "./iframeCapture";

@@ -19,6 +19,8 @@ export interface WordleProgress {
 }
 
 interface WordleState extends WordleProgress {
+  /** Transient recording boundary, never part of saved progress. */
+  clipRunId: number;
   // Session state
   gameState: "ready" | "playing" | "won" | "lost";
   targetWord: string;
@@ -69,6 +71,7 @@ export const useWordleStore = create<WordleState>()(
     (set, get) => ({
       ...defaultProgress,
 
+      clipRunId: 0,
       // Session state
       gameState: "ready",
       targetWord: "",
@@ -86,6 +89,7 @@ export const useWordleStore = create<WordleState>()(
         const word = getRandomWord(diffSettings.wordLength);
 
         set({
+          clipRunId: get().clipRunId + 1,
           gameState: "playing",
           targetWord: word,
           guesses: [],

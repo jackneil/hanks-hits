@@ -88,3 +88,5 @@ export function pointer(
 ) {
   return { pointerId: 1, pointerType: "touch", button: 0, clientX: 20, clientY: 20, isPrimary: true, ...overrides };
 }
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));

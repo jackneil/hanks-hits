@@ -356,3 +356,90 @@ describe("getClipLibrary", () => {
   });
 });
 
+
+describe("account-bound guest continuation IO", () => {
+  it("tracks A-B-A even when the final owner is the same", () => {
+    const { client } = setup();
+    const a = "u_aaaaaaaaaaaaaaaaaaaa", b = "u_bbbbbbbbbbbbbbbbbbbb";
+    client.setOwnerKey(a);
+    const generation = client.sessionGeneration;
+    client.setOwnerKey(b);
+    client.setOwnerKey(a);
+    expect(client.sessionGeneration).toBeGreaterThan(generation);
+  });
+
+  it("does not confirm a stale session response after logout invalidated it", async () => {
+    const { client, bus, readUserId } = setup();
+    let complete!: (id: string | null) => void;
+    readUserId.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    readUserId.mockResolvedValueOnce(null);
+    const stale = client.resolveOwner();
+    bus.publish(null);
+    complete("previous-player");
+    expect(await stale).toEqual({ key: "guest", confirmed: true });
+    expect(readUserId).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads a changed session after a stale lookup fails instead of accepting remembered identity", async () => {
+    const { client, bus, readUserId, memory } = setup();
+    memory.setItem(OWNER_MEMORY_ITEM, "u_aaaaaaaaaaaaaaaaaaaa");
+    let fail!: (error: Error) => void;
+    readUserId.mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }));
+    readUserId.mockResolvedValueOnce(null);
+    const stale = client.resolveOwner();
+    bus.publish(null);
+    fail(new Error("offline old request"));
+    expect(await stale).toEqual({ key: "guest", confirmed: true });
+    expect(readUserId).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not overwrite a bus-confirmed owner when its async hash finishes during a session fetch", async () => {
+    const { client, bus, readUserId } = setup();
+    let complete!: (id: string | null) => void;
+    readUserId.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    let heard!: () => void;
+    const confirmed = new Promise<void>(resolve => { heard = resolve; });
+    const stop = client.subscribe(heard);
+    bus.publish("new-player");
+    const pending = client.resolveOwner();
+    const expected = await ownerKeyFor("new-player");
+    // Wait for the bus hash, independently of the deliberately held fetch.
+    await confirmed;
+    stop();
+    complete("old-player");
+    expect(await pending).toEqual({ key: expected, confirmed: true });
+    expect(await client.ownerKey()).toBe(expected);
+  });
+
+  it("checks owner generation after lazy worker startup before posting a mutation", async () => {
+    let start!: (worker: IoWorkerLike) => void;
+    const worker: IoWorkerLike = { postMessage: vi.fn(), onmessage: null, onerror: null, terminate: vi.fn() };
+    const client = new IoClient({ createWorker: () => new Promise(resolve => { start = resolve; }), sessionBus: null, ownerMemory: null, openChannel: () => null });
+    clients.push(client);
+    const a = "u_aaaaaaaaaaaaaaaaaaaa", b = "u_bbbbbbbbbbbbbbbbbbbb";
+    client.setOwnerKey(a);
+    const result = client.updateForSession("chosen", { ownerKey: a }, a, client.sessionGeneration);
+    client.setOwnerKey(b);
+    client.setOwnerKey(a);
+    start(worker);
+    await expect(result).rejects.toThrow("player changed");
+    expect(worker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("moves the selected durable video through the real library and refuses A-to-B moves", async () => {
+    const { client } = setup();
+    await client.mux(makeClipPackets({ seconds: 1 }), meta("selected"));
+    await client.mux(makeClipPackets({ seconds: 1 }), meta("untouched"));
+    const before = await client.read("selected");
+    const a = "u_aaaaaaaaaaaaaaaaaaaa", b = "u_bbbbbbbbbbbbbbbbbbbb";
+    client.setOwnerKey(a);
+    const adopted = await client.updateForSession("selected", { ownerKey: a, kept: true }, a, client.sessionGeneration);
+    expect(adopted).toMatchObject({ ownerKey: a, kept: true, storage: "opfs" });
+    expect((await client.read("selected")).file.size).toBe(before.file.size);
+    expect((await client.read("untouched")).record.ownerKey).toBe("guest");
+    expect((await client.list(a)).map(record => record.id)).toEqual(["selected"]);
+    client.setOwnerKey(b);
+    await expect(client.updateForSession("selected", { ownerKey: b }, b, client.sessionGeneration)).rejects.toThrow("owner change");
+    expect((await client.read("selected")).record.ownerKey).toBe(a);
+  });
+});

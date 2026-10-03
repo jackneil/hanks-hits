@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
+import { publishSessionUser, resetSessionBusForTests } from "../../service/registry";
+import { ownerKeyFor } from "../../library/ownerKey";
 import type { ClipRecord } from "../../protocol";
 import type { ShareOutcome } from "../../service/contract";
 import { ClipTile } from "../ClipTile";
@@ -41,12 +43,14 @@ function setBrowserShare(present: boolean) {
 }
 
 beforeEach(() => {
+  resetSessionBusForTests();
   urls = stubObjectUrls();
   window.localStorage.clear();
   setBrowserShare(true);
 });
 
 afterEach(() => {
+  resetSessionBusForTests();
   removeSpeechMock();
   setUserAgent(REAL_UA);
   setBrowserShare(false);
@@ -634,5 +638,21 @@ describe("ClipViewer: pause before open (plan 11.1, 12)", () => {
     // Closing the viewer leaves the game paused: the kid resumes from the pause menu.
     fireEvent.click(within(viewer()).getByRole("button", { name: VIEWER_COPY.close }));
     expect(view.resumeGame).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("ClipViewer account changes", () => {
+  it("never displays a late file read for the previous account", async () => {
+    publishSessionUser("a");
+    const record = makeRecord({ ownerKey: await ownerKeyFor("a") });
+    const fake = createFakeClipService({ records: [record], snapshot: { atBreak: true } });
+    let release!: (file: File) => void;
+    vi.mocked(fake.service.library.file).mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    await openClip(record, { fake });
+    await act(async () => { publishSessionUser("b"); release(new File(["private"], "private.mp4")); });
+    await flush();
+    expect(screen.queryByTestId("clip-viewer-video")).not.toBeInTheDocument();
+    expect(urls.created).toEqual([]);
   });
 });

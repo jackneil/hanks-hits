@@ -1,10 +1,13 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, type RootState } from "@react-three/fiber";
+import { useRunClips } from "@/shared/clips/useRunClips";
+import { adventureClipState } from "./lib/clipState";
 
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useShellHold } from "@/shared/hooks/useShellHold";
+import { wantGameAudio } from "@/shared/lib/audio";
 import { WebGLGate } from "@/shared/components";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 
@@ -35,6 +38,7 @@ import { ActivitiesPanel } from "./components/ui/ActivitiesPanel";
 const SPEEDO_INTERVAL = 80;
 
 export function FourWheeler3dGame() {
+  useEffect(() => wantGameAudio(), []);
   const gameContext = useCreateGameContext();
 
   const store = useFourWheeler3dStore();
@@ -56,6 +60,13 @@ export function FourWheeler3dGame() {
   const isCoarse = useCoarsePointer();
   const generation = useAdventureSession((s) => s.generation);
   const panel = useAdventureSession((s) => s.panel);
+  const clipCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [clipCanvasReady, setClipCanvasReady] = useState(false);
+  const onCanvasCreated = useCallback(({ gl }: RootState) => {
+    clipCanvasRef.current = gl.domElement;
+    setClipCanvasReady(true);
+  }, []);
+  useRunClips(clipCanvasRef, adventureClipState(store, held, clipCanvasReady, panel !== null, generation));
   const racing = useAdventureSession(
     (s) => s.race?.phase === "countdown" || s.race?.phase === "racing",
   );
@@ -110,6 +121,7 @@ export function FourWheeler3dGame() {
               screen (a real iPhone SE ran 38 fps behind the start screen,
               phone UX audit 2026-09-29, S15). */}
           <Canvas
+            onCreated={onCanvasCreated}
             shadows={!isCoarse}
             dpr={isCoarse ? 1 : [1, 1.5]}
             frameloop={hasStarted ? "always" : "demand"}

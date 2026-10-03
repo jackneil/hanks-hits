@@ -12,11 +12,12 @@ import { SYSTEMS, SYSTEM_IDS } from "../lib/constants";
  */
 const WEB_ROOT = join(__dirname, "..", "..", "..", "..");
 const PAGE = readFileSync(join(WEB_ROOT, "public", "emulator", "index.html"), "utf8");
-const INLINE_SCRIPT = (() => {
-  const match = /<script>([\s\S]*?)<\/script>/.exec(PAGE);
-  if (!match) throw new Error("the emulator page has no inline script");
-  return match[1];
-})();
+const INLINE_SCRIPTS = [...PAGE.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+if (INLINE_SCRIPTS.length === 0) throw new Error("the emulator page has no inline scripts");
+/** Classic scripts execute in document order: first the realm shim, then the game host. */
+function runInlineScripts(win: PageWindow): void {
+  for (const source of INLINE_SCRIPTS) new Function("window", "document", source)(win, document);
+}
 const BODY = (() => {
   const match = /<body>([\s\S]*?)<script>/.exec(PAGE);
   if (!match) throw new Error("the emulator page has no body markup");
@@ -39,7 +40,7 @@ function runPage(params: Record<string, string>, extra: Record<string, unknown> 
   };
   let error: Error | null = null;
   try {
-    new Function("window", "document", INLINE_SCRIPT)(win, document);
+    runInlineScripts(win);
   } catch (e) {
     error = e as Error;
   }
@@ -64,6 +65,36 @@ describe("emulator page", () => {
     expect(page.win.EJS_gameUrl).toBe("/api/roms/atari2600/demo.bin");
     expect(page.win.EJS_pathtodata).toBe("/emulator/ejs/4.2.3/");
     expect(page.loaderSrc).toBe("/emulator/ejs/4.2.3/loader.js");
+  });
+
+  it("disables only the pinned class's optional update check when it registers", () => {
+    const page = runPage({ core: "snes", rom: "/api/roms/snes/demo.smc" });
+    expect(page.error).toBeNull();
+    const vendor = readFileSync(join(WEB_ROOT, "public/emulator/ejs/4.2.3/emulator.min.js"), "utf8");
+    const start = vendor.indexOf("class EmulatorJS{");
+    const registration = "window.EmulatorJS=EmulatorJS;";
+    const end = vendor.indexOf(registration, start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const fetchVersion = vi.fn().mockResolvedValue({ ok: false });
+    // Load the real class definition, without starting a core or changing
+    // browser defaults. Register exactly as the vendored bundle does.
+    const original = new Function("window", "fetch", `${vendor.slice(start, end)}
+      const original = {
+        update: EmulatorJS.prototype.checkForUpdates,
+        start: EmulatorJS.prototype.startButtonClicked,
+      };
+      ${registration}
+      return original;
+    `)(page.win, fetchVersion);
+    original.update.call({ ejs_version: "4.2.3" });
+    expect(fetchVersion).toHaveBeenCalledWith("https://cdn.emulatorjs.org/stable/data/version.json");
+    fetchVersion.mockClear();
+    const Emulator = page.win.EmulatorJS as { prototype: { checkForUpdates: () => void; startButtonClicked: unknown } };
+    Emulator.prototype.checkForUpdates.call({ ejs_version: "4.2.3" });
+    expect(fetchVersion).not.toHaveBeenCalled();
+    expect(Emulator.prototype.startButtonClicked).toBe(original.start);
+    expect(Object.getOwnPropertyDescriptor(page.win, "EmulatorJS")).toMatchObject({ writable: true, configurable: true, value: Emulator });
   });
 
   it("accepts an uploaded ROM from a blob: URL of this site", () => {
@@ -94,7 +125,7 @@ describe("emulator page", () => {
     win.parent = win;
     let error: Error | null = null;
     try {
-      new Function("window", "document", INLINE_SCRIPT)(win, document);
+      runInlineScripts(win);
     } catch (e) {
       error = e as Error;
     }

@@ -4,17 +4,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
+import { publishSessionUser, resetSessionBusForTests } from "../../service/registry";
+import type { ClipActionResult } from "../../service/contract";
 import { DEFAULT_CLIP_SECONDS } from "../../service/contract";
 import { ClipsPauseEntry } from "../ClipsPauseEntry";
 import { useClipUi } from "../uiContext";
 import { MENU_COPY, PAUSE_ENTRY_LABEL, REASON_COPY, SETTINGS_COPY, VIEWER_COPY } from "../copy";
 import { CLIP_SHEET_Z_INDEX } from "../Sheet";
 import type { MenuSource } from "../uiStore";
-import { createFakeClipService } from "./fakeClipService";
+import { createFakeClipService, makeRecord } from "./fakeClipService";
 import { flush, renderWithClips, stubObjectUrls } from "./renderClips";
 
 afterEach(() => {
   removeSpeechMock();
+  resetSessionBusForTests();
 });
 
 /** Opens the menu with no press token (the pause menu and the result chip do this). */
@@ -69,7 +72,7 @@ describe("CaptureMenu (plan 11.4)", () => {
     fireEvent.click(screen.getByTestId("open-menu"));
     fireEvent.click(within(menu()).getByTestId("read-aloud-button"));
     expect(speech.lastUtterance().text).toBe(
-      [MENU_COPY.title, MENU_COPY.clipLast, MENU_COPY.record, MENU_COPY.picture, MENU_COPY.myClips, MENU_COPY.settings, MENU_COPY.close].join(
+      [MENU_COPY.title, "Prepare a gameplay video, watch it, then choose Publish video. Nothing is published automatically", "Preview last 30 seconds to publish", MENU_COPY.clipLast, MENU_COPY.record, MENU_COPY.picture, MENU_COPY.myClips, MENU_COPY.settings, MENU_COPY.close].join(
         ". ",
       ),
     );
@@ -316,5 +319,31 @@ describe("ClipsPauseEntry (plan 11.4)", () => {
   it("renders nothing when clips are off for the game", () => {
     renderWithClips(<ClipsPauseEntry />, { snapshot: { button: "hidden" } });
     expect(screen.queryByTestId("clips-pause-entry")).toBeNull();
+  });
+});
+
+
+describe("publish preparation lifetime", () => {
+  it.each(["close", "owner"])("does not reopen a finished preparation after %s", async (change) => {
+    publishSessionUser("a");
+    const fake = createFakeClipService();
+    let finish!: (result: ClipActionResult) => void;
+    vi.mocked(fake.service.clipLast).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    renderWithClips(<OpenMenu />, { fake });
+    fireEvent.click(screen.getByTestId("open-menu"));
+    fireEvent.click(screen.getByRole("button", { name: "Preview last 30 seconds to publish" }));
+    if (change === "close") fireEvent.click(screen.getByRole("button", { name: MENU_COPY.close }));
+    else act(() => publishSessionUser("b"));
+    await act(async () => finish({ ok: true, action: "clip", record: makeRecord(), atMs: 1 }));
+    expect(screen.queryByTestId("clip-viewer")).not.toBeInTheDocument();
+  });
+  it("turns a thrown preparation error into a retryable explanation", async () => {
+    const fake = createFakeClipService();
+    vi.mocked(fake.service.clipLast).mockRejectedValue(new Error("capture failed"));
+    renderWithClips(<OpenMenu />, { fake });
+    fireEvent.click(screen.getByTestId("open-menu"));
+    fireEvent.click(screen.getByRole("button", { name: "Preview last 30 seconds to publish" }));
+    expect(await screen.findByText(/The video could not be prepared/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview last 30 seconds to publish" })).toBeEnabled();
   });
 });

@@ -9,6 +9,10 @@ import {
   type SystemType,
   type SystemInfo,
 } from "./lib/constants";
+import { useDiscoveredRunClips } from "@/shared/clips";
+import { ShareGameplayButton } from "@/shared/clips/ui/ShareGameplayButton";
+import { LeaderboardButton } from "@/shared/components/LeaderboardButton";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { useScrollToTopOn } from "@/shared/hooks/useScrollToTopOn";
@@ -294,12 +298,27 @@ function EmulatorView({
   store?: SaveStateStore;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const captureRoot = useRef<HTMLDivElement>(null);
+  const held = useShellHold();
   const [isReady, setIsReady] = useState(false);
   const readyRef = useRef(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [exiting, setExiting] = useState(false);
   const exitingRef = useRef(false);
   const [restartOpen, setRestartOpen] = useState(false);
+  useDiscoveredRunClips(captureRoot, {
+    phase: !isReady || exiting ? "idle" : held || restartOpen ? "hold" : "playing",
+    score: 0, best: 0,
+  });
+  useEffect(() => {
+    if (!isReady || !(held || restartOpen)) return;
+    const emulator = (iframeRef.current?.contentWindow as (Window & {
+      EJS_emulator?: { paused?: boolean; pause?: () => void; play?: () => void };
+    }) | null)?.EJS_emulator;
+    if (!emulator || emulator.paused || !emulator.pause || !emulator.play) return;
+    emulator.pause();
+    return () => emulator.play?.();
+  }, [isReady, held, restartOpen]);
   const restartTriggerRef = useRef<HTMLButtonElement>(null);
   const capturesRef = useRef(new Map<number, (state: ArrayBuffer | null) => void>());
   const nextRequestRef = useRef(1);
@@ -507,6 +526,7 @@ function EmulatorView({
 
   return (
     <div
+      ref={captureRoot}
       data-testid="emulator-view"
       className="fixed inset-0 z-[1100] flex flex-col bg-black"
       style={{
@@ -541,6 +561,11 @@ function EmulatorView({
           onClick={() => setRestartOpen(true)}
           className="shrink-0 text-white"
         />
+      </div>
+
+      <div className="flex shrink-0 items-center justify-center gap-2 bg-gray-900 px-2 pb-1">
+        <ShareGameplayButton />
+        <LeaderboardButton appId="retro-arcade" variant="full" />
       </div>
 
       {/* Emulator iframe */}

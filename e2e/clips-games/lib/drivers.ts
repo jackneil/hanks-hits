@@ -6,12 +6,8 @@
  * - Finger (e2e/phone/touch.ts): one or two thumbs. A thumb can stay down
  *   on a control (a gas pedal, DUCK) while the other thumb taps the clip
  *   button.
- * - Driver: what the check does for one game. A game with no driver here
- *   gets DEFAULT_DRIVER: it taps the last button of the start card (Play)
- *   and lets the game run. A new clip game is covered at once. Give it a
- *   driver when it needs a finger to stay alive or to move, or when it
- *   makes sound only on a player action: the check fails a silent clip of
- *   a game that has a sound switch.
+ * - Every clip-enabled game needs an explicit real-play driver.
+ *   Coverage fails when metadata adds a game without one.
  * - The bots (Dino Runner, Flappy Bird, Endless Runner) read the game's
  *   canvas, one getImageData per step, to know when to jump, flap or duck,
  *   the way a kid looks at the screen. Each read costs the game a little
@@ -24,6 +20,7 @@
 import type { Locator, Page } from "playwright/test";
 
 import { Finger, number } from "../../phone/touch";
+import { ADDITIONAL_DRIVERS } from "./additionalDrivers";
 
 export interface PlayContext {
   page: Page;
@@ -59,6 +56,9 @@ export interface Driver {
    * rows are then INFO rows, like the sound row.
    */
   idleSkipsStep?: boolean;
+  /** Boards may wait between moves, but footage must still contain a confirmed move. */
+  motion?: "turn-based";
+  confirmedActions?: () => number;
 }
 
 /** The buttons of the start card's action row, without the read-aloud button. */
@@ -472,7 +472,6 @@ function hillClimbDriver(): Driver {
 
 // ---------------------------------------------------------------- the drivers
 
-const DEFAULT_DRIVER: Driver = { note: "taps Play and lets the game run" };
 
 /** A fresh driver for each test (some keep state between steps). */
 const DRIVERS: Record<string, () => Driver> = {
@@ -561,8 +560,12 @@ export const IDLE = process.env.CLIPS_E2E_IDLE === "1";
  * way to its break (toBreak): Hill Climb's drive never ends by itself, so
  * the kid taps Pause to open the clip, the same as in a played run.
  */
+export function hasDriverFor(id: string): boolean { return Boolean(DRIVERS[id] ?? ADDITIONAL_DRIVERS[id]); }
+
 export function driverFor(id: string): Driver {
-  const driver = DRIVERS[id]?.() ?? DEFAULT_DRIVER;
+  const factory = DRIVERS[id] ?? ADDITIONAL_DRIVERS[id];
+  if (!factory) throw new Error(`No real-play clip driver for ${id}`);
+  const driver = factory();
   if (IDLE) {
     return {
       note: `idle (CLIPS_E2E_IDLE=1): taps Play, then nothing${driver.toBreak ? "; goes to the break the way the driver does" : ""}`,

@@ -1,6 +1,106 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>/*hh-audio-shim:begin*/
+;(function () {
+  "use strict";
+  var w = window;
+  if (w.__hhAudioBus) return;
+  var Native = w.AudioContext || w.webkitAudioContext;
+  if (typeof Native !== "function") return;
+
+  var entries = [];
+  var listeners = [];
+
+  function emit(entry) {
+    var current = listeners.slice();
+    for (var i = 0; i < current.length; i++) {
+      try { current[i](entry); } catch (e) { /* one bad listener must not stop the rest */ }
+    }
+  }
+
+  function drop(context) {
+    for (var i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].context === context) entries.splice(i, 1);
+    }
+  }
+
+  function unlock() {
+    for (var i = 0; i < entries.length; i++) {
+      var context = entries[i].context;
+      if (context.state === "running" || context.state === "closed") continue;
+      try {
+        var pending = context.resume();
+        if (pending && typeof pending.catch === "function") pending.catch(function () {});
+      } catch (e) { /* the next gesture tries again */ }
+    }
+  }
+
+  var HHAudioContext = class extends Native {
+    constructor() {
+      super(...arguments);
+      var context = this;
+      var output = context.destination;
+      var bus = context.createGain();
+      bus.connect(output);
+      try {
+        Object.defineProperty(bus, "maxChannelCount", {
+          configurable: true,
+          get: function () { return output.maxChannelCount; }
+        });
+      } catch (e) { /* a missing extra is harmless */ }
+      Object.defineProperty(context, "destination", {
+        configurable: true,
+        enumerable: true,
+        value: bus
+      });
+      try {
+        context.addEventListener("statechange", function () {
+          if (context.state === "closed") drop(context);
+        });
+      } catch (e) { /* an old engine without events keeps the entry */ }
+      var entry = Object.freeze({ context: context, bus: bus, output: output });
+      entries.push(entry);
+      emit(entry);
+    }
+  };
+
+  w.AudioContext = HHAudioContext;
+  if (w.webkitAudioContext) w.webkitAudioContext = HHAudioContext;
+
+  var registry = Object.freeze({
+    version: 1,
+    get entries() { return entries.slice(); },
+    get bus() { return entries.length ? entries[entries.length - 1].bus : null; },
+    subscribe: function (listener) {
+      var existing = entries.slice();
+      for (var i = 0; i < existing.length; i++) {
+        try { listener(existing[i]); } catch (e) { /* ignore */ }
+      }
+      listeners.push(listener);
+      return function () {
+        var index = listeners.indexOf(listener);
+        if (index !== -1) listeners.splice(index, 1);
+      };
+    },
+    unlock: unlock
+  });
+  Object.defineProperty(w, "__hhAudioBus", {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: registry
+  });
+
+  var doc = w.document;
+  if (doc && typeof doc.addEventListener === "function") {
+    var events = ["pointerdown", "pointerup", "touchend", "keydown", "click"];
+    for (var j = 0; j < events.length; j++) {
+      doc.addEventListener(events[j], unlock, { capture: true, passive: true });
+    }
+  }
+})();
+/*hh-audio-shim:end*/</script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <!-- SECURITY: Content Security Policy for the emulator iframe. This page
@@ -796,6 +896,23 @@
           buffer ? [buffer] : []
         );
       }
+    });
+
+    // This pinned, self-hosted release is updated with our verified vendor
+    // command. 4.2.3 otherwise checks the public CDN on localhost during
+    // construction, with no opt-out and no rejection handler. Disable only
+    // that optional check before the loader constructs the emulator; keep
+    // the vendored bytes, normal fetch behavior and same-origin CSP intact.
+    Object.defineProperty(window, 'EmulatorJS', {
+      configurable: true,
+      set: function(Emulator) {
+        Emulator.prototype.checkForUpdates = function() {};
+        Object.defineProperty(window, 'EmulatorJS', {
+          configurable: true,
+          writable: true,
+          value: Emulator,
+        });
+      },
     });
 
     // Load the EmulatorJS loader script

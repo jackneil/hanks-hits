@@ -1,13 +1,22 @@
 /** Locally hosted engine texture and original Web Audio exhaust, horn and impacts. */
+import { getGameAudio, setGameSpeakerEnabled, type GameAudioChannel } from "@/shared/lib/audio";
 import { engineTargets, exhaustSamples } from "./engineAudio";
-type ContextFactory = () => AudioContext;
-type RecordingLoader = (context: AudioContext) => Promise<AudioBuffer | null>;
-function defaultFactory(): AudioContext {
-  const Ctor =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext: typeof AudioContext })
-      .webkitAudioContext;
-  return new Ctor();
+interface SoundOutput {
+  context: BaseAudioContext;
+  input: AudioNode;
+  readonly disposed?: boolean;
+  dispose?(): void;
+  resume(): void;
+}
+type ContextFactory = () => SoundOutput | null;
+type RecordingLoader = (context: BaseAudioContext) => Promise<AudioBuffer | null>;
+function defaultFactory(): SoundOutput | null {
+  const audio = getGameAudio();
+  if (!audio) return null;
+  const channel: GameAudioChannel = audio.channel("four-wheeler-3d:vehicle");
+  return { context: channel.context, input: channel.input,
+    get disposed() { return channel.disposed; },
+    dispose: () => channel.dispose(), resume: () => audio.unlock() };
 }
 const recording: RecordingLoader = async (ctx) => {
   const response = await fetch(
@@ -24,7 +33,8 @@ type Engine = {
   nodes: AudioNode[];
 };
 export class FourWheelerSounds {
-  private context: AudioContext | null = null;
+  private context: BaseAudioContext | null = null;
+  private output: SoundOutput | null = null;
   private engine: Engine | null = null;
   private enabled = true;
   private volume = 0.5;
@@ -35,14 +45,23 @@ export class FourWheelerSounds {
     private makeContext: ContextFactory = defaultFactory,
     private loadRecording: RecordingLoader = recording,
   ) {}
-  private ctx() {
-    if (!this.context) this.context = this.makeContext();
-    if (this.context.state === "suspended")
-      void this.context.resume().catch(() => {});
+  private ctx(): BaseAudioContext | null {
+    if (!this.output || this.output.disposed) {
+      this.output = this.makeContext();
+      this.context = this.output?.context ?? null;
+    }
+    this.output?.resume();
     return this.context;
+  }
+  dispose() {
+    this.stopEngine();
+    this.output?.dispose?.();
+    this.output = null;
+    this.context = null;
   }
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
+    setGameSpeakerEnabled("four-wheeler-3d", enabled);
     if (!enabled) this.stopEngine();
   }
   isEnabled() {
@@ -55,8 +74,7 @@ export class FourWheelerSounds {
     this.setEngine(this.engineLevel, this.throttle);
   }
   resume() {
-    if (this.context?.state === "suspended")
-      void this.context.resume().catch(() => {});
+    this.output?.resume();
   }
   getEngineLevel() {
     return this.engineLevel;
@@ -66,8 +84,9 @@ export class FourWheelerSounds {
   }
   startEngine() {
     if (!this.enabled || this.engine) return;
-    const ctx = this.ctx(),
-      samples = exhaustSamples(ctx.sampleRate),
+    const ctx = this.ctx();
+    if (!ctx) return;
+    const samples = exhaustSamples(ctx.sampleRate),
       buffer = ctx.createBuffer(1, samples.length, ctx.sampleRate);
     buffer.getChannelData(0).set(samples);
     const exhaust = ctx.createBufferSource();
@@ -80,7 +99,7 @@ export class FourWheelerSounds {
     gain.gain.value = 0;
     exhaust.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.output!.input);
     const engine: Engine = {
       exhaust,
       recorded: null,
@@ -146,6 +165,7 @@ export class FourWheelerSounds {
   playHorn() {
     if (!this.enabled) return;
     const ctx = this.ctx();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const low = ctx.createOscillator();
@@ -164,7 +184,7 @@ export class FourWheelerSounds {
 
     low.connect(gain);
     high.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.output!.input);
 
     low.start(now);
     high.start(now);
@@ -181,6 +201,7 @@ export class FourWheelerSounds {
     if (!this.enabled) return;
     const level = Math.max(0, Math.min(1, strength));
     const ctx = this.ctx();
+    if (!ctx) return;
     const now = ctx.currentTime;
 
     const osc = ctx.createOscillator();
@@ -194,7 +215,7 @@ export class FourWheelerSounds {
     gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
 
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.output!.input);
     osc.start(now);
     osc.stop(now + 0.25);
   }

@@ -416,7 +416,7 @@ export function saveReply(
 // Pause menu and result chip parts (plan 11.4)
 // ---------------------------------------------------------------------------
 
-export const PAUSE_ENTRY_LABEL = "Clips";
+export const PAUSE_ENTRY_LABEL = "Share gameplay";
 
 /**
  * The clip actions of the result chip (decision D1). A run of 30 seconds or
@@ -529,4 +529,90 @@ export function allCopyStrings(): string[] {
   out.push(actionWithLength(RESULT_ACTION_COPY.watchRun, 16), actionWithLength(RESULT_ACTION_COPY.wholeRun, 102), lengthInWords(60));
   out.push(...Object.values(SETTINGS_COPY), storageLine(0, "0 MB"), storageLine(1, "3 MB"), storageLine(12, "40 MB"));
   return out;
+}
+
+/** Shared publishing, public viewing and sign-in continuation copy. */
+export const SHARING_COPY = {
+  "thereIsNotAVideoReadyYet": "There is not a video ready yet. Keep playing, or record a video first. Nothing has been published.",
+  "theVideoCouldNotBePreparedKeep": "The video could not be prepared. Keep playing, then try again. Nothing has been published.",
+  "prepareAGameplayVideoWatchItThen": "Prepare a gameplay video, watch it, then choose Publish video. Nothing is published automatically",
+  "previewLast30SecondsToPublish": "Preview last 30 seconds to publish",
+  "preparingVideo": "Preparing video...",
+  "prepareAGameplayVideoWatchItThen2": "Prepare a gameplay video, watch it, then choose Publish video. Nothing is published automatically.",
+  "thisBrowserMadeAVideoForYour": "This browser made a video for your device. Public sharing needs an MP4 video. You can still copy or share it with the buttons below.",
+  "thisVideoIsTooLongOrToo": "This video is too long or too big for the leaderboard. Keep this copy, then clip the last 30 seconds to publish.",
+  "yourVideoIsOnTheLeaderboard": "Your video is on the leaderboard!",
+  "yourVideoIsSavedPrivatelyTurnOn": "Your video is kept private. Turn on Show on leaderboards in your profile to share it.",
+  "weCouldnTKeepThisVideoThrough": "We couldn't keep this video through sign-in. Copy it to your device first, then try again.",
+  "publishGameplay": "Publish gameplay",
+  "sendingVideo": "Sending video...",
+  "tryPublishingAgain": "Try publishing again",
+  "publishVideo": "Publish video",
+  "videoUploadProgress": "Video sending progress",
+  "finishingYourVideo": "Finishing your video...",
+  "yourLocalCopyStaysSafe": "Your local copy stays safe.",
+  "putItOnTheLeaderboard": "Put it on the leaderboard",
+  "watchYourPreviewFirstWithAPublic": "Watch your preview first. With a public leaderboard profile, anyone can watch under your player handle. This replaces your previous video for this game. Your local copy stays here.",
+  "checkProfileVisibility": "Check profile visibility",
+  "weCouldNotCheckPublicSharingYour": "We could not check public sharing. Your video is safe here.",
+  "tryCheckingAgain": "Try checking again",
+  "checkingPublicSharing": "Checking public sharing...",
+  "publicSharingIsUnavailableRightNowYou": "Public sharing is unavailable right now. You can copy or share your video below.",
+  "watchMyVideo": "Watch my video",
+  "checkingTheSignedInPlayer": "Checking the signed-in player...",
+  "signInToPublishThisVideo": "Sign in to publish this video",
+  "yourPreparedVideo": "Your prepared video",
+  "weCouldnTReopenYourPreparedVideo": "We couldn't reopen your prepared video yet. It is still kept on this device. Try again.",
+  "weCouldNotReopenYourPreparedVideo": "We could not reopen your prepared video yet. It is still kept on this device. Nothing has been published.",
+  "tryOpeningMyVideoAgain": "Try opening my video again",
+  "putItOnTheLeaderboardWatchYour": "Put it on the leaderboard. Watch your preview first, then choose Publish video. A public leaderboard profile lets anyone watch. Sign in first if you are a guest. Nothing publishes automatically.",
+  "shareWithAnotherApp": "Share with another app",
+  "prepareAVideoFirstShortRunsMay": "Prepare a video first. Short runs may need more gameplay to make a clip.",
+  "thanksForTellingUsThisVideoIs": "Thanks for telling us. This video is hidden.",
+  "yourVideoIsOffTheSite": "Your video is off the site.",
+  "theSignedInPlayerChangedReopenYour": "The signed-in player changed. Reopen your video before removing it.",
+  "weCouldNotFinishTheReportThe": "We could not finish the report. The video is hidden on this screen. Try reporting again.",
+  "weCouldNotTakeTheVideoOff": "We could not take the video off yet. Try again when you are connected.",
+  "sharedRun": "Shared run",
+  "sharedGameplayVideo": "Shared gameplay video",
+  "tryReportingAgain": "Try reporting again",
+  "reportAndHideThisVideo": "Report and hide this video",
+  "thisVideoCouldNotLoadItsLink": "This video could not load. Its link may have expired, or it may have been taken off.",
+  "tryLoadingVideoAgain": "Try loading video again",
+  "takeMyVideoOff": "Take my video off",
+  "shareGameplay": "Share gameplay",
+  "gameplayCaptureIsNotReadyOnThis": "Gameplay capture is not ready on this device yet. Keep playing, then try again. Nothing has been published.",
+  "openCapture": "Open capture",
+  "backToGame": "Back to game",
+  "sharedGameplay": "Shared gameplay",
+  "seeTheLeaderboards": "See the leaderboards",
+  "watchSharedRun": "Watch shared run",
+  "thisVideoLinkIsNotAvailable": "This video link is not available.",
+  "weCouldnTTakeItOffYet": "We couldn't take it off yet. Try again when you're connected.",
+  "sharedRuns": "Shared runs",
+  "sharedRunsWatchVideosFromThisGame": "Shared runs. Watch videos from this game. Use Share gameplay while playing to prepare your own video.",
+  "yourVideoWasHiddenAfterAReport": "Your video was hidden after a report.",
+  "yourSharedVideo": "Your shared video",
+  "gameplayFromThisGameTheseVideosHave": "Gameplay from this game. These videos have no separate ranking.",
+  "sharedRunsCouldNotLoad": "Shared runs could not load.",
+  "trySharedRunsAgain": "Try shared runs again",
+  "loadingSharedRuns": "Loading shared runs...",
+  "publicVideosAreUnavailableRightNowYou": "Public videos are unavailable right now. You can still take your own video off.",
+  "noSharedRunsYetUseShareGameplay": "No shared runs yet. Use Share gameplay in the game to prepare yours.",
+  "watch": "Watch"
+} as const;
+
+export function publishErrorCopy(code: string): string {
+  switch (code) {
+    case "owner_changed": return "The signed-in player changed. Open this player's own video to share.";
+    case "sign_in": return "Sign in again, then tap Publish. Your video is still kept here.";
+    case "clips_off": return "Public sharing is unavailable right now. Your video stays on this device.";
+    case "daily_limit": return "You've shared lots of videos today. Your video is safe here. Try again tomorrow.";
+    case "busy": case "server_busy": return "Another video is still sending. Wait a moment, then try again.";
+    case "too_big": return "This video is too big to publish. Try a shorter clip, or copy this one to your device.";
+    case "bad_video": return "This video cannot be published in this format. You can still copy it to your device.";
+    case "bad_poster": return "The video's cover picture could not be used. Try making another clip.";
+    case "not_found": return "This video is no longer available.";
+    default: return "That didn't finish. Your video is still kept here. Try again when you're connected.";
+  }
 }

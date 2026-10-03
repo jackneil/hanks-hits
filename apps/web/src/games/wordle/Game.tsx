@@ -1,5 +1,10 @@
 "use client";
 
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { paintWordle } from "./lib/clipRenderer";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+
+
 import { useCallback, useEffect } from "react";
 
 import { GameStartOverlay, GameStartOverlayButton } from "@/shared/components/GameStartOverlay";
@@ -42,6 +47,8 @@ export function resultText({
 
 export function WordleGame() {
   const store = useWordleStore();
+  const clipHeld = useShellHold();
+  useSemanticClips(store, paintWordle, { phase: store.gameState === "playing" ? clipHeld || store.showTutorial ? "hold" : "playing" : "idle", runId: store.clipRunId, score: store.currentStreak, best: store.maxStreak });
   const {
     gameState,
     targetWord,

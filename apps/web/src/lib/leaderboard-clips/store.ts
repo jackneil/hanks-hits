@@ -11,6 +11,7 @@ import {
   and,
   db as defaultDb,
   eq,
+  desc,
   gt,
   inArray,
   isNull,
@@ -20,6 +21,8 @@ import {
   type Database,
 } from "@hank-neil/db";
 import { gamingProfiles, leaderboardClipUploads, leaderboardClips, leaderboardEntries } from "@hank-neil/db/schema";
+
+import { generateHandle } from "@/lib/handle-generator";
 
 import { getGameScoreType } from "@/lib/leaderboard-extractors";
 
@@ -34,15 +37,14 @@ export interface ClipWithOwner {
   clip: ClipRow;
   ownerUserId: string;
   showOnLeaderboards: boolean;
-  /** True when the owner has a row on the clip's game board (in the game's score type). */
-  onBoard: boolean;
 }
 
-/** Where an upload goes: the player's board row exists, so the profile does. */
-export interface BoardSlot {
+/** The generated profile receiving an upload and its existing privacy setting. */
+export interface PublicationSlot {
   profileId: string;
   /** The player's clip for the game now (the upload replaces it), or null. */
   currentClipId: string | null;
+  publicListing: boolean;
 }
 
 export type UploadSlot =
@@ -57,20 +59,16 @@ export const UPLOAD_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const BUSY_RETRY_SEC = 30;
 
 export interface ClipStore {
+  /** Create a generated public identity on first publish, without inventing a score. */
+  publicationSlot(userId: string, appId: string): Promise<PublicationSlot>;
+  publicRuns(appId: string, limit: number): Promise<{ handle: string; clip: ClipRow }[]>;
+  ownClip(userId: string, appId: string): Promise<ClipRow | null>;
   /** Take an upload slot for the account: 10 in 24 hours, 1 at a time. */
   claimUploadSlot(userId: string, now: Date): Promise<UploadSlot>;
   /** The upload ended (stored, or rejected by a check): it counts toward the daily limit. */
   finishUploadSlot(slotId: string, now: Date): Promise<void>;
   /** The upload failed on our side (bucket or database): it does not count. */
   releaseUploadSlot(slotId: string): Promise<void>;
-  /**
-   * The player's gaming profile and current clip for the game, when the
-   * player has a row on the game's leaderboard (in the game's score type).
-   * Null when the player is not on that board. A board row is made by the
-   * progress route, with the profile (made on first use), so an upload
-   * never makes a profile.
-   */
-  boardSlot(userId: string, appId: string): Promise<BoardSlot | null>;
   /** Replace the player's clip for the game in one transaction. Returns the id of the old clip. */
   replaceClip(row: NewClipRow): Promise<{ replacedId: string | null }>;
   findClip(id: string): Promise<ClipWithOwner | null>;
@@ -96,6 +94,39 @@ export interface ClipStore {
 /** The Postgres store. */
 export function createDbClipStore(database: Database = defaultDb): ClipStore {
   return {
+    async publicationSlot(userId, appId) {
+      // ON CONFLICT handles both same-user creation races and handle collisions.
+      // Each statement is autocommitted, so a conflict never aborts a retry.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const [profile] = await database.select({ id: gamingProfiles.id, publicListing: gamingProfiles.showOnLeaderboards }).from(gamingProfiles)
+          .where(eq(gamingProfiles.userId, userId)).limit(1);
+        if (profile) {
+          const [clip] = await database.select({ id: leaderboardClips.id }).from(leaderboardClips)
+            .where(and(eq(leaderboardClips.gamingProfileId, profile.id), eq(leaderboardClips.appId, appId))).limit(1);
+          return { profileId: profile.id, currentClipId: clip?.id ?? null, publicListing: profile.publicListing };
+        }
+        const [inserted] = await database.insert(gamingProfiles).values({ userId, handle: generateHandle() }).onConflictDoNothing().returning({ id: gamingProfiles.id });
+        if (inserted) return { profileId: inserted.id, currentClipId: null, publicListing: true };
+      }
+      throw new Error("Could not allocate a gaming profile");
+    },
+
+    async publicRuns(appId, limit) {
+      return database.select({ handle: gamingProfiles.handle, clip: leaderboardClips })
+        .from(leaderboardClips)
+        .innerJoin(gamingProfiles, eq(leaderboardClips.gamingProfileId, gamingProfiles.id))
+        .where(and(eq(leaderboardClips.appId, appId), eq(leaderboardClips.status, "public"), eq(gamingProfiles.showOnLeaderboards, true)))
+        .orderBy(desc(leaderboardClips.createdAt), desc(leaderboardClips.id))
+        .limit(Math.min(50, Math.max(1, limit)));
+    },
+
+    async ownClip(userId, appId) {
+      const [row] = await database.select({ clip: leaderboardClips }).from(leaderboardClips)
+        .innerJoin(gamingProfiles, eq(leaderboardClips.gamingProfileId, gamingProfiles.id))
+        .where(and(eq(gamingProfiles.userId, userId), eq(leaderboardClips.appId, appId))).limit(1);
+      return row?.clip ?? null;
+    },
+
     async claimUploadSlot(userId, now) {
       return database.transaction(async (tx) => {
         // One claim at a time for each account, so two requests cannot both
@@ -135,27 +166,6 @@ export function createDbClipStore(database: Database = defaultDb): ClipStore {
       await database.delete(leaderboardClipUploads).where(eq(leaderboardClipUploads.id, slotId));
     },
 
-    async boardSlot(userId, appId) {
-      const [row] = await database
-        .select({ profileId: gamingProfiles.id, currentClipId: leaderboardClips.id })
-        .from(gamingProfiles)
-        .innerJoin(
-          leaderboardEntries,
-          and(
-            eq(leaderboardEntries.gamingProfileId, gamingProfiles.id),
-            eq(leaderboardEntries.appId, appId),
-            eq(leaderboardEntries.scoreType, getGameScoreType(appId))
-          )
-        )
-        .leftJoin(
-          leaderboardClips,
-          and(eq(leaderboardClips.gamingProfileId, gamingProfiles.id), eq(leaderboardClips.appId, appId))
-        )
-        .where(eq(gamingProfiles.userId, userId))
-        .limit(1);
-      return row ? { profileId: row.profileId, currentClipId: row.currentClipId ?? null } : null;
-    },
-
     async replaceClip(row) {
       return database.transaction(async (tx) => {
         const [old] = await tx
@@ -180,20 +190,7 @@ export function createDbClipStore(database: Database = defaultDb): ClipStore {
         .innerJoin(gamingProfiles, eq(leaderboardClips.gamingProfileId, gamingProfiles.id))
         .where(eq(leaderboardClips.id, id))
         .limit(1);
-      if (!found) return null;
-      // The score type comes from the game, so it is known only after the row is read.
-      const [entry] = await database
-        .select({ id: leaderboardEntries.id })
-        .from(leaderboardEntries)
-        .where(
-          and(
-            eq(leaderboardEntries.gamingProfileId, found.clip.gamingProfileId),
-            eq(leaderboardEntries.appId, found.clip.appId),
-            eq(leaderboardEntries.scoreType, getGameScoreType(found.clip.appId))
-          )
-        )
-        .limit(1);
-      return { ...found, onBoard: entry !== undefined };
+      return found ?? null;
     },
 
     async hideClip(id, now) {

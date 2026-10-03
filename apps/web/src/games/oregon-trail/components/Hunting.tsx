@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useOregonTrailStore } from "../lib/store";
+import type { HuntClipResult } from "../lib/clipRenderer";
 import { useHuntPauseStore } from "../lib/huntPause";
 import { HUNTING_TIME, MAX_CARRY_WEIGHT } from "../lib/constants";
 import { usePointerTap, type TapEvent } from "@/shared/lib/input";
@@ -60,9 +61,16 @@ const TIP_MS = 4000;
  * only the numbers), the canvas has the screen's pixels, and the loop runs
  * once for the whole hunt.
  */
-export function Hunting() {
+export function Hunting({ onCaptureCanvas, onCaptureResult }: {
+  onCaptureCanvas?: (canvas: HTMLCanvasElement | null) => void;
+  onCaptureResult?: (result: HuntClipResult | null) => void;
+} = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const setCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    canvasRef.current = canvas;
+    onCaptureCanvas?.(canvas);
+  }, [onCaptureCanvas]);
 
   const ammunition = useOregonTrailStore((s) => s.supplies.ammunition);
   const hunt = useOregonTrailStore((s) => s.hunt);
@@ -101,6 +109,14 @@ export function Hunting() {
 
   const left = ammunition - ammo;
   const finished = time <= 0 || left <= 0;
+  const outOfBullets = left <= 0 && time > 0;
+  // The result replaces the native field. Hand only its numeric gameplay
+  // facts to the semantic recorder before paint, and clear on leaving it.
+  useLayoutEffect(() => {
+    if (!finished) return;
+    onCaptureResult?.({ food, ammo, score, outOfBullets });
+    return () => onCaptureResult?.(null);
+  }, [finished, food, ammo, score, outOfBullets, onCaptureResult]);
 
   // Timer countdown
   useEffect(() => {
@@ -362,7 +378,6 @@ export function Hunting() {
 
   // The hunt is over: the time ran out, or the bullets did.
   if (finished) {
-    const outOfBullets = left <= 0 && time > 0;
     return (
       <Screen
         testId="oregon-hunt-done"
@@ -407,7 +422,7 @@ export function Hunting() {
       onPointerMove={handlePointerMove}
       {...shootTap}
     >
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+      <canvas ref={setCanvas} className="absolute inset-0 h-full w-full" />
 
       {/* The counts, then the animals and their meat, in one strip at the top. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col items-center gap-1 p-2">

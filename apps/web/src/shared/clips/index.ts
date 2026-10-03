@@ -55,6 +55,8 @@ export {
 } from "./service/contract";
 export { getClipService } from "./service/registry";
 export { getClipLibrary } from "./service/ioClient";
+export { prepareGuestPublish, resumeGuestPublish } from "./service/guestPublish";
+export { useDiscoveredRunClips } from "./useDiscoveredRunClips";
 export { fileNameFor } from "./service/share";
 export { joinClipsDogfood, leaveClipsDogfood, loadClipsVerdict, type ClipsMode, type ClipsVerdict } from "./config";
 export type { ClipKind, ClipRecord, MomentMark, RunPhase, Tier } from "./protocol";

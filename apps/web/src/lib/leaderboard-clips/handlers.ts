@@ -25,7 +25,7 @@
  */
 import { MIMEType } from "node:util";
 
-import type { ValidAppId } from "@hank-neil/db/schema";
+import type { GameVideoId } from "@/lib/game-video-games";
 
 import { describeError } from "@/lib/describe-error";
 import { InFlightGate } from "@/lib/in-flight";
@@ -52,7 +52,7 @@ import { isLeaderboardClipGame, normalizeRunScore } from "./games";
 import { isClipId, newClipId } from "./ids";
 import { inspectClipMp4 } from "./mp4";
 import { cleanPoster } from "./poster";
-import type { BoardSlot, ClipRow, ClipStore, ClipWithOwner } from "./store";
+import type { PublicationSlot, ClipRow, ClipStore, ClipWithOwner } from "./store";
 
 /**
  * The uploads that this server process reads at the same time. Each upload
@@ -106,6 +106,7 @@ const MESSAGES: Record<LeaderboardClipErrorCode, string> = {
   clips_off: "Leaderboard videos are off.",
   wrong_origin: "Wrong origin.",
   sign_in: "Please sign in.",
+  owner_changed: "Your account changed. Open sharing again.",
   too_big: "The upload is too big.",
   timeout: "The upload took too long.",
   daily_limit: "That is all the videos for today. Try again tomorrow.",
@@ -114,7 +115,6 @@ const MESSAGES: Record<LeaderboardClipErrorCode, string> = {
   too_many_reports: "Too many reports. Try again later.",
   bad_form: "The upload form is not complete.",
   bad_game: "This game cannot put a video on the leaderboard.",
-  no_board_entry: "You are not on this game's leaderboard yet.",
   bad_score: "The run score is not valid.",
   bad_video: "The video did not pass the checks.",
   bad_poster: "The picture did not pass the checks.",
@@ -230,6 +230,23 @@ export function handleConfig(deps: Pick<ClipDeps, "config">): Response {
   return json(body);
 }
 
+/** Public, unranked shared runs. Owner state remains removable when sharing is off. */
+export async function handleRuns(appId: string, deps: ClipDeps): Promise<Response> {
+  if (!isLeaderboardClipGame(appId)) return fail(400, "bad_game");
+  const config = deps.config();
+  const userId = await deps.userId();
+  try {
+    const runs = config.enabled ? await deps.store.publicRuns(appId, 50) : [];
+    const own = userId && config.bucket ? await deps.store.ownClip(userId, appId) : null;
+    return json({ enabled: config.enabled, runs: runs.map(({ handle, clip }) => ({
+      handle, clip: { id: clip.id, runScore: clip.runScore, durationMs: clip.durationMs, width: clip.width, height: clip.height },
+    })), myClip: userId ? { clipStatus: own?.status ?? "none", clip: own ? myClipOf(own) : null } : null });
+  } catch (error) {
+    console.error(`${LOG} shared runs lookup failed:`, describeError(error));
+    return fail(500, "server_error");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/leaderboard-clips
 // ---------------------------------------------------------------------------
@@ -243,13 +260,14 @@ interface UploadOutcome {
 export async function handleUpload(meta: ClipRequestMeta, readUpload: ClipBodyReader, deps: ClipDeps): Promise<Response> {
   // Order: the checks that need no body (the headers, the game in the URL),
   // then the account's slot (the daily limit and one at a time), then the
-  // player's board row, then a place in this server's gate, then the body.
+  // publishing profile, then a place in this server's gate, then the body.
   // A refusal before the gate reads no body at all.
   if (!isSameOriginRequest(meta)) return fail(403, "wrong_origin");
   const config = deps.config();
   if (!config.enabled) return fail(503, "clips_off");
   const userId = await deps.userId();
   if (!userId) return fail(401, "sign_in");
+  if (meta.headers.get("x-hh-expected-owner") !== userId) return fail(409, "owner_changed");
 
   // A Content-Length over the limit, and the form type, are refused before
   // the body is read. The limit is counted again while the body arrives.
@@ -258,7 +276,7 @@ export async function handleUpload(meta: ClipRequestMeta, readUpload: ClipBodyRe
   if (length !== null && Number(length) > MAX_UPLOAD_REQUEST_BYTES) return fail(413, "too_big");
   const boundary = uploadBoundary(meta.headers.get("content-type") ?? "");
   if (!boundary) return fail(400, "bad_form");
-  // The game is in the URL too, so the board row is checked before the body.
+  // The game is in the URL too, so eligibility is checked before the body.
   const appId = new URL(meta.url).searchParams.get(UPLOAD_QUERY.appId);
   if (appId === null) return fail(400, "bad_form");
   if (!isLeaderboardClipGame(appId)) return fail(400, "bad_game");
@@ -282,21 +300,13 @@ export async function handleUpload(meta: ClipRequestMeta, readUpload: ClipBodyRe
   let counts = false;
   let entered = false;
   try {
-    // The player must be on the game's board (spec section 1). The board row
-    // also means the gaming profile exists: an upload never makes one. It is
-    // checked before the gate, so an account with no board row never takes
-    // a place and sends no body.
-    let board: BoardSlot | null;
+    // First-time publishers get a generated gaming identity, without a score row.
+    let board: PublicationSlot;
     try {
-      board = await deps.store.boardSlot(userId, appId);
+      board = await deps.store.publicationSlot(userId, appId);
     } catch (error) {
-      console.error(`${LOG} upload board lookup failed: game=${appId}`, describeError(error));
+      console.error(`${LOG} upload profile lookup failed: game=${appId}`, describeError(error));
       return fail(500, "server_error");
-    }
-    if (!board) {
-      console.warn(`${LOG} upload rejected: game=${appId} no_board_entry`);
-      counts = true;
-      return fail(409, "no_board_entry");
     }
 
     entered = deps.uploadGate.tryEnter(client);
@@ -328,9 +338,9 @@ export async function handleUpload(meta: ClipRequestMeta, readUpload: ClipBodyRe
 /** What handleUpload checked before the body. */
 interface UploadTarget {
   /** A clip game (isLeaderboardClipGame passed). */
-  appId: ValidAppId;
+  appId: GameVideoId;
   boundary: string;
-  board: BoardSlot;
+  board: PublicationSlot;
 }
 
 async function storeUpload(
@@ -365,13 +375,13 @@ async function storeUpload(
   const rawScore = form.get(UPLOAD_FIELDS.runScore);
   const video = form.get(UPLOAD_FIELDS.video);
   const poster = form.get(UPLOAD_FIELDS.poster);
-  if (typeof formAppId !== "string" || typeof rawScore !== "string" || !(video instanceof Blob) || !(poster instanceof Blob)) {
+  if (typeof formAppId !== "string" || (rawScore !== null && typeof rawScore !== "string") || !(video instanceof Blob) || !(poster instanceof Blob)) {
     return rejected(fail(400, "bad_form"));
   }
-  // The form names the same game as the URL (the board row was checked for that one).
+  // The form must name the same game whose eligibility was already checked.
   if (formAppId !== appId) return rejected(fail(400, "bad_form"));
-  const runScore = normalizeRunScore(appId, rawScore);
-  if (runScore === null) return rejected(fail(400, "bad_score"));
+  const runScore = rawScore === null ? null : normalizeRunScore(appId, rawScore);
+  if (rawScore !== null && runScore === null) return rejected(fail(400, "bad_score"));
   if (video.size > LEADERBOARD_CLIP_LIMITS.maxVideoBytes || poster.size > LEADERBOARD_CLIP_LIMITS.maxPosterBytes) {
     return rejected(fail(413, "too_big"));
   }
@@ -457,6 +467,7 @@ async function storeUpload(
   const body: UploadLeaderboardClipResponse = {
     clip: { ...myClipOf(row), status: "public" },
     replaced: replacedId !== null,
+    publicListing: slot.publicListing,
   };
   return { response: json(body, 201), counts: true };
 }
@@ -488,11 +499,10 @@ async function afterReplaceError(
 
 /**
  * True when anybody may see the clip: public, of a player who shows on the
- * leaderboards and has a row on the game's board (where a viewer can see
- * the clip, and report it).
+ * shared runs. Ranking and score-board membership do not decide visibility.
  */
 function visibleToAll(found: ClipWithOwner): boolean {
-  return found.clip.status === "public" && found.showOnLeaderboards && found.onBoard;
+  return found.clip.status === "public" && found.showOnLeaderboards;
 }
 
 export async function handleMedia(
@@ -512,7 +522,7 @@ export async function handleMedia(
   }
   if (!found) return fail(404, "not_found");
   if (!visibleToAll(found)) {
-    // Only the owner sees a clip that is not on the leaderboard. An admin
+    // Only the owner sees a hidden clip or a private profile's clip. An admin
     // (ADMIN_USER_IDS) can only delete any clip (D8), so an admin gets the
     // same 404 as everybody else here.
     const userId = await deps.userId();
@@ -628,6 +638,7 @@ export async function handleDelete(meta: ClipRequestMeta, readDelete: ClipBodyRe
   if (!config.bucket) return fail(503, "clips_off");
   const userId = await deps.userId();
   if (!userId) return fail(401, "sign_in");
+  if (meta.headers.get("x-hh-expected-owner") !== userId) return fail(409, "owner_changed");
   const body = await readDeleteBody(meta, readDelete).catch(() => null);
   if (!body) return fail(400, "bad_request");
   if (!isClipId(id)) return fail(404, "not_found");

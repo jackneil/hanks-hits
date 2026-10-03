@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -16,6 +18,7 @@ import {
   AUDIO_SHIM_GLOBAL,
   AUDIO_SHIM_VERSION,
   buildAudioShimSource,
+  withGameAudioShim,
   type RealmAudioBus,
   type RealmAudioBusEntry,
 } from "../audioShim";
@@ -238,5 +241,22 @@ describe("buildAudioShimSource", () => {
     runShim(realm);
     expect(window.AudioContext).toBe(pageClass);
     expect((window as unknown as FakeRealm)[AUDIO_SHIM_GLOBAL]).toBeUndefined();
+  });
+});
+
+
+describe("game document audio shim injection", () => {
+  it("places the exact shim before every original script and does not duplicate it", () => {
+    const original = '<!doctype html><html><head><meta charset="utf-8"><script>window.gameStarts();</script></head><body></body></html>';
+    const result = withGameAudioShim(original);
+    expect(result).toContain(`<head><script>${buildAudioShimSource()}</script>`);
+    expect(result.indexOf(AUDIO_SHIM_END_MARKER)).toBeLessThan(result.indexOf("window.gameStarts"));
+    expect(withGameAudioShim(result)).toBe(result);
+  });
+
+  it("keeps the static emulator's first script identical to the reviewed shim", () => {
+    const html = readFileSync(path.resolve(__dirname, "../../../../../public/emulator/index.html"), "utf8");
+    const firstScript = html.match(/<script[^>]*>([\s\S]*?)<\/script>/i)?.[1];
+    expect(firstScript).toBe(buildAudioShimSource());
   });
 });

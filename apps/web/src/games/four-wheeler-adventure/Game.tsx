@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useDiscoveredRunClips } from "@/shared/clips";
+import { withGameAudioShim } from "@/shared/lib/audio/audioShim";
+
 import { GameStartOverlay } from "@/shared/components";
 
 interface FourWheelerAdventureGameProps {
@@ -54,8 +57,10 @@ export function FourWheelerAdventureGame({
   // A restart keeps hasStarted true, so it drops straight back into play.
   const [hasStarted, setHasStarted] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const captureRoot = useRef<HTMLDivElement>(null);
   const isReady = loadedRestartNonce === restartNonce;
   const playing = hasStarted && isReady && gameHtml !== null;
+  useDiscoveredRunClips(captureRoot, { phase: !playing ? "idle" : paused ? "hold" : "playing", runId: restartNonce, score: 0, best: 0 });
 
   useEffect(() => {
     onPlayingChange?.(playing);
@@ -94,7 +99,7 @@ export function FourWheelerAdventureGame({
       })
       .then((html) => {
         if (!cancelled) {
-          setGameHtml(html);
+          setGameHtml(withGameAudioShim(html));
           setLoadedRestartNonce(restartNonce);
         }
       })
@@ -108,7 +113,7 @@ export function FourWheelerAdventureGame({
   }, [restartNonce]);
 
   return (
-    <div className="absolute inset-0 bg-[#1f6b3a]">
+    <div ref={captureRoot} className="absolute inset-0 bg-[#1f6b3a]">
       {hasStarted && !isReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#1f6b3a] z-10">
           <div className="text-6xl mb-4 animate-bounce">🐕</div>

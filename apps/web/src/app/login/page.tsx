@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signInWithCredentials, signInWithGoogle } from "@/lib/auth-client";
+import { safeReturnTo } from "@/shared/clips/ui/clipPublishing";
 import { Header } from "@/shared/components/Header";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [returnTo, setReturnTo] = useState("/");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -17,7 +19,9 @@ export default function LoginPage() {
   // Signup redirects here with ?message=... (e.g. "Account created! Please
   // sign in.") — read it client-side so the static page needs no Suspense.
   useEffect(() => {
-    const message = new URLSearchParams(window.location.search).get("message");
+    const params = new URLSearchParams(window.location.search);
+    setReturnTo(safeReturnTo(params.get("returnTo")));
+    const message = params.get("message");
     if (message) setNotice(message);
   }, []);
 
@@ -32,7 +36,7 @@ export default function LoginPage() {
       if (result?.error) {
         setError("Invalid email or password");
       } else {
-        router.push("/");
+        router.push(returnTo);
         router.refresh();
       }
     } catch {
@@ -47,7 +51,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await signInWithGoogle("/");
+      await signInWithGoogle(returnTo);
     } catch {
       setError("Google login failed. Please try again.");
       setLoading(false);

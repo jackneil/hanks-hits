@@ -26,20 +26,39 @@ const GAME_TEST_FILE = "src/games/fixture-game/__tests__/Game.test.tsx";
  * A legacy audio file: the touch ban must still apply there. It comes from
  * the list, so it stays a legacy file when a game moves onto the bus.
  */
-const LEGACY_AUDIO_FILE = LEGACY_AUDIO_SITE_PATHS.find((file) => file.endsWith(".tsx"));
+const LEGACY_AUDIO_FILE = LEGACY_AUDIO_SITE_PATHS.find((file) => /\.[jt]sx?$/.test(file));
 
 let eslint: ESLint;
+let legacyEslint: ESLint;
 
-beforeAll(() => {
+beforeAll(async () => {
   eslint = new ESLint({
     cwd: WEB_ROOT,
     overrideConfigFile: path.join(WEB_ROOT, "eslint.config.mjs"),
   });
+  expect(LEGACY_AUDIO_FILE, "the legacy list must name a JavaScript or TypeScript file").toBeDefined();
+  // Remaining legacy audio modules can be plain .ts stores. Resolve the
+  // REAL file's complete config, then give these JSX fixtures a TSX parser
+  // filename. A synthetic legacy path would miss the exact-path exemption.
+  const legacyConfig = await eslint.calculateConfigForFile(path.join(WEB_ROOT, LEGACY_AUDIO_FILE!));
+  expect(legacyConfig).toBeDefined();
+  legacyEslint = new ESLint({
+    cwd: WEB_ROOT,
+    overrideConfigFile: true,
+    overrideConfig: [{ ...legacyConfig, language: "@/js", files: ["**/*.tsx"] }],
+  });
 });
 
+async function lint(code: string, filePath: string) {
+  const engine = filePath === LEGACY_AUDIO_FILE ? legacyEslint : eslint;
+  const fixturePath = filePath === LEGACY_AUDIO_FILE ? "src/fixture-legacy-audio.tsx" : filePath;
+  const [result] = await engine.lintText(code, { filePath: path.join(WEB_ROOT, fixturePath) });
+  expect(result.messages.filter((message) => message.fatal), "the fixture must parse").toEqual([]);
+  return result.messages;
+}
+
 async function touchMessages(code: string, filePath: string): Promise<string[]> {
-  const [result] = await eslint.lintText(code, { filePath: path.join(WEB_ROOT, filePath) });
-  return result.messages
+  return (await lint(code, filePath))
     .filter((m) => m.ruleId === "no-restricted-syntax")
     .map((m) => m.message)
     .filter((m) => m === DOUBLE_PATH_MESSAGE || m === PASSIVE_PREVENT_DEFAULT_MESSAGE);
@@ -106,7 +125,7 @@ describe("hanks-hits/touch-input ESLint rule", () => {
   });
 
   it("still applies to the legacy audio files", async () => {
-    expect(LEGACY_AUDIO_FILE, "the legacy list must name a .tsx file").toBeDefined();
+    expect(LEGACY_AUDIO_FILE, "the legacy list must name a JavaScript or TypeScript file").toBeDefined();
     expect(LEGACY_AUDIO_SITE_PATHS).toContain(LEGACY_AUDIO_FILE);
     const messages = await touchMessages(
       COMPONENT(`<canvas onClick={act} onTouchStart={act} />`),
@@ -126,8 +145,7 @@ export function Fixture({ act }: { act: () => void }) {
   return <canvas onClick={act} onTouchStart={act} />;
 }
 `;
-    const [result] = await eslint.lintText(code, { filePath: path.join(WEB_ROOT, LEGACY_AUDIO_FILE!) });
-    const messages = result.messages.filter((m) => m.ruleId === "no-restricted-syntax").map((m) => m.message);
+    const messages = (await lint(code, LEGACY_AUDIO_FILE!)).filter((m) => m.ruleId === "no-restricted-syntax").map((m) => m.message);
     expect(messages).toEqual([DOUBLE_PATH_MESSAGE]);
     expect(messages.some((m) => m.startsWith(AUDIO_BUS_MESSAGE))).toBe(false);
   });

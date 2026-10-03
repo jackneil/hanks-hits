@@ -1,5 +1,10 @@
 "use client";
 
+import { useSemanticClips } from "@/shared/clips/replay/useSemanticClips";
+import { paint2048 } from "./lib/clipRenderer";
+import { useShellHold } from "@/shared/hooks/useShellHold";
+
+
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { GameStartOverlay } from "@/shared/components/GameStartOverlay";
@@ -137,6 +142,8 @@ export function Game2048() {
 
   const over = status === "game-over";
   const wonCard = status === "won" && !keepPlaying;
+  const clipHeld = useShellHold();
+  useSemanticClips(store, paint2048, { phase: !hasStarted || over || wonCard ? "idle" : clipHeld ? "hold" : "playing", runId: store.clipRunId, score: store.score, best: store.highScore });
 
   // Sync with auth system
   const { forceSync } = useAuthSync({

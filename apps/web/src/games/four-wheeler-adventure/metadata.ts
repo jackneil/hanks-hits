@@ -4,6 +4,7 @@ export const metadata: GameMetadata = {
   id: "four-wheeler-adventure",
   name: "Four-Wheeler Adventure",
   emoji: "🐕",
+  clips: true,
   category: "racing",
   description: "Ride, hunt, fish & race in a huge open world",
   madeByKid: true,

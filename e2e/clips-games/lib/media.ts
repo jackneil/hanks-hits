@@ -256,6 +256,28 @@ export function withoutHud(frame: GrayFrame): GrayFrame {
 }
 
 /**
+ * Semantic sources are exactly 640x720. Measure the real board rectangle
+ * through the compositor's actual fit, excluding each renderer's changing
+ * title/status/footer. Cookie Clicker uses its cookie face, not its counters.
+ */
+export function semanticBoardPicture(frame: GrayFrame, id: string): GrayFrame {
+  const boardGames = ["2048", "chess", "checkers", "quoridor", "wordle", "memory-match"];
+  const area = id === "cookie-clicker" ? { x: 58, y: 133, w: 284, h: 284 }
+    : boardGames.includes(id) ? { x: 32, y: 96, w: 576, h: 576 } : null;
+  if (!area) return withoutHud(frame);
+  const { width, height } = frame;
+  const { content } = computeLayout({ width, height, targetFps: 30, orientation: width >= height ? "wide" : "tall" }, 640, 720);
+  const x0 = Math.ceil(content.x + area.x * content.w / 640);
+  const x1 = Math.floor(content.x + (area.x + area.w) * content.w / 640);
+  const y0 = Math.ceil(content.y + area.y * content.h / 720);
+  const y1 = Math.floor(content.y + (area.y + area.h) * content.h / 720);
+  const pixels = Buffer.alloc(width * height);
+  const gameplay = withoutHud(frame);
+  for (let y = y0; y < y1; y++) gameplay.pixels.copy(pixels, y * width + x0, y * width + x0, y * width + x1);
+  return { width, height, pixels };
+}
+
+/**
  * Decodes the stretch from `fromSec` to `toSec` (the end when null), `fps`
  * frames a second, as 8-bit gray, and hands each frame to `onFrame` with
  * its time in the clip. One frame is in memory at a time. Gives the number

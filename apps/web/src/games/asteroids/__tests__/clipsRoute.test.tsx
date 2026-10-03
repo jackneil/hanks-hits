@@ -25,7 +25,7 @@ const service = vi.hoisted(() => ({ current: null as unknown }));
 vi.mock("@/shared/clips/service/ClipService", () => ({ startClipService: () => service.current }));
 
 import { createFakeClipService } from "@/shared/clips/ui/__tests__/fakeClipService";
-import { RESULT_ACTION_COPY, watchRunLabel, wholeRunLabel } from "@/shared/clips/ui/copy";
+import { RESULT_ACTION_COPY, SHARING_COPY, watchRunLabel, wholeRunLabel } from "@/shared/clips/ui/copy";
 import { DEFAULT_RESTART_GRACE_MS } from "@/shared/lib/input";
 
 import { AsteroidsGameShell } from "../AsteroidsGameShell";
@@ -73,7 +73,7 @@ describe("Asteroids with clips on (plan 11.4, decision D1)", () => {
     act(() => useAsteroidsStore.getState().gameOver());
 
     const chip = await screen.findByTestId("result-chip");
-    expect(chipClipLabels(chip)).toEqual([RESULT_ACTION_COPY.watchEnd, wholeRunLabel("0:42")]);
+    expect(chipClipLabels(chip)).toEqual([SHARING_COPY.putItOnTheLeaderboard, RESULT_ACTION_COPY.watchEnd, wholeRunLabel("0:42")]);
     // Shown once: the game adds no clip buttons of its own.
     expect(document.querySelectorAll('[data-testid="result-chip-clip-actions"]')).toHaveLength(1);
 
@@ -105,7 +105,7 @@ describe("Asteroids with clips on (plan 11.4, decision D1)", () => {
     act(() => useAsteroidsStore.getState().gameOver());
     const endUs = fake.captureUs();
     const chip = await screen.findByTestId("result-chip");
-    expect(chipClipLabels(chip)).toEqual([watchRunLabel("0:16")]);
+    expect(chipClipLabels(chip)).toEqual([SHARING_COPY.putItOnTheLeaderboard, watchRunLabel("0:16")]);
 
     clock += DEFAULT_RESTART_GRACE_MS;
     const watch = within(chip).getByRole("button", { name: watchRunLabel("0:16") });

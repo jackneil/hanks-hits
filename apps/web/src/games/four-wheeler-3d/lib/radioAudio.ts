@@ -1,10 +1,12 @@
+import { getGameAudio, type GameAudioChannel } from "@/shared/lib/audio";
 /** Optional radio owns and releases its nodes; a failed audio device never breaks the game. */
 export function startRadio(
   notes: readonly number[],
   wave: OscillatorType,
   unavailable: () => void,
 ) {
-  let context: AudioContext | null = null,
+  let context: BaseAudioContext | null = null,
+    channel: GameAudioChannel | null = null,
     timer: ReturnType<typeof setInterval> | undefined;
   let stopped = false,
     beat = 0;
@@ -21,13 +23,8 @@ export function startRadio(
       }
     });
     nodes.clear();
-    if (context) {
-      try {
-        void context.close().catch(() => {});
-      } catch {
-        /* Device already closed. */
-      }
-    }
+    channel?.dispose();
+    channel = null;
   };
   const fail = () => {
     if (stopped) return;
@@ -35,7 +32,7 @@ export function startRadio(
     unavailable();
   };
   const play = () => {
-    if (stopped || !context) return;
+    if (stopped || !context || !channel) return;
     try {
       const oscillator = context.createOscillator();
       nodes.add(oscillator);
@@ -48,7 +45,7 @@ export function startRadio(
       gain.gain.linearRampToValueAtTime(0.06, time + 0.03);
       gain.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
       oscillator.connect(gain);
-      gain.connect(context.destination);
+      gain.connect(channel.input);
       oscillator.onended = () => {
         oscillator.disconnect();
         gain.disconnect();
@@ -62,8 +59,11 @@ export function startRadio(
     }
   };
   try {
-    context = new AudioContext();
-    void context
+    const audio = getGameAudio();
+    if (!audio) throw new Error("Game audio unavailable");
+    channel = audio.channel("four-wheeler-3d:radio");
+    context = channel.context;
+    void (context as AudioContext)
       .resume()
       .then(() => {
         if (stopped) return;

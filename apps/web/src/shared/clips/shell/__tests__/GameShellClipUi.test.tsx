@@ -1,15 +1,14 @@
 /**
  * The clip UI in the real GameShell (plan 4.1, 11.2, 11.4).
  *
- * - A module without clips: true, and a clip-enabled module while the flag is
- *   off, load NO clip code: the dynamic imports of the service and of the clip
- *   UI never run (their module factories are counted), and the shell renders
- *   what it rendered before clips: no clip slot, no toast slot, no pause-menu
- *   entry.
+ * - Modules without clips: true and flag-disabled games do not load the capture
+ *   service or runtime UI, or mount clip/header toast slots. Registered games
+ *   still offer a sharing entry that explains when capture is unavailable;
+ *   non-game apps do not offer gameplay sharing.
  * - With the flag on, the clip button takes the header's clip slot, the
  *   in-play confirmation lies in the title region, the toast slot and the clip
  *   sheets portal to document.body at their z-levels, the pause menu gets the
- *   "Clips" entry and says it out loud, and a ResultChip in the game shows the
+ *   "Share gameplay" entry and says it out loud, and a ResultChip in the game shows the
  *   clip buttons and says them too.
  * - The game under the shell never remounts when the clip UI arrives.
  *
@@ -28,7 +27,7 @@ vi.mock("@/shared/lib/gameMetadata.generated", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/shared/lib/gameMetadata.generated")>();
   return {
     ...actual,
-    getGameMetadata: (appId: string) => ({ ...actual.getGameMetadata(appId), clips: appId === "clip-game", icon: "🎯" }),
+    getGameMetadata: (appId: string) => ({ ...actual.getGameMetadata(appId), clips: appId === "asteroids", icon: "🎯" }),
   };
 });
 
@@ -53,12 +52,12 @@ vi.mock("../../ui/shellParts", async (importOriginal) => {
 import { GameShell } from "@/shared/components/GameShell";
 import { ResultChip } from "@/shared/components/ResultChip";
 import { loadClipsVerdict } from "../../config";
-import { MENU_COPY, PAUSE_ENTRY_LABEL, RESULT_ACTION_COPY, watchRunLabel } from "../../ui/copy";
+import { MENU_COPY, PAUSE_ENTRY_LABEL, RESULT_ACTION_COPY, SHARING_COPY, watchRunLabel } from "../../ui/copy";
 import { createFakeClipService, type FakeClipService } from "../../ui/__tests__/fakeClipService";
 import { pointer } from "../../ui/__tests__/renderClips";
 
 function useFakeService(): FakeClipService {
-  const fake = createFakeClipService({ snapshot: { appId: "clip-game" } });
+  const fake = createFakeClipService({ snapshot: { appId: "asteroids" } });
   // ClipProvider also calls refreshGame (the ClipService extra).
   loads.current = { ...fake.service, refreshGame: vi.fn() };
   return fake;
@@ -112,11 +111,11 @@ afterEach(() => {
   delete HTMLElement.prototype.animate;
 });
 
-describe("pages with clips off load no clip code (plan 4.1)", () => {
-  it("a module without clips: true: no flag read, no service, no clip UI, no clip slot", async () => {
+describe("pages with clips off load no capture runtime (plan 4.1)", () => {
+  it("a non-game app: no flag read, service, runtime UI, or gameplay sharing", async () => {
     useFakeService();
     render(
-      <GameShell appId="breakout" gameName="Breakout">
+      <GameShell appId="weather" gameName="Weather">
         <GameBody />
       </GameShell>,
     );
@@ -130,11 +129,11 @@ describe("pages with clips off load no clip code (plan 4.1)", () => {
     expect(within(screen.getByTestId("pause-menu")).queryByText(PAUSE_ENTRY_LABEL)).toBeNull();
   });
 
-  it("a clip-enabled module while the flag is off: the flag is read, and nothing else loads", async () => {
+  it("a flag-disabled game explains sharing availability without loading capture", async () => {
     flag.verdict = { mode: "off", capture: false };
     useFakeService();
     render(
-      <GameShell appId="clip-game" gameName="Clip Game">
+      <GameShell appId="asteroids" gameName="Asteroids">
         <GameBody />
       </GameShell>,
     );
@@ -145,12 +144,31 @@ describe("pages with clips off load no clip code (plan 4.1)", () => {
     expect(screen.queryByTestId("header-clip-slot")).toBeNull();
     expect(document.querySelector('[data-testid="clip-toast-slot"]')).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
-    expect(within(screen.getByTestId("pause-menu")).queryByText(PAUSE_ENTRY_LABEL)).toBeNull();
+    const entry = await within(screen.getByTestId("pause-menu")).findByRole("button", { name: PAUSE_ENTRY_LABEL });
+    fireEvent.click(entry);
+    expect(await screen.findByRole("dialog", { name: SHARING_COPY.shareGameplay })).toHaveTextContent(SHARING_COPY.gameplayCaptureIsNotReadyOnThis);
+    expect(loads.service).toBe(0);
+    expect(loads.parts).toBe(0);
+  });
+
+  it("a registered game without capture metadata keeps sharing discoverable without loading capture", async () => {
+    useFakeService();
+    render(<GameShell appId="breakout" gameName="Breakout"><GameBody /></GameShell>);
+    await settleImports();
+    expect(loadClipsVerdict).not.toHaveBeenCalled();
+    expect(loads.service).toBe(0);
+    expect(loads.parts).toBe(0);
+    expect(screen.queryByTestId("header-clip-slot")).toBeNull();
+    expect(screen.queryByTestId("clip-toast-slot")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: SHARING_COPY.shareGameplay }));
+    expect(await screen.findByRole("dialog", { name: SHARING_COPY.shareGameplay })).toHaveTextContent(SHARING_COPY.gameplayCaptureIsNotReadyOnThis);
+    expect(loads.service).toBe(0);
+    expect(loads.parts).toBe(0);
   });
 
   it("a ResultChip in a game without clips shows no clip buttons", async () => {
     render(
-      <GameShell appId="breakout" gameName="Breakout">
+      <GameShell appId="weather" gameName="Weather">
         <ResultChip resultText="Game over!" onRestart={vi.fn()} graceMs={0} />
       </GameShell>,
     );
@@ -164,7 +182,7 @@ describe("GameShell with clips on", () => {
   it("puts the clip button in the header's clip slot, and the game never remounts", async () => {
     useFakeService();
     render(
-      <GameShell appId="clip-game" gameName="Clip Game">
+      <GameShell appId="asteroids" gameName="Asteroids">
         <GameBody />
       </GameShell>,
     );
@@ -187,7 +205,7 @@ describe("GameShell with clips on", () => {
   it("a tap clips: the confirmation lies in the title region and the new-clip chip portals to the toast slot (z-1050)", async () => {
     const fake = useFakeService();
     render(
-      <GameShell appId="clip-game" gameName="Clip Game">
+      <GameShell appId="asteroids" gameName="Asteroids">
         <GameBody />
       </GameShell>,
     );
@@ -215,18 +233,18 @@ describe("GameShell with clips on", () => {
     expect(within(toastSlot).getByTestId("clip-new-chip")).toBeInTheDocument();
   });
 
-  it("the pause menu shows the Clips entry, says it out loud, and opens the Capture menu above it (z-2500, in document.body)", async () => {
+  it("the pause menu shows the Share gameplay entry, says it out loud, and opens the Capture menu above it (z-2500, in document.body)", async () => {
     const synth = installSpeechMock();
     useFakeService();
     render(
-      <GameShell appId="clip-game" gameName="Clip Game">
+      <GameShell appId="asteroids" gameName="Asteroids">
         <GameBody />
       </GameShell>,
     );
     await clipUiLoaded();
     fireEvent.click(screen.getByRole("button", { name: "Pause game" }));
     const menu = screen.getByTestId("pause-menu");
-    const entry = within(menu).getByTestId("clips-pause-entry");
+    const entry = await within(menu).findByRole("button", { name: PAUSE_ENTRY_LABEL });
     expect(entry).toHaveTextContent(PAUSE_ENTRY_LABEL);
 
     fireEvent.click(within(menu).getByTestId("read-aloud-button"));
@@ -257,7 +275,7 @@ describe("GameShell with clips on", () => {
       );
     }
     render(
-      <GameShell appId="clip-game" gameName="Clip Game">
+      <GameShell appId="asteroids" gameName="Asteroids">
         <ResultGame />
       </GameShell>,
     );
@@ -269,8 +287,8 @@ describe("GameShell with clips on", () => {
     const chip = screen.getByTestId("result-chip");
     const actions = within(chip).getByTestId("result-chip-clip-actions");
     const labels = Array.from(actions.querySelectorAll("[data-action]")).map((el) => el.textContent?.trim());
-    // A run of 30 s or less: one clip button (decision D1). Record and Take a picture stay in the Capture menu.
-    expect(labels).toEqual([watchRunLabel("0:20")]);
+    // A short run offers explicit publishing and one local watch action. Recording stays in the Capture menu.
+    expect(labels).toEqual([SHARING_COPY.putItOnTheLeaderboard, watchRunLabel("0:20")]);
 
     fireEvent.click(within(chip).getByTestId("read-aloud-button"));
     const spoken = synth.lastUtterance().text;
@@ -278,6 +296,7 @@ describe("GameShell with clips on", () => {
     // The voice says the length in words, after the chip's own buttons.
     const watchSpoken = `${RESULT_ACTION_COPY.watchRun}, 20 seconds`;
     expect(spoken.split(watchSpoken)).toHaveLength(2); // said once
+    expect(spoken.split(SHARING_COPY.putItOnTheLeaderboard)).toHaveLength(2);
     expect(spoken).not.toContain("0:20");
     expect(spoken.indexOf("Play again")).toBeLessThan(spoken.indexOf(watchSpoken));
   });

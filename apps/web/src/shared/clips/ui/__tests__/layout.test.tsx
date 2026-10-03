@@ -183,18 +183,15 @@ describe.each(VIEWPORTS)("clip UI at %ix%i", (width, height) => {
       expect(button.className).toContain("whitespace-normal");
       expect(button.className).toMatch(/(^|\s)min-h-14(\s|$)/);
     }
-    // The clip takes the free space between the title row and the buttons
-    // (decision D3): its box grows, and the video fills the box, centered.
-    // It is positioned in the box, so its own size never pushes the buttons
-    // off a short screen.
+    // The publishing panel can exceed the available height. Keep the player
+    // and its native controls in one nonshrinking box; the dialog scrolls.
+    // The browser gate verifies actual control hit targets (jsdom has no layout).
     const media = screen.getByTestId("clip-viewer-media").className.split(/\s+/);
-    expect(media).toEqual(expect.arrayContaining(["max-sm:flex-1", "min-h-40", "relative", "items-center", "justify-center"]));
+    expect(media).toEqual(expect.arrayContaining(["shrink-0", "h-[clamp(10rem,40dvh,25rem)]", "relative", "items-center", "justify-center"]));
     const video = screen.getByTestId("clip-viewer-video").className.split(/\s+/);
-    expect(video).toEqual(expect.arrayContaining(["max-sm:absolute", "max-sm:inset-0", "max-sm:h-full", "w-full", "object-contain"]));
-    // A wider screen keeps the dialog's size: the clip is at most half the screen high.
-    expect(video).toContain("sm:max-h-[50dvh]");
-    expect(video).not.toContain("max-h-[50dvh]");
-    // The buttons stay pinned below the clip.
+    expect(video).toEqual(expect.arrayContaining(["absolute", "inset-0", "h-full", "w-full", "object-contain"]));
+    expect(screen.getByTestId("clip-viewer-actions").className.split(/\s+/)).toContain("shrink-0");
+    // Actions follow the entire player in the scroll area.
     expect(screen.getByTestId("clip-viewer-media").nextElementSibling).toBe(screen.getByTestId("clip-viewer-actions"));
   });
 
@@ -207,8 +204,8 @@ describe.each(VIEWPORTS)("clip UI at %ix%i", (width, height) => {
     fireEvent.click(screen.getByTestId("open-viewer"));
     await flush();
     const picture = screen.getByTestId("clip-viewer-picture").className.split(/\s+/);
-    expect(picture).toEqual(expect.arrayContaining(["max-sm:absolute", "max-sm:inset-0", "max-sm:h-full", "object-contain", "sm:max-h-[50dvh]"]));
-    expect(screen.getByTestId("clip-viewer-media").className.split(/\s+/)).toContain("max-sm:flex-1");
+    expect(picture).toEqual(expect.arrayContaining(["absolute", "inset-0", "h-full", "object-contain"]));
+    expect(screen.getByTestId("clip-viewer-media").className.split(/\s+/)).toContain("shrink-0");
   });
 
   it("lays the clip list out in two columns that shrink", async () => {

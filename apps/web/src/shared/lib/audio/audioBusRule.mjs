@@ -120,19 +120,9 @@ export const AUDIO_BUS_RESTRICTED_SYNTAX = Object.freeze([
  * @type {Readonly<Record<string, number>>}
  */
 export const LEGACY_AUDIO_SITES = Object.freeze({
-  // 3D games. Four-Wheeler 3D has four contexts and closes three of them.
-  "src/games/monster-truck/lib/sounds.ts": 14,
-  "src/games/four-wheeler-3d/components/Hunting.tsx": 3,
-  "src/games/four-wheeler-3d/components/TransportActions.tsx": 2,
-  "src/games/four-wheeler-3d/lib/radioAudio.ts": 2,
-  "src/games/four-wheeler-3d/lib/sounds.ts": 6,
   // Apps with sound and no start card.
   "src/apps/drum-machine/lib/store.ts": 4,
   "src/apps/virtual-pet/lib/store.ts": 4,
-  // Iframe realm (a static HTML game; the source-scan test covers it, ESLint
-  // does not read HTML). Its file stays as Hank wrote it. When its host
-  // prepends buildAudioShimSource(), move it to SHIMMED_REALM_DOCUMENTS.
-  "public/games/four-wheeler-adventure/index.html": 7,
 });
 
 /** The paths of LEGACY_AUDIO_SITES, for the ESLint ignore list. */
@@ -150,4 +140,6 @@ export const LEGACY_AUDIO_SITE_PATHS = Object.freeze(Object.keys(LEGACY_AUDIO_SI
  *
  * @type {Readonly<Record<string, string>>}
  */
-export const SHIMMED_REALM_DOCUMENTS = Object.freeze({});
+export const SHIMMED_REALM_DOCUMENTS = Object.freeze({
+  "public/games/four-wheeler-adventure/index.html": "src/games/four-wheeler-adventure/Game.tsx",
+});

@@ -33,6 +33,8 @@ export type Game2048Progress = {
 
 // Current game state
 export type GameState = {
+  /** Transient recording boundary, never part of saved progress. */
+  clipRunId: number;
   // Grid and tiles
   grid: number[][];
 
@@ -93,6 +95,7 @@ export const use2048Store = create<GameState & GameActions>()(
   persist(
     (set, get) => ({
       // Initial state
+      clipRunId: 0,
       grid: initializeGrid(),
       score: 0,
       highScore: 0,
@@ -178,6 +181,7 @@ export const use2048Store = create<GameState & GameActions>()(
         const newGamesPlayed = state.gamesPlayed + 1;
 
         set({
+          clipRunId: get().clipRunId + 1,
           grid: initializeGrid(),
           score: 0,
           status: "playing",

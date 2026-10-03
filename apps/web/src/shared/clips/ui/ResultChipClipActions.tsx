@@ -1,4 +1,5 @@
 "use client";
+import { SHARING_COPY } from "./copy";
 
 /**
  * The clip buttons of the result chip (plan 11.4, decision D1). ResultChip
@@ -35,8 +36,9 @@
  * so the game's own keys (Space for "play again") still reach the game.
  */
 
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type React from "react";
+import { subscribeToNothing } from "./platform";
 
 import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
@@ -153,6 +155,7 @@ function keepFocusOff(event: React.MouseEvent) {
 
 export function ResultChipClipActions() {
   const ui = useClipUi();
+  const client = useSyncExternalStore(subscribeToNothing, () => true, () => false);
   const service = useClipService();
   const snapshot = useClipSnapshot();
   const uiState = useClipUiState();
@@ -165,13 +168,18 @@ export function ResultChipClipActions() {
     return () => ui.endResultMark();
   }, [ui, hasService]);
 
-  if (!ui || !service) return null;
+  if (!client || !ui || !service) return null;
 
   const mark = uiState.resultMark;
   const actions = resultChipClipActions(snapshot, chipRunOf(mark?.token), capturedSecSince(mark));
 
   return (
     <>
+      <button type="button" data-action="publish-run" data-spoken={SHARING_COPY.putItOnTheLeaderboard} onMouseDown={keepFocusOff}
+        disabled={snapshot.button === "saving" || snapshot.button === "exporting"}
+        onClick={() => actions.length ? ui.clipRun("end") : ui.openMenu(mark?.token ?? null, "result-chip")}
+        className={ACTION_BUTTON}>{SHARING_COPY.putItOnTheLeaderboard}</button>
+      {actions.length === 0 && <p className="col-span-2 text-sm">{SHARING_COPY.prepareAVideoFirstShortRunsMay}</p>}
       {actions.map((action) => (
         <button
           key={action.id}

@@ -1,5 +1,6 @@
 "use client";
 
+import { getGameAudio, type GameAudioChannel } from "@/shared/lib/audio";
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useRapier } from "@react-three/rapier";
@@ -23,6 +24,9 @@ import {
   retrieveCarcass,
   sellHuntingKills,
   stepWildlife,
+  syncWildlifeRemoval,
+  moveMountedWildlife,
+  removeLiveWildlife,
   tagWildlife,
   applyHuntingItem,
   wolfReset,
@@ -84,7 +88,7 @@ export function Hunting() {
         return { ...p, adventure };
       });
       tagged.forEach((animal) => {
-        animal.alive = false;
+        removeLiveWildlife(animal);
       });
     });
     return () => {
@@ -120,7 +124,7 @@ export function Hunting() {
   const reducedMotion = useRef(false);
   const retrieval = useRef<{ id: string; phase: "out" | "back" } | null>(null);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
-  const audio = useRef<AudioContext | null>(null);
+  const audio = useRef<GameAudioChannel | null>(null);
   const impact = useRef<THREE.Mesh>(null),
     impactFor = useRef(0);
   useEffect(() => {
@@ -133,8 +137,7 @@ export function Hunting() {
     return () => preference.removeEventListener("change", update);
   }, []);
   useEffect(() => {
-    const removed = new Set(progress.hunting.removedAnimalIds);
-    for (const animal of population) animal.alive = !removed.has(animal.id);
+    syncWildlifeRemoval(population, progress.hunting.removedAnimalIds);
   }, [population, progress.hunting.removedAnimalIds]);
   useEffect(
     () => () => {
@@ -143,7 +146,8 @@ export function Hunting() {
         m.leg.dispose();
         m.carcass.dispose();
       });
-      void audio.current?.close();
+      audio.current?.dispose();
+      audio.current = null;
       useAdventureSession.setState({ dogTarget: null });
     },
     [models],
@@ -182,10 +186,13 @@ export function Hunting() {
     if (!useFourWheeler3dStore.getState().progress.settings.soundEnabled)
       return;
     try {
-      const ctx = (audio.current ??= new AudioContext());
-      void ctx.resume();
+      const bus = getGameAudio();
+      if (!bus) return;
+      if (!audio.current || audio.current.disposed) audio.current = bus.channel("four-wheeler-3d:hunting");
+      const ctx = audio.current.context;
+      bus.unlock();
       if (kind === "rifle") {
-        playRifleShot(ctx);
+        playRifleShot(ctx, audio.current.input);
         return;
       }
       const oscillator = ctx.createOscillator(),
@@ -203,7 +210,7 @@ export function Hunting() {
       gain.gain.setValueAtTime(0.1, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
       oscillator.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(audio.current.input);
       oscillator.start();
       oscillator.stop(ctx.currentTime + duration);
       oscillator.onended = () => {
@@ -310,7 +317,7 @@ export function Hunting() {
                 ...p,
                 adventure: tagWildlife(p.adventure, animal),
               }));
-              animal.alive = false;
+              removeLiveWildlife(animal);
               store.setHint(
                 `Tagged a ${animal.type}! Send your dog to retrieve it.`,
               );
@@ -494,9 +501,7 @@ export function Hunting() {
         for (const animal of population) {
           if (!animal.alive) continue;
           if (animal.id === session.mountId) {
-            animal.position.x = player.x;
-            animal.position.z = player.z;
-            animal.heading = session.playerSnapshot.heading;
+            moveMountedWildlife(animal, player, session.playerSnapshot.heading);
             continue;
           }
           const reach = flatDistance(animal.position, player);
@@ -505,7 +510,7 @@ export function Hunting() {
               ...p,
               adventure: tagWildlife(p.adventure, animal),
             }));
-            animal.alive = false;
+            removeLiveWildlife(animal);
           } else if (
             store.mode === "parachute" &&
             animal.type !== "wolf" &&
@@ -765,7 +770,7 @@ export function Hunting() {
 }
 
 /** Short toy-rifle noise crack, with nodes released as soon as the burst ends. */
-export function playRifleShot(ctx: AudioContext): void {
+export function playRifleShot(ctx: BaseAudioContext, output: AudioNode): void {
   const duration = 0.18;
   const buffer = ctx.createBuffer(
     1,
@@ -785,7 +790,7 @@ export function playRifleShot(ctx: AudioContext): void {
   gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
   source.connect(filter);
   filter.connect(gain);
-  gain.connect(ctx.destination);
+  gain.connect(output);
   source.onended = () => {
     source.disconnect();
     filter.disconnect();

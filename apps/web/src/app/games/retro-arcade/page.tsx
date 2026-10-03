@@ -26,7 +26,7 @@ const RetroArcadeGame = dynamic(
 // restart button in this header would do nothing.
 export default function RetroArcadePage() {
   return (
-    <GameShell gameName="Retro Arcade" canPause={false}>
+    <GameShell appId="retro-arcade" gameName="Retro Arcade" canPause={false}>
       <RetroArcadeGame />
     </GameShell>
   );

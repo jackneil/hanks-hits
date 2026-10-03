@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--
+  jacked artifact template — for plans, specs, research, checkpoints.
+  Replace placeholders, keep what you need, delete sections you don't.
+  Opens cleanly in any browser, offline. Mermaid diagrams load from CDN.
+-->
+<title>All-game leaderboard video delivery</title>
+
+<!-- Metadata block — adjust fields per artifact type -->
+<meta name="jacked:type" content="plan">
+<meta name="jacked:status" content="in-progress">
+<meta name="jacked:branch" content="feat/all-game-leaderboard-clips">
+<meta name="jacked:date" content="2026-10-03">
+<meta name="jacked:project" content="Hank's Hits">
+
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-muted: #555;
+    --bg: #fafaf7;
+    --bg-card: #fff;
+    --accent: #2266aa;
+    --accent-bg: #e7f0fa;
+    --warn: #b3681c;
+    --warn-bg: #fcf3e7;
+    --danger: #b32424;
+    --danger-bg: #fbe9e7;
+    --ok: #1f7a3f;
+    --ok-bg: #e8f4ec;
+    --border: #d8d4cc;
+    --code-bg: #f3efe8;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1;
+      --fg-muted: #a8a5a0;
+      --bg: #161616;
+      --bg-card: #1f1f1f;
+      --accent: #6aa8e8;
+      --accent-bg: #1a2935;
+      --warn: #e0a85b;
+      --warn-bg: #3a2d18;
+      --danger: #ea7670;
+      --danger-bg: #3a1f1c;
+      --ok: #6acd8e;
+      --ok-bg: #1c3327;
+      --border: #2e2e2e;
+      --code-bg: #232323;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 .25rem;
+    line-height: 1.2;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin: 2.5rem 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 .5rem;
+    color: var(--fg-muted);
+  }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  /* Metadata strip under title */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin: .5rem 0 2rem;
+    padding: .75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: .9rem;
+  }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+
+  /* Status badges — drop into a <span class="badge X"> */
+  .badge {
+    display: inline-block;
+    padding: .15rem .6rem;
+    border-radius: 99px;
+    font-size: .8rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .badge.ok       { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn     { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger   { background: var(--danger-bg); color: var(--danger); }
+  .badge.info     { background: var(--accent-bg); color: var(--accent); }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+  }
+  nav.toc h2 {
+    margin: 0 0 .5rem;
+    font-size: .9rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--fg-muted);
+    border: none;
+    padding: 0;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+  nav.toc li { margin: .15rem 0; }
+
+  /* Callouts — drop into <aside class="callout warn"> ... </aside> */
+  aside.callout {
+    margin: 1rem 0;
+    padding: .9rem 1.1rem;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  aside.callout.warn   { border-color: var(--warn);   background: var(--warn-bg); }
+  aside.callout.danger { border-color: var(--danger); background: var(--danger-bg); }
+  aside.callout.ok     { border-color: var(--ok);     background: var(--ok-bg); }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child  { margin-bottom: 0; }
+
+  /* Code */
+  code {
+    font-family: var(--mono);
+    font-size: .92em;
+    background: var(--code-bg);
+    padding: .12em .35em;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: .88rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left;
+    padding: .55rem .8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: .9rem;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Task checklist — use <ul class="tasks"> + <li><input type="checkbox" disabled> ...</li> */
+  ul.tasks { list-style: none; padding-left: 0; }
+  ul.tasks li {
+    padding: .25rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+  }
+  ul.tasks input[type="checkbox"] { margin-top: .4rem; }
+
+  /* Mermaid diagram wrappers */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  /* If mermaid fails (no network), fall back to showing the source in a code block */
+  .diagram pre.mermaid-source {
+    text-align: left;
+    display: none;
+  }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+
+  blockquote {
+    border-left: 3px solid var(--border);
+    padding: .2rem 1rem;
+    margin: 1rem 0;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  /* Print: paginate cleanly, drop the dark-mode flip, expand TOC */
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    nav.toc { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+</style>
+</head>
+<body><main class="wrap"><h1>All-game leaderboard video delivery</h1><p>User correction: ALL THE GAMES. Done means a real player can capture and publish gameplay from every discovered game, and a separate signed-out browser can find and watch it on the site. A server release or a metadata flag alone is not completion.</p><h2>Delivery order</h2><ol><li>Preserve unfinished work, inventory every game and retain this explicit acceptance ledger.</li><li>Build shared publish, upload retry, sign-in continuation, public viewing, remove and report surfaces. Preserve owner identity across async operations; never publish automatically. Keep phone sharing as a separately named action.</li><li>Connect all capture sources: existing 13 canvas games; nine DOM games using game-owned, typed-state renderers; two Three.js games; original iframe ATV and retro emulator. Capture only game picture and game sound, never arbitrary page text, account/profile information, microphone or camera.</li><li>Provide visible in-play/pause sharing for continuous games and a publish action at results for round games. Games without a numeric leaderboard need a discoverable shared-runs surface without invented rank or scores.</li><li>Provision the reviewed video store and additive clip schema, configure media policy, deploy and enable only after functional checks pass. Credentials stay out of logs and source. No unrelated data purge.</li><li>Verify each game's actual nonblank captured footage, upload and public playback, plus owner changes, retries, report/remove, mobile layouts, and real iPhone. Run targeted checks while building, then one frozen full gate. Independently review final delta and fix confirmed defects. Merge and verify production.</li></ol><h2>Acceptance ledger</h2><p>26 of 26 games have passed the complete local named-sharing journey. Local pass means capture, media checks, explicit upload, signed-out discovery, and public playback passed together. Real iPhone, frozen-tree gate, and deployed production outcomes are recorded separately in the final PR validation and release receipt. Status requires evidence, not code presence. The registry coverage test must fail if a newly discovered game lacks a capture/share decision.</p><table><tr><th>Game</th><th>Capture</th><th>Publish UX</th><th>Upload</th><th>Public watch</th><th>Phone</th></tr><tr><td>2048</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>arkanoid</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>asteroids</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>blitz-bomber</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>bomberman</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>breakout</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>checkers</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>chess</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>cookie-clicker</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>dino-runner</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>endless-runner</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>flappy-bird</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>four-wheeler-3d</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>four-wheeler-adventure</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>hextris</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>hill-climb</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>math-attack</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>memory-match</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>monster-truck</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>oregon-trail</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>platformer</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>quoridor</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>retro-arcade</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>snake</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>space-invaders</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr><tr><td>wordle</td><td>local pass</td><td>local pass</td><td>local pass</td><td>local pass</td><td>see release receipt</td></tr></table><h2>Review notes</h2><p>Existing server assumes every clip owner has a ranked board row; that would exclude retro, original ATV, and a player's first non-winning run. Plan must retain a public shared-runs discovery route and owner privacy checks for these cases, rather than invent scores or silently omit games. Guest sign-in must preserve a prepared local video and return to the publish step. Sharing always requires the player's explicit tap.</p><p>Existing full product goal (Part C/accounts and save issues) is preserved. This user correction prioritizes the complete all-game sharing experience. Do not claim those other items complete.</p></main><section id="local-verification-progress"><h2>Local verification progress</h2>
+<p>All 26 game integrations and explicit publishing controls are implemented. The corrected production-build sweep passed 20 complete game journeys. The remaining-game sweep added Arkanoid and Cookie Clicker, bringing the accepted set to 22 of 26; it also reconfirmed Four-Wheeler 3D. The final-four retry added Oregon Trail and Wordle. The final-two sweep added Monster Truck. The active-play Retro sweep passed its complete journey, bringing the accepted set to all 26 games. Receipts are the per-game <code>playwright/.rows/*.json</code> files and media artifacts under <code>/private/tmp/hh-all-games-video/sweep-corrected/</code> , <code>sweep-remaining/</code>, <code>sweep-final-four-retry/</code>, <code>sweep-final-two/</code>, and <code>sweep-retro-active/</code>. The sweep logs are beside those directories. The counts describe distinct games, not total Playwright tests.</p>
+<p>Machine-readable aggregate: <code>/private/tmp/hh-all-games-video/all-games-acceptance.json</code>. Regenerate with <code>python3 /private/tmp/hh-all-games-video/aggregate-acceptance.py sweep-final-two sweep-retro-active</code>, appending additional sweep folder names as arguments. It checks the newest recorded attempt for each explicit game ID, the named-sharing path, complete passing log evidence, and the retained MP4. A partial upload/watch pass never qualifies, and a later failed attempt invalidates an earlier pass.</p>
+<p>Each accepted journey uses the visible <strong>Share gameplay</strong> entry and <strong>Preview last 30 seconds</strong>, inspects real captured picture and expected game audio, touches native playback controls, explicitly uploads through the UI, then finds and plays the exact new clip in a separate signed-out context. Public MP4 bytes match the locally decoded file. Board-game motion checks isolate actual board pixels from counters and headings. Quiet-machine preflight reuse does not relax file, decoding, frame-gap, motion, audio, touch, or publication checks.</p>
+<p>Retro Arcade's final accepted recording is a 30.27-second H.264/AAC MP4. The longest still span is 0.1 seconds and maximum video frame gap is 0.07 seconds; explicit upload, signed-out discovery, byte-identical media, and direct watch playback passed. Monster Truck's accepted driver used real steering and reverse controls, with a longest still span of 1.4 seconds. Earlier failed attempts remain in the aggregate history; only each game's latest complete passing attempt is authoritative.</p>
+<p>Quoridor also has a separate guest capture, sign-in return, explicit upload to isolated local storage, and signed-out touch playback receipt. Screenshots: <code>/private/tmp/hh-all-games-video/quoridor-guest-preview.png</code> and <code>quoridor-signed-out-watch.png</code>. Focused regressions cover account-switch privacy, guest continuation, unsubmitted Wordle text, continuous-game sharing, cookie press geometry, and Oregon source replacement.</p>
+<p>The previous full unit run recorded 9,179 passed and eight failed tests in five files; focused fixes do not make that historical run green. Production builds have passed; the exact frozen-tree gate commands, exit codes, revision and final outcome belong in the final PR validation and release receipt. Existing provisioning notes record additive production migrations 0001 and 0003 and dedicated private video storage prepared, with publication off. Those preparation steps do not constitute a deployed all-game release.</p>
+</section>
+<section id="release-verification"><h2>Release verification contract</h2><ol>
+<li>Retain all 26 accepted local journeys against the production build and their source receipts. Keep one browser owner and one worker. Use <code>CLIPS_E2E_PATH=sharing</code>, <code>E2E_PUBLISH=1</code>, the per-game synthetic account template, and a fresh <code>CLIPS_E2E_OUT</code> for the run. <code>pnpm e2e:clips-games http://127.0.0.1:3107 --workers=1</code> tests an already running server; it does not build or start one. <code>E2E_ROUTES</code> can select pending games. Retain all 26 distinct accepted rows and the exact tested revision/dirty-tree provenance.</li>
+<li>On the frozen candidate, complete <code>pnpm --filter web lint</code>, <code>pnpm --filter web typecheck</code>, <code>pnpm --filter web test</code>, <code>pnpm e2e:typecheck</code>, and <code>pnpm --filter web build</code>. Retain exit codes and inspect failures. The build regenerates metadata and content notices; review their diff. Complete independent review of the final changes, including owner changes, retry, remove/report, and media privacy.</li>
+<li>Complete real iPhone checks for discovery, preview, native playback, explicit publication, sign-in return, and public playback. Local Chromium phone emulation does not prove Safari or OS share-sheet behavior. Verify browser-only WebM retains its supported local options without claiming public MP4 upload.</li>
+<li>Before enablement, read back the dedicated private bucket configuration and additive schema without exposing credentials. Confirm the build-time CSP includes the configured media origin. <code>LEADERBOARD_CLIPS</code> controls publication independently of <code>CLIPS_MODE</code>, which controls capture. Keep publication off until release checks pass; Docker does not apply migrations. Preserve the ROM bucket and unrelated data.</li>
+<li>Publish the reviewed PR, merge to <code>master</code>, and verify the resulting Railway deployment of that exact commit on <code>hanks-garage</code>. Retain deployment status and health evidence. Enable publication through the authorized release workflow and verify the deployed named-sharing flow, upload, owner visibility, signed-out feed/watch playback, report and removal. The automated <code>E2E_PUBLISH=1</code> suite is intentionally restricted to localhost; do not bypass that restriction for production checks.</li>
+<li>Observe deployed errors and playback failures, and retain a rollback plan using <code>LEADERBOARD_CLIPS=off</code> for publication or <code>CLIPS_MODE=off</code> for capture. Record device, review, gate, and production outcomes in the final PR validation and release receipt. Local game acceptance alone does not establish deployment completion.</li>
+</ol></section></body></html>
