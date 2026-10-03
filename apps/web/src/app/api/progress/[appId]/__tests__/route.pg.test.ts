@@ -366,4 +366,135 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     expect(after?.data).toEqual(rowData);
     expect(after?.updatedAt.getTime()).toBe(before?.updatedAt.getTime());
   });
+
+  async function cloud(appId = "cookie-clicker") {
+    const response = await route.GET(new Request(`http://localhost/api/progress/${appId}`), {
+      params: Promise.resolve({ appId }),
+    });
+    expect(response.status).toBe(200);
+    return response.json() as Promise<{ data: Record<string, unknown> | null; revision: string | null; protocol: number; updatedAt?: string }>;
+  }
+
+  function compareSave(data: Record<string, unknown>, baseRevision: string | null, expectedOwnerId = ids.user) {
+    return route.POST(new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data, merge: true, baseRevision, expectedOwnerId }),
+    }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+  }
+
+  it("conditionally creates an absent row and continues its idle wallet without changing the player timestamp", async () => {
+    expect(await cloud()).toMatchObject({ data: null, revision: null, protocol: 1 });
+    const initial: Record<string, unknown> = { ...await cookieClickerBlob(1000), cookies: 1000 };
+    const created = await compareSave(initial, null);
+    expect(created.status).toBe(200);
+    const first = await created.json();
+    expect(first.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect((await cloud()).revision).toBe(first.revision);
+    const updated = await compareSave({ ...first.data, cookies: 1200, totalCookiesBaked: 1200 }, first.revision);
+    expect(updated.status).toBe(200);
+    const second = await updated.json();
+    expect(second.data).toMatchObject({ cookies: 1200, lastModified: initial.lastModified });
+    expect(second.revision).not.toBe(first.revision);
+    expect(await cloud()).toMatchObject({ data: second.data, revision: second.revision });
+  });
+
+  it("a stale revision changes neither the save nor its leaderboard, even with a newer player timestamp", async () => {
+    const initial: Record<string, unknown> = { ...await cookieClickerBlob(9000), cookies: 9000 };
+    const first = await (await compareSave(initial, null)).json();
+    const second = await (await compareSave({ ...first.data, cookies: 8000, totalCookiesBaked: 9500 }, first.revision)).json();
+    const beforeBoard = await scratch!.db.query.leaderboardEntries.findMany();
+    const stale = await compareSave({ ...first.data, cookies: 2000, totalCookiesBaked: 99999, lastModified: Date.now() + 1000 }, first.revision);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: "revision_conflict", data: second.data, revision: second.revision });
+    expect(await cloud()).toMatchObject({ data: second.data, revision: second.revision });
+    expect(await scratch!.db.query.leaderboardEntries.findMany()).toEqual(beforeBoard);
+  });
+
+  it("a matched continuation can spend its wallet while retaining earned records", async () => {
+    const first = await (await compareSave({ ...await cookieClickerBlob(9000), cookies: 9000 }, null)).json();
+    const response = await compareSave({ ...first.data, cookies: 2000, totalCookiesBaked: 2000 }, first.revision);
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      cookies: 2000, totalCookiesBaked: 9000, lastModified: first.data.lastModified,
+    });
+  });
+
+  it("uses the same revision for a legacy database timestamp with sub-millisecond precision", async () => {
+    const first = await (await compareSave(await cookieClickerBlob(1000), null)).json();
+    await scratch!.db.execute(scratch!.sql.raw("UPDATE app_progress SET updated_at = '2026-10-02 12:00:00.123456'"));
+    const before = await cloud();
+    vi.spyOn(Date, "now").mockReturnValue(new Date(before.updatedAt!).getTime());
+    const response = await compareSave({ ...first.data, cookies: 1100 }, before.revision);
+    expect(response.status).toBe(200);
+    const after = await response.json();
+    expect(after.revision).not.toBe(before.revision);
+    expect(new Date(after.updatedAt).getTime()).toBeGreaterThan(new Date(before.updatedAt!).getTime());
+    expect(await cloud()).toMatchObject({ data: after.data, revision: after.revision });
+  });
+
+  it("legacy equal-time writes retain the stored wallet but advance revision even within one millisecond", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    const first = await (await compareSave({ ...await cookieClickerBlob(9000), cookies: 9000 }, null)).json();
+    expect((await save("cookie-clicker", { ...first.data, cookies: 2000 })).status).toBe(200);
+    const second = await cloud();
+    expect(second.data!.cookies).toBe(9000);
+    expect(second.revision).not.toBe(first.revision);
+    expect(new Date(second.updatedAt!).getTime()).toBeGreaterThan(new Date(first.updatedAt).getTime());
+    expect((await compareSave({ ...first.data, cookies: 9100 }, first.revision)).status).toBe(409);
+  });
+
+  it("only one of two concurrent continuations commits and the other gets the actual winner", async () => {
+    const first = await (await compareSave({ ...await cookieClickerBlob(1000), cookies: 1000 }, null)).json();
+    // Hold the first write long enough that an unlocked read-before-write implementation races.
+    await scratch!.db.execute(scratch!.sql.raw(`CREATE FUNCTION hh_pause_progress() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.05); RETURN NEW; END $$`));
+    await scratch!.db.execute(scratch!.sql.raw(`CREATE TRIGGER hh_pause_progress BEFORE UPDATE ON app_progress FOR EACH ROW EXECUTE FUNCTION hh_pause_progress()`));
+    try {
+      const responses = await Promise.all([
+        compareSave({ ...first.data, cookies: 1100, totalCookiesBaked: 1100 }, first.revision),
+        compareSave({ ...first.data, cookies: 1200, totalCookiesBaked: 1200 }, first.revision),
+      ]);
+      expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+      const winner = await responses.find((r) => r.status === 200)!.json();
+      const loser = await responses.find((r) => r.status === 409)!.json();
+      expect(loser).toMatchObject({ data: winner.data, revision: winner.revision });
+      expect(await cloud()).toMatchObject({ data: winner.data, revision: winner.revision });
+    } finally {
+      await scratch!.db.execute(scratch!.sql.raw("DROP TRIGGER hh_pause_progress ON app_progress"));
+      await scratch!.db.execute(scratch!.sql.raw("DROP FUNCTION hh_pause_progress()"));
+    }
+  });
+
+  it("only one concurrent expected-absence request creates the row", async () => {
+    const data = await cookieClickerBlob(1000);
+    const responses = await Promise.all([compareSave({ ...data, cookies: 1100 }, null), compareSave({ ...data, cookies: 1200 }, null)]);
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+  });
+
+  it("deletion and recreation invalidate the old row incarnation", async () => {
+    const first = await (await compareSave(await cookieClickerBlob(1000), null)).json();
+    expect((await route.DELETE(new Request("http://localhost/api/progress/cookie-clicker", { method: "DELETE" }), {
+      params: Promise.resolve({ appId: "cookie-clicker" }),
+    })).status).toBe(200);
+    const missing = await compareSave(first.data, first.revision);
+    expect(missing.status).toBe(409);
+    expect(await missing.json()).toMatchObject({ data: null, revision: null });
+    const recreated = await (await compareSave(first.data, null)).json();
+    expect(recreated.revision).not.toBe(first.revision);
+    expect((await compareSave(first.data, first.revision)).status).toBe(409);
+  });
+
+  it("rejects an account switch even when both accounts have no row, without revealing progress", async () => {
+    const response = await compareSave(await cookieClickerBlob(1000), null, "previous-owner");
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.code).toBe("owner_changed");
+    expect(body).not.toHaveProperty("data");
+    expect((await cloud()).data).toBeNull();
+  });
+
+  it("rejects malformed revisions rather than silently using legacy semantics", async () => {
+    expect((await compareSave(await cookieClickerBlob(1000), "not-a-revision")).status).toBe(400);
+    expect((await cloud()).data).toBeNull();
+  });
+
 });
