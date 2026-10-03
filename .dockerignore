@@ -24,9 +24,9 @@ out
 # Testing
 coverage
 **/__tests__
-*.test.ts
-*.test.tsx
-vitest.config.ts
+**/*.test.ts
+**/*.test.tsx
+**/vitest.config.ts
 
 # Misc
 .env*.local
