@@ -15,6 +15,13 @@
       "when": 1790936922963,
       "tag": "0001_leaderboard_clips",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791038211594,
+      "tag": "0002_legacy_progress_words",
+      "breakpoints": true
     }
   ]
 }

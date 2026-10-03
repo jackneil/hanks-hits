@@ -107,9 +107,9 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     process.env.DATABASE_URL = scratchUrl.toString();
     vi.resetModules();
     scratch = await import("@hank-neil/db");
-    for (const statement of migrationStatements()) {
-      await scratch.db.execute(scratch.sql.raw(statement));
-    }
+    await scratch.db.transaction(async (tx) => {
+      for (const statement of migrationStatements()) await tx.execute(scratch!.sql.raw(statement));
+    });
     // The route gets the same module instance as `scratch`.
     route = await import("../route");
   });
@@ -132,6 +132,7 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
       )
     );
     await db.insert(users).values({ id: ids.user, name: "Test Kid" });
+    await db.execute(sql`UPDATE progress_word_policy SET enabled = false`);
     handles.queue = [];
     handles.next = 0;
     vi.restoreAllMocks();
@@ -495,6 +496,269 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
   it("rejects malformed revisions rather than silently using legacy semantics", async () => {
     expect((await compareSave(await cookieClickerBlob(1000), "not-a-revision")).status).toBe(400);
     expect((await cloud()).data).toBeNull();
+  });
+
+  function weatherWords(name: string, lastModified = Date.now()) {
+    const town = { name, latitude: 12, longitude: 23 };
+    return { savedLocations: [town], lastLocation: town, units: "celsius", lastModified };
+  }
+
+  async function enableLocalWords() {
+    await scratch!.db.execute(scratch!.sql`UPDATE progress_word_policy SET enabled = true`);
+  }
+
+  async function recoverWords(owner = ids.user) {
+    const recovery = await import("../legacy-words/route");
+    return recovery.GET(new Request("http://localhost/api/progress/weather/legacy-words", {
+      headers: { "x-hh-expected-owner": owner },
+    }), { params: Promise.resolve({ appId: "weather" }) });
+  }
+
+  it("keeps compatibility behavior until cutover, then preserves the old source before an old-client save", async () => {
+    expect((await save("weather", weatherWords("Original town"), false)).status).toBe(200);
+    expect((await cloud("weather")).data).toMatchObject({ lastLocation: { name: "Original town" } });
+    await enableLocalWords();
+    expect((await save("weather", weatherWords("New typed town"), false)).status).toBe(200);
+    const ordinary = await cloud("weather");
+    expect(ordinary.data).toMatchObject({ savedLocations: [], lastLocation: null, units: "celsius" });
+    const response = await recoverWords();
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const recovered = await response.json();
+    expect(recovered.candidates).toHaveLength(1);
+    expect(JSON.stringify(recovered)).toContain("Original town");
+    expect(JSON.stringify(recovered)).not.toContain("New typed town");
+    const { db, appProgress, legacyProgressWords } = scratch!;
+    expect(JSON.stringify(await db.select().from(appProgress))).not.toContain("New typed town");
+    expect(JSON.stringify(await db.select().from(legacyProgressWords))).not.toContain("New typed town");
+    await save("weather", weatherWords("Retry town"), true);
+    expect((await (await recoverWords()).json()).candidates).toHaveLength(1);
+    const aggregate = await (await import("../../route")).GET();
+    expect(JSON.stringify(await aggregate.json())).not.toContain("town");
+  });
+
+  it("sanitizes strict conflicts without archiving or altering the canonical revision", async () => {
+    await save("weather", weatherWords("Secret town"), false);
+    const before = await cloud("weather");
+    await enableLocalWords();
+    const response = await route.POST(new Request("http://localhost/api/progress/weather", {
+      method: "POST", body: JSON.stringify({ data: weatherWords("New town"), baseRevision: null, expectedOwnerId: ids.user }),
+    }), { params: Promise.resolve({ appId: "weather" }) });
+    expect(response.status).toBe(409);
+    const conflict = await response.json();
+    expect(conflict.revision).toBe(before.revision);
+    expect(conflict.data.lastLocation).toBeNull();
+    expect(await scratch!.db.select().from(scratch!.legacyProgressWords)).toHaveLength(0);
+    expect(JSON.stringify(await (await recoverWords()).json())).toContain("Secret town");
+    const ack = await route.POST(new Request("http://localhost/api/progress/weather", {
+      method: "POST", body: JSON.stringify({ data: weatherWords("New town"), baseRevision: before.revision, expectedOwnerId: ids.user }),
+    }), { params: Promise.resolve({ appId: "weather" }) });
+    expect(ack.status).toBe(200);
+    expect((await ack.json()).data.lastLocation).toBeNull();
+  });
+
+  it("rolls back archive insertion when the progress replacement fails", async () => {
+    await save("weather", weatherWords("Still recoverable"), false);
+    await enableLocalWords();
+    const { db, sql, legacyProgressWords } = scratch!;
+    await db.execute(sql.raw(`CREATE FUNCTION fail_word_save() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test failure'; END $$`));
+    await db.execute(sql.raw(`CREATE TRIGGER fail_word_save BEFORE UPDATE ON app_progress FOR EACH ROW EXECUTE FUNCTION fail_word_save()`));
+    try {
+      expect((await save("weather", weatherWords("Replacement"), false)).status).toBe(500);
+      expect(await db.select().from(legacyProgressWords)).toHaveLength(0);
+      expect(JSON.stringify(await (await recoverWords()).json())).toContain("Still recoverable");
+    } finally {
+      await db.execute(sql.raw("DROP TRIGGER fail_word_save ON app_progress"));
+      await db.execute(sql.raw("DROP FUNCTION fail_word_save()"));
+    }
+  });
+
+  it("retains distinct legacy versions and deduplicates exact-source retries", async () => {
+    await save("weather", weatherWords("First version"), false);
+    await enableLocalWords();
+    await save("weather", weatherWords("Never archived"), false);
+    const { db, appProgress, eq } = scratch!;
+    // Simulates an unexpected stored legacy source, not an accepted new-client word.
+    await db.update(appProgress).set({ data: weatherWords("Second legacy version"), updatedAt: new Date(Date.now() + 10) }).where(eq(appProgress.appId, "weather"));
+    await save("weather", weatherWords("Also not archived"), false);
+    const recovered = await (await recoverWords()).json();
+    expect(recovered.candidates).toHaveLength(2);
+    expect(JSON.stringify(recovered)).toContain("First version");
+    expect(JSON.stringify(recovered)).toContain("Second legacy version");
+    expect(JSON.stringify(recovered)).not.toContain("not archived");
+  });
+
+  it("refuses stale owner assertions and cascades only the deleted owner's recovery rows", async () => {
+    await save("weather", weatherWords("Owner A town"), false);
+    await enableLocalWords();
+    await save("weather", weatherWords("Ignored"), false);
+    const stale = await recoverWords("different-account");
+    expect(stale.status).toBe(409);
+    expect(JSON.stringify(await stale.json())).not.toContain("town");
+    const { db, sql, users, appProgress, legacyProgressWords } = scratch!;
+    await db.insert(users).values({ id: "other-word-owner" });
+    await db.insert(appProgress).values({ id: "other-word-progress", userId: "other-word-owner", appId: "weather", data: weatherWords("Other town") });
+    await db.insert(legacyProgressWords).values({ progressId: "other-word-progress", sourceRevision: "other-revision", extractionVersion: 1, payload: { fields: [] } });
+    await db.execute(sql`DELETE FROM users WHERE id = ${ids.user}`);
+    const rows = await db.select().from(legacyProgressWords);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].progressId).toBe("other-word-progress");
+  });
+
+  it("recovers the original words while two old clients race to replace them", async () => {
+    await save("weather", weatherWords("Before the race"), false);
+    await enableLocalWords();
+    const [first, recovery, second] = await Promise.all([
+      save("weather", weatherWords("Race A"), true),
+      recoverWords(),
+      save("weather", weatherWords("Race B"), false),
+    ]);
+    expect([first.status, second.status, recovery.status]).toEqual([200, 200, 200]);
+    for (const response of [recovery, await recoverWords()]) {
+      const candidates = (await response.json()).candidates;
+      expect(candidates).toHaveLength(1);
+      expect(JSON.stringify(candidates)).toContain("Before the race");
+      expect(JSON.stringify(candidates)).not.toContain("Race A");
+      expect(JSON.stringify(candidates)).not.toContain("Race B");
+    }
+  });
+
+  it("cutover waits for compatible writers and later writes use the enabled policy", async () => {
+    const { db, sql } = scratch!;
+    const { readWordPolicy } = await import("@/lib/progress-word-storage");
+    await save("weather", weatherWords("Before barrier"), false);
+    let signalLocked!: () => void;
+    let releaseWriter!: () => void;
+    const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
+    const release = new Promise<void>((resolve) => { releaseWriter = resolve; });
+    const blocker = db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify([ids.user, "weather"])}, 0))`);
+      signalLocked();
+      await release;
+    });
+    await locked;
+    const writer = save("weather", weatherWords("Last compatible write"), false);
+    const waitingCount = async () => {
+      const waiting = await db.execute(sql`SELECT count(*)::int AS count FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`);
+      return (waiting.rows[0] as { count: number }).count;
+    };
+    try { await vi.waitFor(async () => expect(await waitingCount()).toBe(1), { timeout: 10000 }); }
+    catch (error) { releaseWriter(); await blocker; await writer; throw error; }
+    let cutoverDone = false;
+    const cutover = db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('hh:progress-word-policy:v1', 0))`);
+      await tx.execute(sql`UPDATE progress_word_policy SET enabled = true WHERE id = 'local-only'`);
+    }).then(() => { cutoverDone = true; });
+    try {
+      await vi.waitFor(async () => expect(await waitingCount()).toBe(2), { timeout: 10000 });
+      expect(cutoverDone).toBe(false);
+    } finally {
+      releaseWriter();
+      await blocker;
+      expect((await writer).status).toBe(200);
+      await cutover;
+    }
+    expect(await readWordPolicy(db)).toBe(true);
+    await save("weather", weatherWords("After barrier"), false);
+    const recovered = await (await recoverWords()).json();
+    expect(JSON.stringify(recovered)).toContain("Last compatible write");
+    expect(JSON.stringify(recovered)).not.toContain("After barrier");
+  });
+
+  it("explicit progress deletion cascades archives without waiting for a device receipt", async () => {
+    await save("weather", weatherWords("Delete me"), false);
+    await enableLocalWords();
+    await save("weather", weatherWords("Ignored"), false);
+    expect(await scratch!.db.select().from(scratch!.legacyProgressWords)).toHaveLength(1);
+    const deleted = await route.DELETE(new Request("http://localhost/api/progress/weather", { method: "DELETE" }), {
+      params: Promise.resolve({ appId: "weather" }),
+    });
+    expect(deleted.status).toBe(200);
+    expect(await scratch!.db.select().from(scratch!.legacyProgressWords)).toHaveLength(0);
+    expect((await (await recoverWords()).json()).candidates).toEqual([]);
+  });
+
+  it("deduplicates two archive attempts for the identical stored revision", async () => {
+    await save("weather", weatherWords("Same source"), false);
+    const { preserveProgressWords } = await import("@/lib/progress-word-storage");
+    const row = await rowOf("weather");
+    await scratch!.db.transaction(async (tx) => {
+      await preserveProgressWords(tx, row!);
+      await preserveProgressWords(tx, row!);
+    });
+    expect(await scratch!.db.select().from(scratch!.legacyProgressWords)).toHaveLength(1);
+  });
+
+  it("holds a coherent recovery snapshot when progress is deleted between its two reads", async () => {
+    await save("weather", weatherWords("Snapshot words"), false);
+    await enableLocalWords();
+    await save("weather", weatherWords("Ignored"), false);
+    const { db } = scratch!;
+    let parentRead!: () => void;
+    let resumeRecovery!: () => void;
+    const read = new Promise<void>((resolve) => { parentRead = resolve; });
+    const resume = new Promise<void>((resolve) => { resumeRecovery = resolve; });
+    const realTransaction = db.transaction.bind(db);
+    const interception = vi.spyOn(db, "transaction").mockImplementation((fn, config) => realTransaction(async (tx) => {
+      if (config?.isolationLevel !== "repeatable read") return fn(tx);
+      const query = { ...tx.query, appProgress: {
+        ...tx.query.appProgress,
+        findFirst: async (options: Parameters<typeof tx.query.appProgress.findFirst>[0]) => {
+          const row = await tx.query.appProgress.findFirst(options);
+          parentRead();
+          await resume;
+          return row;
+        },
+      } };
+      return fn(new Proxy(tx, { get: (target, key) => key === "query" ? query : Reflect.get(target, key) }));
+    }, config));
+    const recovery = recoverWords();
+    try {
+      await read;
+      const deleted = await route.DELETE(new Request("http://localhost/api/progress/weather", { method: "DELETE" }), {
+        params: Promise.resolve({ appId: "weather" }),
+      });
+      expect(deleted.status).toBe(200);
+    } finally {
+      resumeRecovery();
+      interception.mockRestore();
+    }
+    const response = await recovery;
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).toContain("Snapshot words");
+    expect((await (await recoverWords()).json()).candidates).toEqual([]);
+  });
+
+  it("rolls back the bounded additive migration under old-writer contention, then retries cleanly", async () => {
+    const { db, sql } = scratch!;
+    // This is the isolated scratch database, never an external database.
+    await db.execute(sql.raw("DROP TABLE legacy_progress_words, progress_word_policy"));
+    const statements = readFileSync(path.join(migrationsDir, "0002_legacy_progress_words.sql"), "utf8")
+      .split("--> statement-breakpoint").map((statement) => statement.trim()).filter(Boolean);
+    const migrate = () => db.transaction(async (tx) => {
+      for (const statement of statements) await tx.execute(sql.raw(statement));
+    });
+    let ready!: () => void;
+    let release!: () => void;
+    const locked = new Promise<void>((resolve) => { ready = resolve; });
+    const resume = new Promise<void>((resolve) => { release = resolve; });
+    const writer = db.transaction(async (tx) => {
+      await tx.execute(sql.raw("LOCK TABLE app_progress IN ROW EXCLUSIVE MODE"));
+      ready();
+      await resume;
+    });
+    await locked;
+    try {
+      await expect(migrate()).rejects.toMatchObject({ cause: { code: "55P03" } });
+      const absent = await db.execute(sql.raw("SELECT to_regclass('legacy_progress_words') AS archive, to_regclass('progress_word_policy') AS policy"));
+      expect(absent.rows[0]).toEqual({ archive: null, policy: null });
+    } finally {
+      release();
+      await writer;
+      await migrate();
+    }
+    expect((await db.execute(sql.raw("SHOW lock_timeout"))).rows[0]).toEqual({ lock_timeout: "0" });
+    expect((await db.execute(sql.raw("SHOW statement_timeout"))).rows[0]).toEqual({ statement_timeout: "0" });
+    expect((await save("weather", weatherWords("Normal save after migration"), false)).status).toBe(200);
   });
 
 });

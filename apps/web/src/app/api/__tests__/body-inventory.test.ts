@@ -70,6 +70,7 @@ const INVENTORY: Inventory = {
     reads: ["readJson(PROGRESS_SAVE_BODY)"],
   },
   "src/app/api/progress/route.ts": { bodyMethods: [], reads: [] },
+  "src/app/api/progress/[appId]/legacy-words/route.ts": { bodyMethods: [], reads: [] },
   "src/app/api/roms/[...path]/route.ts": { bodyMethods: [], reads: [] },
 };
 

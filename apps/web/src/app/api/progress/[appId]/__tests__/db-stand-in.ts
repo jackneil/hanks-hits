@@ -259,7 +259,7 @@ export function createDbStandIn() {
     },
     rows: (name: string) => state.committed.get(name) ?? [],
     reset() {
-      state.committed = new Map();
+      state.committed = new Map([["progress_word_policy", [{ id: "local-only", enabled: false }]]]);
       state.failBoardWrites = false;
       state.failProgressWrites = false;
     },

@@ -100,7 +100,9 @@ describe.skipIf(!DB_URL)("leaderboard clips on a real Postgres", () => {
     process.env.DATABASE_URL = scratchUrl.toString();
     vi.resetModules();
     scratch = await import("@hank-neil/db");
-    for (const statement of migrationStatements()) await scratch.db.execute(scratch.sql.raw(statement));
+    await scratch.db.transaction(async (tx) => {
+      for (const statement of migrationStatements()) await tx.execute(scratch!.sql.raw(statement));
+    });
   });
 
   afterAll(async () => {
