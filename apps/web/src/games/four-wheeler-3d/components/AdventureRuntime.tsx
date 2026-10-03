@@ -38,9 +38,13 @@ import { flushFarmPoses } from "../lib/farmRuntime";
 import { RAIL_BOARD_RANGE } from "../lib/rail";
 
 export function saveRiderPosition() {
-  flushFarmPoses();
   const store = useFourWheeler3dStore.getState(),
     s = useAdventureSession.getState();
+  // Before the ride starts nothing moved: there is nothing to save. A save
+  // here (on pagehide) made an untouched world look played, and the sign-in
+  // sync then replaced the account's world with it.
+  if (!store.hasStarted) return;
+  flushFarmPoses();
   const active = store.progress.adventure.activeVehicleId;
   const rider = riderResume(store.progress.adventure, store.mode, s);
   const driving =

@@ -46,7 +46,7 @@ export function JokeGenerator() {
   const [confetti, setConfetti] = useState(false);
 
   // Auth sync for logged-in users
-  const { isAuthenticated, syncStatus } = useAuthSync({
+  const { isAuthenticated, syncStatus, ready, synced } = useAuthSync({
     appId: "joke-generator",
     localStorageKey: "joke-generator-progress",
     getState: () => store.getProgress(),
@@ -58,7 +58,10 @@ export function JokeGenerator() {
   // stable function: `store` is the whole state, a new object on every set.
   // The category override still wins, for a tap that sets the category and
   // asks for a joke in one go.
-  const getNewJoke = useCallback(async (categoryOverride?: JokeCategory) => {
+  // `automatic`: the first joke of the page, which shows by itself (it
+  // counts as progress only in a store that the kid already changed, and
+  // only on the account's progress: `synced`).
+  const getNewJoke = useCallback(async (categoryOverride?: JokeCategory, automatic = false, synced = true) => {
     const jokes = useJokeStore.getState();
     jokes.setLoading(true);
     const category = categoryOverride ?? jokes.lastCategory;
@@ -75,9 +78,9 @@ export function JokeGenerator() {
       }
 
       // Mark this joke as seen
-      jokes.markJokeSeen(newJoke.id);
+      jokes.markJokeSeen(newJoke.id, automatic, synced);
       jokes.setCurrentJoke(newJoke);
-      jokes.incrementViewed();
+      jokes.incrementViewed(automatic, synced);
     } catch {
       // Fallback on error
       const fallbackJoke = getRandomJoke("all", []);
@@ -87,12 +90,15 @@ export function JokeGenerator() {
     }
   }, []);
 
-  // Initial joke on mount
+  // The first joke, once the sync is ready: it counts on the account's
+  // progress, not on an old copy on this device. When the account cannot be
+  // reached (READY_FALLBACK_MS) or for a guest, it shows on the device's
+  // copy and keeps the time (`synced` is false).
   useEffect(() => {
-    if (!useJokeStore.getState().currentJoke) {
-      getNewJoke();
+    if (ready && !useJokeStore.getState().currentJoke) {
+      getNewJoke(undefined, true, synced);
     }
-  }, [getNewJoke]);
+  }, [ready, synced, getNewJoke]);
 
   // Copy joke to clipboard
   const handleCopy = async () => {

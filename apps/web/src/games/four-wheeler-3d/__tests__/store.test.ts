@@ -190,15 +190,20 @@ describe("Four-Wheeler 3D progress schema", () => {
 });
 
 describe("four-wheeler-3d world clock", () => {
-  /** A store reset to a known clock, with nothing saved yet. */
-  function freshClock(startHour: number) {
+  /**
+   * A store reset to a known clock. `lastModified` 1000: a world that the kid
+   * already changed. The clock runs while the ride is open, so it never
+   * moves that time (a continuous change, see shared/lib/progressStamp.ts):
+   * a stamp made an idle ride newer than what the kid did on another device.
+   */
+  function freshClock(startHour: number, lastModified = 1_000) {
     const store = useFourWheeler3dStore.getState();
     store.setProgress({
       ...defaultProgress,
       timeOfDay: startHour,
       day: 3,
       weather: "sunny",
-      lastModified: 0,
+      lastModified,
     });
     store.seedClock();
     return useFourWheeler3dStore;
@@ -216,7 +221,7 @@ describe("four-wheeler-3d world clock", () => {
     // Nothing was written: the very same progress object is still in place.
     expect(after.progress).toBe(before);
     expect(after.progress.timeOfDay).toBe(9);
-    expect(after.progress.lastModified).toBe(0);
+    expect(after.progress.lastModified).toBe(1_000);
   });
 
   it("saves the clock once a whole game hour has passed", () => {
@@ -229,7 +234,7 @@ describe("four-wheeler-3d world clock", () => {
     const after = store.getState();
     expect(after.progress).not.toBe(before);
     expect(after.progress.timeOfDay).toBeCloseTo(10, 8);
-    expect(after.progress.lastModified).toBeGreaterThan(0);
+    expect(after.progress.lastModified).toBe(1_000);
 
     // And the counter starts over, so the next hour is one save, not sixty.
     const saved = after.progress;
@@ -251,7 +256,7 @@ describe("four-wheeler-3d world clock", () => {
       after.progress.weather,
     );
     expect(after.hint).toContain("A new day");
-    expect(after.progress.lastModified).toBeGreaterThan(0);
+    expect(after.progress.lastModified).toBe(1_000);
 
     // The rollover reset the hour counter, so the next 59 ticks save nothing.
     const saved = after.progress;
@@ -267,11 +272,39 @@ describe("four-wheeler-3d world clock", () => {
     store.getState().flushClock();
 
     expect(store.getState().progress.timeOfDay).toBeCloseTo(9 + 10 / 60, 8);
-    expect(store.getState().progress.lastModified).toBeGreaterThan(0);
+    expect(store.getState().progress.lastModified).toBe(1_000);
 
     // A second flush with nothing new must not write again.
     const saved = store.getState().progress;
     store.getState().flushClock();
     expect(store.getState().progress).toBe(saved);
   });
+
+  it("moves the saved clock of an untouched world without a time: the world stays untouched", () => {
+    // The clock moves by itself. In a world that no kid changed, a stamp
+    // would make the defaults newer than the account's world, and the
+    // sign-in sync would replace the account's world with them.
+    const store = freshClock(23.99, 0);
+    store.getState().tick(1);
+    expect(store.getState().progress.day).toBe(4);
+    for (let second = 0; second < 60; second++) store.getState().tick(1);
+    store.getState().flushClock();
+    expect(store.getState().progress.timeOfDay).toBeGreaterThan(0);
+    expect(store.getState().progress.lastModified).toBe(0);
+  });
+
+  it("sleeping in the house sets the clock: a player's change stamps the time", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-03T08:00:00Z"));
+    const store = freshClock(22);
+    store.getState().setTimeOfDay(7);
+    expect(store.getState().progress.timeOfDay).toBe(7);
+    expect(store.getState().progress.lastModified).toBe(Date.parse("2026-10-03T08:00:00Z"));
+    // The same hour again changes nothing and keeps the time.
+    vi.setSystemTime(new Date("2026-10-03T09:00:00Z"));
+    store.getState().setTimeOfDay(7);
+    expect(store.getState().progress.lastModified).toBe(Date.parse("2026-10-03T08:00:00Z"));
+    vi.useRealTimers();
+  });
 });
+

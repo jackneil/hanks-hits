@@ -155,19 +155,8 @@ export function VirtualPet() {
   const petEmoji = species.evolutions[stage];
   const moodEmoji = getMoodEmoji(mood);
 
-  // Update stats on mount and periodically
-  useEffect(() => {
-    useVirtualPetStore.getState().updateFromTime();
-
-    const interval = setInterval(() => {
-      useVirtualPetStore.getState().updateFromTime();
-    }, 60000); // Every minute
-
-    return () => clearInterval(interval);
-  }, []);
-
   // Auth sync
-  useAuthSync({
+  const { ready, synced } = useAuthSync({
     appId: "virtual-pet",
     localStorageKey: "virtual-pet-state",
     getState: store.getProgress,
@@ -175,15 +164,24 @@ export function VirtualPet() {
     debounceMs: 1000,
   });
 
-  const toggleSound = () => {
-    store.setProgress({
-      ...store.progress,
-      settings: {
-        ...store.progress.settings,
-        soundEnabled: !store.progress.settings.soundEnabled,
-      },
-    });
-  };
+  // Update stats on mount and periodically, once the sync is ready: the
+  // time update (and the daily-visit streak) goes onto the account's pet,
+  // not onto an old copy on this device. A visit stamps the time only on
+  // the account's pet (`synced`). When the first sync ends after the page
+  // ran on the device's copy (the account could not be reached), the effect
+  // runs again at once on the account's pet.
+  useEffect(() => {
+    if (!ready) return;
+    useVirtualPetStore.getState().updateFromTime(synced);
+
+    const interval = setInterval(() => {
+      useVirtualPetStore.getState().updateFromTime(synced);
+    }, 60000); // Every minute
+
+    return () => clearInterval(interval);
+  }, [ready, synced]);
+
+  const toggleSound = () => store.toggleSound();
 
   // Get food inventory
   const foodItems = store.progress.inventory.filter(inv => {

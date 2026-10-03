@@ -11,6 +11,7 @@ vi.mock("@/shared/hooks/useAuthSync", () => ({
     syncStatus: "idle",
     lastSynced: null,
     forceSync: vi.fn(),
+    ready: true,
   }),
 }));
 

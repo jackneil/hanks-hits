@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { progressStamp } from '@/shared/lib/progressStamp';
+import { defineUntouchedProgress, markSaved, persistSettledSave, settleOnLoad } from '@/shared/lib/untouchedProgress';
 
 // ============================================================================
 // TYPES
@@ -103,6 +105,9 @@ export interface GameState {
   // Settings
   soundEnabled: boolean;
   musicEnabled: boolean;
+
+  /** The player's last change to PROGRESS_FIELDS (0: untouched). */
+  lastModified: number;
 
   // Game state
   isPaused: boolean;
@@ -283,6 +288,55 @@ function getChallengeCompletionUpdate(state: ChallengeCompletionSnapshot): {
   return { challenges, reward };
 }
 
+/** The synced progress of a new player (time 0: untouched). */
+function createDefaultProgress(): MonsterTruckProgress {
+  return {
+    coins: 0,
+    totalCoinsEarned: 0,
+    currentTruckId: 'mud-crusher',
+    trucks: defaultTrucks,
+    upgrades: Object.fromEntries(defaultTrucks.map(t => [t.id, createDefaultUpgrades()])),
+    customization: Object.fromEntries(defaultTrucks.map(t => [t.id, { paintColor: t.color, decal: null }])),
+    starsCollected: 0,
+    challenges: defaultChallenges,
+    soundEnabled: true,
+    musicEnabled: true,
+    lastModified: 0,
+  };
+}
+
+/**
+ * The fields that sync to the account. A change to one of them stamps
+ * lastModified (progressStamp), so no action has to stamp it by hand.
+ * Before the sync-time fix, getProgress() returned Date.now() on every
+ * read: an untouched store always looked newer than the account and
+ * replaced the account's progress at sign-in (and the auto-save never
+ * fired: its payload changed every second).
+ */
+const PROGRESS_FIELDS = [
+  'coins',
+  'totalCoinsEarned',
+  'currentTruckId',
+  'trucks',
+  'upgrades',
+  'customization',
+  'starsCollected',
+  'challenges',
+  'soundEnabled',
+  'musicEnabled',
+] as const satisfies readonly (keyof GameState)[];
+
+const stamp = progressStamp<GameState>(PROGRESS_FIELDS);
+
+// The settings did not count as progress before the sync-time fix either
+// (no time at all was saved), so a save that changed only them is untouched.
+const UNTOUCHED = defineUntouchedProgress('monster-truck', {
+  layout: 'flat',
+  defaults: createDefaultProgress(),
+  // Settings, and the picked truck (one the kid already has).
+  ignore: ['soundEnabled', 'musicEnabled', 'currentTruckId'],
+});
+
 // ============================================================================
 // STORE
 // ============================================================================
@@ -291,12 +345,7 @@ export const useGameStore = create<GameState & GameActions>()(
   persist(
     (set, get) => ({
       // Initial state
-      coins: 0,
-      totalCoinsEarned: 0,
-      currentTruckId: 'mud-crusher',
-      trucks: defaultTrucks,
-      upgrades: Object.fromEntries(defaultTrucks.map(t => [t.id, createDefaultUpgrades()])),
-      customization: Object.fromEntries(defaultTrucks.map(t => [t.id, { paintColor: t.color, decal: null }])),
+      ...createDefaultProgress(),
       sessionCoins: 0,
       sessionAirtime: 0,
       sessionFlips: 0,
@@ -304,9 +353,6 @@ export const useGameStore = create<GameState & GameActions>()(
       starsCollected: 0,
       nosCharge: 100,
       nosMaxCharge: 100,
-      challenges: defaultChallenges,
-      soundEnabled: true,
-      musicEnabled: true,
       isPaused: false,
       hasStarted: false,
       showGarage: false,
@@ -556,28 +602,36 @@ export const useGameStore = create<GameState & GameActions>()(
           challenges: state.challenges,
           soundEnabled: state.soundEnabled,
           musicEnabled: state.musicEnabled,
-          lastModified: Date.now(),
+          lastModified: state.lastModified,
         };
       },
 
       setProgress: (data) => {
-        set({
-          coins: data.coins,
-          totalCoinsEarned: data.totalCoinsEarned,
-          currentTruckId: data.currentTruckId,
-          trucks: data.trucks,
-          upgrades: data.upgrades,
-          customization: data.customization,
-          starsCollected: data.starsCollected,
-          challenges: data.challenges,
-          soundEnabled: data.soundEnabled,
-          musicEnabled: data.musicEnabled,
-        });
+        // Taking progress is not a player action: it keeps the time it gets.
+        stamp.adopt(() =>
+          set({
+            coins: data.coins,
+            totalCoinsEarned: data.totalCoinsEarned,
+            currentTruckId: data.currentTruckId,
+            trucks: data.trucks,
+            upgrades: data.upgrades,
+            customization: data.customization,
+            starsCollected: data.starsCollected,
+            challenges: data.challenges,
+            soundEnabled: data.soundEnabled,
+            musicEnabled: data.musicEnabled,
+            lastModified: typeof data.lastModified === 'number' ? data.lastModified : 0,
+          })
+        );
       },
     }),
     {
       name: 'monster-truck-save',
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         coins: state.coins,
         totalCoinsEarned: state.totalCoinsEarned,
         currentTruckId: state.currentTruckId,
@@ -588,7 +642,14 @@ export const useGameStore = create<GameState & GameActions>()(
         challenges: state.challenges,
         soundEnabled: state.soundEnabled,
         musicEnabled: state.musicEnabled,
+        lastModified: state.lastModified,
       }),
     }
   )
 );
+
+stamp.attach(useGameStore);
+
+// A save of the old code has no time: write the time that the load gave it
+// once, so that the next load does not make the old progress newer again.
+persistSettledSave(useGameStore, UNTOUCHED);

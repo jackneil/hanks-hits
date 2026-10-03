@@ -486,10 +486,7 @@ export function AsteroidsGame() {
     }
   };
 
-  const toggleSound = () => {
-    const current = store.progress.soundEnabled;
-    store.setProgress({ ...store.progress, soundEnabled: !current });
-  };
+  const toggleSound = () => store.toggleSound();
 
   const gameOver = store.status === "gameOver";
   const waveComplete = store.status === "waveComplete";

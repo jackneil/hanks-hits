@@ -5,6 +5,8 @@ import {
   type GameStatus,
   copyGrid,
 } from "./constants";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   slideTiles,
   spawnTile,
@@ -76,13 +78,16 @@ type GameActions = {
 
 const MAX_UNDO_HISTORY = 5;
 
+// Time 0: untouched until a player action stamps it (shared/lib/progressStamp.ts).
 const defaultProgress: Game2048Progress = {
   highScore: 0,
   highestTile: 0,
   gamesPlayed: 0,
   gamesWon: 0,
-  lastModified: Date.now(),
+  lastModified: 0,
 };
+
+const UNTOUCHED = defineUntouchedProgress("2048", { defaults: defaultProgress });
 
 export const use2048Store = create<GameState & GameActions>()(
   persist(
@@ -157,13 +162,14 @@ export const use2048Store = create<GameState & GameActions>()(
           canUndo: newHistory.length > 0,
           highestTile: Math.max(state.highestTile, currentHighest),
           gamesWon: newGamesWon,
-          progress: {
+          // A move that beats no record keeps the time of the last change.
+          progress: stampIfChanged(state.progress, {
             highScore: newHighScore,
             highestTile: Math.max(state.highestTile, currentHighest),
             gamesPlayed: state.gamesPlayed,
             gamesWon: newGamesWon,
-            lastModified: Date.now(),
-          },
+            lastModified: state.progress.lastModified,
+          }),
         });
       },
 
@@ -237,7 +243,11 @@ export const use2048Store = create<GameState & GameActions>()(
     }),
     {
       name: "2048-game-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         grid: state.grid,
         score: state.score,
         highScore: state.highScore,

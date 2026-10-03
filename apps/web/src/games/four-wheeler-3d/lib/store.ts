@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 
 import {
   createAdventureProgress,
@@ -88,6 +90,7 @@ export interface FourWheeler3dActions {
   setProgress: (data: FourWheeler3dProgress) => void;
 
   // Atomic gameplay edits preserve a single save and lastModified timestamp.
+  // An edit that changes nothing keeps the time (shared/lib/progressStamp.ts).
   updateProgress: (
     update: (progress: FourWheeler3dProgress) => FourWheeler3dProgress,
   ) => void;
@@ -117,7 +120,7 @@ export interface FourWheeler3dActions {
   /** Write the live clock into progress. Used on pause and on leaving. */
   flushClock: () => void;
 
-  /** Jump the clock, used by the development ?tod= parameter. */
+  /** Jump the clock: sleeping in the house (a player action), and the development ?tod= parameter. */
   setTimeOfDay: (timeOfDay: number) => void;
 
   /**
@@ -191,6 +194,18 @@ function createDefaultProgress(): FourWheeler3dProgress {
   };
 }
 
+/**
+ * Untouched progress (shared/lib/untouchedProgress.ts). The rider's place,
+ * the places of the vehicles and the world clock change with no choice of
+ * the player: the code before the sync-time fix saved the rider on pagehide
+ * of a ride that never started, and the clock moved by itself.
+ */
+const UNTOUCHED = defineUntouchedProgress("four-wheeler-3d", {
+  defaults: migrateProgress(createDefaultProgress()),
+  ignore: ["rider", "position", "heading", "parked", "timeOfDay", "day", "weather", "soundEnabled", "tiltEnabled", "helmetCam"],
+  progressOf: (saved) => migrateProgress(saved.progress as FourWheeler3dProgress),
+});
+
 // ============================================================================
 // STORE
 // ============================================================================
@@ -220,12 +235,12 @@ export const useFourWheeler3dStore = create<
       },
       updateProgress: (update) =>
         set((state) => ({
-          progress: { ...update(state.progress), lastModified: Date.now() },
+          progress: stampIfChanged(state.progress, update(state.progress)),
         })),
 
       addMoney: (delta) =>
         set((state) => ({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             // Money never goes below zero. Hunger and repairs take carried
             // cash only, so the kid can never owe anything.
@@ -234,8 +249,7 @@ export const useFourWheeler3dStore = create<
               delta > 0
                 ? state.progress.totalEarned + delta
                 : state.progress.totalEarned,
-            lastModified: Date.now(),
-          },
+          }),
         })),
 
       tick: (dtSeconds) =>
@@ -251,7 +265,11 @@ export const useFourWheeler3dStore = create<
           );
 
           // A new day is real news: the day counts up, the weather changes,
-          // and the kid gets a hint about it. That is worth a save.
+          // and the kid gets a hint about it. That is worth a save. The
+          // clock runs while the ride is open, so it keeps the time (a
+          // continuous change, see shared/lib/progressStamp.ts): a stamp
+          // made an idle ride newer than what the kid did on another
+          // device. The clock reaches the account with the next action.
           if (newDay) {
             return {
               clock: timeOfDay,
@@ -263,7 +281,6 @@ export const useFourWheeler3dStore = create<
                 timeOfDay,
                 day: state.progress.day + 1,
                 weather,
-                lastModified: Date.now(),
               },
             };
           }
@@ -277,7 +294,6 @@ export const useFourWheeler3dStore = create<
               progress: {
                 ...state.progress,
                 timeOfDay,
-                lastModified: Date.now(),
               },
             };
           }
@@ -292,6 +308,8 @@ export const useFourWheeler3dStore = create<
           clockSinceFlush: 0,
         })),
 
+      // A pause, a hidden tab or the page going away saves the clock. It
+      // keeps the time: the clock is a continuous change.
       flushClock: () =>
         set((state) => {
           if (state.clock === state.progress.timeOfDay) return {};
@@ -300,7 +318,6 @@ export const useFourWheeler3dStore = create<
             progress: {
               ...state.progress,
               timeOfDay: state.clock,
-              lastModified: Date.now(),
             },
           };
         }),
@@ -311,7 +328,11 @@ export const useFourWheeler3dStore = create<
           return {
             clock: wrapped,
             clockSinceFlush: 0,
-            progress: { ...state.progress, timeOfDay: wrapped },
+            // Sleeping in the house (a player's choice) sets the clock.
+            progress:
+              wrapped === state.progress.timeOfDay
+                ? state.progress
+                : { ...state.progress, timeOfDay: wrapped, lastModified: Date.now() },
           };
         }),
 
@@ -341,17 +362,19 @@ export const useFourWheeler3dStore = create<
 
       updateSettings: (partial) =>
         set((state) => ({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             settings: { ...state.progress.settings, ...partial },
-            lastModified: Date.now(),
-          },
+          }),
         })),
     }),
     {
       name: "four-wheeler-3d-game-state",
-      partialize: (state) => ({ progress: state.progress }),
-      merge: (saved, current) => {
+      partialize: (state) => markSaved({ progress: state.progress }),
+      // A save of the code before the sync-time fix first gets the real
+      // time of its progress. The version stays, so that code still loads a
+      // new save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad<FourWheeler3dState & FourWheeler3dActions>(UNTOUCHED, (saved, current) => {
         const progress = (
           saved as { progress?: FourWheeler3dProgress } | undefined
         )?.progress;
@@ -368,7 +391,7 @@ export const useFourWheeler3dStore = create<
           clock: migrated.timeOfDay,
           clockSinceFlush: 0,
         };
-      },
+      }),
     },
   ),
 );

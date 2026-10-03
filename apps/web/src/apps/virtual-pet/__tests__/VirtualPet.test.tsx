@@ -13,7 +13,7 @@ import {
 } from "../lib/store";
 
 vi.mock("@/shared/hooks/useAuthSync", () => ({
-  useAuthSync: vi.fn(),
+  useAuthSync: vi.fn(() => ({ ready: true })),
 }));
 
 vi.mock("@/shared/components/FullscreenButton", () => ({

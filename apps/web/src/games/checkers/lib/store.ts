@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { sameProgress } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type PieceType,
   type Player,
@@ -112,8 +114,20 @@ const defaultProgress: CheckersProgress = {
   difficulty: "easy",
   variant: "american",
   gameMode: "vs-ai",
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// The difficulty picker did not stamp the time before the sync-time fix.
+// getProgress() adds the difficulty, which the save keeps beside progress.
+const UNTOUCHED = defineUntouchedProgress("checkers", {
+  defaults: defaultProgress,
+  ignore: ["difficulty", "variant", "gameMode"],
+  progressOf: (saved) => ({
+    ...defaultProgress,
+    ...(saved.progress as object),
+    difficulty: saved.difficulty ?? defaultProgress.difficulty,
+  }),
+});
 
 export const useCheckersStore = create<GameState & GameActions>()(
   persist(
@@ -220,8 +234,16 @@ export const useCheckersStore = create<GameState & GameActions>()(
         const newVariant = options?.variant ?? state.progress.variant;
         const newMode = options?.mode ?? state.gameMode;
         const newDifficulty = options?.difficulty ?? state.difficulty;
+        // A new choice (the pickers) is a player's change of the synced
+        // settings: it stamps the time. The same choice keeps it.
+        const synced = state.getProgress();
+        const chosen = { ...synced, difficulty: newDifficulty, variant: newVariant, gameMode: newMode };
+        const progress = sameProgress(synced, chosen, ["lastModified"])
+          ? state.progress
+          : { ...state.progress, difficulty: newDifficulty, variant: newVariant, gameMode: newMode, lastModified: Date.now() };
 
         set({
+          progress,
           board: createInitialBoard(),
           currentPlayer: "red",
           selectedPiece: null,
@@ -243,15 +265,9 @@ export const useCheckersStore = create<GameState & GameActions>()(
       // the middle of one.
       setDifficulty: (difficulty) => get().newGame({ difficulty }),
 
-      setVariant: (variant) => {
-        set((state) => ({ progress: { ...state.progress, variant, lastModified: Date.now() } }));
-        get().newGame({ variant });
-      },
+      setVariant: (variant) => get().newGame({ variant }),
 
-      setGameMode: (mode) => {
-        set((state) => ({ progress: { ...state.progress, gameMode: mode, lastModified: Date.now() } }));
-        get().newGame({ mode });
-      },
+      setGameMode: (mode) => get().newGame({ mode }),
 
       pauseGame: () => set({ paused: true }),
       resumeGame: () => set({ paused: false }),
@@ -351,14 +367,18 @@ export const useCheckersStore = create<GameState & GameActions>()(
         }
         return state;
       },
-      partialize: (state) => ({
-        progress: state.progress,
-        difficulty: state.difficulty,
-      }),
+      partialize: (state) =>
+        markSaved({
+          progress: state.progress,
+          difficulty: state.difficulty,
+        }),
       // The saved rules and mode live in progress: a reload starts the
       // board with them (it started American vs the computer, whatever the
-      // kid had picked, until the next New Game).
-      merge: (persisted, current) => {
+      // kid had picked, until the next New Game). A save of the code before
+      // the sync-time fix first gets the real time of its progress; the
+      // version stays, so that code still loads a new save
+      // (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad<GameState & GameActions>(UNTOUCHED, (persisted, current) => {
         const saved = persisted as Partial<Pick<GameState, "progress" | "difficulty">> | undefined;
         const progress = { ...defaultProgress, ...current.progress, ...saved?.progress };
         return {
@@ -368,7 +388,7 @@ export const useCheckersStore = create<GameState & GameActions>()(
           rules: RULE_SETS[progress.variant] ?? getDefaultRuleSet(),
           gameMode: progress.gameMode === "vs-friend" ? "vs-friend" : "vs-ai",
         };
-      },
+      }),
     }
   )
 );

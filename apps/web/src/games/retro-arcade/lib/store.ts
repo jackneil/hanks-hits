@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { sameProgress } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import type { SystemType } from "./constants";
 
 // Recently played game entry
@@ -133,6 +135,28 @@ const defaultStats: PlayStats = {
 /** The version of the localStorage data. Version 0 kept save states in it. */
 export const RETRO_ARCADE_STORAGE_VERSION = 1;
 
+const UNTOUCHED = defineUntouchedProgress("retro-arcade", {
+  layout: "flat",
+  defaults: {
+    favorites: [],
+    recentlyPlayed: [],
+    customRoms: [],
+    stats: defaultStats,
+    settings: defaultSettings,
+    lastModified: 0,
+  } satisfies RetroArcadeProgress,
+  // Settings are not progress (shared/lib/untouchedProgress.ts).
+  ignore: ["settings"],
+  // The items that a player makes (addListItems: an item made here and not
+  // saved yet joins progress that the page takes). `max` is the schema's
+  // bound (progress-schemas.ts). addFavorite adds at the end; addCustomRom
+  // adds at the start.
+  lists: {
+    favorites: { max: 500, order: "newestLast" },
+    customRoms: { id: "id", max: 500, order: "newestFirst", time: "addedAt" },
+  },
+});
+
 /**
  * Removes the "saveStates" field of version 0 data. That field held base64
  * save states in localStorage. The old message code turned the EmulatorJS
@@ -208,7 +232,7 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
       customRoms: [],
       stats: defaultStats,
       settings: defaultSettings,
-      lastModified: Date.now(),
+      lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 
       // UI Actions
       setCurrentSystem: (system) => set({ currentSystem: system }),
@@ -264,10 +288,11 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
         }),
 
       removeFavorite: (gameId) =>
-        set((state) => ({
-          favorites: state.favorites.filter((id) => id !== gameId),
-          lastModified: Date.now(),
-        })),
+        set((state) =>
+          state.favorites.includes(gameId)
+            ? { favorites: state.favorites.filter((id) => id !== gameId), lastModified: Date.now() }
+            : {}
+        ),
 
       isFavorite: (gameId) => get().favorites.includes(gameId),
 
@@ -301,40 +326,47 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
       // old entry: the saves of both are the same game (gameId is console +
       // name), and the list does not grow with each upload.
       addCustomRom: (rom) =>
-        set((state) => ({
-          customRoms: [
+        set((state) => {
+          const customRoms = [
             rom,
             ...state.customRoms.filter(
               (r) => r.id !== rom.id && !(r.system === rom.system && r.name === rom.name)
             ),
-          ],
-          lastModified: Date.now(),
-        })),
+          ];
+          // Only the names sync: a new file for the same ROM keeps the time.
+          const synced = sameProgress(customRoms.map(stripRuntimeFile), state.customRoms.map(stripRuntimeFile));
+          return synced ? { customRoms } : { customRoms, lastModified: Date.now() };
+        }),
 
       removeCustomRom: (romId) =>
-        set((state) => ({
-          customRoms: state.customRoms.filter((r) => r.id !== romId),
-          lastModified: Date.now(),
-        })),
+        set((state) =>
+          state.customRoms.some((r) => r.id === romId)
+            ? { customRoms: state.customRoms.filter((r) => r.id !== romId), lastModified: Date.now() }
+            : {}
+        ),
 
       getCustomRomsForSystem: (system) => get().customRoms.filter((r) => r.system === system),
 
       // Settings
       updateSettings: (newSettings) =>
-        set((state) => ({
-          settings: { ...state.settings, ...newSettings },
-          lastModified: Date.now(),
-        })),
+        set((state) => {
+          const settings = { ...state.settings, ...newSettings };
+          return sameProgress(settings, state.settings) ? {} : { settings, lastModified: Date.now() };
+        }),
 
       // Stats
       updatePlayTime: (seconds) =>
-        set((state) => ({
-          stats: {
-            ...state.stats,
-            totalPlayTime: state.stats.totalPlayTime + seconds,
-          },
-          lastModified: Date.now(),
-        })),
+        set((state) =>
+          seconds > 0
+            ? {
+                stats: {
+                  ...state.stats,
+                  totalPlayTime: state.stats.totalPlayTime + seconds,
+                },
+                lastModified: Date.now(),
+              }
+            : {}
+        ),
 
       // Progress sync
       getProgress: () => {
@@ -360,7 +392,8 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
           customRoms: mergeCustomRoms(data.customRoms || [], state.customRoms),
           stats: data.stats || defaultStats,
           settings: data.settings || defaultSettings,
-          lastModified: data.lastModified || Date.now(),
+          // Taking progress is not a player action: it keeps the time it gets.
+          lastModified: typeof data.lastModified === "number" ? data.lastModified : 0,
         })),
     }),
     {
@@ -368,15 +401,20 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
       // Version 1: save states left localStorage (they are in IndexedDB now).
       version: RETRO_ARCADE_STORAGE_VERSION,
       migrate: (persisted) => dropLegacySaveStates(persisted),
-      partialize: (state) => ({
-        favorites: state.favorites,
-        recentlyPlayed: state.recentlyPlayed,
-        // Never persist the uploaded files
-        customRoms: state.customRoms.map(stripRuntimeFile),
-        stats: state.stats,
-        settings: state.settings,
-        lastModified: state.lastModified,
-      }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) =>
+        markSaved({
+          favorites: state.favorites,
+          recentlyPlayed: state.recentlyPlayed,
+          // Never persist the uploaded files
+          customRoms: state.customRoms.map(stripRuntimeFile),
+          stats: state.stats,
+          settings: state.settings,
+          lastModified: state.lastModified,
+        }),
     }
   )
 );

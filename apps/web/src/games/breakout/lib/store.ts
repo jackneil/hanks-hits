@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameStatus,
   type Ball,
@@ -134,8 +136,12 @@ const defaultProgress: BreakoutProgress = {
   gamesPlayed: 0,
   powerUpsCollected: 0,
   soundEnabled: true,
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// Settings are not progress: a device that changed only a setting holds
+// nothing that must win over the account (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("breakout", { defaults: defaultProgress, ignore: ["soundEnabled"] });
 
 function createInitialPaddle(): Paddle {
   return {
@@ -289,11 +295,10 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
           currentBallSpeed: levelConfig.ballSpeed,
           nextBallId: 2,
           nextPowerUpId: 1,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             highestLevel: Math.max(state.progress.highestLevel, nextLevelNum),
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -328,12 +333,11 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
 
         set({
           status: "game-over",
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             highScore: Math.max(state.progress.highScore, state.score),
             levelsCompleted: Math.max(state.progress.levelsCompleted, state.level - 1),
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -742,7 +746,7 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
               nextBallId,
               nextPowerUpId,
               nextParticleId,
-              progress,
+              progress: stampIfChanged(state.progress, progress),
             });
             get().gameOver();
             return;
@@ -762,13 +766,12 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
         if (breakableBricks.length === 0) {
           playSound("level-complete");
 
-          const newProgress = {
+          const newProgress = stampIfChanged(state.progress, {
             ...progress,
             highScore: Math.max(progress.highScore, score),
             levelsCompleted: Math.max(progress.levelsCompleted, state.level),
             highestLevel: Math.max(progress.highestLevel, state.level + 1),
-            lastModified: Date.now(),
-          };
+          });
 
           set({
             status: "level-complete",
@@ -805,7 +808,8 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
           nextBallId,
           nextPowerUpId,
           nextParticleId,
-          progress: { ...progress, lastModified: Date.now() },
+          // A frame that broke a brick or caught a power-up stamps the totals.
+          progress: stampIfChanged(state.progress, progress),
         });
       },
 
@@ -815,7 +819,11 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
     }),
     {
       name: "breakout-game-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
       }),
     }

@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { automaticStamp, sameProgress, stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   DECAY_RATES,
   SHOP_ITEMS,
@@ -60,8 +62,10 @@ type VirtualPetActions = {
   wake: () => void;
   clean: () => void;
 
-  // Time simulation
-  updateFromTime: () => void;
+  // Time simulation. VirtualPet runs it when useAuthSync is ready, and passes
+  // `synced` (the pet is the account's): only then does a visit on a new day
+  // stamp the time (automaticStamp).
+  updateFromTime: (synced?: boolean) => void;
 
   // Mini-game
   startMiniGame: () => void;
@@ -74,6 +78,8 @@ type VirtualPetActions = {
 
   // Pet management
   renamePet: (name: string) => void;
+  /** The sound switch: a player's choice, so it stamps the time. */
+  toggleSound: () => void;
   newPet: (speciesId: string, name: string) => void;
 
   // Progress
@@ -109,8 +115,46 @@ const defaultProgress: VirtualPetProgress = {
     soundEnabled: true,
     petName: "Blobby",
   },
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+type PetStats = VirtualPetProgress["stats"];
+
+/** The day of a lastPlayDate (a toDateString() value), or -Infinity for none. */
+const playDay = (date: unknown) => {
+  const time = typeof date === "string" && date ? Date.parse(date) : NaN;
+  return Number.isNaN(time) ? -Infinity : time;
+};
+
+/**
+ * Time passing changes the pet with no choice of the player: its needs, its
+ * age, the daily-visit streak and the species that time unlocks (a default
+ * pet opened a week after it was born unlocks Pupper by itself). Before the
+ * sync-time fix the time update stamped an untouched pet, and the sound
+ * switch did not stamp at all. Such a pet is untouched: it must never
+ * replace the account's real pet. What time earned is not lost: when the
+ * sync takes the account's pet over it, foldNested keeps the visit streak,
+ * and the server's merge keeps the unlocked species.
+ */
+const UNTOUCHED = defineUntouchedProgress("virtual-pet", {
+  defaults: defaultProgress,
+  ignore: [
+    "soundEnabled", "hunger", "happiness", "energy", "cleanliness", "lastChecked", "bornAt",
+    "daysCaredFor", "currentStreak", "longestStreak", "lastPlayDate", "unlockedSpecies",
+  ],
+  foldNested: (base, other) => {
+    const mine = base.stats as PetStats | undefined;
+    const theirs = other.stats as PetStats | undefined;
+    if (!mine || !theirs) return base;
+    const stats: PetStats = { ...mine, longestStreak: Math.max(mine.longestStreak ?? 0, theirs.longestStreak ?? 0) };
+    // The newer visit carries the streak.
+    if (playDay(theirs.lastPlayDate) > playDay(mine.lastPlayDate)) {
+      stats.currentStreak = theirs.currentStreak;
+      stats.lastPlayDate = theirs.lastPlayDate;
+    }
+    return sameProgress(stats, mine) ? base : { ...base, stats };
+  },
+});
 
 function createInitialState(): Partial<VirtualPetState> {
   return {
@@ -225,7 +269,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         ).filter(i => i.quantity > 0);
 
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             pet: {
               ...state.progress.pet,
@@ -237,8 +281,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
               ...state.progress.stats,
               totalFeedings: state.progress.stats.totalFeedings + 1,
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -260,7 +303,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         ).filter(i => i.quantity > 0);
 
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             pet: {
               ...state.progress.pet,
@@ -272,8 +315,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
               ...state.progress.stats,
               totalPlaySessions: state.progress.stats.totalPlaySessions + 1,
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -288,7 +330,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         const newEnergy = clamp(state.progress.pet.energy - PLAY_ENERGY_COST, 0, 100);
 
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             pet: {
               ...state.progress.pet,
@@ -300,8 +342,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
               ...state.progress.stats,
               totalPlaySessions: state.progress.stats.totalPlaySessions + 1,
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -312,15 +353,14 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         playSound("sleep", state.progress.settings.soundEnabled);
 
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             pet: {
               ...state.progress.pet,
               sleeping: true,
               lastChecked: new Date().toISOString(),
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -329,7 +369,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         if (!state.progress.pet.sleeping) return;
 
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             pet: {
               ...state.progress.pet,
@@ -337,8 +377,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
               energy: 100, // Full energy on wake
               lastChecked: new Date().toISOString(),
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -348,26 +387,29 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         playSound("clean", state.progress.settings.soundEnabled);
 
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             pet: {
               ...state.progress.pet,
               cleanliness: 100,
               lastChecked: new Date().toISOString(),
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
-      updateFromTime: () => {
+      updateFromTime: (synced = true) => {
         const state = get();
         const lastChecked = new Date(state.progress.pet.lastChecked);
         const now = new Date();
         const hoursAway = (now.getTime() - lastChecked.getTime()) / (1000 * 60 * 60);
 
-        // Cap at 24 hours to prevent total depletion
-        const cappedHours = Math.min(hoursAway, 24);
+        // Cap at 24 hours to prevent total depletion. Never below 0: a pet
+        // checked on a device whose clock runs ahead (or read on a device
+        // whose clock runs behind) made the time away negative, the decay
+        // then ADDED to the needs, and the server refused every save of a
+        // need above 100. An unreadable time counts as no time away.
+        const cappedHours = Number.isFinite(hoursAway) ? Math.max(0, Math.min(hoursAway, 24)) : 0;
 
         let newHunger = state.progress.pet.hunger;
         let newHappiness = state.progress.pet.happiness;
@@ -404,7 +446,10 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
 
         // Calculate days cared for
         const bornAt = new Date(state.progress.pet.bornAt);
-        const daysCaredFor = Math.floor((now.getTime() - bornAt.getTime()) / (1000 * 60 * 60 * 24));
+        // Never below 0: a pet born on a device whose clock runs ahead, then
+        // read on another device, made it -1, and the server refused every
+        // save of the pet.
+        const daysCaredFor = Math.max(0, Math.floor((now.getTime() - bornAt.getTime()) / (1000 * 60 * 60 * 24)));
 
         // Check for unlocks
         const unlockedSpecies = [...state.progress.unlockedSpecies];
@@ -434,7 +479,20 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
               longestStreak,
               lastPlayDate: today,
             },
-            lastModified: Date.now(),
+            // The minute update runs while the page is open: when only the
+            // needs move, it keeps the time (a continuous change, see
+            // shared/lib/progressStamp.ts), or an idle pet page would replace
+            // what the kid did on another device. A visit on a new day (the
+            // streak) and an unlock are progress of a pet that the player
+            // already changed (automaticStamp: an untouched pet stays
+            // untouched), and only on the account's pet (`synced`): on the
+            // device's copy (the account cannot be reached, or a guest) the
+            // visit keeps the time, so an old copy never looks newer than
+            // the account's pet.
+            lastModified:
+              lastPlay !== today || unlockedSpecies.length !== state.progress.unlockedSpecies.length
+                ? automaticStamp(state.progress.lastModified, synced)
+                : state.progress.lastModified,
           },
         });
       },
@@ -454,15 +512,14 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         set({
           isPlaying: false,
           miniGameScore: score,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             coins: state.progress.coins + coins,
             pet: {
               ...state.progress.pet,
               happiness: clamp(state.progress.pet.happiness + Math.floor(score / 2), 0, 100),
             },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -491,28 +548,34 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         }
 
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             coins: state.progress.coins - item.price,
             inventory: newInventory,
             equippedCosmetics,
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
       toggleShop: () => set(s => ({ showShop: !s.showShop })),
       toggleStats: () => set(s => ({ showStats: !s.showStats })),
 
+      toggleSound: () =>
+        set((state) => ({
+          progress: stampIfChanged(state.progress, {
+            ...state.progress,
+            settings: { ...state.progress.settings, soundEnabled: !state.progress.settings.soundEnabled },
+          }),
+        })),
+
       renamePet: (name) => {
         const state = get();
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             pet: { ...state.progress.pet, name },
             settings: { ...state.progress.settings, petName: name },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -521,7 +584,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         if (!state.progress.unlockedSpecies.includes(speciesId)) return;
 
         set({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             pet: {
               name,
@@ -536,8 +599,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
             },
             equippedCosmetics: [],
             settings: { ...state.progress.settings, petName: name },
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -546,7 +608,11 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
     }),
     {
       name: "virtual-pet-state",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         progress: state.progress,
       }),
     }

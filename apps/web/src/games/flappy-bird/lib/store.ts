@@ -1,10 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameState,
   type Bird as BirdType,
   type Pipe as PipeType,
-  type Medal,
   BIRD,
   PHYSICS,
   PIPE,
@@ -38,8 +38,10 @@ const defaultProgress: FlappyBirdProgress = {
     gold: 0,
     platinum: 0,
   },
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+const UNTOUCHED = defineUntouchedProgress("flappy-bird", { defaults: defaultProgress });
 
 // Full game state
 type FlappyBirdState = {
@@ -266,7 +268,11 @@ export const useFlappyStore = create<FlappyBirdState>()(
     }),
     {
       name: "flappy-bird-progress",
-      partialize: (state) => ({ progress: state.progress }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({ progress: state.progress }),
     }
   )
 );

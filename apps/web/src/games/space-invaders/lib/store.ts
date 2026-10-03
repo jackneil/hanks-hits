@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
   type GameState,
   type Alien,
@@ -54,8 +56,12 @@ const defaultProgress: SpaceInvadersProgress = {
     soundEnabled: true,
     difficulty: "8yo",  // Hank's age!
   },
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// Settings are not progress: a device that changed only a setting holds
+// nothing that must win over the account (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("space-invaders", { defaults: defaultProgress, ignore: ["settings"] });
 
 // ============================================
 // Full Game State
@@ -358,12 +364,11 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
           shields: createShields(), // Reset shields between waves
           explosions: [],
           playerInvincible: false,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             wavesCompleted: state.progress.wavesCompleted + 1,
             highestWave: Math.max(state.progress.highestWave, newWave),
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -779,15 +784,14 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
             shields: newShields,
             explosions: newExplosions,
             mysteryShip: null,
-            progress: {
+            progress: stampIfChanged(state.progress, {
               ...state.progress,
               totalAliensKilled:
                 state.progress.totalAliensKilled + aliensKilledThisFrame,
               mysteryShipsHit:
                 state.progress.mysteryShipsHit + mysteryHitThisFrame,
               highScore: Math.max(state.progress.highScore, newScore),
-              lastModified: Date.now(),
-            },
+            }),
           });
           return;
         }
@@ -808,15 +812,14 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
           bulletIdCounter,
           playerInvincible: newPlayerInvincible,
           invincibilityTimer: newInvincibilityTimer,
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             totalAliensKilled:
               state.progress.totalAliensKilled + aliensKilledThisFrame,
             mysteryShipsHit:
               state.progress.mysteryShipsHit + mysteryHitThisFrame,
             highScore: Math.max(state.progress.highScore, newScore),
-            lastModified: Date.now(),
-          },
+          }),
         });
       },
 
@@ -828,33 +831,35 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
 
       setSoundEnabled: (enabled: boolean) => {
         set((state) => ({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             settings: {
               ...state.progress.settings,
               soundEnabled: enabled,
             },
-            lastModified: Date.now(),
-          },
+          }),
         }));
       },
 
       setDifficulty: (difficulty: Difficulty) => {
         set((state) => ({
-          progress: {
+          progress: stampIfChanged(state.progress, {
             ...state.progress,
             settings: {
               ...state.progress.settings,
               difficulty,
             },
-            lastModified: Date.now(),
-          },
+          }),
         }));
       },
     }),
     {
       name: "space-invaders-progress",
-      partialize: (state) => ({ progress: state.progress }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({ progress: state.progress }),
     }
   )
 );

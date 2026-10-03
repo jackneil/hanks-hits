@@ -1,6 +1,8 @@
 // Oregon Trail - Zustand Store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { progressStamp } from '@/shared/lib/progressStamp';
+import { defineUntouchedProgress, markSavedWithSum, persistSettledSave, settleOnLoad } from '@/shared/lib/untouchedProgress';
 import type { GameState, GamePhase, PaceType, OccupationType, Month, GameEvent, Supplies } from '../types';
 import { createInitialState, calculateDailyTravel, calculateFoodConsumption, getRandomWeather, updatePartyHealth, applyEventEffect, checkLandmarkReached, checkGameOver, getRiverDepth, attemptRiverCrossing } from './gameLogic';
 import { getRandomEvent } from './events';
@@ -44,7 +46,37 @@ function createRiverResultEvent(
 // Index signature required for AppProgressData compatibility
 export type OregonTrailSyncData = GameState & { lastModified: number; [key: string]: unknown };
 
+/**
+ * The fields that sync to the account (the whole journey). A change to one
+ * of them stamps lastModified (progressStamp), so no action has to stamp it
+ * by hand. Before the sync-time fix, getProgress() returned Date.now() on
+ * every read: an untouched store always looked newer than the account and
+ * replaced the journey on the account with the title screen at sign-in.
+ */
+const PROGRESS_FIELDS = [
+  "gamePhase", "gameStarted", "leaderName", "occupation", "party", "departureMonth",
+  "currentDay", "milesTraveled", "currentLandmarkIndex", "pace", "supplies", "weather",
+  "currentEvent", "currentRiver", "huntingFood", "huntingAmmoUsed", "daysRested",
+  "foodHunted", "riversCrossed", "eventsEncountered",
+] as const satisfies readonly (keyof GameState)[];
+
+const pickProgress = (state: Record<string, unknown>) =>
+  Object.fromEntries(PROGRESS_FIELDS.map((field) => [field, state[field]]));
+
+// A save that differs from the title screen only in its phase (the first
+// tap of a new journey) holds nothing of a journey.
+const UNTOUCHED = defineUntouchedProgress("oregon-trail", {
+  defaults: pickProgress(defaultState as unknown as Record<string, unknown>),
+  ignore: ["gamePhase"],
+  // The save holds the whole store state; the progress is PROGRESS_FIELDS
+  // and the time.
+  layout: "flat",
+  progressOf: (saved) => ({ ...pickProgress(saved), lastModified: saved.lastModified }),
+});
+
 interface OregonTrailStore extends GameState {
+  /** The player's last change to PROGRESS_FIELDS (0: untouched). */
+  lastModified: number;
   setPhase: (phase: GamePhase) => void;
   startGame: (name: string, occ: OccupationType, partyNames: string[], month: Month) => void;
   buySupply: (type: string, amount: number) => void;
@@ -67,8 +99,11 @@ interface OregonTrailStore extends GameState {
   setProgress: (data: OregonTrailSyncData) => void;
 }
 
+const stamp = progressStamp<OregonTrailStore>(PROGRESS_FIELDS);
+
 export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get) => ({
   ...defaultState,
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
   setPhase: (phase) => set({ gamePhase: phase }),
   startGame: (name, occ, partyNames, month) => {
     const init = createInitialState(name, occ, partyNames, month);
@@ -195,12 +230,13 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
       foodHunted: state.foodHunted,
       riversCrossed: state.riversCrossed,
       eventsEncountered: state.eventsEncountered,
-      lastModified: Date.now(),
+      lastModified: state.lastModified,
     };
   },
 
   setProgress: (data) => {
-    set({
+    // Taking progress is not a player action: it keeps the time it gets.
+    stamp.adopt(() => set({
       gamePhase: data.gamePhase,
       gameStarted: data.gameStarted,
       leaderName: data.leaderName,
@@ -221,11 +257,22 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
       foodHunted: data.foodHunted,
       riversCrossed: data.riversCrossed,
       eventsEncountered: data.eventsEncountered,
-    });
+      lastModified: typeof data.lastModified === "number" ? data.lastModified : 0,
+    }));
   },
 }), {
   name: "oregon-trail-storage",
   version: 1,
+  // The whole state, marked as a save of the new code, with a sum of the
+  // progress. The code before the sync-time fix has no partialize: after a
+  // rollback it keeps the marker and the time of this code while the kid
+  // plays on, and the sum then tells that its time is not true
+  // (shared/lib/untouchedProgress.ts).
+  partialize: (state) => markSavedWithSum(UNTOUCHED, { ...state }),
+  // A save of the code before the sync-time fix gets the real time of its
+  // progress. The version stays, so that code still loads a new save
+  // (shared/lib/untouchedProgress.ts).
+  merge: settleOnLoad(UNTOUCHED),
   migrate: (persisted: unknown, version: number) => {
     const data = persisted as Partial<OregonTrailSyncData>;
     if (version === 0) {
@@ -242,3 +289,9 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
     return data;
   },
 }));
+
+stamp.attach(useOregonTrailStore);
+
+// A save of the old code has no time: write the time that the load gave it
+// once, so that the next load does not make the old journey newer again.
+persistSettledSave(useOregonTrailStore, UNTOUCHED);

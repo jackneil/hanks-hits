@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import { type Difficulty, getDifficultySettings } from "./constants";
 import { getRandomWord, isValidWord } from "./words";
 import { checkGuess, type LetterStatus } from "./utils";
@@ -56,8 +57,12 @@ const defaultProgress: WordleProgress = {
     soundEnabled: true,
     difficulty: "8yo",
   },
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// Settings are not progress: a device that changed only a setting holds
+// nothing that must win over the account (shared/lib/untouchedProgress.ts).
+const UNTOUCHED = defineUntouchedProgress("wordle", { layout: "flat", defaults: defaultProgress, ignore: ["settings"] });
 
 export const useWordleStore = create<WordleState>()(
   persist(
@@ -205,16 +210,18 @@ export const useWordleStore = create<WordleState>()(
         }),
 
       setDifficulty: (difficulty) =>
-        set((state) => ({
-          settings: { ...state.settings, difficulty },
-          lastModified: Date.now(),
-        })),
+        set((state) =>
+          state.settings.difficulty === difficulty
+            ? {}
+            : { settings: { ...state.settings, difficulty }, lastModified: Date.now() }
+        ),
 
       setSoundEnabled: (enabled) =>
-        set((state) => ({
-          settings: { ...state.settings, soundEnabled: enabled },
-          lastModified: Date.now(),
-        })),
+        set((state) =>
+          state.settings.soundEnabled === enabled
+            ? {}
+            : { settings: { ...state.settings, soundEnabled: enabled }, lastModified: Date.now() }
+        ),
 
       openTutorial: () => set({ showTutorial: true }),
       closeTutorial: () => set({ showTutorial: false }),
@@ -236,7 +243,11 @@ export const useWordleStore = create<WordleState>()(
     }),
     {
       name: "wordle-progress",
-      partialize: (state) => ({
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) => markSaved({
         gamesPlayed: state.gamesPlayed,
         gamesWon: state.gamesWon,
         currentStreak: state.currentStreak,

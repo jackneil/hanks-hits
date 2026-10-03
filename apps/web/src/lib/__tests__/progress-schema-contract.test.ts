@@ -100,3 +100,48 @@ describe("progress schema contract: every store's getProgress() validates", () =
     expect(result).toEqual(expect.objectContaining({ success: true }));
   });
 });
+
+describe("every value that a picker offers passes the schema (review wave 4)", () => {
+  it("math-attack: every age of the picker (6 and 10 were once refused)", async () => {
+    const { DIFFICULTY_SETTINGS } = await import("@/games/math-attack/lib/constants");
+    const { useMathAttackStore } = await import("@/games/math-attack/lib/store");
+    const ages = Object.keys(DIFFICULTY_SETTINGS);
+    expect(ages).toEqual(expect.arrayContaining(["6yo", "10yo"]));
+    for (const age of ages) {
+      const progress = useMathAttackStore.getState().getProgress();
+      const result = validateProgress("math-attack", {
+        ...progress,
+        settings: { ...progress.settings, difficulty: age },
+        lastModified: Date.now(),
+      });
+      expect(result, age).toEqual(expect.objectContaining({ success: true }));
+    }
+  });
+
+  it("drum-machine: a beat as long as the + button allows passes; a longer one does not", async () => {
+    const { MAX_PATTERN_STEPS } = await import("@/apps/drum-machine/lib/constants");
+    const { useDrumMachineStore } = await import("@/apps/drum-machine/lib/store");
+    const beat = (steps: number) => ({
+      id: "b1",
+      name: "Long beat",
+      kitId: "hip-hop",
+      bpm: 120,
+      pattern: { kick: new Array(steps).fill(false), snare: new Array(steps).fill(true) },
+      patternLength: steps,
+      createdAt: new Date().toISOString(),
+    });
+    const progress = useDrumMachineStore.getState().getProgress();
+    // The old + button had no limit: 4 taps made an 80-step beat.
+    for (const steps of [16, 80, MAX_PATTERN_STEPS]) {
+      const result = validateProgress("drum-machine", { ...progress, savedBeats: [beat(steps)], lastModified: Date.now() });
+      expect(result, String(steps)).toEqual(expect.objectContaining({ success: true }));
+    }
+    const tooLong = validateProgress("drum-machine", {
+      ...progress,
+      savedBeats: [beat(MAX_PATTERN_STEPS + 16)],
+      lastModified: Date.now(),
+    });
+    expect(tooLong.success).toBe(false);
+  });
+});
+

@@ -27,6 +27,19 @@ describe("mergeProgress", () => {
     expect(result.data.score).toBe(200);
   });
 
+  it("retains the stored wallet on equal timestamps while reconciling earned records", () => {
+    const result = mergeProgress(
+      { cookies: 2_000, totalCookiesBaked: 12_000, lastModified: 1000 },
+      { cookies: 9_000, totalCookiesBaked: 9_500, lastModified: 1000 },
+      1000,
+      1000,
+      "cookie-clicker"
+    );
+    expect(result.base).toBe("server");
+    expect(result.data.cookies).toBe(9_000);
+    expect(result.data.totalCookiesBaked).toBe(12_000);
+  });
+
   it("uses local data when there is no existing server data", () => {
     const result = mergeProgress({ score: 200 }, null, null, null);
 

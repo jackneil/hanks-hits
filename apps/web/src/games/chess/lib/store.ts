@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { sameProgress } from "@/shared/lib/progressStamp";
+import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import { Chess, Square } from "chess.js";
 import {
   type Difficulty,
@@ -121,8 +123,22 @@ const defaultProgress: ChessProgress = {
   difficulty: "easy",
   gameMode: "ai",
   playerColor: "white",
-  lastModified: Date.now(),
+  lastModified: 0, // Untouched until a player action stamps it (shared/lib/progressStamp.ts).
 };
+
+// The pickers (difficulty, mode, color) did not stamp the time before the
+// sync-time fix.
+const UNTOUCHED = defineUntouchedProgress("chess", {
+  defaults: defaultProgress,
+  ignore: ["difficulty", "gameMode", "playerColor"],
+  // getProgress() adds the pickers, which the save keeps beside progress.
+  progressOf: (saved) => ({
+    ...(saved.progress as object),
+    difficulty: saved.difficulty ?? defaultProgress.difficulty,
+    gameMode: saved.gameMode ?? defaultProgress.gameMode,
+    playerColor: saved.playerColor ?? defaultProgress.playerColor,
+  }),
+});
 
 export const useChessStore = create<GameState & GameActions>()(
   persist(
@@ -211,6 +227,7 @@ export const useChessStore = create<GameState & GameActions>()(
                 progress: {
                   ...s.progress,
                   totalPiecesCaptured: s.progress.totalPiecesCaptured + 1,
+                  lastModified: Date.now(),
                 },
               }));
             }
@@ -312,8 +329,16 @@ export const useChessStore = create<GameState & GameActions>()(
         const playerColor = options?.playerColor ?? state.playerColor;
 
         const newGameInstance = createGame();
+        // A new choice (the pickers) is a player's change of the synced
+        // settings: it stamps the time. The same choice keeps it.
+        const synced = state.getProgress();
+        const chosen = { ...synced, gameMode: mode, difficulty, playerColor };
+        const progress = sameProgress(synced, chosen, ["lastModified"])
+          ? state.progress
+          : { ...state.progress, gameMode: mode, difficulty, playerColor, lastModified: Date.now() };
 
         set({
+          progress,
           game: newGameInstance,
           fen: newGameInstance.fen(),
           gameMode: mode,
@@ -428,12 +453,17 @@ export const useChessStore = create<GameState & GameActions>()(
     }),
     {
       name: "hank-chess-state",
-      partialize: (state) => ({
-        progress: state.progress,
-        difficulty: state.difficulty,
-        gameMode: state.gameMode,
-        playerColor: state.playerColor,
-      }),
+      // A save of the code before the sync-time fix gets the real time of
+      // its progress. The version stays, so that code still loads a new
+      // save (shared/lib/untouchedProgress.ts).
+      merge: settleOnLoad(UNTOUCHED),
+      partialize: (state) =>
+        markSaved({
+          progress: state.progress,
+          difficulty: state.difficulty,
+          gameMode: state.gameMode,
+          playerColor: state.playerColor,
+        }),
     }
   )
 );
