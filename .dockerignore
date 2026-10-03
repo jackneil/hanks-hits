@@ -24,6 +24,8 @@ out
 # Testing
 coverage
 **/__tests__
+# Fixture-generation tools import the test tree excluded above.
+apps/web/scripts/legacy-saves
 *.test.ts
 *.test.tsx
 vitest.config.ts
