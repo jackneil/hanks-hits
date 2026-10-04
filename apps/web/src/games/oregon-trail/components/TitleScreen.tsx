@@ -1,5 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { localWords } from "@/lib/local-words";
+import { useWordDraft } from "@/lib/local-words/useWordDraft";
+import { readSetupLeader, readSetupParty, writeSetupLeader, writeSetupParty } from "../lib/localWords";
 import { useOregonTrailStore } from "../lib/store";
 import { OCCUPATIONS, MONTH_NAMES } from "../lib/constants";
 import type { OccupationType, Month } from "../types";
@@ -20,13 +23,23 @@ export function TitleScreen() {
   const gamePhase = useOregonTrailStore((s) => s.gamePhase);
   const setPhase = useOregonTrailStore((s) => s.setPhase);
   const startGame = useOregonTrailStore((s) => s.startGame);
-  // A new journey starts with the last one's choices already filled in.
-  const [name, setName] = useState(() => useOregonTrailStore.getState().leaderName);
+  const snapshot = useSyncExternalStore(localWords.subscribe, localWords.getSnapshot, localWords.getSnapshot);
+  const journeyId = useOregonTrailStore(s => s.journeyId);
+  const lease = snapshot.ownerKey ? localWords.captureLease() : null;
+  const cleanName = (lease ? readSetupLeader(lease) : undefined) ?? "";
+  const savedParty = lease ? readSetupParty(lease) : undefined;
+  const cleanParty = [0, 1, 2, 3].map(index => savedParty?.[index] ?? "");
+  const [name, setNameDraft] = useWordDraft(`setup-name:${journeyId ?? "new"}`, cleanName);
+  const [party, setPartyDraft] = useWordDraft(`setup-party:${journeyId ?? "new"}`, cleanParty);
+  const setName = (value: string) => {
+    setNameDraft(value);
+    if (lease) void writeSetupLeader(lease, value);
+  };
+  const setParty = (value: string[]) => {
+    setPartyDraft(value);
+    if (lease) void writeSetupParty(lease, value);
+  };
   const [occ, setOcc] = useState<OccupationType>(() => useOregonTrailStore.getState().occupation);
-  const [party, setParty] = useState(() => {
-    const last = useOregonTrailStore.getState().party.map((m) => m.name);
-    return [0, 1, 2, 3].map((i) => last[i] ?? "");
-  });
   const [month, setMonth] = useState<Month>(() => useOregonTrailStore.getState().departureMonth);
 
   if (gamePhase === "title") {

@@ -1,3 +1,7 @@
+import { readToyNotes, writeToyNotes } from "./localWords";
+import { createWordProjection } from "@/lib/progress-words";
+import { localWords } from "@/lib/local-words";
+import { bindWordConsumer } from "@/lib/local-words/consumer";
 import { bindPersistedStore } from "@/lib/owner-bound-progress";
 import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 /**
@@ -44,6 +48,7 @@ interface ToyFinderActions {
   // Wishlist actions
   addToWishlist: (toy: Toy, priority: Priority) => void;
   removeFromWishlist: (toyId: string) => void;
+  updateNotes: (toyId: string, notes: string) => void;
   updatePriority: (toyId: string, priority: Priority) => void;
   isInWishlist: (toyId: string) => boolean;
   getWishlistItem: (toyId: string) => WishlistItem | undefined;
@@ -62,6 +67,8 @@ interface ToyFinderActions {
 
 const STORAGE_KEY = "toy-finder-progress";
 const MAX_RECENTLY_VIEWED = 20;
+
+const projectWords = createWordProjection<ToyFinderProgress>("toy-finder");
 
 const defaultProgress: ToyFinderProgress = {
   wishlistItems: [],
@@ -117,6 +124,13 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
         }));
       },
 
+      updateNotes: (toyId, notes) => {
+        const item = get().wishlistItems.find(w => w.toyId === toyId);
+        if (!item || item.notes === notes) return;
+        const lease = localWords.captureLease();
+        if (lease) void writeToyNotes(lease, toyId, notes);
+        set(state => ({ wishlistItems: state.wishlistItems.map(w => w.toyId === toyId ? { ...w, notes } : w) }));
+      },
       updatePriority: (toyId, priority) => {
         const item = get().wishlistItems.find((w) => w.toyId === toyId);
         if (!item || item.priority === priority) return;
@@ -158,11 +172,11 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
       // Sync helpers
       getProgress: (): ToyFinderProgress => {
         const state = get();
-        return {
+        return projectWords({
           wishlistItems: state.wishlistItems,
           recentlyViewed: state.recentlyViewed,
           lastModified: state.lastModified,
-        } as ToyFinderProgress;
+        } as ToyFinderProgress);
       },
 
       setProgress: (data) => {
@@ -183,13 +197,22 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
       // save (shared/lib/untouchedProgress.ts).
       merge: settleOnLoad(UNTOUCHED),
       // Only persist progress data, not session state
-      partialize: (state) => markSaved({
+      partialize: (state) => markSaved(projectWords({
         wishlistItems: state.wishlistItems,
         recentlyViewed: state.recentlyViewed,
         lastModified: state.lastModified,
-      }),
+      })),
     }
   )
 );
 
 bindPersistedStore("toy-finder-progress", useToyFinderStore.persist, () => useToyFinderStore.setState({}));
+
+bindWordConsumer("toy-finder", useToyFinderStore.subscribe, (_records, lease) => {
+  const state = useToyFinderStore.getState();
+  const wishlistItems = state.wishlistItems.map(item => {
+    const notes = lease ? readToyNotes(lease, item.toyId) : undefined;
+    return item.notes === notes ? item : { ...item, notes };
+  });
+  if (wishlistItems.some((item, i) => item !== state.wishlistItems[i])) useToyFinderStore.setState({ wishlistItems });
+});

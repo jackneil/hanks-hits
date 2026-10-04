@@ -1,6 +1,7 @@
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { localWords } from "@/lib/local-words";
 import { Weather } from "../Weather";
 import { useWeatherStore, type GeoLocation } from "../lib/store";
 
@@ -45,6 +46,8 @@ const boston: GeoLocation = {
   admin1: "Massachusetts",
 };
 
+const forecastData = { current: { weather_code: 0, temperature_2m: 70, apparent_temperature: 70, relative_humidity_2m: 40, wind_speed_10m: 3, is_day: 1 }, daily: { time: [] } };
+
 describe("Weather", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -67,6 +70,39 @@ describe("Weather", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+
+  it.each(["session changed", "newer request", "unmounted"])("discards a forecast after %s without changing saved local words", async reason => {
+    let current = true;
+    const lease = { ownerKey: "guest", generation: 1 };
+    vi.spyOn(localWords, "captureLease").mockReturnValue(lease);
+    vi.spyOn(localWords, "isCurrent").mockImplementation(() => current);
+    const saveLocation = vi.spyOn(useWeatherStore.getState(), "setLastLocation").mockImplementation(() => {});
+    let finish!: (value: Response) => void;
+    const pending = new Promise<Response>(resolve => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn().mockReturnValueOnce(pending).mockResolvedValue({ json: async () => forecastData }));
+    const view = render(<Weather />);
+    act(() => useWeatherStore.setState({ searchResults: [boston] }));
+    fireEvent.click(screen.getByText("Boston"));
+    if (reason === "session changed") current = false;
+    if (reason === "unmounted") {
+      view.unmount();
+      expect(useWeatherStore.getState().isLoading).toBe(false);
+      render(<Weather />);
+      expect(screen.queryByText("Checking the weather...")).toBeNull();
+    }
+    if (reason === "newer request") {
+      act(() => useWeatherStore.setState({ searchResults: [{ ...boston, name: "New city" }] }));
+      await act(async () => fireEvent.click(screen.getByText("New city")));
+      expect(saveLocation).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: "New city" }));
+      saveLocation.mockClear();
+    }
+    await act(async () => { finish({ json: async () => forecastData } as Response); await pending; });
+    expect(saveLocation).not.toHaveBeenCalled();
+    if (reason !== "newer request") expect(useWeatherStore.getState().currentWeather).toBeNull();
   });
 
   it("clears stale search results when the query is emptied", () => {

@@ -49,6 +49,8 @@ import newSavesFile from "@/__tests__/fixtures/new-saves.json";
 import rollbackFile from "@/__tests__/fixtures/rollback-loads.json";
 // The commit of the old store code in fixtures/rollback-loads.json.
 import { ROLLBACK_COMMIT } from "@/__tests__/rollback-commit";
+import { stripProgressWords } from "@/lib/progress-words";
+import { loadWordFixture } from "./load-word-fixture";
 
 type Load = { errors: string[]; loaded: AppProgressData; rewritten: string | null };
 type PlayedOn = { at: number; loaded: AppProgressData; rewritten: string | null };
@@ -65,6 +67,7 @@ const cases = Object.entries(NEW).flatMap(([appId, entry]) =>
 
 afterAll(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   for (const entry of SYNCED_STORES) entry.reset();
   localStorage.clear();
 });
@@ -83,7 +86,11 @@ describe("the fixtures", () => {
       expect(Object.keys(now[appId].saves).sort(), `${appId}: ${RERUN}`).toEqual(Object.keys(entry.saves).sort());
       for (const [name, save] of Object.entries(entry.saves)) {
         const keys = (raw: string) => Object.keys(JSON.parse(raw).state).sort();
-        expect(keys(now[appId].saves[name].raw), `${appId} ${name}: ${RERUN}`).toEqual(keys(save.raw));
+        // The gallery is now stored in the device word database. All other
+        // envelope keys and the historical version/marker remain compatible.
+        const expectedKeys = keys(save.raw).filter(key => appId !== "drawing-app" || key !== "savedArtworks");
+        expect(keys(now[appId].saves[name].raw), `${appId} ${name}: ${RERUN}`).toEqual(expectedKeys);
+        expect(JSON.parse(now[appId].saves[name].raw).state[PROGRESS_TIME_MARKER]).toBe(1);
         expect(JSON.parse(save.raw).state[PROGRESS_TIME_MARKER], `${appId} ${name}: ${RERUN}`).toBe(1);
       }
     }
@@ -110,12 +117,34 @@ describe.each(cases)("%s (%s save): the old code", (appId, name) => {
     // older account. Progress that the store's rule calls untouched (only
     // time or a setting changed it) gets time 0 from the old code's save:
     // it holds nothing to lose.
-    if (isUntouchedProgress(appId, save.progress)) expect(after).toBe(0);
+    const historicalWordOnlyPlay = name === "played" && (appId === "weather" || appId === "virtual-pet");
+    if (historicalWordOnlyPlay) {
+      // Legacy normalization uses the original raw-save rule, not today's
+      // word-free sync classifier. Preserve the exact historical play time.
+      expect(before).toBeGreaterThan(0);
+      expect(after).toBe(before);
+    } else if (isUntouchedProgress(appId, save.progress)) expect(after).toBe(0);
     else {
       expect(before).toBeGreaterThan(0);
       expect(after).toBeGreaterThan(0);
     }
   });
+});
+
+it("retains the frozen Drawing gallery and exact raw envelope outside the progress namespace", async () => {
+  const raw = NEW["drawing-app"].saves.played.raw;
+  const saved = JSON.parse(raw).state;
+  const { entry, authority, words, sources } = await loadWordFixture("drawing-app", NEW["drawing-app"].key, raw);
+  expect(localStorage.getItem(entry.key)).toBe(raw);
+  expect(sources).toContainEqual(expect.objectContaining({ sourceKey: entry.key, raw }));
+  expect(saved.savedArtworks.length).toBeGreaterThan(0);
+  for (const artwork of saved.savedArtworks) {
+    expect(words).toContainEqual(expect.objectContaining({ entityKey: JSON.stringify(["artwork", artwork.id]), field: "artwork", value: artwork }));
+  }
+  const progress = entry.store.getState().getProgress() as AppProgressData;
+  expect(extractTimestamp(progress)).toBe(saved.lastModified);
+  expect(progress).not.toHaveProperty("savedArtworks");
+  expect(JSON.parse(authority.readScoped(entry.key)!).state).not.toHaveProperty("savedArtworks");
 });
 
 describe("a save whose old code keeps keys that it does not know", () => {
@@ -140,18 +169,21 @@ describe("a save whose old code keeps keys that it does not know", () => {
     // The old code kept this code's marker and time while the kid played on.
     expect(rewritten[PROGRESS_TIME_MARKER]).toBe(1);
     vi.setSystemTime(new Date(played.at + 2 * 24 * 60 * 60 * 1000));
-    localStorage.clear();
-    localStorage.setItem("oregon-trail-storage", played.rewritten!);
-    vi.resetModules();
-    const { syncedStore, SYNCED_STORES: freshStores } = await import("@/__tests__/synced-stores");
-    const { ownerBoundProgress: authority } = await import("@/lib/owner-bound-progress");
-    const entry = syncedStore("oregon-trail");
-    await authority.updateSession("unauthenticated");
-    await Promise.all(freshStores.map(item => authority.whenHydrated(item.key)));
+    const { entry, sources, words } = await loadWordFixture("oregon-trail", "oregon-trail-storage", played.rewritten!);
     expect(localStorage.getItem(entry.key)).toBe(played.rewritten!);
     const progress = entry.store.getState().getProgress() as AppProgressData;
     expect(extractTimestamp(progress)).toBeGreaterThanOrEqual(played.at);
-    expect(sameProgress(progress, played.loaded, TIME_KEYS)).toBe(true);
+    expect(sameProgress(progress, stripProgressWords("oregon-trail", played.loaded), TIME_KEYS)).toBe(true);
     expect(progress.pace).toBe("grueling");
+    // A legacy journey has no proven ID: preserve every name as an unmatched
+    // source, without attaching it to a guessed journey or minting an ID.
+    expect(progress.journeyId).toBeUndefined();
+    expect(words).toEqual([]);
+    const source = sources.find(item => item.sourceKey === entry.key);
+    expect(source?.raw).toBe(played.rewritten);
+    expect(source?.fields).toContainEqual(expect.objectContaining({ path: "leaderName", value: rewritten.leaderName }));
+    for (const [index, member] of rewritten.party.entries()) {
+      expect(source?.fields).toContainEqual(expect.objectContaining({ path: `party[${index}].name`, value: member.name }));
+    }
   });
 });

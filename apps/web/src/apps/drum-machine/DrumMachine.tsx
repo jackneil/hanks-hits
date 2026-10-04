@@ -1,5 +1,6 @@
 "use client";
 
+import { useWordDraft } from "@/lib/local-words/useWordDraft";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useDrumMachineStore } from "./lib/store";
 import {
@@ -207,7 +208,7 @@ export function DrumMachine() {
   const containerRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<number | null>(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [beatName, setBeatName] = useState("");
+  const [beatName, setBeatName] = useWordDraft("new-beat", "");
   const [showBeatsModal, setShowBeatsModal] = useState(false);
 
   const store = useDrumMachineStore();
@@ -560,7 +561,7 @@ export function DrumMachine() {
             />
             <div className="flex gap-4">
               <button
-                onClick={() => setShowSaveModal(false)}
+                onClick={() => { setBeatName(""); setShowSaveModal(false); }}
                 className="flex-1 bg-slate-600 hover:bg-slate-500 text-white py-2 rounded-lg font-bold"
               >
                 Cancel
@@ -579,7 +580,7 @@ export function DrumMachine() {
       {/* Beats modal */}
       {showBeatsModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-xl p-6 w-96 max-h-96 overflow-y-auto">
+          <div className="bg-slate-800 rounded-xl p-6 w-96 max-w-full max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <h2 className="text-xl font-bold text-white mb-4">Saved Beats</h2>
             {store.progress.savedBeats.length === 0 ? (
               <p className="text-slate-400 text-center py-8">No saved beats yet</p>
@@ -590,25 +591,26 @@ export function DrumMachine() {
                     key={beat.id}
                     className="flex items-center justify-between bg-slate-700 rounded-lg p-3"
                   >
-                    <div>
+                    <div className="min-w-0 flex-1 pr-2 break-words">
                       <div className="text-white font-bold">{beat.name}</div>
                       <div className="text-slate-400 text-sm">
                         {beat.bpm} BPM • {DRUM_KITS.find(k => k.id === beat.kitId)?.name}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex shrink-0 gap-2">
                       <button
                         onClick={() => {
                           store.loadBeat(beat);
                           setShowBeatsModal(false);
                         }}
-                        className="bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded font-bold text-sm"
+                        className="min-h-11 min-w-11 bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded font-bold text-sm"
                       >
                         Load
                       </button>
                       <button
+                        aria-label={`Delete ${beat.name || "beat"}`}
                         onClick={() => store.deleteBeat(beat.id)}
-                        className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded font-bold text-sm"
+                        className="min-h-11 min-w-11 bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded font-bold text-sm"
                       >
                         ✕
                       </button>
@@ -619,7 +621,7 @@ export function DrumMachine() {
             )}
             <button
               onClick={() => setShowBeatsModal(false)}
-              className="w-full mt-4 bg-slate-600 hover:bg-slate-500 text-white py-2 rounded-lg font-bold"
+              className="min-h-11 w-full mt-4 bg-slate-600 hover:bg-slate-500 text-white py-2 rounded-lg font-bold"
             >
               Close
             </button>

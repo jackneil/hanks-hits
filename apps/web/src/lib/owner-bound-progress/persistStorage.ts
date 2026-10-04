@@ -22,6 +22,10 @@ export function createOwnerPersistStorage<S>(logicalKey: string, appId: string):
   let lease: ReturnType<typeof ownerBoundProgress.captureLease> = null;
   let saved: StorageValue<S> | null = null;
   let pending: StorageValue<S> | null = null;
+  // An asynchronous preservation transaction may span many animation frames.
+  // Retain its exact serialization independently from proof of durability.
+  let attempted: StorageValue<S> | null = null;
+  let attemptedRaw: string | null = null;
   const write = (value: StorageValue<S>) => {
     const current = ownerBoundProgress.captureLease();
     if (!lease) return; // No hydration has authorized this store yet.
@@ -34,11 +38,21 @@ export function createOwnerPersistStorage<S>(logicalKey: string, appId: string):
     if (current.ownerKey !== lease.ownerKey) return;
     lease = current;
     if (saved && sameEnvelope(saved, value) && ownerBoundProgress.hasDurable(logicalKey)) return;
-    const durable = ownerBoundProgress.writeScoped(logicalKey, JSON.stringify(value), lease);
+    const raw = attempted && sameEnvelope(attempted, value) && attemptedRaw !== null
+      ? attemptedRaw : JSON.stringify(value);
+    attempted = value;
+    attemptedRaw = raw;
+    const durable = ownerBoundProgress.writeScoped(logicalKey, raw, lease);
     saved = durable ? value : null;
   };
   ownerBoundProgress.subscribe(() => {
-    if (ownerBoundProgress.getSnapshot().status === "revoked") pending = null;
+    if (ownerBoundProgress.getSnapshot().status === "revoked") {
+      pending = null; saved = null; attempted = null; attemptedRaw = null;
+    }
+    const current = ownerBoundProgress.captureLease();
+    if (current && current.ownerKey === lease?.ownerKey && attempted
+      && ownerBoundProgress.isLatestDurable(logicalKey, current)
+      && ownerBoundProgress.readScoped(logicalKey, current) === attemptedRaw) saved = attempted;
     if (!pending || !ownerBoundProgress.captureLease()) return;
     const value = pending;
     pending = null;
@@ -49,12 +63,16 @@ export function createOwnerPersistStorage<S>(logicalKey: string, appId: string):
       const raw = await storage.getItem(name);
       lease = ownerBoundProgress.captureLease();
       saved = null;
+      attempted = null;
+      attemptedRaw = null;
       return raw === null ? null : JSON.parse(raw) as StorageValue<S>;
     },
     setItem: (_name, value) => write(value),
     removeItem: (name) => {
       saved = null;
       pending = null;
+      attempted = null;
+      attemptedRaw = null;
       if (lease && ownerBoundProgress.isCurrent(lease)) storage.removeItem(name);
     },
   };

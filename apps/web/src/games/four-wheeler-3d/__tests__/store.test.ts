@@ -94,7 +94,14 @@ describe("Four-Wheeler 3D store", () => {
 
     useFourWheeler3dStore.getState().setProgress(saved);
 
-    expect(useFourWheeler3dStore.getState().getProgress()).toEqual(saved);
+    expect(useFourWheeler3dStore.getState().getProgress()).toEqual({
+      ...saved,
+      adventure: {
+        ...saved.adventure,
+        outfit: { ...saved.adventure.outfit, text: "" },
+        feeders: saved.adventure.feeders.map(feeder => ({ ...feeder, label: "" })),
+      },
+    });
   });
 
   it("updates settings without touching the rest of progress", () => {

@@ -1,3 +1,8 @@
+import { readPetName, writePetName } from "./localWords";
+import { PET_SPECIES } from "./constants";
+import { createWordProjection } from "@/lib/progress-words";
+import { localWords } from "@/lib/local-words";
+import { bindWordConsumer } from "@/lib/local-words/consumer";
 import { bindPersistedStore } from "@/lib/owner-bound-progress";
 import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
@@ -88,6 +93,8 @@ type VirtualPetActions = {
   getProgress: () => VirtualPetProgress;
   setProgress: (data: VirtualPetProgress) => void;
 };
+
+const projectWords = createWordProjection<VirtualPetProgress>("virtual-pet");
 
 const defaultProgress: VirtualPetProgress = {
   pet: {
@@ -572,12 +579,14 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
 
       renamePet: (name) => {
         const state = get();
+        const lease = localWords.captureLease();
+        if (lease) void writePetName(lease, state.progress.pet, name);
         set({
-          progress: stampIfChanged(state.progress, {
+          progress: {
             ...state.progress,
             pet: { ...state.progress.pet, name },
             settings: { ...state.progress.settings, petName: name },
-          }),
+          },
         });
       },
 
@@ -585,6 +594,9 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         const state = get();
         if (!state.progress.unlockedSpecies.includes(speciesId)) return;
 
+        const bornAt = new Date().toISOString();
+        const lease = localWords.captureLease();
+        if (lease) void writePetName(lease, { speciesId, bornAt }, name);
         set({
           progress: stampIfChanged(state.progress, {
             ...state.progress,
@@ -596,7 +608,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
               energy: 100,
               cleanliness: 100,
               sleeping: false,
-              bornAt: new Date().toISOString(),
+              bornAt,
               lastChecked: new Date().toISOString(),
             },
             equippedCosmetics: [],
@@ -605,7 +617,7 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
         });
       },
 
-      getProgress: () => get().progress,
+      getProgress: () => projectWords(get().progress),
       setProgress: (data) => set({ progress: data }),
     }),
     {
@@ -617,10 +629,18 @@ export const useVirtualPetStore = create<VirtualPetState & VirtualPetActions>()(
       // save (shared/lib/untouchedProgress.ts).
       merge: settleOnLoad(UNTOUCHED),
       partialize: (state) => markSaved({
-        progress: state.progress,
+        progress: projectWords(state.progress),
       }),
     }
   )
 );
 
 bindPersistedStore("virtual-pet-state", useVirtualPetStore.persist, () => useVirtualPetStore.setState({}));
+
+bindWordConsumer("virtual-pet", useVirtualPetStore.subscribe, (_records, lease) => {
+  const { progress } = useVirtualPetStore.getState();
+  const name = (lease ? readPetName(lease, progress.pet) : undefined) ?? PET_SPECIES.find(species => species.id === progress.pet.speciesId)?.name ?? "Blobby";
+  if (progress.pet.name !== name || progress.settings.petName !== name) {
+    useVirtualPetStore.setState({ progress: { ...progress, pet: { ...progress.pet, name }, settings: { ...progress.settings, petName: name } } });
+  }
+});

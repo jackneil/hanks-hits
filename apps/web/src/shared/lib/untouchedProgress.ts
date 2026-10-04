@@ -56,7 +56,7 @@ import { mergeProgress } from "@/lib/progress-merge";
 import { sameProgress } from "./progressStamp";
 import { ownerBoundProgress } from "@/lib/owner-bound-progress";
 import { registerAdmissionProjector } from "@/lib/owner-bound-progress/admission";
-import { stripProgressWords } from "@/lib/progress-words";
+import { createWordProjection, stripProgressWords } from "@/lib/progress-words";
 
 export type ProgressTimeKey = "lastModified" | "updatedAt";
 
@@ -87,6 +87,8 @@ export interface UntouchedProgressRule {
   readonly layout: "nested" | "flat";
   /** True when the progress holds nothing that a player made. */
   isUntouched: (progress: unknown) => boolean;
+  /** Cloud comparisons use the same word-free shape as every upload. */
+  isUntouchedForSync: (progress: unknown) => boolean;
   /** The time for progress from a save of the code before this change. */
   legacyTime: (progress: unknown, loadedAt?: number) => number;
   /** The progress as getProgress() returns it, from a saved state (without the marker). */
@@ -207,11 +209,16 @@ export function defineUntouchedProgress(appId: ValidAppId, spec: Spec): Untouche
   const layout = spec.layout ?? "nested";
   const isUntouched = (progress: unknown) =>
     isRecord(progress) && untouchedBy(fillFromDefaults(progress, spec.defaults), spec.defaults, ignore, within);
+  const projectForSync = createWordProjection<unknown>(appId);
+  const syncDefaults = projectForSync(spec.defaults);
+  const isUntouchedForSync = (progress: unknown) => isRecord(progress)
+    && untouchedBy(fillFromDefaults(projectForSync(progress), syncDefaults), syncDefaults, ignore, within);
   const rule: UntouchedProgressRule = {
     appId,
     timeKey,
     layout,
     isUntouched,
+    isUntouchedForSync,
     legacyTime(progress, loadedAt) {
       if (!isRecord(progress) || isUntouched(progress)) return 0;
       const time = progress[timeKey];
@@ -241,7 +248,7 @@ export function defineUntouchedProgress(appId: ValidAppId, spec: Spec): Untouche
  * page's store is here. Unknown app: false.
  */
 export function isUntouchedProgress(appId: string, progress: unknown): boolean {
-  return rules.get(appId)?.isUntouched(progress) ?? false;
+  return rules.get(appId)?.isUntouchedForSync(progress) ?? false;
 }
 
 /**
@@ -254,7 +261,7 @@ export function isUntouchedProgress(appId: string, progress: unknown): boolean {
  */
 export function isLegacyUntouchedRow(appId: string, row: unknown): boolean {
   const rule = rules.get(appId);
-  return !!rule && isRecord(row) && rule.isUntouched(row);
+  return !!rule && isRecord(row) && rule.isUntouchedForSync(row);
 }
 
 /**

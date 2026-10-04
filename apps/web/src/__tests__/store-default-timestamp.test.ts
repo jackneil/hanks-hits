@@ -192,6 +192,8 @@ describe("virtual-pet: time passing", () => {
       vi.setSystemTime(new Date("2026-10-01T15:00:00"));
       syncedStore("virtual-pet").reset();
       useVirtualPetStore.getState().renamePet("Synthetic");
+      expect(useVirtualPetStore.getState().getProgress().lastModified).toBe(0);
+      useVirtualPetStore.getState().play();
       useVirtualPetStore.getState().updateFromTime();
       const yesterday = useVirtualPetStore.getState().getProgress();
       expect(yesterday.stats.currentStreak).toBe(1);

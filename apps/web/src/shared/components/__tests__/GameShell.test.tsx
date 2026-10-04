@@ -9,7 +9,24 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
+vi.mock("../LocalWordRecovery", () => ({ LocalWordRecovery: () => <button>Words</button> }));
+
 describe("GameShell", () => {
+  it("keeps app recovery in the header without shrinking the play box", () => {
+    render(<GameShell gameName="Virtual Pet" appId="virtual-pet"><div>Pet content</div></GameShell>);
+    const trigger = screen.getByRole("button", { name: "Words" });
+    const bar = screen.getByTestId("game-shell-header");
+    const play = screen.getByTestId("game-shell-play-box");
+    expect(bar).toContainElement(trigger);
+    expect(play).not.toContainElement(trigger);
+    expect(screen.queryByTestId("game-share-bar")).not.toBeInTheDocument();
+    expect(play.style.height).toBe("");
+  });
+  it("keeps game recovery in the existing share bar outside gameplay", () => {
+    render(<GameShell gameName="Oregon Trail" appId="oregon-trail"><div>Trail content</div></GameShell>);
+    expect(screen.getByTestId("game-share-bar")).toContainElement(screen.getByRole("button", { name: "Words" }));
+    expect(screen.getByTestId("game-shell-play-box").style.height).toContain("44px");
+  });
   it("labels emoji-only header controls with descriptive accessible names", () => {
     render(
       <GameShell gameName="2048">

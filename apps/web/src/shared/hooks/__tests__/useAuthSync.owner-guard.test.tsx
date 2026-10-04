@@ -94,6 +94,31 @@ describe("useAuthSync with the real owner storage authority", () => {
     expect(originalCandidate.id).toBeTruthy();
   });
 
+  it("keeps the exact guest candidate until the latest canonical namespace commit notifies subscribers", async () => {
+    await seedHandoff({ ...played(80), lastModified: 300 }, { ...played(100), lastModified: 200 });
+    const state = store(); await confirm();
+    const lease = authority.current.captureLease()!;
+    const physicalKey = `hh-progress:v2:${JSON.stringify([lease.ownerKey, key])}`;
+    const olderPhysical = localStorage.getItem(physicalKey);
+    const commits: Array<() => boolean> = [];
+    authority.current.registerWordPersistenceGuard({
+      handles: logical => logical === key, snapshotOwner: () => {}, beforeHydrate: () => {},
+      replace: (_key, _raw, _lease, commit) => {
+        commits.push(() => commit(olderPhysical));
+        return false;
+      },
+    });
+    const candidateId = authority.current.readGuestCandidate(key)!.id;
+    mount(state); await settle();
+    await act(async () => { state.setState({ progress: played(120) }); });
+    expect(authority.current.readGuestCandidate(key)?.id).toBe(candidateId);
+    expect(commits.length).toBeGreaterThan(0);
+    expect(localStorage.getItem(physicalKey)).toBe(olderPhysical);
+    await act(async () => { expect(commits.at(-1)!()).toBe(true); });
+    expect(authority.current.readGuestCandidate(key)).toBeNull();
+    expect(localStorage.getItem(physicalKey)).not.toBe(olderPhysical);
+  });
+
   it("retains a failed guest preflight while unrelated account sync succeeds, then retries without a new timestamp", async () => {
     await seedHandoff({ ...played(80), lastModified: 300 }, { ...played(100), lastModified: 200 });
     const server = createProgressServer({ current: auth });

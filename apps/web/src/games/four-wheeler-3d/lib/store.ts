@@ -1,8 +1,12 @@
+import { readOutfitText, readFeederLabel, writeOutfitText, writeFeederLabel } from "./localWords";
+import { createWordProjection } from "@/lib/progress-words";
+import { localWords } from "@/lib/local-words";
+import { bindWordConsumer } from "@/lib/local-words/consumer";
 import { bindPersistedStore } from "@/lib/owner-bound-progress";
 import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { stampIfChanged } from "@/shared/lib/progressStamp";
+import { sameProgress, stampIfChanged } from "@/shared/lib/progressStamp";
 import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 
 import {
@@ -142,6 +146,8 @@ export interface FourWheeler3dActions {
 // DEFAULTS
 // ============================================================================
 
+const projectWords = createWordProjection<FourWheeler3dProgress>("four-wheeler-3d");
+
 export const defaultProgress: FourWheeler3dProgress = {
   adventure: createAdventureProgress(),
   money: START_MONEY,
@@ -220,7 +226,7 @@ export const useFourWheeler3dStore = create<
       progress: createDefaultProgress(),
       ...defaultSession,
 
-      getProgress: () => get().progress,
+      getProgress: () => projectWords(get().progress),
 
       setProgress: (data) => {
         resetActivitiesSession();
@@ -235,10 +241,20 @@ export const useFourWheeler3dStore = create<
         });
         useAdventureSession.getState().relocate(rider.position, rider.heading);
       },
-      updateProgress: (update) =>
-        set((state) => ({
-          progress: stampIfChanged(state.progress, update(state.progress)),
-        })),
+      updateProgress: (update) => {
+        const state = get();
+        const next = update(state.progress);
+        const lease = localWords.captureLease();
+        if (lease) {
+          if (next.adventure.outfit.text !== state.progress.adventure.outfit.text) void writeOutfitText(lease, next.adventure.outfit.text);
+          for (const feeder of next.adventure.feeders) {
+            const previous = state.progress.adventure.feeders.find(item => item.id === feeder.id);
+            if (previous && previous.label !== feeder.label) void writeFeederLabel(lease, feeder.id, feeder.label);
+          }
+        }
+        const unchangedGameplay = sameProgress(projectWords(state.progress), projectWords(next), ["lastModified"]);
+        set({ progress: unchangedGameplay ? { ...next, lastModified: state.progress.lastModified } : stampIfChanged(state.progress, next) });
+      },
 
       addMoney: (delta) =>
         set((state) => ({
@@ -374,7 +390,7 @@ export const useFourWheeler3dStore = create<
       storage: createOwnerPersistStorage("four-wheeler-3d-game-state", "four-wheeler-3d"),
       skipHydration: true,
       name: "four-wheeler-3d-game-state",
-      partialize: (state) => markSaved({ progress: state.progress }),
+      partialize: (state) => markSaved({ progress: projectWords(state.progress) }),
       // A save of the code before the sync-time fix first gets the real
       // time of its progress. The version stays, so that code still loads a
       // new save (shared/lib/untouchedProgress.ts).
@@ -401,3 +417,16 @@ export const useFourWheeler3dStore = create<
 );
 
 bindPersistedStore("four-wheeler-3d-game-state", useFourWheeler3dStore.persist, () => useFourWheeler3dStore.setState({}));
+
+bindWordConsumer("four-wheeler-3d", useFourWheeler3dStore.subscribe, (_records, lease) => {
+  const { progress } = useFourWheeler3dStore.getState();
+  const adventure = progress.adventure;
+  const text = (lease ? readOutfitText(lease) : undefined) ?? "HANK";
+  const feeders = adventure.feeders.map((feeder, index) => {
+    const label = (lease ? readFeederLabel(lease, feeder.id) : undefined) ?? `Feeder ${index + 1}`;
+    return feeder.label === label ? feeder : { ...feeder, label };
+  });
+  if (text !== adventure.outfit.text || feeders.some((feeder, i) => feeder !== adventure.feeders[i])) {
+    useFourWheeler3dStore.setState({ progress: { ...progress, adventure: { ...adventure, outfit: { ...adventure.outfit, text }, feeders } } });
+  }
+});

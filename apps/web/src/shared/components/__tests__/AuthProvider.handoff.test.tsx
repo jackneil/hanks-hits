@@ -1,3 +1,4 @@
+vi.mock("@/lib/local-words", () => ({ localWords: { install: vi.fn() } }));
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

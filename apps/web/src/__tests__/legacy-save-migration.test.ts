@@ -27,6 +27,7 @@ import { validateProgress } from "@/lib/progress-schemas";
 import type { ValidAppId } from "@hank-neil/db/schema";
 import { SYNCED_STORES } from "@/__tests__/synced-stores";
 import legacy from "@/__tests__/fixtures/legacy-saves.json";
+import { loadWordFixture } from "./load-word-fixture";
 
 type Save = { state: Record<string, unknown>; version: number };
 type Saves = Record<string, { key: string } & Record<string, Save | string>>;
@@ -67,6 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   for (const entry of SYNCED_STORES) entry.reset();
   localStorage.clear();
 });
@@ -127,7 +129,9 @@ describe.each(scenarios("played"))("%s: a save with a player's change", (appId, 
     const before = savedTime(save);
     expect(time).toBe(before ?? LOAD_TIME);
     expect(time).toBeGreaterThan(0);
-    expect(isUntouchedProgress(appId, progress)).toBe(false);
+    // These two historical actions changed only device words. Their original
+    // save time stays positive even though their sync projection is untouched.
+    expect(isUntouchedProgress(appId, progress)).toBe(appId === "weather" || appId === "virtual-pet");
   });
 
   it("keeps that time on the next load, when the page changed nothing (the settled save is written once)", async () => {
@@ -137,6 +141,28 @@ describe.each(scenarios("played"))("%s: a save with a player's change", (appId, 
     const onDisk = authority.readScoped(entry.key)!;
     const { time: nextTime } = await load(appId, JSON.parse(onDisk) as Save);
     expect(nextTime).toBe(time);
+  });
+});
+
+describe("word-only historical play", () => {
+  it.each(["weather", "virtual-pet"] as const)("%s keeps the exact source and durable words while syncing untouched gameplay", async appId => {
+    const save = SAVES[appId].played as Save;
+    const raw = JSON.stringify(save);
+    const { entry, words, sources } = await loadWordFixture(appId, SAVES[appId].key, raw);
+    expect(localStorage.getItem(entry.key)).toBe(raw);
+    expect(sources).toContainEqual(expect.objectContaining({ sourceKey: entry.key, raw }));
+    const progress = entry.store.getState().getProgress() as AppProgressData;
+    expect(extractTimestamp(progress)).toBe(savedTime(save));
+    expect(isUntouchedProgress(appId, progress)).toBe(true);
+    if (appId === "weather") {
+      expect(words).toContainEqual(expect.objectContaining({ field: "savedLocations", value: save.state.savedLocations }));
+      expect(progress).toMatchObject({ savedLocations: [], lastLocation: null });
+    } else {
+      const saved = (save.state.progress ?? save.state) as { pet: { name: string; speciesId: string; bornAt: string } };
+      const pet = saved.pet;
+      expect(words).toContainEqual(expect.objectContaining({ entityKey: JSON.stringify(["pet", pet.speciesId, pet.bornAt]), field: "name", value: pet.name }));
+      expect(JSON.stringify(progress)).not.toContain(pet.name);
+    }
   });
 });
 

@@ -1,5 +1,6 @@
 import { render, screen, act, fireEvent } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { IDBFactory } from "fake-indexeddb";
 
 // The GameShell reads useRouter (via useGameShell.goHome); jsdom has no Next
 // app-router context, so stub it.
@@ -33,6 +34,19 @@ vi.mock("@/shared/components/IOSInstallPrompt", () => ({
 import { OregonTrailGameShell } from "../OregonTrailGameShell";
 import { useOregonTrailStore } from "../lib/store";
 import { useHuntPauseStore } from "../lib/huntPause";
+import { localWords } from "@/lib/local-words";
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+
+beforeAll(async () => {
+  localStorage.clear();
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  vi.stubGlobal("BroadcastChannel", undefined);
+  localWords.install();
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await ownerBoundProgress.whenHydrated("oregon-trail-storage");
+  await localWords.prepare("oregon-trail", localWords.captureLease()!);
+});
+afterAll(() => { ownerBoundProgress.revoke(); vi.unstubAllGlobals(); });
 
 const huntingSupplies = {
   food: 100,
@@ -55,7 +69,6 @@ describe("OregonTrailGameShell pause wiring (hunting minigame)", () => {
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
     act(() => {
       useOregonTrailStore.setState({ gamePhase: "title" });
       useHuntPauseStore.setState({ paused: false });
@@ -64,16 +77,10 @@ describe("OregonTrailGameShell pause wiring (hunting minigame)", () => {
 
   it("restarts the current journey with its existing setup", () => {
     act(() => {
+      useOregonTrailStore.getState().startGame("Hank", "carpenter", ["Scout", "Ranger"], "june");
       useOregonTrailStore.setState({
-        gameStarted: true,
         gamePhase: "travel",
-        leaderName: "Hank",
-        occupation: "carpenter",
-        party: [
-          { id: "1", name: "Scout", health: "good", isSick: false, sickDays: 0, leftBehind: false },
-          { id: "2", name: "Ranger", health: "fair", isSick: false, sickDays: 0, leftBehind: false },
-        ],
-        departureMonth: "june",
+        party: useOregonTrailStore.getState().party.map((member, index) => index === 1 ? { ...member, health: "fair" } : member),
       });
     });
     render(<OregonTrailGameShell />);

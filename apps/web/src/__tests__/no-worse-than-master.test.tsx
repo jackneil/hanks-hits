@@ -15,6 +15,11 @@
  * - in every cell with an untouched device, an untouched account row, a
  *   second tab or a second kid, this checkout loses fewer values than
  *   master, when master loses any.
+ * Part C moves only reviewed personal fields to device storage. The test-side
+ * boundary checks their remaining cloud-owned fields against the same original
+ * leaf IDs; no-worse-local-words proves exact frozen sources and typed recovery
+ * with the real owner authority and IndexedDB. A rename-only default pet keeps
+ * its automatic birth anchor locally until gameplay gives it a cloud save.
  * The test prints the counts of each cell.
  */
 import { vi } from "vitest";
@@ -59,6 +64,8 @@ const master = masterFile as unknown as {
   results: Record<string, CellResult | { error: string }>;
 };
 
+import { cloudComparable, cloudApprovedLosses, remainingCloudLosses } from "./no-worse/word-boundary";
+
 const ctx = createContext(session);
 const cells = allCells();
 const rows: Array<{ id: string; family: Family; master: number; b1: number }> = [];
@@ -83,7 +90,7 @@ afterAll(() => {
   const lines = [
     `no-worse-than-master: ${rows.length} cells (master ${master.commit}); lost kid-visible values per cell: master -> this checkout`,
     ...rows.map((row) => `  ${row.id}: ${row.master} -> ${row.b1}`),
-    "Approved legacy-load decisions: 4 cells, 18 recorded differences; all other new losses fail.",
+    "Approved legacy-load decisions: 4 cells, 18 original recorded differences; device-word retention has a separate real-runtime proof. All other cloud-owned losses fail.",
     "per family (cells, values lost by master, values lost here, cells with fewer losses here):",
     ...[...families].map(([family, sum]) => `  ${family}: ${sum.cells} cells, ${sum.master} -> ${sum.b1}, fewer in ${sum.fewer}`),
   ];
@@ -105,7 +112,20 @@ describe("comparison with master and the approved legacy load decisions", () => 
   it.each(cells.map((cell) => [cell.id, cell] as const))("%s", async (id, cell) => {
     const before = master.results[id];
     if (!before || "error" in before) throw new Error(`${id}: no master result. ${RERUN}`);
-    const now = await cell.run(ctx, master.inputs[cell.appId]);
+    const previousDebug = process.env.NO_WORSE_DEBUG;
+    process.env.NO_WORSE_DEBUG = "1";
+    let now: CellResult;
+    try { now = await cell.run(ctx, master.inputs[cell.appId]); }
+    finally {
+      if (previousDebug === undefined) delete process.env.NO_WORSE_DEBUG;
+      else process.env.NO_WORSE_DEBUG = previousDebug;
+    }
+    if (!now.debug) throw new Error("The cloud-boundary comparison requires original sources and final evidence.");
+    const input = master.inputs[cell.appId];
+    now.lost = remainingCloudLosses(cell.appId, now.lost, now.debug, input.defaults,
+      cell.family === "tab" ? [input.account] : []);
+    for (const post of ctx.server.posts) expect(post.data, `${id}: outgoing progress excludes only reviewed device words`)
+      .toEqual(cloudComparable(post.appId, post.data as Record<string, unknown>));
     rows.push({ id, family: cell.family, master: before.lost.length, b1: now.lost.length });
     lostHere[id] = now.lost;
     const known = new Set(before.lost);
@@ -113,7 +133,7 @@ describe("comparison with master and the approved legacy load decisions", () => 
     // Jack approved one timestamp on load for these no-time legacy saves on
     // 2026-10-02. Only the exact four recorded differences are accepted.
     // This is not a generic exemption for conflicting wallets or journeys.
-    const approved = (approvedLegacyLoadDifferences as Record<string, string[]>)[id] ?? [];
+    const approved = cloudApprovedLosses(cell.appId, (approvedLegacyLoadDifferences as Record<string, string[]>)[id] ?? [], input.defaults);
     expect(worse, `${id}: differences from master beyond the approved decision`).toEqual(approved);
     if (cell.untouchedOrTab && before.lost.length > 0) {
       expect(now.lost.length, `${id}: an untouched device, a second tab or a second kid loses fewer values`).toBeLessThan(
@@ -154,6 +174,51 @@ describe("loss comparison follows field meaning", () => {
   });
 });
 
+describe("the Part C comparison retains every cloud-owned field guard", () => {
+  it("keeps only an otherwise-default renamed pet's automatic birth anchor device-local", () => {
+    const defaults = master.inputs["virtual-pet"].defaults;
+    const renamed = structuredClone(defaults) as Record<string, unknown>;
+    renamed.pet = { ...(renamed.pet as Record<string, unknown>), name: "Local nickname", bornAt: "2026-09-01T12:00:00.000Z", lastChecked: "2026-09-01T12:00:00.000Z" };
+    renamed.settings = { ...(renamed.settings as Record<string, unknown>), petName: "Local nickname" };
+    renamed.lastModified = 123;
+    const sources = { device: renamed };
+    const losses = lostValues("virtual-pet", sources, null, defaults);
+    expect(losses).toContain('device:pet.bornAt="2026-09-01T12:00:00.000Z"');
+    expect(remainingCloudLosses("virtual-pet", losses, { sources, final: null }, defaults)).toEqual([]);
+    const played = [
+      { ...renamed, coins: Number(renamed.coins) + 1 },
+      { ...renamed, stats: { ...(renamed.stats as Record<string, unknown>), totalPlaySessions: 1 } },
+      { ...renamed, pet: { ...(renamed.pet as Record<string, unknown>), speciesId: "pupper" } },
+      { ...renamed, inventory: [{ itemId: "apple", quantity: 1 }] },
+    ];
+    for (const source of played) {
+      const lost = lostValues("virtual-pet", { device: source }, null, defaults);
+      expect(remainingCloudLosses("virtual-pet", lost, { sources: { device: source }, final: null }, defaults))
+        .toContain('device:pet.bornAt="2026-09-01T12:00:00.000Z"');
+    }
+  });
+
+  it("does not count a retained local name as lost from an otherwise intact cloud party", () => {
+    const sources = { device: { party: [{ id: "m0", name: "Personal name", health: "good", sickDays: 0 }] } };
+    const final = { party: [{ id: "m0", name: "", health: "good", sickDays: 0 }] };
+    const original = lostValues("oregon-trail", sources, final, { party: [] });
+    expect(original).toHaveLength(1);
+    expect(remainingCloudLosses("oregon-trail", original, { sources, final }, { party: [] })).toEqual([]);
+    expect(remainingCloudLosses("oregon-trail", original, { sources, final: { party: [] } }, { party: [] })).toEqual(original);
+    expect(remainingCloudLosses("oregon-trail", original, { sources, final: { party: [{ ...final.party[0], health: "poor" }] } }, { party: [] })).toEqual(original);
+  });
+
+  it("keeps pet birth identity and list IDs in the original loss measure", () => {
+    const sources = { device: { pet: { speciesId: "blobby", bornAt: "2026-09-01T12:00:00.000Z", name: "Personal name" } } };
+    const final = { pet: { speciesId: "blobby", bornAt: "2026-10-01T12:00:00.000Z", name: "" } };
+    const original = lostValues("virtual-pet", sources, final, {});
+    expect(remainingCloudLosses("virtual-pet", original, { sources, final }, {})).toEqual(['device:pet.bornAt="2026-09-01T12:00:00.000Z"']);
+    const toySources = { device: { wishlistItems: [{ toyId: "toy-one", notes: "Personal note", priority: "want" }] } };
+    const toyLost = lostValues("toy-finder", toySources, { wishlistItems: [] }, {});
+    expect(remainingCloudLosses("toy-finder", toyLost, { sources: toySources, final: { wishlistItems: [] } }, {})).toEqual(toyLost);
+  });
+});
+
 // This recorded B1 oracle compares reconciliation using the same legacy saves
 // and cells as master. Real namespace/auth lifecycle coverage lives separately;
 // the hashed cross-version harness and its loss assertions stay unchanged.
@@ -166,3 +231,13 @@ vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
   const { createJSONStorage } = await import("zustand/middleware");
   return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
 });
+
+
+// Historical cells model cloud reconciliation and use raw fixture owner IDs.
+// The real local-word authority cannot run against that mocked owner controller.
+// Exact frozen bytes and typed device recovery are proven by the companion
+// no-worse-local-words test, with the real authority and real IndexedDB adapter.
+vi.mock("@/lib/local-words/consumer", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/local-words/consumer")>(),
+  bindWordConsumer: () => () => {},
+}));

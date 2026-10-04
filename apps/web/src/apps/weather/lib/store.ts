@@ -1,3 +1,7 @@
+import { readSavedLocations, readLastLocation, writeSavedLocations, writeLastLocation } from "./localWords";
+import { createWordProjection } from "@/lib/progress-words";
+import { localWords } from "@/lib/local-words";
+import { bindWordConsumer } from "@/lib/local-words/consumer";
 import { bindPersistedStore } from "@/lib/owner-bound-progress";
 import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 /**
@@ -98,6 +102,8 @@ interface WeatherStoreActions {
 
 const STORAGE_KEY = "weather-app-progress";
 
+const projectWords = createWordProjection<WeatherProgress>("weather");
+
 const defaultProgress: WeatherProgress = {
   savedLocations: [],
   units: "fahrenheit",
@@ -136,9 +142,10 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
         // The page loads the weather of the last place on every visit: the
         // same place again is no change.
         if (sameProgress(get().lastLocation, location)) return;
+        const lease = localWords.captureLease();
+        if (lease) void writeLastLocation(lease, location);
         set({
           lastLocation: location,
-          lastModified: Date.now(),
         });
       },
 
@@ -146,17 +153,19 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
         const existing = get().savedLocations;
         // Don't add duplicates
         if (existing.some((l) => l.name === location.name)) return;
+        const lease = localWords.captureLease();
+        if (lease) void writeSavedLocations(lease, [...existing, location]);
         set({
           savedLocations: [...existing, location],
-          lastModified: Date.now(),
         });
       },
 
       removeSavedLocation: (name) => {
         if (!get().savedLocations.some((l) => l.name === name)) return;
+        const lease = localWords.captureLease();
+        if (lease) void writeSavedLocations(lease, get().savedLocations.filter(l => l.name !== name));
         set((state) => ({
           savedLocations: state.savedLocations.filter((l) => l.name !== name),
-          lastModified: Date.now(),
         }));
       },
 
@@ -202,12 +211,12 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
       // Sync helpers
       getProgress: (): WeatherProgress => {
         const state = get();
-        return {
+        return projectWords({
           savedLocations: state.savedLocations,
           units: state.units,
           lastLocation: state.lastLocation,
           lastModified: state.lastModified,
-        } as WeatherProgress;
+        } as WeatherProgress);
       },
 
       setProgress: (data) => {
@@ -229,14 +238,23 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
       // save (shared/lib/untouchedProgress.ts).
       merge: settleOnLoad(UNTOUCHED),
       // Only persist user preferences, not weather data
-      partialize: (state) => markSaved({
+      partialize: (state) => markSaved(projectWords({
         savedLocations: state.savedLocations,
         units: state.units,
         lastLocation: state.lastLocation,
         lastModified: state.lastModified,
-      }),
+      })),
     }
   )
 );
 
 bindPersistedStore("weather-app-progress", useWeatherStore.persist, () => useWeatherStore.setState({}));
+
+bindWordConsumer("weather", useWeatherStore.subscribe, (_records, lease) => {
+  const state = useWeatherStore.getState();
+  const savedLocations = (lease ? readSavedLocations(lease) : undefined) ?? [];
+  const lastLocation = (lease ? readLastLocation(lease) : undefined) ?? null;
+  if (!sameProgress(savedLocations, state.savedLocations) || !sameProgress(lastLocation, state.lastLocation)) {
+    useWeatherStore.setState({ savedLocations, lastLocation });
+  }
+});

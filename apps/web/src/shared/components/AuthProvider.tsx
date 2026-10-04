@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNod
 import dynamic from "next/dynamic";
 import { ClipSessionWatcher } from "@/shared/clips/service/ClipSessionWatcher";
 import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+import { localWords } from "@/lib/local-words";
 import { SIGNOUT_BROADCAST_KEY } from "@/lib/storage-keys";
 import { consumeGuestHandoffNavigation, isAuthNavigationPending, PROGRESS_SESSION_CHANNEL, reloadProgressPage } from "@/lib/auth-client";
 import { ProgressHydrationBoundary, ProgressReloadNotice } from "./ProgressHydrationBoundary";
@@ -27,6 +28,7 @@ export function ProgressSessionBoundary({ children }: { children: ReactNode }) {
   const matches = ownerBoundProgress.matchesSession(status, userId);
 
   useLayoutEffect(() => {
+    localWords.install();
     if (!navigationProofRead.current) {
       navigationProofRead.current = true;
       consumeGuestHandoffNavigation();

@@ -4,7 +4,7 @@ import type { SourceRecord } from "./database";
 import { legacyWordSources } from "./inventory";
 
 export type RecoveryLease = Readonly<{ ownerKey: string; generation: number }>;
-export type CloudWordRecoveryResult = "captured" | "empty" | "stale" | "unavailable";
+export type CloudWordRecoveryResult = "captured" | "empty" | "stale" | "owner-changed" | "unavailable";
 type RecoveryDatabase = {
   ownerEpoch(ownerKey: string): Promise<number>;
   capture(source: SourceRecord, expectedEpoch: number): Promise<void>;
@@ -58,7 +58,11 @@ export async function recoverCloudWords(options: {
       headers: { Accept: "application/json", "x-hh-expected-owner": userId },
     });
     if (!isCurrent(lease)) return "stale";
-    if (response.status === 409) return "stale";
+    if (response.status === 409) {
+      const body: unknown = await response.json();
+      if (!isCurrent(lease)) return "stale";
+      return object(body) && body.code === "owner_changed" ? "owner-changed" : "unavailable";
+    }
     if (!response.ok) return "unavailable";
     const body: unknown = await response.json();
     if (!isCurrent(lease)) return "stale";

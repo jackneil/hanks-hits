@@ -6,6 +6,9 @@
  * animal, the hunt ends when the bullets do, and Play again starts a new
  * journey with the same names.
  */
+import "fake-indexeddb/auto";
+import { localWords } from "@/lib/local-words";
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,7 +43,11 @@ const supplies = (over: Partial<ReturnType<typeof useOregonTrailStore.getState>[
 
 let clock = 1_000_000;
 
-beforeEach(() => {
+beforeEach(async () => {
+  localWords.install();
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await ownerBoundProgress.whenHydrated("oregon-trail-storage");
+  await localWords.prepare("oregon-trail", localWords.captureLease()!);
   clock = 1_000_000;
   localStorage.clear();
   mockPointer(true);

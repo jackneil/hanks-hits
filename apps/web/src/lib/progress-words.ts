@@ -86,3 +86,71 @@ export function stripProgressWords<T>(appId: string, data: T): T {
   }
   return result;
 }
+
+/**
+ * Local/cloud projection for immutable store values. Compare the complete input
+ * before walking word fields, and copy only ancestors of a changed field. A new
+ * getProgress wrapper around unchanged fields retains the previous projection.
+ */
+export function createWordProjection<T>(appId: string): (progress: T) => T {
+  const fields = PROGRESS_WORD_FIELDS[appId];
+  if (!fields?.length) return progress => progress;
+  const projectors = fields.map(field => {
+    const parts = field.path.split(".");
+    const caches = parts.map(() => new WeakMap<object, unknown>());
+    const listCaches = parts.map(() => new WeakMap<object, unknown[]>());
+    const visitField = (value: unknown, depth: number): unknown => {
+      if (!object(value)) return value;
+      const cache = caches[depth];
+      if (cache.has(value)) return cache.get(value);
+      const part = parts[depth];
+      let result: ObjectValue = value;
+      if (depth === parts.length - 1) {
+        if (Object.hasOwn(value, part)) {
+          const before = value[part];
+          const alreadyBlank = Object.is(before, field.blank)
+            || Array.isArray(before) && !before.length && Array.isArray(field.blank) && !field.blank.length;
+          if (field.remove || !alreadyBlank) {
+            result = { ...value };
+            if (field.remove) delete result[part];
+            else result[part] = Array.isArray(field.blank) ? [] : field.blank;
+          }
+        }
+      } else if (part.endsWith("[]")) {
+        const key = part.slice(0, -2), list = value[key];
+        if (Array.isArray(list)) {
+          let next = listCaches[depth].get(list);
+          if (!next) {
+            next = list.map(item => visitField(item, depth + 1));
+            if (next.every((item, index) => item === list[index])) next = list;
+            listCaches[depth].set(list, next);
+          }
+          if (next.some((item, index) => item !== list[index])) result = { ...value, [key]: next };
+        }
+      } else {
+        const next = visitField(value[part], depth + 1);
+        if (next !== value[part]) result = { ...value, [part]: next };
+      }
+      cache.set(value, result);
+      return result;
+    };
+    return (value: unknown) => visitField(value, 0);
+  });
+  let previousFields: ObjectValue | null = null;
+  let previousOutput: T;
+  const sameFields = (left: ObjectValue, right: ObjectValue) => {
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length
+      && keys.every(key => Object.hasOwn(right, key) && Object.is(left[key], right[key]));
+  };
+  return progress => {
+    if (!object(progress)) return progress;
+    if (previousFields && sameFields(previousFields, progress)) return previousOutput;
+    let result: unknown = progress;
+    for (const project of projectors) result = project(result);
+    previousFields = { ...progress };
+    if (object(previousOutput) && object(result) && sameFields(previousOutput, result)) return previousOutput;
+    previousOutput = result as T;
+    return previousOutput;
+  };
+}

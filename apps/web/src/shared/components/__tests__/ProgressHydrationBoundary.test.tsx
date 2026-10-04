@@ -8,7 +8,7 @@ const mock = vi.hoisted(() => ({
   whenHydrated: vi.fn(), isHydrated: vi.fn(), reload: vi.fn(),
 }));
 vi.mock("@/lib/owner-bound-progress", () => ({
-  PROGRESS_STORAGE_KEYS: { snake: "snake-game-state" },
+  PROGRESS_STORAGE_KEYS: { snake: "snake-game-state", weather: "weather-storage" },
   ownerBoundProgress: {
     getSnapshot: () => mock.snapshot,
     subscribe: (listener: () => void) => { mock.listeners.add(listener); return () => mock.listeners.delete(listener); },
@@ -39,6 +39,12 @@ describe("progress route hydration", () => {
     await act(async () => hydration.resolve());
     expect(screen.getByRole("button", { name: "Play" })).toBeVisible();
     expect(mounted).toHaveBeenCalledOnce();
+  });
+
+  it("mounts gameplay after progress hydration without waiting for word storage", async () => {
+    mock.isHydrated.mockReturnValue(true); mock.whenHydrated.mockResolvedValue(undefined);
+    render(<ProgressHydrationBoundary appId="weather" loadModule={async () => undefined}><button>Play weather</button></ProgressHydrationBoundary>);
+    expect(await screen.findByRole("button", { name: "Play weather" })).toBeVisible();
   });
 
   it("never mounts stale game effects when owner revocation races hydration", async () => {
