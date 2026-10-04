@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Part C local words</title><style>
+  :root {
+    --fg: #1a1a1a;
+    --fg-muted: #555;
+    --bg: #fafaf7;
+    --bg-card: #fff;
+    --accent: #2266aa;
+    --accent-bg: #e7f0fa;
+    --warn: #b3681c;
+    --warn-bg: #fcf3e7;
+    --danger: #b32424;
+    --danger-bg: #fbe9e7;
+    --ok: #1f7a3f;
+    --ok-bg: #e8f4ec;
+    --border: #d8d4cc;
+    --code-bg: #f3efe8;
+    --shadow: 0 1px 3px rgba(0,0,0,.06);
+    --radius: 6px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e6e1;
+      --fg-muted: #a8a5a0;
+      --bg: #161616;
+      --bg-card: #1f1f1f;
+      --accent: #6aa8e8;
+      --accent-bg: #1a2935;
+      --warn: #e0a85b;
+      --warn-bg: #3a2d18;
+      --danger: #ea7670;
+      --danger-bg: #3a1f1c;
+      --ok: #6acd8e;
+      --ok-bg: #1c3327;
+      --border: #2e2e2e;
+      --code-bg: #232323;
+      --shadow: 0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    margin: 0;
+    padding: 2rem 1rem;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 .25rem;
+    line-height: 1.2;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin: 2.5rem 0 .75rem;
+    padding-bottom: .35rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin: 1.5rem 0 .5rem;
+    color: var(--fg-muted);
+  }
+  p { margin: .5rem 0 1rem; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+
+  /* Metadata strip under title */
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    margin: .5rem 0 2rem;
+    padding: .75rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    font-size: .9rem;
+  }
+  .meta .kv { display: flex; gap: .35rem; }
+  .meta .k { color: var(--fg-muted); }
+  .meta .v { font-family: var(--mono); }
+
+  /* Status badges - drop into a <span class="badge X"> */
+  .badge {
+    display: inline-block;
+    padding: .15rem .6rem;
+    border-radius: 99px;
+    font-size: .8rem;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .badge.ok       { background: var(--ok-bg);     color: var(--ok); }
+  .badge.warn     { background: var(--warn-bg);   color: var(--warn); }
+  .badge.danger   { background: var(--danger-bg); color: var(--danger); }
+  .badge.info     { background: var(--accent-bg); color: var(--accent); }
+
+  /* Table of contents */
+  nav.toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+  }
+  nav.toc h2 {
+    margin: 0 0 .5rem;
+    font-size: .9rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--fg-muted);
+    border: none;
+    padding: 0;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+  nav.toc li { margin: .15rem 0; }
+
+  /* Callouts - drop into <aside class="callout warn"> ... </aside> */
+  aside.callout {
+    margin: 1rem 0;
+    padding: .9rem 1.1rem;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  aside.callout.warn   { border-color: var(--warn);   background: var(--warn-bg); }
+  aside.callout.danger { border-color: var(--danger); background: var(--danger-bg); }
+  aside.callout.ok     { border-color: var(--ok);     background: var(--ok-bg); }
+  aside.callout > :first-child { margin-top: 0; }
+  aside.callout > :last-child  { margin-bottom: 0; }
+
+  /* Code */
+  code {
+    font-family: var(--mono);
+    font-size: .92em;
+    background: var(--code-bg);
+    padding: .12em .35em;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: .88rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .9rem 1rem;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left;
+    padding: .55rem .8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--code-bg);
+    font-weight: 600;
+    font-size: .9rem;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Task checklist - use <ul class="tasks"> + <li><input type="checkbox" disabled> ...</li> */
+  ul.tasks { list-style: none; padding-left: 0; }
+  ul.tasks li {
+    padding: .25rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+  }
+  ul.tasks input[type="checkbox"] { margin-top: .4rem; }
+
+  /* Mermaid diagram wrappers */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  /* If mermaid fails (no network), fall back to showing the source in a code block */
+  .diagram pre.mermaid-source {
+    text-align: left;
+    display: none;
+  }
+  .diagram.failed pre.mermaid-source { display: block; }
+  .diagram.failed svg { display: none; }
+
+  blockquote {
+    border-left: 3px solid var(--border);
+    padding: .2rem 1rem;
+    margin: 1rem 0;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  /* Print: paginate cleanly, drop the dark-mode flip, expand TOC */
+  @media print {
+    body { background: white; color: black; padding: 0; }
+    .wrap { max-width: none; }
+    nav.toc { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    pre, table, aside.callout, .diagram { break-inside: avoid; }
+  }
+</style></head><body><main class="wrap"><h1>Local words: Part C implementation contract</h1>
+<p>Revised 2026-10-02 after planning review. B1 and the cloud preservation prerequisite are deployed. Client integration and the separately authorized sanitization cutover remain unfinished. This is a product privacy and preservation contract, not a legal compliance determination. It supersedes the prior plan's claims about legal exceptions and guaranteed device capture after a waiting period.</p>
+<h2>1. Scope and order</h2>
+<p>Keep player-entered words and drawings on the device, partitioned by confirmed owner. Cloud progress carries game state and stable entity identity with fallback display labels. Build on B1's timestamp, hydration and recovery behavior; preserve its four specifically approved legacy timestamp differences without creating further save-loss exceptions. Part A follows C because its notice depends on this behavior. No production deletion, migration, VACUUM, backup change or new cloud export is authorized by this plan.</p>
+<h2>2. Ownership and storage</h2>
+<p>Reuse <code>ownerKeyFor</code>, with separate unresolved, confirmed guest and confirmed account states. Never call an unresolved session a guest. A generation token changes immediately on session changes, sign-out broadcasts and deletion. Hide the previous owner's words immediately; check generation and captured owner after every await and before publishing results. Capture the legacy owner marker before any progress hook can update it. A missing original marker identifies legacy guest data; it does not grant an authenticated player ownership automatically.</p>
+<p>Use one small local-word service with typed per-game accessors and a transactional IndexedDB store. The logical namespace remains <code>hh-words:v1:&lt;ownerKey&gt;</code>; final records use owner/app/entity/field keys, not one read-modify-write JSON document. An atomic transaction merges only its affected fields and commits a migration receipt. Pending records are independently keyed by captured owner, source key, schema version and source-content digest. Store original bytes when necessary for recovery. Do not overwrite or delete the whole pending collection. Known-owner records survive guest and other-account sessions, inaccessible until the recorded owner returns.</p>
+<p>Sign-out retains owner partitions. Storage failures keep current edits in memory and display a persistence failure; do not claim those edits survive reload. Existing durable source data is never removed on that basis. No save timeout or artificial size/refusal gate is added.</p>
+<h2>3. Field and identity inventory</h2>
+<table><tr><th>App</th><th>Local-only fields</th><th>Identity / fallback</th></tr>
+<tr><td>Oregon Trail</td><td>leaderName, party[].name, setup names</td><td>New journeys receive a random journeyId at the player action that starts them. Fallback: Wagon Leader / Traveler N.</td></tr>
+<tr><td>Weather</td><td>Saved towns and last town, both location fields</td><td>Owner-scoped list; empty on other devices.</td></tr>
+<tr><td>Toy Finder</td><td>Wishlist notes</td><td>Toy ID; empty note.</td></tr>
+<tr><td>Drawing</td><td>All savedArtworks, including image content and names</td><td>Artwork ID; no remote artwork fallback.</td></tr>
+<tr><td>Drum Machine</td><td>Beat names</td><td>Beat ID; Beat N.</td></tr>
+<tr><td>Virtual Pet</td><td>pet.name and settings.petName</td><td>Existing species/birth identity; species fallback. Preserve unmatched legacy candidates rather than guessing.</td></tr>
+<tr><td>4-Wheeler 3D</td><td>Outfit text and feeder labels</td><td>Outfit is a singleton, keyed as such; feeder IDs for labels. Game defaults.</td></tr></table>
+<p>Before implementation, map these to exact schema paths using the preserved combined-branch inventory. A free-text classifier permits only reviewed game-authored strings in progress schemas. Missing words in setProgress must never overwrite local words with fallback labels.</p>
+<p>Legacy Oregon journeys lack IDs. Preserve their words as local candidates with source identity and canonical revision evidence. Do not match by occupation, month, party count or similar settings. Do not silently attach them to a cloud journey. If exact identity is unavailable, offer an explicit local recovery choice after sync resolves; confirmation can establish a new stable journey ID through a normal player action. Preserve unchosen candidates. Future newJourney copies setup words locally but creates a distinct journey identity at startGame. Migration and merely opening the game do not stamp play.</p>
+<h2>4. Durable migration and global clearing</h2>
+<ol>
+<li>At application bootstrap, enumerate every legacy word-bearing storage key without importing or visiting its game. Capture source bytes and the existing owner marker. Route every hydration replacement, sign-out clear and foreign-owner clear through this same migration coordinator.</li>
+<li>Commit an owner-tagged pending source in IndexedDB and verify transaction completion before allowing the original source to be stripped or removed. Commit final field records and their exact receipt atomically; retire only the corresponding pending record after that commit. Replaying the same source is idempotent. Changed source bytes produce a distinct version; do not retire an intervening writer's data.</li>
+<li>Before deleting or replacing a legacy localStorage key, compare its current bytes with the captured source. If they changed, capture the new version first. For concurrent tabs, use a per-source cross-tab lock for capture and replacement; ordinary word writes use IndexedDB transactions. A client unable to participate must preserve the legacy source rather than perform destructive migration. Do not infer that an old tab has stopped writing.</li>
+<li>Quota, denied storage, interrupted transactions or crashes leave the original source and its original ownership association intact. Authentication sign-out still proceeds, but clearing skips uncommitted sources. All new-client hydration/read/write paths must quarantine those keys from other owners; the ownership marker cannot be reassigned while it is needed to identify an uncommitted source. Unrelated gameplay may continue; never expose retained foreign bytes. A later successful migration can release the source safely.</li>
+<li>Test global sign-out from Home without opening any affected game. Test failures before pending commit and before final commit, then reload and sign-out. Test simultaneous different-app migrations, changed source versions and account A to guest/B to A.</li>
+</ol>
+<p>Old tabs cannot be made to follow new client code. The rollout must explicitly test mixed versions and avoid claiming universal local preservation across an old client's destructive sign-out. The cloud preservation prerequisite below must also be satisfied before claiming recovery remains available until retirement.</p>
+<h2>5. Server boundary and legacy cloud recovery</h2>
+<aside class="callout warn"><p><strong>Required release prerequisite:</strong> an ordinary sanitized POST must preserve the previous cloud words before replacing them. The split <a href="CLOUD_WORD_PRESERVATION.html">cloud preservation plan</a> now has a passed focused design review: immutable owner-bound snapshots in the same transaction, matched-owner recovery, and an atomic compatible-writer cutover. PR80 (ea997a3) implemented and deployed this compatibility prerequisite with the additive schema and PostgreSQL evidence. Sanitization remains disabled. Client integration, recovery proof and exact production cutover authorization are still required before enabling local-only persistence.</p></aside>
+<p>One pure shared sanitizer removes every listed field before validating an incoming old-client upload, before reconciling an existing stored row, and from every ordinary progress response: per-app GET, aggregate GET, revision 409, strict ACK and fallback branches. Preserve non-word progress and B0 field rules. Keep revision tokens tied to the actual row version. Never log typed values in validation errors. Exercise seeded old rows through the real routes, including keepExisting and strict conditional paths.</p>
+<p>Local migration alone cannot recover cloud-only words. Leave existing production rows and backups intact pending an explicit recovery design and deletion decision. Ordinary progress reads after C sanitize these words, so before that release provide a separately reviewed, authenticated legacy-recovery path for the same owner only, with no cross-owner lookup, no new text collection, no cache, and no typed-value logs. It returns the pre-existing legacy fields plus row revision to the device's migration service. Publish only after generation/owner checks and durable commit. Exact revision receipts demonstrate capture for that row on that device, not on every device or for every account.</p>
+<p>The recovery path is a transitional exception for data already stored before C, not part of ongoing progress sync. Its access checks, retirement and privacy wording need a focused review before release. No elapsed waiting period proves preservation. If a row has no capture evidence, the later approval must explicitly identify potential cloud-only loss; do not silently delete it or claim it was recovered. A destructive retirement decision remains pending.</p>
+<h2>6. Account deletion integration</h2>
+<p>Preserved Part A already calls <code>forgetLocalWords(userId)</code> before sign-out and has a clear/reload fallback. Retain that public helper API, replacing its current single-localStorage-key implementation with owner-bound deletion of final records, pending sources, migration receipts and legacy candidates. Include the old namespace for compatibility. Never derive the target from the newly active session after an await.</p>
+<p>Use an owner deletion generation/tombstone checked within write transactions and by mounted tabs; invalidate visible state and broadcast immediately. A late migration or callback must not recreate deleted words. A failed sign-out does not undo deletion. A failed local deletion must not be described as success or as proof storage is empty: retain a retryable deletion state and explain the failure. Test A deletion while B signs in, late hashing, active tabs and storage failures; other owners and guests remain intact.</p>
+<h2>7. Separately authorized production retirement</h2>
+<p>Prepare reviewed SQL and scratch-database tests after the implementation exists. Clear only enumerated fields in app_progress, then verify a read-only typed-field count of zero. VACUUM FULL and CHECKPOINT are separate production actions requiring specific approval and operational review. A changed relation file number demonstrates a table rewrite, not erasure of all historical physical bytes, WAL, snapshots, backups or replicas. Reconcile backup/PITR retention with Part A's runbook and obtain exact authorization before any cleanup. The original plan's one-row count is a historical observation, not a current inventory.</p>
+<h2>8. Required evidence</h2>
+<ul><li>Per-game legacy fixtures retain all local words and drawings for their owner, preserve timestamps and financial/game state, and exclude text from every upload.</li>
+<li>Deferred owner hashing, auth loading, cross-tab sign-out, foreign-owner clearing, pending storage failures and reloads preserve the ownership boundary.</li>
+<li>Migration transaction failures and competing writers never erase the last durable source. Browser tests include IndexedDB unavailable and quota failure, not just mocked success.</li>
+<li>Canonical Oregon replacement does not guess identity or lose unmatched words; explicit recovery and new journeys remain separate.</li>
+<li>All server response paths and old-client saves obey sanitization; recovery is authenticated and durable, and cannot claim universal capture. Specifically: an old-client POST before recovery must still permit authenticated recovery of the original pre-existing words afterward.</li>
+<li>Deletion prevents late resurrection and exposes local deletion failure accurately.</li>
+<li>Run focused tests during implementation, DCR on the frozen change, the required full gate before push, and one browser gate with desktop and emulated phone contexts. Production writes remain independently authorized.</li></ul>
+<h2>9. Review provenance</h2>
+<p>Wave 1: Logic/Edge Cases + Simplicity, Guardrails + Maintainability, and a preservation pre-mortem. Root verified the sign-out registry, owner hashing, Oregon startGame, drawing persistence, both progress routes, merge input and strict ACK in B1 ed85f08. The reviewer account-deletion call-site citation was stale: Part A already uses forgetLocalWords. The narrower gap is deletion of pending records and late-write invalidation. Wave 2 verified the original local ownership, migration and deletion fixes. Two reviewers independently found the ordinary-write/cloud-recovery interaction above; it was split into a focused prerequisite rather than starting a third broad review wave. That separate prerequisite now has a passed design review with owner binding and atomic cutover fixes. Neither review constitutes implementation or release evidence. No product source, production data or memory was changed during planning.</p><section><h2>2026-10-04 implementation split</h2><p>The first slice adds an inert, independently tested foundation under lib/local-words: exact legacy envelopes, owner lifecycle, transactional records and tombstones, capture before replacement, and authenticated cloud candidate recovery. No runtime caller is enabled by this slice. Existing saving, sign-out, game display and production policy remain unchanged until the following integration slice connects bootstrap, storage adapters and the seven games. The original contract above remains the acceptance bar for Part C as a whole.</p><p>The foundation preserves candidate sources instead of guessing identity. Differing destination values retain the source for an explicit later choice. A deleted owner is permanently tombstoned in this database so a delayed caller cannot obtain a new epoch and recreate deleted words.</p><p>Client integration must pass desktop and actual connected iPhone SE dogfooding, including storage failures and shared-device transitions. Test destructive account actions with isolated synthetic accounts. Preserve the personal browser login and saves.</p></section></main></body></html>
