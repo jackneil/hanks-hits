@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAdventureProgress } from "../lib/adventureTypes";
 import {
   adventureSchema,
@@ -116,6 +116,8 @@ describe("legacy ownership and startup", () => {
     expect(useFourWheeler3dStore.getState().mode).toBe("foot");
   });
   it("uses the same mode and legacy migration during localStorage hydration", async () => {
+    vi.resetModules();
+    localStorage.clear();
     const legacy = {
       ...defaultProgress,
       adventure: undefined,
@@ -125,12 +127,16 @@ describe("legacy ownership and startup", () => {
       day: 7,
       timeOfDay: 21,
     };
+    const original = JSON.stringify({ state: { progress: legacy }, version: 0 });
     localStorage.setItem(
       "four-wheeler-3d-game-state",
-      JSON.stringify({ state: { progress: legacy }, version: 0 }),
+      original,
     );
-    await useFourWheeler3dStore.persist.rehydrate();
-    const state = useFourWheeler3dStore.getState();
+    const { ownerBoundProgress } = await import("@/lib/owner-bound-progress");
+    const { useFourWheeler3dStore: reloaded } = await import("../lib/store");
+    await ownerBoundProgress.updateSession("unauthenticated");
+    await ownerBoundProgress.whenHydrated("four-wheeler-3d-game-state");
+    const state = reloaded.getState();
     expect(state.mode).toBe("aircraft");
     expect(state.clock).toBe(21);
     expect(state.progress.day).toBe(7);
@@ -138,6 +144,7 @@ describe("legacy ownership and startup", () => {
       state.progress.adventure.fleet[state.progress.adventure.activeVehicleId!]
         .paint,
     ).toBe("#abcdef");
+    expect(localStorage.getItem("four-wheeler-3d-game-state")).toBe(original);
   });
 });
 

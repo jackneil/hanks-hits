@@ -152,15 +152,24 @@ describe("Asteroids clips", () => {
   });
 
   it("the store counts every start as a new run, and never saves the count", async () => {
+    vi.resetModules();
+    localStorage.clear();
+    const { ownerBoundProgress } = await import("@/lib/owner-bound-progress");
     const { useAsteroidsStore } = await import("../lib/store");
+    await ownerBoundProgress.updateSession("unauthenticated");
+    await ownerBoundProgress.whenHydrated("asteroids-game-state");
     const first = useAsteroidsStore.getState().runId;
     useAsteroidsStore.getState().startGame();
     expect(useAsteroidsStore.getState().runId).toBe(first + 1);
     // A restart during play is a start too.
     useAsteroidsStore.getState().startGame();
     expect(useAsteroidsStore.getState()).toMatchObject({ status: "playing", runId: first + 2 });
-    const saved = JSON.parse(window.localStorage.getItem("asteroids-game-state") ?? "{}");
+    const raw = ownerBoundProgress.readScoped("asteroids-game-state");
+    expect(raw).not.toBeNull();
+    const saved = JSON.parse(raw!);
+    expect(saved.state).toBeDefined();
     expect(saved.state).not.toHaveProperty("runId");
+    expect(window.localStorage.getItem("asteroids-game-state")).toBeNull();
   });
 
   it("a better best that cloud sync brings during the run raises the score to beat", () => {

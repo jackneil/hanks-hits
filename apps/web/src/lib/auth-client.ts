@@ -3,7 +3,7 @@
 import { signIn as nextAuthSignIn, signOut as nextAuthSignOut } from "next-auth/react";
 import { ownerBoundProgress } from "./owner-bound-progress";
 import { SIGNOUT_BROADCAST_KEY } from "./storage-keys";
-import { safeReturnTo } from "@/shared/clips/ui/clipPublishing";
+import { safeReturnTo } from "./safe-return-to";
 
 export { useSession, SessionProvider } from "next-auth/react";
 

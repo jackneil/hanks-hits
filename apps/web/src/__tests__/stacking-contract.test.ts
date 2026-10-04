@@ -80,6 +80,7 @@ const LAYERS = [
   { name: "clip sheets", file: "shared/clips/ui/Sheet.tsx", z: 2500, doc: "clip sheets" },
   { name: "requested install steps", file: "shared/components/IOSInstallPrompt.tsx", z: 2500, doc: "install steps" },
   { name: "restart question", file: "shared/components/RestartConfirmationDialog.tsx", z: 3000, doc: "RestartConfirmationDialog" },
+  { name: "progress storage notice", file: "shared/components/ProgressStorageNotice.tsx", z: 4000, doc: "ProgressStorageNotice" },
 ] as const;
 
 describe("stacking contract (design/ARCHITECTURE.md)", () => {
