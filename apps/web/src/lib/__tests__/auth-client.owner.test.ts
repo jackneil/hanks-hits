@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({ signIn: vi.fn(), signOut: vi.fn(), revoke: vi.fn(), handoff: vi.fn(), cancel: vi.fn(), proof: vi.fn(), authorize: vi.fn(), failure: vi.fn() }));
 vi.mock("next-auth/react", () => ({ signIn: mock.signIn, signOut: mock.signOut, useSession: vi.fn(), SessionProvider: vi.fn() }));
 vi.mock("../owner-bound-progress", () => ({ ownerBoundProgress: { revoke: mock.revoke, prepareGuestHandoff: mock.handoff, cancelGuestHandoff: mock.cancel, getGuestHandoffProof: mock.proof, authorizeGuestHandoff: mock.authorize, reportGuestHandoffFailure: mock.failure } }));
-import { consumeGuestHandoffNavigation, GUEST_HANDOFF_PARAM, reloadProgressPage, signInWithCredentials, signInWithGoogle, signOutAndClear } from "../auth-client";
+import { consumeGuestHandoffNavigation, GUEST_HANDOFF_PARAM, isAuthNavigationPending, reloadProgressPage, signInWithCredentials, signInWithGoogle, signOutAndClear } from "../auth-client";
 
 let assign: ReturnType<typeof vi.fn>;
 beforeEach(() => {
@@ -88,16 +88,58 @@ describe("owner-bound authentication transitions", () => {
   it("signs out despite denied broadcast storage and never removes legacy saves", async () => {
     localStorage.setItem("oregon-trail-storage", "original");
     localStorage.setItem("hanks-hits-progress-owner", "A");
-    const remove = vi.spyOn(Storage.prototype, "removeItem");
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
+    const remove = vi.spyOn(localStorage, "removeItem");
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw new Error("denied"); });
     const post = vi.fn();
     vi.stubGlobal("BroadcastChannel", class { postMessage = post; close = vi.fn(); });
     mock.signOut.mockImplementation(async () => { expect(mock.revoke).toHaveBeenCalledOnce(); });
     await signOutAndClear("/");
-    expect(mock.signOut).toHaveBeenCalledWith({ callbackUrl: "/" });
+    expect(mock.signOut).toHaveBeenCalledWith({ callbackUrl: "/", redirect: false });
     expect(post).toHaveBeenCalledWith("signout");
     expect(remove).not.toHaveBeenCalled();
     expect(localStorage.getItem("oregon-trail-storage")).toBe("original");
     expect(localStorage.getItem("hanks-hits-progress-owner")).toBe("A");
+  });
+
+  it("waits for sign-out completion then ignores the canonical server redirect host", async () => {
+    let finish!: (result: { url: string }) => void;
+    mock.signOut.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const pending = signOutAndClear("/games/snake?from=clip#play");
+    expect(mock.revoke).toHaveBeenCalledOnce();
+    expect(isAuthNavigationPending()).toBe(true);
+    expect(assign).not.toHaveBeenCalled();
+    const result = { url: "http://0.0.0.0:3117/" };
+    finish(result);
+    expect(await pending).toBe(result);
+    expect(assign).toHaveBeenCalledExactlyOnceWith("https://example.test/games/snake?from=clip#play");
+  });
+
+  it("keeps a clean same-origin retry after a failed sign-out request", async () => {
+    mock.signOut.mockRejectedValue(new Error("offline"));
+    await expect(signOutAndClear(`/?from=clip&${GUEST_HANDOFF_PARAM}=stale#play`)).rejects.toThrow("offline");
+    expect(mock.revoke).toHaveBeenCalledOnce();
+    expect(isAuthNavigationPending()).toBe(true);
+    expect(assign).not.toHaveBeenCalled();
+    reloadProgressPage();
+    expect(assign).toHaveBeenCalledWith("https://example.test/?from=clip#play");
+  });
+
+  it("rejects an external callback and retains Reload if navigation is denied", async () => {
+    mock.signOut.mockResolvedValue({ url: "https://other.test/" });
+    assign.mockImplementationOnce(() => { throw new Error("navigation denied"); });
+    await signOutAndClear("https://other.test/");
+    expect(mock.signOut).toHaveBeenCalledWith({ callbackUrl: "/", redirect: false });
+    expect(assign).toHaveBeenCalledWith("https://example.test/");
+    expect(isAuthNavigationPending()).toBe(true);
+    reloadProgressPage();
+    expect(assign).toHaveBeenLastCalledWith("https://example.test/");
+  });
+
+  it.each(["/#play", "/"])("forces a fresh document for same-page fragment navigation to %s", async target => {
+    const reload = vi.fn();
+    vi.stubGlobal("window", { location: { assign, reload, origin: "https://example.test", pathname: "/", search: "", hash: "#old" } });
+    await signOutAndClear(target);
+    expect(assign).toHaveBeenCalledWith(`https://example.test${target}`);
+    expect(reload).toHaveBeenCalledOnce();
   });
 });

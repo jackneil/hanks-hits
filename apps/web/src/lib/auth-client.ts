@@ -17,8 +17,13 @@ export function isAuthNavigationPending(): boolean { return authNavigationPendin
 
 /** Also used by the visible retry control when navigation did not complete. */
 export function reloadProgressPage(): void {
-  if (navigationTarget) window.location.assign(new URL(navigationTarget, window.location.origin).href);
-  else window.location.reload();
+  if (!navigationTarget) { window.location.reload(); return; }
+  const target = new URL(navigationTarget, window.location.origin);
+  const changesOnlyHash = target.pathname === window.location.pathname
+    && target.search === window.location.search && !!(target.hash || window.location.hash);
+  window.location.assign(target.href);
+  // A fragment navigation does not replace permanently revoked module stores.
+  if (changesOnlyHash) window.location.reload();
 }
 
 function revokeForNavigation(target: string): void {
@@ -106,7 +111,8 @@ export async function signInWithGoogle(callbackUrl = "/") {
 
 /** Sign-out never removes frozen originals or another owner's durable partition. */
 export async function signOutAndClear(callbackUrl = "/") {
-  revokeForNavigation(callbackUrl);
+  const target = cleanCallbackUrl(callbackUrl);
+  revokeForNavigation(target);
   if (typeof window !== "undefined") {
     // Independent attempts: denied storage must not suppress the other signal
     // or prevent authentication sign-out. Messages contain no player data.
@@ -117,7 +123,11 @@ export async function signOutAndClear(callbackUrl = "/") {
       channel.close();
     } catch { /* Session updates still invalidate this document. */ }
   }
-  return nextAuthSignOut({ callbackUrl });
+  // Auth's canonical server host can differ from this browser's reachable host.
+  // Finish the sign-out before navigating, and never follow its returned URL.
+  const result = await nextAuthSignOut({ callbackUrl: target, redirect: false });
+  try { reloadProgressPage(); } catch { /* Keep revoked consumers behind Reload. */ }
+  return result;
 }
 
 export { nextAuthSignIn as signIn, nextAuthSignOut as signOut };
