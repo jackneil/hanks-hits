@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { localWords } from "@/lib/local-words";
 import { useWeatherStore } from "./lib/store";
 import type { GeoLocation, CurrentWeather, ForecastDay } from "./lib/store";
 import {
@@ -30,6 +31,12 @@ import { AppNotesSlot } from "@/shared/components/AppNotesSlot";
 export function Weather() {
   const store = useWeatherStore();
   const [showSavedLocations, setShowSavedLocations] = useState(false);
+  const forecastRequest = useRef(0);
+  const forecastLease = useRef<ReturnType<typeof localWords.captureLease>>(null);
+  useEffect(() => () => {
+    forecastRequest.current += 1;
+    if (forecastLease.current && localWords.isCurrent(forecastLease.current)) useWeatherStore.getState().setLoading(false);
+  }, []);
 
   // Auth sync for logged-in users
   const { isAuthenticated, syncStatus } = useAuthSync({
@@ -113,6 +120,11 @@ export function Weather() {
   // Fetch weather for a location
   const fetchWeather = useCallback(
     async (location: GeoLocation) => {
+      const lease = localWords.captureLease();
+      if (!lease) return;
+      forecastLease.current = lease;
+      const request = ++forecastRequest.current;
+      const isCurrent = () => request === forecastRequest.current && localWords.isCurrent(lease);
       // Read the store when the handler runs (issue #56): the whole store in
       // the deps made this a new function after every set().
       const weather = useWeatherStore.getState();
@@ -136,7 +148,9 @@ export function Weather() {
         });
 
         const response = await fetch(`${WEATHER_API.forecast}?${params}`);
+        if (!isCurrent()) return;
         const data = await response.json();
+        if (!isCurrent()) return;
 
         if (data.error) {
           throw new Error(data.reason || "Failed to fetch weather");
@@ -177,10 +191,11 @@ export function Weather() {
         weather.setLastLocation(location);
         weather.setCurrentFact(getRandomFact());
       } catch (err) {
+        if (!isCurrent()) return;
         console.error("Weather fetch failed:", err);
         weather.setError("Oops! Couldn't get the weather. Try again!");
       } finally {
-        weather.setLoading(false);
+        if (isCurrent()) weather.setLoading(false);
       }
     },
     []

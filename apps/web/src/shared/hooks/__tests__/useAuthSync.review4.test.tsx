@@ -312,13 +312,15 @@ describe("the account's untouched progress (findings 2 and 10; wave 5: no cutoff
     // The device: a real pet from 2026-09-10.
     at("2026-09-10T12:00:00Z");
     useVirtualPetStore.getState().renamePet("Rex");
+    useVirtualPetStore.getState().play();
     at("2026-10-20T13:00:00Z");
     signIn();
     const view = mount(entry);
     await settle(4_000);
     view.unmount();
     const account = server.row("virtual-pet") as VirtualPetProgress;
-    expect(account.pet.name).toBe("Rex");
+    expect(account.pet.name).toBe("");
+    expect(account.stats.totalPlaySessions).toBe(1);
     expect(account.unlockedSpecies).toEqual(expect.arrayContaining(["blobby", "pupper"]));
     expect(useVirtualPetStore.getState().progress.unlockedSpecies).toContain("pupper");
   });
@@ -415,7 +417,7 @@ describe("virtual-pet: what time alone earned, and a pet that only changed a set
   it("an untouched pet visited 10 days in a row: the account keeps its own pet, and gains the species and the streak", async () => {
     const entry = syncedStore("virtual-pet");
     const account = {
-      ...made(entry, "2026-10-01T10:00:00Z", () => useVirtualPetStore.getState().renamePet("Rex")),
+      ...made(entry, "2026-10-01T10:00:00Z", () => { useVirtualPetStore.getState().renamePet("Rex"); useVirtualPetStore.getState().play(); }),
       coins: 70,
     };
     accountHolds(entry, account);
@@ -433,7 +435,8 @@ describe("virtual-pet: what time alone earned, and a pet that only changed a set
     await settle(4_000);
     view.unmount();
     const row = server.row("virtual-pet") as VirtualPetProgress;
-    expect(row.pet.name).toBe("Rex");
+    expect(row.pet.name).toBe("");
+    expect(row.stats.totalPlaySessions).toBe(1);
     expect(row.coins).toBe(70);
     expect(row.unlockedSpecies).toEqual(expect.arrayContaining(["kitcat", "pupper"]));
     expect(row.stats.longestStreak).toBe(10);
@@ -442,7 +445,7 @@ describe("virtual-pet: what time alone earned, and a pet that only changed a set
 
   it("a guest who only turned the sound off never replaces the account's pet", async () => {
     const entry = syncedStore("virtual-pet");
-    const account = made(entry, "2026-10-01T10:00:00Z", () => useVirtualPetStore.getState().renamePet("Rex"));
+    const account = made(entry, "2026-10-01T10:00:00Z", () => { useVirtualPetStore.getState().renamePet("Rex"); useVirtualPetStore.getState().play(); });
     accountHolds(entry, account);
     at("2026-10-20T12:00:00Z");
     useVirtualPetStore.getState().toggleSound();
@@ -451,13 +454,15 @@ describe("virtual-pet: what time alone earned, and a pet that only changed a set
     const view = mount(entry);
     await settle(4_000);
     view.unmount();
-    expect((server.row("virtual-pet") as VirtualPetProgress).pet.name).toBe("Rex");
-    expect(useVirtualPetStore.getState().progress.pet.name).toBe("Rex");
+    expect((server.row("virtual-pet") as VirtualPetProgress).stats.totalPlaySessions).toBe(1);
+    expect(useVirtualPetStore.getState().progress.stats.totalPlaySessions).toBe(1);
+    expect(sameProgress(progressOf(entry), account)).toBe(true);
   });
 
   it("the minute update keeps the time when only the needs move; a visit on a new day stamps a played pet", () => {
     at("2026-10-20T09:00:00Z");
     useVirtualPetStore.getState().renamePet("Rex");
+    useVirtualPetStore.getState().play();
     useVirtualPetStore.getState().updateFromTime();
     const visited = useVirtualPetStore.getState().progress.lastModified;
     at("2026-10-20T15:00:00Z");
@@ -482,3 +487,10 @@ vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
   const { createJSONStorage } = await import("zustand/middleware");
   return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
 });
+
+// These B1 cloud reconciliation fixtures use historical raw owner IDs and saves.
+// Local-word durability and owner projection run in the dedicated runtime suites.
+vi.mock("@/lib/local-words/consumer", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/local-words/consumer")>(),
+  bindWordConsumer: () => () => {},
+}));

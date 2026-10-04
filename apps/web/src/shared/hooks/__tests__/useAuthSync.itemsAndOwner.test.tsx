@@ -41,7 +41,6 @@ import { PROGRESS_OWNER_KEY } from "@/lib/storage-keys";
 import { SYNCED_STORES, syncedStore, type SyncedStoreEntry } from "@/__tests__/synced-stores";
 import { installAudioMock } from "@/__tests__/audio-mock";
 import { createProgressServer } from "@/__tests__/fake-progress-server";
-import { useDrawingStore } from "@/apps/drawing-app/lib/store";
 import { useDrumMachineStore } from "@/apps/drum-machine/lib/store";
 import { useFlappyStore } from "@/games/flappy-bird/lib/store";
 
@@ -86,18 +85,22 @@ function made(entry: SyncedStoreEntry, iso: string, play: () => void) {
   return out;
 }
 
-/** `count` drawings, one minute apart from `iso` (the newest first, as the store keeps them). */
-function drawings(count: number, iso: string) {
-  return made(syncedStore("drawing-app"), iso, () => {
+/** Saved beat IDs, one minute apart. Names stay outside cloud progress. */
+function beats(count: number, iso: string) {
+  return made(syncedStore("drum-machine"), iso, () => {
     for (let i = 0; i < count; i++) {
-      useDrawingStore.getState().saveArtwork("data:image/png;base64,AAAA", `Acct ${i}`);
+      saveBeat(`Acct ${i}`);
       vi.advanceTimersByTime(60_000);
     }
   });
 }
 
-const names = (progress: unknown, field: string) =>
-  ((progress as Record<string, Array<{ name: string }>> | undefined)?.[field] ?? []).map((item) => item.name);
+function saveBeat(name: string) {
+  useDrumMachineStore.getState().saveBeat(name);
+  return useDrumMachineStore.getState().progress.savedBeats.at(-1)!.id;
+}
+const ids = (progress: unknown) =>
+  ((progress as { savedBeats?: Array<{ id: string }> } | undefined)?.savedBeats ?? []).map((item) => item.id);
 
 /** The raw save of another tab that runs this code: `progress` in this store's save shape. */
 function rawSaveOf(entry: SyncedStoreEntry, progress: Record<string, unknown>): string {
@@ -154,137 +157,116 @@ const warned = () => (console.warn as unknown as { mock: { calls: unknown[][] } 
 // ---------------------------------------------------------------------------
 
 describe("F4: an item made during the first sync of an untouched device is kept", () => {
-  it("drum-machine: a beat saved while the GET is in flight joins the account's beats, on the device and on the account", async () => {
+  it("a beat saved during GET joins the account's patterns without uploading names", async () => {
     const entry = syncedStore("drum-machine");
-    accountHolds(entry, made(entry, "2026-10-20T11:00:00Z", () => useDrumMachineStore.getState().saveBeat("Account beat")));
+    const account = made(entry, "2026-10-20T11:00:00Z", () => saveBeat("Account beat"));
+    accountHolds(entry, account);
     at("2026-10-20T13:00:00Z");
     server.net.getDelayMs = 1_500;
     signInAs("user-1");
     const view = mount(entry);
     await settle(400);
-    useDrumMachineStore.getState().saveBeat("Kid beat");
+    const kidId = saveBeat("Kid beat");
     await settle(8_000);
     view.unmount();
 
-    const beats = (p: unknown) => names((p as { savedBeats?: unknown } | undefined) ?? {}, "savedBeats");
-    expect(beats(progressOf(entry))).toEqual(["Account beat", "Kid beat"]);
-    expect(beats(server.row("drum-machine"))).toEqual(["Account beat", "Kid beat"]);
+    expect(ids(progressOf(entry))).toEqual([...ids(account), kidId]);
+    expect(ids(server.row("drum-machine"))).toEqual([...ids(account), kidId]);
+    expect(JSON.stringify(server.row("drum-machine"))).not.toMatch(/Account beat|Kid beat/);
   });
 
-  it("drawing-app: the account holds 20 drawings; a drawing made during the GET is kept and the account's oldest goes, with a log line (F5)", async () => {
-    const entry = syncedStore("drawing-app");
-    accountHolds(entry, drawings(20, "2026-10-20T09:00:00Z"));
+  it("F5: a beat made during GET stays when the account already holds the 100-item limit", async () => {
+    const entry = syncedStore("drum-machine");
+    const account = beats(100, "2026-10-20T09:00:00Z");
+    accountHolds(entry, account);
     at("2026-10-20T13:00:00Z");
     server.net.getDelayMs = 1_500;
     signInAs("user-1");
     const view = mount(entry);
     await settle(400);
-    useDrawingStore.getState().saveArtwork("data:image/png;base64,KKKK", "Kid art");
+    const kidId = saveBeat("Kid beat");
     await settle(8_000);
     view.unmount();
 
-    const tab = names(progressOf(entry), "savedArtworks");
-    const row = names(server.row("drawing-app"), "savedArtworks");
-    expect(tab).toHaveLength(20);
-    expect(tab[0]).toBe("Kid art");
-    expect(tab).not.toContain("Acct 0");
-    expect(tab).toContain("Acct 1");
-    expect(row).toEqual(tab);
+    const tab = ids(progressOf(entry));
+    expect(tab).toEqual([...ids(account).slice(1), kidId]);
+    expect(ids(server.row("drum-machine"))).toEqual(tab);
     expect(server.rejected).toEqual([]);
-    expect(warned().some((line) => /drawing-app\.savedArtworks/.test(line) && /1 /.test(line))).toBe(true);
+    expect(warned().some((line) => /drum-machine\.savedBeats/.test(line) && /1 /.test(line))).toBe(true);
   });
 });
 
-// ---------------------------------------------------------------------------
-// F5 + F6: another tab's newer save, and this tab's unsaved items
-// ---------------------------------------------------------------------------
-
+// Drawing pixels are device-local in Part C. Exercise the cloud item merge,
+// deletion and cap guarantees with beat patterns, which still belong to progress.
 describe("F6: another tab's newer save keeps this tab's unsaved items", () => {
-  async function syncedDrawingTab(start: Record<string, unknown>) {
-    const entry = syncedStore("drawing-app");
+  async function syncedBeatTab(start: Record<string, unknown>) {
+    const entry = syncedStore("drum-machine");
     accountHolds(entry, start);
     localStorage.setItem(PROGRESS_OWNER_KEY, "user-1");
     signInAs("user-1");
     const view = mount(entry, 2_000);
     await settle(2_000);
-    expect(names(progressOf(entry), "savedArtworks")).toEqual(names(start, "savedArtworks"));
+    expect(ids(progressOf(entry))).toEqual(ids(start));
     return { entry, view };
   }
 
   it.each([["storage"], ["pageshow"]] as const)(
-    "via %s: this tab's drawing X (its upload pending) stays, joins the other tab's drawing Y, and reaches the account",
+    "via %s: this tab's pending beat X joins the other tab's beat Y and reaches the account",
     async (via) => {
-      const shared = made(syncedStore("drawing-app"), "2026-10-20T12:00:00Z", () =>
-        useDrawingStore.getState().saveArtwork("data:image/png;base64,AAAA", "Shared")
-      );
-      const { entry, view } = await syncedDrawingTab(shared);
-
+      const shared = beats(1, "2026-10-20T12:00:00Z");
+      const { entry, view } = await syncedBeatTab(shared);
       at("2026-10-20T13:05:00Z");
-      useDrawingStore.getState().saveArtwork("data:image/png;base64,XXXX", "Drawing X");
-      // A stale tab (it missed X) saves drawing Y a moment later, and uploads it.
+      const xId = saveBeat("Beat X");
       at("2026-10-20T13:05:00.500Z");
-      const y = { ...(shared.savedArtworks as Array<Record<string, unknown>>)[0], id: "art_y", name: "Drawing Y", createdAt: new Date().toISOString() };
-      const theirs = { ...shared, savedArtworks: [y, ...(shared.savedArtworks as unknown[])], lastModified: Date.now() };
+      const all = shared.savedBeats as Array<Record<string, unknown>>;
+      const y = { ...all[0], id: "beat_y", createdAt: new Date().toISOString() };
+      const theirs = { ...shared, savedBeats: [...all, y], lastModified: Date.now() };
       accountHolds(entry, theirs);
       otherTabWrites(entry.key, rawSaveOf(entry, theirs), via);
 
-      expect(names(progressOf(entry), "savedArtworks")).toEqual(["Drawing Y", "Drawing X", "Shared"]);
+      const expected = [...ids(shared), xId, "beat_y"];
+      expect(ids(progressOf(entry))).toEqual(expected);
       await settle(6_000);
       view.unmount();
-      expect(names(server.row("drawing-app"), "savedArtworks")).toEqual(["Drawing Y", "Drawing X", "Shared"]);
+      expect(ids(server.row("drum-machine"))).toEqual(expected);
     }
   );
 
-  it("a drawing that the other tab deleted does not come back; this tab's new drawing stays", async () => {
-    const start = made(syncedStore("drawing-app"), "2026-10-20T12:00:00Z", () => {
-      useDrawingStore.getState().saveArtwork("data:image/png;base64,AAAA", "S1");
-      vi.advanceTimersByTime(60_000);
-      useDrawingStore.getState().saveArtwork("data:image/png;base64,BBBB", "S2");
-    });
-    const { entry, view } = await syncedDrawingTab(start);
-
+  it("a beat the other tab deleted does not come back; this tab's new beat stays", async () => {
+    const start = beats(2, "2026-10-20T12:00:00Z");
+    const { entry, view } = await syncedBeatTab(start);
     at("2026-10-20T13:05:00Z");
-    useDrawingStore.getState().saveArtwork("data:image/png;base64,XXXX", "Drawing X");
+    const xId = saveBeat("Beat X");
     at("2026-10-20T13:05:00.500Z");
-    const theirs = {
-      ...start,
-      savedArtworks: (start.savedArtworks as Array<{ name: string }>).filter((art) => art.name !== "S2"),
-      lastModified: Date.now(),
-    };
+    const theirs = { ...start, savedBeats: (start.savedBeats as unknown[]).slice(0, 1), lastModified: Date.now() };
     accountHolds(entry, theirs);
     otherTabWrites(entry.key, rawSaveOf(entry, theirs), "storage");
 
-    expect(names(progressOf(entry), "savedArtworks")).toEqual(["Drawing X", "S1"]);
+    const expected = [ids(start)[0], xId];
+    expect(ids(progressOf(entry))).toEqual(expected);
     await settle(6_000);
     view.unmount();
-    expect(names(server.row("drawing-app"), "savedArtworks")).toEqual(["Drawing X", "S1"]);
+    expect(ids(server.row("drum-machine"))).toEqual(expected);
   });
 
-  it("F5: at the list's length, the union keeps the newest 20 (the store's own eviction) and logs the drop", async () => {
-    const start = drawings(20, "2026-10-20T09:00:00Z");
-    const { entry, view } = await syncedDrawingTab(start);
-
-    // This tab draws X: the store itself pops its oldest drawing (Acct 0).
+  it("F5: the union keeps the newest 100 patterns and logs the drop", async () => {
+    const start = beats(100, "2026-10-20T09:00:00Z");
+    const { entry, view } = await syncedBeatTab(start);
     at("2026-10-20T13:05:00Z");
-    useDrawingStore.getState().saveArtwork("data:image/png;base64,XXXX", "Drawing X");
-    // The other tab (it missed X) draws Y, and pops Acct 0 as well.
+    const xId = saveBeat("Beat X");
     at("2026-10-20T13:05:00.500Z");
-    const all = start.savedArtworks as Array<Record<string, unknown>>;
-    const y = { ...all[0], id: "art_y", name: "Drawing Y", createdAt: new Date().toISOString() };
-    const theirs = { ...start, savedArtworks: [y, ...all.slice(0, 19)], lastModified: Date.now() };
+    const all = start.savedBeats as Array<Record<string, unknown>>;
+    const y = { ...all[0], id: "beat_y", createdAt: new Date().toISOString() };
+    const theirs = { ...start, savedBeats: [...all.slice(1), y], lastModified: Date.now() };
     accountHolds(entry, theirs);
     otherTabWrites(entry.key, rawSaveOf(entry, theirs), "storage");
 
-    const tab = names(progressOf(entry), "savedArtworks");
-    expect(tab).toHaveLength(20);
-    expect(tab.slice(0, 2)).toEqual(["Drawing Y", "Drawing X"]);
-    expect(tab).not.toContain("Acct 0");
-    expect(tab).not.toContain("Acct 1");
-    expect(tab).toContain("Acct 2");
-    expect(warned().some((line) => /drawing-app\.savedArtworks/.test(line))).toBe(true);
+    const tab = ids(progressOf(entry));
+    expect(tab).toEqual([...ids(start).slice(2), xId, "beat_y"]);
+    expect(warned().some((line) => /drum-machine\.savedBeats/.test(line))).toBe(true);
     await settle(6_000);
     view.unmount();
-    expect(names(server.row("drawing-app"), "savedArtworks")).toEqual(tab);
+    expect(ids(server.row("drum-machine"))).toEqual(tab);
     expect(server.rejected).toEqual([]);
   });
 });
@@ -414,3 +396,10 @@ vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
   const { createJSONStorage } = await import("zustand/middleware");
   return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
 });
+
+// These B1 cloud reconciliation fixtures use historical raw owner IDs and saves.
+// Local-word durability and owner projection run in the dedicated runtime suites.
+vi.mock("@/lib/local-words/consumer", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/local-words/consumer")>(),
+  bindWordConsumer: () => () => {},
+}));

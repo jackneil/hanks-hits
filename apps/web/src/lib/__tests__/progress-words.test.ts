@@ -1,5 +1,6 @@
+import { mergeProgress } from "../progress-merge";
 import { describe, expect, it } from "vitest";
-import { extractProgressWords, stripProgressWords } from "../progress-words";
+import { createWordProjection, extractProgressWords, stripProgressWords } from "../progress-words";
 
 describe("progress word preservation inventory", () => {
   it.each([
@@ -33,4 +34,45 @@ describe("progress word preservation inventory", () => {
     expect(stripProgressWords("oregon-trail", null)).toBeNull();
     expect(extractProgressWords("oregon-trail", { party: null }).fields).toEqual([]);
   });
+});
+
+
+describe("memoized local/cloud word projection", () => {
+  it("compares every flat field while reusing unchanged nested gameplay references", () => {
+    const project = createWordProjection<Record<string, unknown>>("oregon-trail");
+    const supplies = { food: 500 };
+    const party = [{ id: "m0", name: "Private", health: 90 }];
+    const input = { journeyId: "j1", leaderName: "Secret", party, supplies, milesTraveled: 10, lastModified: 100 };
+    const first = project(input);
+    expect(project({ ...input })).toBe(first);
+    expect(first.supplies).toBe(supplies);
+    expect(first.party).not.toBe(party);
+    expect(project({ ...input, leaderName: "Changed private name" })).toBe(first);
+    const progressed = project({ ...input, milesTraveled: 11 });
+    expect(progressed).not.toBe(first);
+    expect(progressed.milesTraveled).toBe(11);
+    expect(progressed.party).toBe(first.party);
+    expect(progressed.lastModified).toBe(100);
+    expect(input.leaderName).toBe("Secret");
+  });
+
+  it.each(Object.keys({ "oregon-trail": 1, weather: 1, "toy-finder": 1, "drawing-app": 1, "drum-machine": 1, "virtual-pet": 1, "four-wheeler-3d": 1 }))("matches the reviewed full projection for %s after personal and gameplay edits", appId => {
+    const project = createWordProjection(appId);
+    const initial = { leaderName: "Alice", party: [{ id: "m0", name: "Bob" }], savedLocations: [{ name: "Town" }], lastLocation: { name: "Town" }, wishlistItems: [{ toyId: "t", notes: "private" }], savedArtworks: [{ id: "a", name: "Art", dataUrl: "secret" }], savedBeats: [{ id: "b", name: "Song", bpm: 90 }], pet: { name: "Fluffy" }, settings: { petName: "Fluffy" }, adventure: { outfit: { text: "Driver" }, feeders: [{ id: "f", label: "Home" }] }, lastModified: 100 };
+    expect(project(initial)).toEqual(stripProgressWords(appId, initial));
+    const changed = JSON.parse(JSON.stringify(initial).replaceAll("Fluffy", "New pet").replaceAll("private", "New note").replaceAll("Driver", "New outfit").replaceAll("Bob", "New member"));
+    expect(project(changed)).toEqual(stripProgressWords(appId, changed));
+    expect(extractProgressWords(appId, project(changed)).fields).toEqual([]);
+    expect(project({ ...changed })).toBe(project(changed));
+  });
+});
+
+
+it("carries Oregon identity with the unchanged whole-journey winner", () => {
+  const earlier = { journeyId: "old", milesTraveled: 800, lastModified: 100 };
+  const newer = { journeyId: "new", milesTraveled: 20, lastModified: 200 };
+  expect(mergeProgress(earlier, newer, 100, 200, "oregon-trail").data).toEqual(newer);
+  expect(mergeProgress(newer, earlier, 200, 100, "oregon-trail").data).toEqual(newer);
+  const legacy = { milesTraveled: 30, lastModified: 300 };
+  expect(mergeProgress(newer, legacy, 200, 300, "oregon-trail").data).toEqual(legacy);
 });

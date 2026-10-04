@@ -62,7 +62,7 @@ const LIST = neither(
 const STATE = neither("The state of the current game. It goes up and down in play.");
 // Oregon Trail saves one journey. A new journey starts every field again.
 const JOURNEY = neither(
-  "This journey only: a new journey starts it again. games/oregon-trail/lib/store.ts:168 `resetGame: () => set(defaultState)`"
+  "This journey only: a new journey starts it again. games/oregon-trail/lib/store.ts:221 `set(defaultState)`"
 );
 
 export const PROGRESS_FIELD_RULES: {
@@ -188,6 +188,7 @@ export const PROGRESS_FIELD_RULES: {
   // field of it is a record (games/oregon-trail/lib/store.ts:168
   // `resetGame: () => set(defaultState)`, and startGame at store.ts:74).
   "oregon-trail": {
+    journeyId: JOURNEY,
     gamePhase: JOURNEY,
     gameStarted: JOURNEY,
     leaderName: TEXT,

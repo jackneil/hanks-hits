@@ -1,3 +1,7 @@
+import { readGallery, readArtwork, writeArtwork } from "./localWords";
+import { createWordProjection } from "@/lib/progress-words";
+import { localWords } from "@/lib/local-words";
+import { bindWordConsumer } from "@/lib/local-words/consumer";
 import { bindPersistedStore } from "@/lib/owner-bound-progress";
 import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 /**
@@ -104,6 +108,8 @@ interface DrawingStoreActions {
   setProgress: (data: DrawingAppProgress) => void;
 }
 
+const projectWords = createWordProjection<DrawingAppProgress>("drawing-app");
+
 const defaultSettings: DrawingSettings = {
   defaultColor: BASIC_COLORS[4].hex, // Blue
   defaultSize: SIZE_PRESETS.medium,
@@ -170,21 +176,6 @@ function createThumbnail(dataUrl: string): Promise<string> {
   });
 }
 
-/**
- * The small picture of a saved artwork, made after the save. It syncs with
- * the artwork, so a new picture stamps the time.
- */
-function withThumbnail(id: string, thumbnail: string) {
-  return (state: DrawingStoreState): Partial<DrawingStoreState> => {
-    const artwork = state.savedArtworks.find((art) => art.id === id);
-    if (!artwork || artwork.thumbnail === thumbnail) return {};
-    return {
-      savedArtworks: state.savedArtworks.map((art) => (art.id === id ? { ...art, thumbnail } : art)),
-      lastModified: Date.now(),
-    };
-  };
-}
-
 export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()(
   persist(
     (set, get) => ({
@@ -237,6 +228,8 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
 
       // Artwork actions
       saveArtwork: (dataUrl, name) => {
+        const lease = localWords.captureLease();
+        const previousArtworks = get().savedArtworks;
         const id = generateId();
         const now = new Date().toISOString();
         const defaultName = `My Art ${get().savedArtworks.length + 1}`;
@@ -251,9 +244,10 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
           editedAt: now,
         };
 
-        // Add to state immediately
+        if (lease) void writeArtwork(lease, id, newArtwork);
+        // Add to state immediately; runtime publication may already show the new artwork.
         set((state) => {
-          const artworks = [newArtwork, ...state.savedArtworks];
+          const artworks = [newArtwork, ...previousArtworks];
           // Limit to max artworks
           if (artworks.length > MAX_SAVED_ARTWORKS) {
             artworks.pop();
@@ -269,21 +263,29 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
         });
 
         // Create thumbnail async and update
-        createThumbnail(dataUrl).then((thumbnail) => set(withThumbnail(id, thumbnail)));
+        createThumbnail(dataUrl).then((thumbnail) => {
+          if (!lease || !localWords.isCurrent(lease)) return;
+          const artwork = readArtwork(lease, id);
+          if (!artwork || artwork.dataUrl !== dataUrl || artwork.editedAt !== now || artwork.thumbnail === thumbnail) return;
+          void writeArtwork(lease, id, { ...artwork, thumbnail });
+        });
 
         return id;
       },
 
       deleteArtwork: (id) => {
-        set((state) =>
-          state.savedArtworks.some((art) => art.id === id)
-            ? { savedArtworks: state.savedArtworks.filter((art) => art.id !== id), lastModified: Date.now() }
-            : {}
-        );
+        if (!get().savedArtworks.some(art => art.id === id)) return;
+        const lease = localWords.captureLease();
+        if (lease) void writeArtwork(lease, id, null);
+        set(state => ({ savedArtworks: state.savedArtworks.filter(art => art.id !== id) }));
       },
 
       updateArtwork: (id, dataUrl) => {
+        const lease = localWords.captureLease();
+        const previous = get().savedArtworks.find(art => art.id === id);
+        if (!previous) return;
         const now = new Date().toISOString();
+        if (lease) void writeArtwork(lease, id, { ...previous, dataUrl, editedAt: now });
         set((state) =>
           state.savedArtworks.some((art) => art.id === id)
             ? {
@@ -292,13 +294,17 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
                     ? { ...art, dataUrl, editedAt: now }
                     : art
                 ),
-                lastModified: Date.now(),
               }
             : {}
         );
 
         // Update thumbnail async
-        createThumbnail(dataUrl).then((thumbnail) => set(withThumbnail(id, thumbnail)));
+        createThumbnail(dataUrl).then((thumbnail) => {
+          if (!lease || !localWords.isCurrent(lease)) return;
+          const artwork = readArtwork(lease, id);
+          if (!artwork || artwork.dataUrl !== dataUrl || artwork.editedAt !== now || artwork.thumbnail === thumbnail) return;
+          void writeArtwork(lease, id, { ...artwork, thumbnail });
+        });
       },
 
       getArtwork: (id) => {
@@ -335,19 +341,19 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
       // Sync helpers
       getProgress: (): DrawingAppProgress => {
         const state = get();
-        return {
+        return projectWords({
           settings: state.settings,
           stats: state.stats,
           savedArtworks: state.savedArtworks,
           lastModified: state.lastModified,
-        };
+        });
       },
 
       setProgress: (data) => {
         set({
           settings: data.settings ?? defaultSettings,
           stats: data.stats ?? defaultStats,
-          savedArtworks: data.savedArtworks ?? get().savedArtworks,
+          savedArtworks: get().savedArtworks,
           // Taking progress is not a player action: it keeps the time it gets.
           lastModified: typeof data.lastModified === "number" ? data.lastModified : 0,
         });
@@ -362,14 +368,23 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
       // save (shared/lib/untouchedProgress.ts).
       merge: settleOnLoad(UNTOUCHED),
       // Persist everything except transient drawing state
-      partialize: (state) => markSaved({
+      partialize: (state) => markSaved(projectWords({
         settings: state.settings,
         stats: state.stats,
         savedArtworks: state.savedArtworks,
         lastModified: state.lastModified,
-      }),
+      })),
     }
   )
 );
 
 bindPersistedStore("drawing-app-progress", useDrawingStore.persist, () => useDrawingStore.setState({}));
+
+bindWordConsumer("drawing-app", useDrawingStore.subscribe, (_records, lease) => {
+  const state = useDrawingStore.getState();
+  const savedArtworks = lease ? readGallery(lease).slice(0, MAX_SAVED_ARTWORKS) : [];
+  const selectedArtwork = state.selectedArtwork ? savedArtworks.find(art => art.id === state.selectedArtwork?.id) ?? null : null;
+  if (!sameProgress(state.savedArtworks, savedArtworks) || !sameProgress(state.selectedArtwork, selectedArtwork)) {
+    useDrawingStore.setState({ savedArtworks, selectedArtwork });
+  }
+});

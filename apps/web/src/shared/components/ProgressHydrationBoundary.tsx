@@ -42,7 +42,7 @@ export function ProgressHydrationBoundary({ appId, loadModule, children, fallbac
     if (fallback !== undefined) return fallback;
     return <div role="status" className="min-h-dvh bg-slate-950 text-white flex items-center justify-center p-6">Getting your game ready...</div>;
   }
-  return children;
+  return <>{children}</>;
 }
 
 const loadAchievementStore = () => import("@/shared/lib/achievements");

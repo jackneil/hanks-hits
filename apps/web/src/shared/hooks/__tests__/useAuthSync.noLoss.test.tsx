@@ -295,8 +295,10 @@ describe("no save sends progress that the store's rule calls untouched", () => {
     view = mount(entry);
     await settle(4_000);
     view.unmount();
-    expect((server.row("oregon-trail") as { leaderName: string }).leaderName).toBe("Hank");
-    expect(useOregonTrailStore.getState().leaderName).toBe("Hank");
+    const journey = server.row("oregon-trail");
+    expect(journey).toMatchObject({ leaderName: "", occupation: "carpenter", departureMonth: "may", gameStarted: true });
+    expect(sameProgress(journey, progressOf(entry))).toBe(true);
+    expect(JSON.stringify(journey)).not.toContain("Hank");
   });
 
   it("drawing-app: a row that holds only the grid switch (written after the deploy by the old code) gives way to this device's older drawing", async () => {
@@ -315,8 +317,9 @@ describe("no save sends progress that the store's rule calls untouched", () => {
     await settle(4_000);
     view.unmount();
     expect(server.rejected).toEqual([]);
-    expect(JSON.stringify(server.row("drawing-app"))).toContain("Truck");
-    expect(useDrawingStore.getState().savedArtworks).toHaveLength(1);
+    expect(server.row("drawing-app")).toMatchObject({ stats: { artworksCreated: 1 }, lastModified: Date.parse("2026-10-24T09:00:00Z") });
+    expect(server.row("drawing-app")).not.toHaveProperty("savedArtworks");
+    expect(JSON.stringify(server.row("drawing-app"))).not.toMatch(/Truck|data:image/);
   });
 });
 
@@ -360,7 +363,10 @@ describe("Virtual Pet: the visit and the clock", () => {
     expect(server.rejected).toEqual([]);
     expect(row.pet.name).toBe("Rex");
     expect(row.coins).toBe(350);
-    expect(useVirtualPetStore.getState().progress.pet.name).toBe("Rex");
+    expect(useVirtualPetStore.getState().progress.coins).toBe(350);
+    expect(useVirtualPetStore.getState().progress.pet.bornAt).toBe(account.pet.bornAt);
+    // The old cloud name is preserved in its source, never adopted by gameplay.
+    expect(useVirtualPetStore.getState().progress.pet.name).not.toBe("Rex");
   });
 
   it("F5: a pet checked on a clock that runs ahead keeps its needs at 100 or less, and the server takes its saves", async () => {
@@ -380,7 +386,8 @@ describe("Virtual Pet: the visit and the clock", () => {
     }
     expect(validateProgress("virtual-pet", progress).success).toBe(true);
     expect(server.rejected).toEqual([]);
-    expect((server.row("virtual-pet") as VirtualPetProgress).pet.name).toBe("Skewy");
+    expect((server.row("virtual-pet") as VirtualPetProgress).pet.name).not.toBe("Skewy");
+    expect(JSON.stringify(server.posts)).not.toContain("Skewy");
   });
 
   it("F5: the time update with a last check in the future (store)", () => {
@@ -434,3 +441,10 @@ vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
   const { createJSONStorage } = await import("zustand/middleware");
   return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
 });
+
+// These B1 cloud reconciliation fixtures use historical raw owner IDs and saves.
+// Local-word durability and owner projection run in the dedicated runtime suites.
+vi.mock("@/lib/local-words/consumer", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/local-words/consumer")>(),
+  bindWordConsumer: () => () => {},
+}));

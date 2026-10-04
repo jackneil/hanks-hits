@@ -1,3 +1,8 @@
+import { createJourneyId, readSetupLeader, readSetupParty, readJourneyLeader, readMemberName, writeSetupNames, writeJourneyNames, mapLocalWordCandidate, previewUnmatchedCandidate } from "./localWords";
+import { registerWordRecovery, wordRecoverySynced } from "@/shared/lib/localWordRecovery";
+import { createWordProjection } from "@/lib/progress-words";
+import { localWords } from "@/lib/local-words";
+import { bindWordConsumer } from "@/lib/local-words/consumer";
 import { bindPersistedStore } from "@/lib/owner-bound-progress";
 import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 // Oregon Trail - Zustand Store
@@ -10,8 +15,10 @@ import { createInitialState, calculateDailyTravel, calculateFoodConsumption, get
 import { getRandomEvent } from './events';
 import { LANDMARKS, STORE_PRICES } from './constants';
 
+const projectWords = createWordProjection<OregonTrailSyncData>("oregon-trail");
+
 const defaultState: GameState = {
-  gamePhase: "title", gameStarted: false, leaderName: "", occupation: "banker", party: [], departureMonth: "march",
+  journeyId: undefined, gamePhase: "title", gameStarted: false, leaderName: "", occupation: "banker", party: [], departureMonth: "march",
   currentDay: 1, milesTraveled: 0, currentLandmarkIndex: 0, pace: "steady",
   supplies: { food: 0, oxen: 0, clothing: 0, ammunition: 0, spareParts: { wheels: 0, axles: 0, tongues: 0 }, money: 0 },
   weather: "clear", currentEvent: null, currentRiver: null, huntingFood: 0, huntingAmmoUsed: 0,
@@ -56,7 +63,7 @@ export type OregonTrailSyncData = GameState & { lastModified: number; [key: stri
  * replaced the journey on the account with the title screen at sign-in.
  */
 const PROGRESS_FIELDS = [
-  "gamePhase", "gameStarted", "leaderName", "occupation", "party", "departureMonth",
+  "journeyId", "gamePhase", "gameStarted", "leaderName", "occupation", "party", "departureMonth",
   "currentDay", "milesTraveled", "currentLandmarkIndex", "pace", "supplies", "weather",
   "currentEvent", "currentRiver", "huntingFood", "huntingAmmoUsed", "daysRested",
   "foodHunted", "riversCrossed", "eventsEncountered",
@@ -109,7 +116,13 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
   setPhase: (phase) => set({ gamePhase: phase }),
   startGame: (name, occ, partyNames, month) => {
     const init = createInitialState(name, occ, partyNames, month);
-    set({ ...init, gameStarted: true, gamePhase: "store" });
+    const journeyId = createJourneyId();
+    const lease = localWords.captureLease();
+    if (lease) {
+      void writeSetupNames(lease, name, partyNames);
+      void writeJourneyNames(lease, journeyId, name, init.party);
+    }
+    set({ ...init, journeyId, gameStarted: true, gamePhase: "store" });
   },
   buySupply: (type, amount) => {
     const s = get().supplies; const price = STORE_PRICES[type as keyof typeof STORE_PRICES] || 0;
@@ -202,16 +215,23 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
     const lm = LANDMARKS[st.currentLandmarkIndex];
     set({ gamePhase: lm.hasStore ? "store" : "travel" });
   },
-  resetGame: () => set(defaultState),
+  resetGame: () => {
+    const lease = localWords.captureLease();
+    if (lease) void writeSetupNames(lease, "", []);
+    set(defaultState);
+  },
   newJourney: () => {
     const { leaderName, occupation, party, departureMonth } = get();
+    const lease = localWords.captureLease();
+    if (lease) void writeSetupNames(lease, leaderName, party.map(member => member.name));
     set({ ...defaultState, leaderName, occupation, party, departureMonth, gamePhase: "setup_name" });
   },
 
   // Cloud sync
   getProgress: () => {
     const state = get();
-    return {
+    return projectWords({
+      journeyId: state.journeyId,
       gamePhase: state.gamePhase,
       gameStarted: state.gameStarted,
       leaderName: state.leaderName,
@@ -233,12 +253,13 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
       riversCrossed: state.riversCrossed,
       eventsEncountered: state.eventsEncountered,
       lastModified: state.lastModified,
-    };
+    });
   },
 
   setProgress: (data) => {
     // Taking progress is not a player action: it keeps the time it gets.
     stamp.adopt(() => set({
+      journeyId: data.journeyId,
       gamePhase: data.gamePhase,
       gameStarted: data.gameStarted,
       leaderName: data.leaderName,
@@ -272,7 +293,7 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
   // rollback it keeps the marker and the time of this code while the kid
   // plays on, and the sum then tells that its time is not true
   // (shared/lib/untouchedProgress.ts).
-  partialize: (state) => markSavedWithSum(UNTOUCHED, { ...state }),
+  partialize: (state) => markSavedWithSum(UNTOUCHED, projectWords({ ...state })),
   // A save of the code before the sync-time fix gets the real time of its
   // progress. The version stays, so that code still loads a new save
   // (shared/lib/untouchedProgress.ts).
@@ -300,3 +321,36 @@ stamp.attach(useOregonTrailStore);
 // once, so that the next load does not make the old journey newer again.
 bindPersistedStore("oregon-trail-storage", useOregonTrailStore.persist, () => useOregonTrailStore.setState({}));
 persistSettledSave(useOregonTrailStore, UNTOUCHED);
+
+bindWordConsumer("oregon-trail", useOregonTrailStore.subscribe, (_records, lease) => {
+  const state = useOregonTrailStore.getState();
+  const setupParty = lease ? readSetupParty(lease) : undefined;
+  const leaderName = (lease ? state.journeyId ? readJourneyLeader(lease, state.journeyId) : !state.gameStarted ? readSetupLeader(lease) : undefined : undefined) ?? (state.gameStarted ? "Wagon Leader" : "");
+  const party = state.party.map((member, index) => {
+    const name = (lease ? state.journeyId ? readMemberName(lease, state.journeyId, member.id) : !state.gameStarted ? setupParty?.[index] : undefined : undefined) ?? `Traveler ${index + 1}`;
+    return member.name === name ? member : { ...member, name };
+  });
+  if (leaderName !== state.leaderName || party.some((member, i) => member !== state.party[i])) {
+    stamp.adopt(() => useOregonTrailStore.setState({ leaderName, party }));
+  }
+});
+
+registerWordRecovery("oregon-trail", {
+  mapCandidate: mapLocalWordCandidate,
+  previewCandidate: previewUnmatchedCandidate,
+  async confirmUnmatched(source, lease) {
+    if (!localWords.isCurrent(lease) || !wordRecoverySynced("oregon-trail", lease)) return "stale";
+    const preview = previewUnmatchedCandidate(source);
+    if (!preview?.length) return "missing";
+    const state = useOregonTrailStore.getState();
+    const journeyId = state.journeyId ?? createJourneyId();
+    const edits = mapLocalWordCandidate({ ...source, fields: source.fields.map(field => ({ ...field, identity: { ...field.identity, journeyId } })) });
+    if (!edits?.length) return "missing";
+    // This is the player's explicit identity choice. Bind it before storage
+    // waits so ordinary travel cannot strand the selected names under an ID
+    // the journey never adopts. A subsequent new journey has a different ID.
+    if (!state.journeyId) useOregonTrailStore.setState({ journeyId, lastModified: Date.now() });
+    const result = await localWords.commitCandidate("oregon-trail", source.id, edits, lease, "confirmed-choice");
+    return localWords.isCurrent(lease) && useOregonTrailStore.getState().journeyId === journeyId ? result : "stale";
+  },
+});

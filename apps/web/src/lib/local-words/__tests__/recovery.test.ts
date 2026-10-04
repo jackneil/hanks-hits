@@ -121,12 +121,28 @@ describe("owner-bound cloud word recovery", () => {
     expect([...f.rows.values()][0].ownerKey).toBe(f.options.lease.ownerKey);
   });
 
-  it("treats the server's expected-owner mismatch as stale without reading or capturing words", async () => {
+  it("recognizes only an authoritative current-owner mismatch without capturing words", async () => {
     const f = await fixture();
     const reply = response({ code: "owner_changed" }, 409);
     f.fetch.mockResolvedValueOnce(reply);
+    expect(await recoverCloudWords(f.options)).toBe("owner-changed");
+    expect(reply.json).toHaveBeenCalledOnce();
+    expect(f.database.capture).not.toHaveBeenCalled();
+  });
+
+  it("checks the lease again after parsing an owner mismatch", async () => {
+    const f = await fixture();
+    f.fetch.mockResolvedValueOnce({ ok: false, status: 409, json: async () => {
+      f.changeOwner(); return { code: "owner_changed" };
+    } } as Response);
     expect(await recoverCloudWords(f.options)).toBe("stale");
-    expect(reply.json).not.toHaveBeenCalled();
+    expect(f.database.capture).not.toHaveBeenCalled();
+  });
+
+  it("does not mistake an unrelated conflict for an owner change", async () => {
+    const f = await fixture();
+    f.fetch.mockResolvedValueOnce(response({ code: "conflict" }, 409));
+    expect(await recoverCloudWords(f.options)).toBe("unavailable");
     expect(f.database.capture).not.toHaveBeenCalled();
   });
 

@@ -574,6 +574,7 @@ export const DRIVERS: Record<string, Driver> = {
       setAgeRange: { args: (rng) => [pick(rng, ["all", "6-8"])] },
       addToWishlist: { args: (rng) => [{ id: pick(rng, ["t1", "t2"]) }, pick(rng, ["high", "low"])] },
       removeFromWishlist: { args: (rng) => [pick(rng, ["t1", "t2"])] },
+      updateNotes: { args: (rng) => [pick(rng, ["t1", "t2"]), pick(rng, ["", "Local note"])] },
       updatePriority: { args: (rng) => [pick(rng, ["t1", "t2"]), pick(rng, ["high", "low"])] },
       setShowWishlist: { args: (rng) => [bool(rng)] },
       addToRecentlyViewed: { args: (rng) => [pick(rng, ["t1", "t2", "t3"])] },

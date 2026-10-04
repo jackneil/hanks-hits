@@ -128,6 +128,8 @@ async function play(entry: SyncedStoreEntry) {
   await entry.store.persist.rehydrate();
   if (keep === null) localStorage.removeItem(entry.key);
   entry.store.getState().setProgress({ ...progressOf(entry), [entry.timeKey]: Date.now() } as never);
+  // The historic pet fixture only renamed it. Exercise actual synced gameplay.
+  if (entry.appId === "virtual-pet") useVirtualPetStore.getState().play();
 }
 
 /** The kid plays at 12:00, signed in, and the progress syncs. */
@@ -141,6 +143,11 @@ async function playAndSync(entry: SyncedStoreEntry) {
   await settle(6_000);
   view.unmount();
   const row = rowOf(entry);
+  if (entry.appId === "weather") {
+    expect(row).toBeUndefined();
+    expect(posts).toEqual([]); // Saved places are entirely device-local.
+    return undefined;
+  }
   expect(row, `${entry.appId}: the play reached the account`).toBeDefined();
   expect(timeOf(row)).toBe(Date.parse("2026-10-02T12:00:01Z"));
   return JSON.parse(JSON.stringify(row)) as AppProgressData;
@@ -185,7 +192,10 @@ describe.each(cases)("%s: a page that loads after the last save", (_appId, entry
     expect(rejected).toEqual([]);
     // The account's progress is exactly what it was, and the device shows it.
     expect(rowOf(entry)).toEqual(before);
-    expect(sameProgress(progressOf(entry), before)).toBe(true);
+    if (entry.appId === "weather") {
+      expect(posts).toEqual([]);
+      expect(progressOf(entry)).toMatchObject({ savedLocations: [], lastLocation: null });
+    } else expect(sameProgress(progressOf(entry), before)).toBe(true);
   });
 
   it("a second device: the account keeps its progress, and the untouched device uploads nothing", async () => {
@@ -203,7 +213,10 @@ describe.each(cases)("%s: a page that loads after the last save", (_appId, entry
     expect(rejected).toEqual([]);
     expect(rowOf(entry)).toEqual(before);
     expect(posts.length).toBe(postsBefore);
-    expect(sameProgress(progressOf(entry), before)).toBe(true);
+    if (entry.appId === "weather") {
+      expect(posts).toEqual([]);
+      expect(progressOf(entry)).toMatchObject({ savedLocations: [], lastLocation: null });
+    } else expect(sameProgress(progressOf(entry), before)).toBe(true);
   });
 });
 
@@ -251,8 +264,15 @@ describe.each(cases)("%s: after the deploy, a device with a save of the old code
     view.unmount();
 
     expect(rejected).toEqual([]);
-    expect(sameProgress(rowOf(entry), device)).toBe(true);
-    expect(sameProgress(progressOf(entry), device)).toBe(true);
+    if (entry.appId === "weather") {
+      // A legacy place is no longer cloud progress and cannot replace this row.
+      expect(rowOf(entry)).toEqual(untouched);
+      expect(posts).toEqual([]);
+      expect(progressOf(entry)).toMatchObject({ savedLocations: [], lastLocation: null });
+    } else {
+      expect(sameProgress(rowOf(entry), device)).toBe(true);
+      expect(sameProgress(progressOf(entry), device)).toBe(true);
+    }
   });
 });
 
@@ -375,3 +395,10 @@ vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
   const { createJSONStorage } = await import("zustand/middleware");
   return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
 });
+
+// These B1 cloud reconciliation fixtures use historical raw owner IDs and saves.
+// Local-word durability and owner projection run in the dedicated runtime suites.
+vi.mock("@/lib/local-words/consumer", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/local-words/consumer")>(),
+  bindWordConsumer: () => () => {},
+}));

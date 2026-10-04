@@ -1,8 +1,12 @@
+import "fake-indexeddb/auto";
+import { localWords } from "@/lib/local-words";
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+import { writeArtwork } from "../lib/localWords";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { Gallery } from "../components/Gallery";
-import { useDrawingStore } from "../lib/store";
+import "../lib/store";
 import { mockPointer } from "@/__tests__/pointer-mock";
 
 const artwork = {
@@ -14,8 +18,13 @@ const artwork = {
   editedAt: new Date().toISOString(),
 };
 
-beforeEach(() => {
-  useDrawingStore.setState({ savedArtworks: [artwork] });
+beforeEach(async () => {
+  localWords.install();
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await ownerBoundProgress.whenHydrated("drawing-app-progress");
+  const lease = localWords.captureLease()!;
+  await localWords.prepare("drawing-app", lease);
+  await writeArtwork(lease, artwork.id, artwork);
 });
 
 describe("drawing-app Gallery delete button", () => {

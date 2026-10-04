@@ -1,3 +1,7 @@
+import { readBeatName, writeBeatName } from "./localWords";
+import { createWordProjection } from "@/lib/progress-words";
+import { localWords } from "@/lib/local-words";
+import { bindWordConsumer } from "@/lib/local-words/consumer";
 import { bindPersistedStore } from "@/lib/owner-bound-progress";
 import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
@@ -84,6 +88,8 @@ type DrumMachineActions = {
   getProgress: () => DrumMachineProgress;
   setProgress: (data: DrumMachineProgress) => void;
 };
+
+const projectWords = createWordProjection<DrumMachineProgress>("drum-machine");
 
 const defaultProgress: DrumMachineProgress = {
   savedBeats: [],
@@ -420,6 +426,9 @@ export const useDrumMachineStore = create<DrumMachineState & DrumMachineActions>
           createdAt: new Date().toISOString(),
         };
 
+        const lease = localWords.captureLease();
+        if (lease) void writeBeatName(lease, beat.id, name);
+
         set({
           progress: {
             ...state.progress,
@@ -473,7 +482,7 @@ export const useDrumMachineStore = create<DrumMachineState & DrumMachineActions>
           },
         })),
 
-      getProgress: () => get().progress,
+      getProgress: () => projectWords(get().progress),
       setProgress: (data) => set({ progress: data }),
     }),
     {
@@ -485,10 +494,19 @@ export const useDrumMachineStore = create<DrumMachineState & DrumMachineActions>
       // save (shared/lib/untouchedProgress.ts).
       merge: settleOnLoad(UNTOUCHED),
       partialize: (state) => markSaved({
-        progress: state.progress,
+        progress: projectWords(state.progress),
       }),
     }
   )
 );
 
 bindPersistedStore("drum-machine-state", useDrumMachineStore.persist, () => useDrumMachineStore.setState({}));
+
+bindWordConsumer("drum-machine", useDrumMachineStore.subscribe, (_records, lease) => {
+  const { progress } = useDrumMachineStore.getState();
+  const savedBeats = progress.savedBeats.map((beat, index) => {
+    const name = (lease ? readBeatName(lease, beat.id) : undefined) ?? `Beat ${index + 1}`;
+    return beat.name === name ? beat : { ...beat, name };
+  });
+  if (savedBeats.some((beat, i) => beat !== progress.savedBeats[i])) useDrumMachineStore.setState({ progress: { ...progress, savedBeats } });
+});

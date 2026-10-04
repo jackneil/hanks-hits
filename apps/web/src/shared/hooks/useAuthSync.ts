@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useCallback, useState, useSyncExternalStore, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import type { ValidAppId, AppProgressData } from "@hank-neil/db/schema";
 import { extractTimestamp } from "@/lib/progress-merge";
@@ -24,6 +24,8 @@ import {
   isClearedOnSignOut,
 } from "@/lib/storage-keys";
 import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+import { createWordProjection } from "@/lib/progress-words";
+import { markWordRecoverySynced } from "@/shared/lib/localWordRecovery";
 
 import type { ProgressContinuation, ProgressRead } from "@/shared/lib/progressContinuation";
 
@@ -188,6 +190,7 @@ export function useAuthSync<T extends AppProgressData>({
     );
   }
 
+  const project = useMemo(() => createWordProjection<T>(appId), [appId]);
   const { data: session, status } = useSession();
   const ownerSnapshot = useSyncExternalStore(ownerBoundProgress.subscribe, ownerBoundProgress.getSnapshot, ownerBoundProgress.getSnapshot);
   const leaseRef = useRef<ReturnType<typeof ownerBoundProgress.captureLease>>(null);
@@ -229,7 +232,7 @@ export function useAuthSync<T extends AppProgressData>({
   }
   if (knownItemsRef.current === null) {
     knownItemsRef.current = new Map();
-    addKeys(knownItemsRef.current, listItemKeys(appId, getState()));
+    addKeys(knownItemsRef.current, listItemKeys(appId, project(getState())));
   }
   // The session's account at this render (the save paths read it).
   const sessionUserIdRef = useRef<string | undefined>(undefined);
@@ -263,17 +266,17 @@ export function useAuthSync<T extends AppProgressData>({
 
   // Store getState/setState in refs to avoid callback instability
   // (These are inline arrow functions that change every render)
-  const getStateRef = useRef(getState);
-  const setStateRef = useRef(setState);
+  const getStateRef = useRef(() => project(getState()));
+  const setStateRef = useRef((value: T) => setState(project(value)));
   const onSyncCompleteRef = useRef(onSyncComplete);
   const continuationRef = useRef(continuation);
   continuationRef.current = continuation;
 
   useEffect(() => {
-    getStateRef.current = getState;
-    setStateRef.current = setState;
+    getStateRef.current = () => project(getState());
+    setStateRef.current = value => setState(project(value));
     onSyncCompleteRef.current = onSyncComplete;
-  }, [getState, setState, onSyncComplete]);
+  }, [getState, setState, onSyncComplete, project]);
 
   /** The page shares the list items of `progress` with the account or another tab. */
   const noteKnown = useCallback(
@@ -293,16 +296,18 @@ export function useAuthSync<T extends AppProgressData>({
     [noteKnown]
   );
 
-  const acknowledgeGuestCandidates = useCallback(() => {
+  const acknowledgeGuestCandidates = useCallback((flush = true) => {
     const lease = leaseRef.current;
     if (!lease || !bindingIsCurrentRef.current() || !guestCanonicalRef.current) return;
-    if (acceptedGuestCandidatesRef.current.size) ownerBoundProgress.flushStore(localStorageKey, lease);
+    if (flush && acceptedGuestCandidatesRef.current.size) ownerBoundProgress.flushStore(localStorageKey, lease);
     for (const id of acceptedGuestCandidatesRef.current) {
       if (ownerBoundProgress.acknowledgeGuestCandidate(localStorageKey, id, lease)) {
         acceptedGuestCandidatesRef.current.delete(id);
       }
     }
   }, [localStorageKey]);
+
+  useEffect(() => ownerBoundProgress.subscribe(() => acknowledgeGuestCandidates(false)), [acknowledgeGuestCandidates]);
 
   /**
    * True when a save may leave the page: the first sync is done for the
@@ -351,7 +356,8 @@ export function useAuthSync<T extends AppProgressData>({
       } catch {
         return;
       }
-      const theirs = progressFromSave(appId, saved, ownerBoundProgress.readEvidence(localStorageKey).loadAt);
+      const original = progressFromSave(appId, saved, ownerBoundProgress.readEvidence(localStorageKey).loadAt);
+      const theirs = original ? project(original as T) : null;
       if (!theirs) return;
       if (continuationRef.current?.active) {
         continuationRef.current.observeOtherTab(theirs as T);
@@ -416,7 +422,7 @@ export function useAuthSync<T extends AppProgressData>({
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("pageshow", onPageShow);
     };
-  }, [appId, localStorageKey, noteKnown, deviceChangedUnderPage, leaveStalePage, hydrated, ownerSnapshot.generation]);
+  }, [appId, localStorageKey, noteKnown, deviceChangedUnderPage, leaveStalePage, hydrated, ownerSnapshot.generation, project]);
 
   // The session's account changed on this mounted page (another tab signed
   // in as another kid; the login page does not sign out first). The
@@ -450,12 +456,13 @@ export function useAuthSync<T extends AppProgressData>({
         return null;
       }
       const result = await res.json();
-      return ownerBoundProgress.isCurrent(lease) && bindingIsCurrentRef.current() ? result : null;
+      if (!ownerBoundProgress.isCurrent(lease) || !bindingIsCurrentRef.current()) return null;
+      return { ...result, data: result.data ? project(result.data) : null };
     } catch (error) {
       console.error("Fetch progress error:", error);
       return null;
     }
-  }, [appId, leaveStalePage]);
+  }, [appId, leaveStalePage, project]);
 
   /**
    * Save progress to server
@@ -481,7 +488,7 @@ export function useAuthSync<T extends AppProgressData>({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            data,
+            data: project(data),
             merge,
             expectedOwnerId: ownerId,
           }),
@@ -520,7 +527,7 @@ export function useAuthSync<T extends AppProgressData>({
         return { ok: false, status: null };
       }
     },
-    [appId, leaveStalePage]
+    [appId, leaveStalePage, project]
   );
 
   /** Middleware completion, never a timer or an equality guess. */
@@ -602,7 +609,8 @@ export function useAuthSync<T extends AppProgressData>({
         let progress: Record<string, unknown> | null = null;
         try {
           const envelope: unknown = JSON.parse(candidate.raw);
-          progress = progressFromSave(appId, isRecord(envelope) ? envelope.state : null, candidate.loadAt);
+          const original = progressFromSave(appId, isRecord(envelope) ? envelope.state : null, candidate.loadAt);
+          progress = original ? project(original as T) : null;
         } catch { /* Unsupported candidates remain available for recovery. */ }
         if (!progress) continue;
         if (uploadable(appId, progress)) {
@@ -636,6 +644,7 @@ export function useAuthSync<T extends AppProgressData>({
     });
     if (continuationRef.current?.recover(continuationContext(serverResult))) {
       if (sessionMoved()) return;
+      if (leaseRef.current) markWordRecoverySynced(appId, leaseRef.current);
       markSynced(userId);
       setSyncStatus("synced");
       onSyncCompleteRef.current?.("local");
@@ -716,6 +725,7 @@ export function useAuthSync<T extends AppProgressData>({
     /** The first sync is done: this device's progress is the account's (or builds on it). */
     const synced = (source: "local" | "server", canonical = serverResult, related = true) => {
       continuationRef.current?.begin(continuationContext(canonical), related);
+      if (leaseRef.current) markWordRecoverySynced(appId, leaseRef.current);
       markSynced(userId);
       setSyncStatus("synced");
       onSyncCompleteRef.current?.(source);
@@ -871,6 +881,7 @@ export function useAuthSync<T extends AppProgressData>({
     noteSaved,
     deviceChangedUnderPage,
     acknowledgeGuestCandidates,
+    project,
     localStorageKey,
     session?.user?.id,
   ]);
@@ -1052,9 +1063,11 @@ export function useAuthSync<T extends AppProgressData>({
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handleBeforeUnload);
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handleBeforeUnload);
 
       // Also flush unsaved progress on component unmount (a pending save,
       // or a change that the 1 s poller did not see yet).

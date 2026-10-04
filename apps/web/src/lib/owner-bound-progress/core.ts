@@ -28,6 +28,14 @@ export type PersistHandle = {
   hasHydrated: () => boolean;
   onFinishHydration: (listener: () => void) => () => void;
 };
+/** Installed explicitly by local-words before the first owner hydration. */
+export interface WordPersistenceGuard {
+  handles(logicalKey: string): boolean;
+  snapshotOwner(lease: ProgressLease): void;
+  beforeHydrate(logicalKey: string, lease: ProgressLease): void;
+  replace(logicalKey: string, raw: string | null, lease: ProgressLease,
+    commit: (expectedPhysical: string | null) => boolean): boolean;
+}
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 type Legacy = { raw: string | null; marker: string | null; markerReadable: boolean; loadAt: number };
 export type GuestCandidate = Readonly<{ id: string; raw: string; loadAt: number }>;
@@ -69,6 +77,7 @@ export function createOwnerBoundProgress(deps: {
   let preparedProof: string | null = null;
   let authorizedProof: string | null = null;
   let proofOffered = false;
+  let wordGuard: WordPersistenceGuard | null = null;
 
   const publish = (change: Partial<ProgressSnapshot>) => {
     snapshot = Object.freeze({ ...snapshot, ...change });
@@ -210,35 +219,35 @@ export function createOwnerBoundProgress(deps: {
     const quarantineKey = PROGRESS_QUARANTINE + JSON.stringify([lease.ownerKey, key, digest]);
     if (local.getItem(quarantineKey) !== previous) local.setItem(quarantineKey, previous);
   };
-  const writeScoped = (key: string, raw: string, lease: ProgressLease | null = captureLease()): boolean => {
-    if (!lease || !isCurrent(lease)) return false;
-    const row = rowFor(key);
-    readEvidence(key); // Freeze provenance before the first write.
-    row.memory = { raw, durable: false };
-    try {
-      const local = storage();
-      if (!local) { memoryOnly(); return false; }
-      preserveMalformed(local, key, lease);
-      local.setItem(physicalKey(lease.ownerKey, key), JSON.stringify({ version: 2, ownerKey: lease.ownerKey, logicalKey: key, raw }));
-      row.memory.durable = true;
-      return true;
-    } catch { memoryOnly(); return false; }
-  };
-  const removeScoped = (key: string, lease: ProgressLease | null = captureLease()): boolean => {
+  const replaceScoped = (key: string, raw: string | null, lease: ProgressLease | null): boolean => {
     if (!lease || !isCurrent(lease)) return false;
     const row = rowFor(key);
     readEvidence(key);
-    row.memory = { raw: null, durable: false };
-    try {
-      const local = storage();
-      if (!local) { memoryOnly(); return false; }
-      preserveMalformed(local, key, lease);
-      // A durable null prevents a future document from re-adopting retained legacy data.
-      local.setItem(physicalKey(lease.ownerKey, key), JSON.stringify({ version: 2, ownerKey: lease.ownerKey, logicalKey: key, raw: null }));
-      row.memory.durable = true;
-      return true;
-    } catch { memoryOnly(); return false; }
+    if (row.memory?.durable && row.memory.raw === raw) {
+      const saved = readPhysical(key, lease);
+      if (saved.present && saved.readable && saved.raw === raw) return true;
+    }
+    row.memory = { raw, durable: false };
+    const commit = (expectedPhysical?: string | null): boolean => {
+      if (!isCurrent(lease) || row.memory?.raw !== raw) return false;
+      try {
+        const local = storage();
+        if (!local) { memoryOnly(); return false; }
+        if (expectedPhysical !== undefined && local.getItem(physicalKey(lease.ownerKey, key)) !== expectedPhysical) return false;
+        preserveMalformed(local, key, lease);
+        local.setItem(physicalKey(lease.ownerKey, key), JSON.stringify({ version: 2, ownerKey: lease.ownerKey, logicalKey: key, raw }));
+        const confirmed = readPhysical(key, lease);
+        if (!confirmed.present || !confirmed.readable || confirmed.raw !== raw) return false;
+        row.memory.durable = true;
+        if (wordGuard?.handles(key)) publish({});
+        return true;
+      } catch { memoryOnly(); return false; }
+    };
+    if (wordGuard?.handles(key)) return wordGuard.replace(key, raw, lease, commit);
+    return commit();
   };
+  const writeScoped = (key: string, raw: string, lease: ProgressLease | null = captureLease()): boolean => replaceScoped(key, raw, lease);
+  const removeScoped = (key: string, lease: ProgressLease | null = captureLease()): boolean => replaceScoped(key, null, lease);
   const listLegacyKeys = (prefix: string): string[] => {
     const keys: string[] = [];
     try { const local = storage(); if (local) for (let i = 0; i < local.length; i++) { const key = local.key(i); if (key?.startsWith(prefix) && !key.startsWith(PROGRESS_NAMESPACE)) keys.push(key); } } catch { /* Recovery remains optional when storage is unavailable. */ }
@@ -267,6 +276,7 @@ export function createOwnerBoundProgress(deps: {
   const hydrate = (key: string, binding: Binding) => {
     const lease = captureLease();
     if (!lease || binding.hydrated || binding.flight) return;
+    wordGuard?.beforeHydrate(key, lease);
     publish({ hydrating: true });
     // Calling rehydrate, including its returned promise, is the real middleware gate.
     binding.flight = (async () => {
@@ -358,6 +368,7 @@ export function createOwnerBoundProgress(deps: {
       if (snapshot.generation !== generation) return;
       const firstBinding = pinnedIdentity === undefined;
       pinnedIdentity = nextIdentity;
+      wordGuard?.snapshotOwner({ ownerKey, generation });
       if (firstBinding && nextIdentity !== null) consumeHandoff(ownerKey);
       publish({ status: "ready", ownerKey, hydrating: [...bindings.values()].some(item => !item.hydrated) });
       for (const [key, binding] of bindings) hydrate(key, binding);
@@ -367,6 +378,12 @@ export function createOwnerBoundProgress(deps: {
     getSnapshot: (): ProgressSnapshot => snapshot,
     subscribe: (listener: () => void): (() => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     updateSession, revoke, captureLease, isCurrent,
+    registerWordPersistenceGuard: (guard: WordPersistenceGuard): void => {
+      if (wordGuard && wordGuard !== guard) throw new Error("A word persistence guard is already installed.");
+      wordGuard = guard;
+      const lease = captureLease();
+      if (lease) guard.snapshotOwner(lease);
+    },
     reportGuestHandoffFailure,
     getGuestHandoffProof: (): string | null => preparedProof,
     authorizeGuestHandoff: (nonce: string): void => {
@@ -388,7 +405,7 @@ export function createOwnerBoundProgress(deps: {
       if (!source || source.ownerKey !== lease.ownerKey || source.logicalKey !== key
         || !saved.present || !saved.readable || saved.raw === null) return false;
       const memory = rows.get(key)?.memory;
-      if (memory && (!memory.durable || memory.raw !== saved.raw)) return false;
+      if (!memory?.durable || memory.raw !== saved.raw) return false;
       try {
         const local = storage();
         if (!local) return false;
@@ -405,6 +422,16 @@ export function createOwnerBoundProgress(deps: {
         guestSources.set(id, acknowledged);
         return true;
       } catch { memoryOnly(); return false; }
+    },
+    retryPendingWordWrites: (lease: ProgressLease): void => {
+      if (!isCurrent(lease)) return;
+      for (const [key, row] of rows) if (wordGuard?.handles(key) && row.memory && !row.memory.durable) replaceScoped(key, row.memory.raw, lease);
+    },
+    isLatestDurable: (key: string, lease: ProgressLease | null = captureLease()): boolean => {
+      if (!lease || !isCurrent(lease)) return false;
+      const memory = rows.get(key)?.memory;
+      const saved = readPhysical(key, lease);
+      return !!memory?.durable && saved.present && saved.readable && saved.raw === memory.raw;
     },
     hasDurable: (key: string): boolean => { const lease = captureLease(); if (!lease) return false; const value = readPhysical(key, lease); return value.present && value.readable && value.raw !== null; },
     isScopedStorageEvent: (event: Pick<StorageEvent, "key">, logicalKey?: string): boolean => {

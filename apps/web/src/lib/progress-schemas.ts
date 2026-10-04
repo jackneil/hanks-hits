@@ -262,6 +262,8 @@ const oregonEventSchema = z.object({
 }).strict();
 
 const oregonTrailSchema = z.object({
+  // Optional for legacy journeys; the whole-journey winner carries this identity.
+  journeyId: boundedString.optional(),
   // Game phase and state
   gamePhase: boundedString, // "title" | "setup" | "store" | "travel" | etc
   gameStarted: z.boolean(),
