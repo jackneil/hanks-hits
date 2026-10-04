@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
@@ -214,6 +216,8 @@ export const useMathAttackStore = create<MathAttackState>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("math-attack-progress", "math-attack"),
+      skipHydration: true,
       name: "math-attack-progress",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -232,3 +236,5 @@ export const useMathAttackStore = create<MathAttackState>()(
     }
   )
 );
+
+bindPersistedStore("math-attack-progress", useMathAttackStore.persist, () => useMathAttackStore.setState({}));

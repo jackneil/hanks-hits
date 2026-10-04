@@ -54,9 +54,6 @@ export default function SignUpPage() {
       if (signInResult?.error) {
         // Account created but sign in failed - redirect to login
         router.push("/login?message=Account created! Please sign in.");
-      } else {
-        router.push("/");
-        router.refresh();
       }
     } catch {
       setError("Something went wrong. Please try again.");

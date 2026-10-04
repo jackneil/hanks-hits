@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { progressStamp } from '@/shared/lib/progressStamp';
@@ -626,6 +628,8 @@ export const useGameStore = create<GameState & GameActions>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("monster-truck-save", "monster-truck"),
+      skipHydration: true,
       name: 'monster-truck-save',
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -652,4 +656,5 @@ stamp.attach(useGameStore);
 
 // A save of the old code has no time: write the time that the load gave it
 // once, so that the next load does not make the old progress newer again.
+bindPersistedStore("monster-truck-save", useGameStore.persist, () => useGameStore.setState({}));
 persistSettledSave(useGameStore, UNTOUCHED);

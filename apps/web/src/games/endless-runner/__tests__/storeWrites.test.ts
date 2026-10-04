@@ -10,15 +10,19 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { STEP_MS } from "../lib/constants";
 import { useEndlessRunnerStore } from "../lib/store";
 
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+
 const KEY = "endless-runner-storage";
 
 let setItem: MockInstance<Storage["setItem"]>;
 
-beforeEach(() => {
+beforeEach(async () => {
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await ownerBoundProgress.whenHydrated(KEY);
   localStorage.clear();
   // The first set after the clear writes the key (it is gone).
   useEndlessRunnerStore.getState().reset();
-  expect(localStorage.getItem(KEY), "a set writes a missing key").not.toBeNull();
+  expect(ownerBoundProgress.readScoped(KEY), "a set writes a missing key").not.toBeNull();
   // A spy that still writes: the key stays in localStorage. (The test
   // setup's localStorage is its own class, so spy on the object itself.)
   setItem = vi.spyOn(window.localStorage, "setItem");
@@ -29,7 +33,7 @@ afterEach(() => {
   useEndlessRunnerStore.getState().reset();
 });
 
-const runnerWrites = () => setItem.mock.calls.filter(([key]) => key === KEY).length;
+const runnerWrites = () => setItem.mock.calls.filter(([key]) => ownerBoundProgress.isScopedStorageEvent({ key }, KEY)).length;
 
 /** Start a run with a clear road, so 100 frames end nothing. */
 function startClearRun() {
@@ -47,26 +51,29 @@ describe("Endless Runner store writes", () => {
 
     useEndlessRunnerStore.getState().endGame();
     expect(runnerWrites(), "the end of the run writes the progress once").toBe(1);
-    const saved = JSON.parse(localStorage.getItem(KEY)!);
+    const saved = JSON.parse(ownerBoundProgress.readScoped(KEY)!);
     expect(saved.state.progress.gamesPlayed).toBeGreaterThan(0);
     expect(saved.state.progress).toEqual(useEndlessRunnerStore.getState().progress);
   });
 
-  it("writes the key again at the next set when a sign-out cleared it", () => {
+  it("writes the owner key again at the next set when browser storage cleared it", () => {
     startClearRun();
     useEndlessRunnerStore.getState().update(STEP_MS);
     expect(runnerWrites()).toBe(0);
 
-    localStorage.removeItem(KEY);
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)!;
+      if (ownerBoundProgress.isScopedStorageEvent({ key }, KEY)) localStorage.removeItem(key);
+    }
     useEndlessRunnerStore.getState().update(STEP_MS);
     expect(runnerWrites(), "the cleared key is written again").toBe(1);
-    expect(localStorage.getItem(KEY)).not.toBeNull();
+    expect(ownerBoundProgress.readScoped(KEY)).not.toBeNull();
   });
 
   it("writes a progress change from the cloud", () => {
     const progress = useEndlessRunnerStore.getState().getProgress();
     useEndlessRunnerStore.getState().setProgress({ ...progress, highScore: progress.highScore + 50, lastModified: Date.now() });
     expect(runnerWrites()).toBe(1);
-    expect(JSON.parse(localStorage.getItem(KEY)!).state.progress.highScore).toBe(progress.highScore + 50);
+    expect(JSON.parse(ownerBoundProgress.readScoped(KEY)!).state.progress.highScore).toBe(progress.highScore + 50);
   });
 });

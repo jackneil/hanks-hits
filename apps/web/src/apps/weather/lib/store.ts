@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 /**
  * Weather App Zustand Store
  * Handles location, preferences, and persistence
@@ -219,6 +221,8 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
       },
     }),
     {
+      storage: createOwnerPersistStorage("weather-app-progress", "weather"),
+      skipHydration: true,
       name: STORAGE_KEY,
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -234,3 +238,5 @@ export const useWeatherStore = create<WeatherStoreState & WeatherStoreActions>()
     }
   )
 );
+
+bindPersistedStore("weather-app-progress", useWeatherStore.persist, () => useWeatherStore.setState({}));

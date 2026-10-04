@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { stampIfChanged } from "@/shared/lib/progressStamp";
@@ -854,6 +856,8 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("space-invaders-progress", "space-invaders"),
+      skipHydration: true,
       name: "space-invaders-progress",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -863,3 +867,5 @@ export const useSpaceInvadersStore = create<SpaceInvadersState>()(
     }
   )
 );
+
+bindPersistedStore("space-invaders-progress", useSpaceInvadersStore.persist, () => useSpaceInvadersStore.setState({}));

@@ -204,6 +204,13 @@ export async function GET(request: Request, context: RouteContext) {
       );
     }
 
+    // A mounted page can outlive its cookie's account. The supplied identity
+    // is an assertion, never authorization. Older clients may omit it.
+    const expectedOwner = request.headers.get("x-hh-expected-owner");
+    if (expectedOwner !== null && expectedOwner !== session.user.id) {
+      return NextResponse.json({ error: "The signed-in account changed", code: "owner_changed" }, { status: 409 });
+    }
+
     // Rate limit: 60 requests per minute per user
     const rateLimit = checkProgressRateLimit(session.user.id);
     if (!rateLimit.success) {
@@ -236,7 +243,7 @@ export async function GET(request: Request, context: RouteContext) {
         revision: null,
         lastSyncedAt: null,
         message: "No saved progress found",
-      });
+      }, { headers: { "Cache-Control": "private, no-store" } });
     }
 
     return NextResponse.json({
@@ -245,7 +252,7 @@ export async function GET(request: Request, context: RouteContext) {
       revision: progressRevision(progress),
       lastSyncedAt: progress.lastSyncedAt?.toISOString() || null,
       updatedAt: progress.updatedAt.toISOString(),
-    });
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("GET /api/progress error:", describeError(error));
     return NextResponse.json(
@@ -310,15 +317,17 @@ export async function POST(request: Request, context: RouteContext) {
     };
 
     const conditional = typeof body === "object" && body !== null && Object.hasOwn(body, "baseRevision");
+    const suppliedOwner = typeof body === "object" && body !== null && Object.hasOwn(body, "expectedOwnerId");
     if (conditional) {
       if (baseRevision !== null && (typeof baseRevision !== "string" || !/^[a-f0-9]{64}$/.test(baseRevision))) {
         return NextResponse.json({ error: "Invalid save revision" }, { status: 400 });
       }
-      // Session cookies may change before a mounted page observes the account switch.
-      // Never use a supplied owner as authorization, and reveal no new owner's row.
-      if (expectedOwnerId !== session.user.id) {
-        return NextResponse.json({ error: "The signed-in account changed", code: "owner_changed" }, { status: 409 });
-      }
+    }
+
+    // Guard ordinary saves and unload beacons as well as conditional writes.
+    // Missing assertions remain compatible with older non-conditional clients.
+    if ((conditional || suppliedOwner) && expectedOwnerId !== session.user.id) {
+      return NextResponse.json({ error: "The signed-in account changed", code: "owner_changed" }, { status: 409 });
     }
 
     // Basic type check

@@ -1,10 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 
+const loadProgressModule = () => import("@/apps/toy-finder");
+
 const ToyFinder = dynamic(
-  () => import("@/apps/toy-finder"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -20,10 +23,18 @@ const ToyFinder = dynamic(
   }
 );
 
-export default function ToyFinderPage() {
+function ToyFinderPageContent() {
   return (
     <GameShell gameName="Toy Finder" canPause={false}>
       <ToyFinder />
     </GameShell>
+  );
+}
+
+export default function ToyFinderPage() {
+  return (
+    <ProgressHydrationBoundary appId="toy-finder" loadModule={loadProgressModule}>
+      <ToyFinderPageContent />
+    </ProgressHydrationBoundary>
   );
 }

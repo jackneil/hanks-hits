@@ -1,16 +1,5 @@
-/**
- * Registry of every localStorage key that holds a player's game/app state.
- *
- * signOutAndClear() wipes these on logout so the NEXT kid on a shared family
- * computer doesn't inherit (or upload!) the previous kid's progress. A synced
- * game whose key is missing here AND matches no suffix pattern below leaks the
- * old user's progress into the next account's cloud save (2026-07-10 review
- * finding: five "-state" keys were uncovered).
- *
- * The test at src/lib/__tests__/storage-keys.test.ts scans every
- * `localStorageKey:` passed to useAuthSync and fails if one isn't covered, so
- * new games can't silently reintroduce the leak.
- */
+/** Legacy progress-key inventory. New persistence is owner-bound; sign-out
+ * revokes leases instead of deleting durable saves or their ownership evidence. */
 export const GAME_STORAGE_KEYS = [
   // Games
   "2048-game-state",
@@ -38,50 +27,23 @@ export const GAME_STORAGE_KEYS = [
   "weather-app-progress",
 ] as const;
 
-/**
- * Who the locally stored progress belongs to. Written on every authenticated
- * initial sync; checked before any local blob is merge-uploaded, so a
- * previous user's leftovers on a shared device can never flow into the next
- * account even if the sign-out clear was defeated (e.g. a second open tab
- * re-persisting from memory). Deliberately NOT matched by the clearing
- * suffixes: it must survive logout to identify foreign data.
- *
- * Known fail-closed trade-off: after user A signs out, a kid who plays as a
- * GUEST and then signs in for the first time loses that guest session's
- * progress (the surviving marker says the local data was A's; we cannot
- * tell one guest from another). Losing a guest round beats crediting one
- * kid's progress to another's account.
- */
+/** Frozen evidence of the original legacy saves' owner. New saves carry their
+ * owner in an atomic v2 envelope; no upgraded writer changes this marker. */
 export const PROGRESS_OWNER_KEY = "hanks-hits-progress-owner";
 
-/**
- * Cross-tab sign-out signal. Other tabs listen for this key's storage event
- * and hard-reload, killing their in-memory zustand stores (which would
- * otherwise re-persist the just-cleared keys and leak into the next login).
- */
+/** Cross-tab sign-out invalidates mounted store leases before hard navigation. */
 export const SIGNOUT_BROADCAST_KEY = "hanks-hits-signout-broadcast";
 
-/** Remove every game/app progress key (explicit registry + suffix scan). */
-export function clearGameStorage(): void {
-  for (const key of GAME_STORAGE_KEYS) {
-    localStorage.removeItem(key);
-  }
-  const keysToRemove: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && isClearedOnSignOut(key)) {
-      keysToRemove.push(key);
-    }
-  }
-  for (const key of keysToRemove) {
-    localStorage.removeItem(key);
-  }
-}
+/**
+ * @deprecated Sign-out retains owner partitions and frozen legacy evidence.
+ * Kept for old internal callers during the transport migration; never deletes.
+ */
+export function clearGameStorage(): void {}
 
 /** Suffix safety net for keys that follow the common naming conventions */
 const CLEARED_SUFFIXES = ["-storage", "-progress", "-save", "-game-state"];
 
-/** True when signOutAndClear() will remove this key on logout */
+/** Classifies legacy logical progress keys. It does not authorize deletion. */
 export function isClearedOnSignOut(key: string): boolean {
   return (
     (GAME_STORAGE_KEYS as readonly string[]).includes(key) ||

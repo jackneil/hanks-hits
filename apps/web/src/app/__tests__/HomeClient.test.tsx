@@ -6,7 +6,8 @@ import {
   removeSpeechMock,
 } from "@/__tests__/speech-mock";
 
-import { HomeClient } from "../HomeClient";
+let HomeClient: typeof import("../HomeClient").HomeClient;
+let authority: typeof import("@/lib/owner-bound-progress").ownerBoundProgress;
 import type { DisplayCategory } from "@/shared/lib/game-registry";
 
 vi.mock("@/shared/components/Header", () => ({
@@ -59,10 +60,10 @@ const categoriesWithCreation: DisplayCategory[] = [
     items: [
       ...categories[0].items,
       {
-        id: "donut-catch",
+        id: "arkanoid",
         name: "Donut Catch",
         emoji: "🍩",
-        href: "/games/donut-catch",
+        href: "/games/arkanoid",
         madeByKid: true,
       },
     ],
@@ -71,9 +72,13 @@ const categoriesWithCreation: DisplayCategory[] = [
 ];
 
 describe("HomeClient", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     mockSession = null;
+    vi.resetModules();
+    ({ HomeClient } = await import("../HomeClient"));
+    ({ ownerBoundProgress: authority } = await import("@/lib/owner-bound-progress"));
   });
 
   it("filters the catalog by search query", () => {
@@ -108,9 +113,10 @@ describe("HomeClient", () => {
       expect(screen.getAllByText("Donut Catch").length).toBe(2);
     });
 
-    it("shows a personal-best stat from locally saved progress", () => {
+    it("shows a personal-best stat from locally saved progress", async () => {
+      await authority.updateSession("unauthenticated");
       window.localStorage.setItem(
-        "donut-catch-storage",
+        "arkanoid-state",
         JSON.stringify({
           state: { progress: { highScore: 950, lastModified: 1 } },
           version: 0,
@@ -148,13 +154,14 @@ describe("HomeClient", () => {
       expect(screen.getByText("Donut Catch")).toBeInTheDocument();
     });
 
-    it("hides another kid's stats when the progress-owner marker mismatches", () => {
+    it("hides another kid's stats when the progress-owner marker mismatches", async () => {
+      await authority.updateSession("unauthenticated");
       // Defeated-sign-out-clear scenario: kid A's save survived and the
       // owner marker still names A, but nobody (or someone else) is
       // signed in. The upload path refuses this state; display must too.
       window.localStorage.setItem("hanks-hits-progress-owner", "kid-a");
       window.localStorage.setItem(
-        "donut-catch-storage",
+        "arkanoid-state",
         JSON.stringify({
           state: { progress: { highScore: 950, lastModified: 1 } },
           version: 0,
@@ -168,10 +175,11 @@ describe("HomeClient", () => {
       expect(shelf).toHaveTextContent("Jump in and play!");
     });
 
-    it("shows the owner's own stats when the marker matches their session", () => {
+    it("shows the owner's own stats when the marker matches their session", async () => {
+      await authority.updateSession("authenticated", "kid-a");
       window.localStorage.setItem("hanks-hits-progress-owner", "kid-a");
       window.localStorage.setItem(
-        "donut-catch-storage",
+        "arkanoid-state",
         JSON.stringify({
           state: { progress: { highScore: 950, lastModified: 1 } },
           version: 0,
@@ -186,7 +194,7 @@ describe("HomeClient", () => {
 
     it("survives a poisoned-but-parseable blob without crashing the page", () => {
       window.localStorage.setItem(
-        "donut-catch-storage",
+        "arkanoid-state",
         JSON.stringify({
           state: { progress: { highScore: 5, lastModified: 1e999 } },
           version: 0,

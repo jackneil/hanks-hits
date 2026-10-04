@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { Header } from "@/shared/components/Header";
 import { ReadAloudButton } from "@/shared/components/ReadAloudButton";
 import type { DisplayCategory, DisplayItem } from "@/shared/lib/game-registry";
 import { extractGameStats } from "@/shared/lib/gameStatExtractor";
 import { findLocalProgress } from "@/shared/lib/localProgress";
-import { PROGRESS_OWNER_KEY } from "@/lib/storage-keys";
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
 import { SITE } from "@/config/site";
 
 // Floating emojis for hero background
@@ -73,22 +72,13 @@ function saveRecentItem(item: DisplayItem, current: RecentItem[]) {
  * Pure decoration: any missing or unreadable save just reads as "never
  * played", so a broken blob can never take down the home page.
  *
- * Account-scoped saves mirror the upload path's owner check: when the
- * device's progress-owner marker names someone other than the current
- * user (the defeated-sign-out-clear scenario), show nothing rather than
- * the previous kid's stats. Device-owned saves (never account-synced)
- * are exempt — the game itself would show the same state to anyone at
- * this computer.
+ * The storage reader admits only the confirmed owner's namespace or eligible
+ * original legacy source. Device-owned saves retain their separate behavior.
  */
-function loadMyGameStat(appId: string, sessionUserId?: string): string | null {
+function loadMyGameStat(appId: string): string | null {
   try {
     const result = findLocalProgress(appId);
     if (!result) return null;
-
-    if (!result.deviceOwned) {
-      const owner = window.localStorage.getItem(PROGRESS_OWNER_KEY);
-      if (owner !== null && owner !== sessionUserId) return null;
-    }
 
     // extractGameStats wants a lastPlayed timestamp, but the shelf only
     // renders primaryStat - any valid instant satisfies the signature.
@@ -106,7 +96,7 @@ function loadMyGameStat(appId: string, sessionUserId?: string): string | null {
 }
 
 export function HomeClient({ categories }: HomeClientProps) {
-  const { data: session } = useSession();
+  const owner = useSyncExternalStore(ownerBoundProgress.subscribe, ownerBoundProgress.getSnapshot, ownerBoundProgress.getSnapshot);
   const [searchQuery, setSearchQuery] = useState("");
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const [myGameStats, setMyGameStats] = useState<Record<string, string | null>>(
@@ -132,10 +122,10 @@ export function HomeClient({ categories }: HomeClientProps) {
   useEffect(() => {
     const stats: Record<string, string | null> = {};
     for (const item of myGames) {
-      stats[item.id] = loadMyGameStat(item.id, session?.user?.id);
+      stats[item.id] = loadMyGameStat(item.id);
     }
     setMyGameStats(stats);
-  }, [myGames, session?.user?.id]);
+  }, [myGames, owner]);
 
   const filteredCategories = useMemo(() => {
     const query = normalizeSearch(searchQuery);

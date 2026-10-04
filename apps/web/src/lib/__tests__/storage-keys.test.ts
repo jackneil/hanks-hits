@@ -2,19 +2,10 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { isClearedOnSignOut } from "../storage-keys";
+import { clearGameStorage, isClearedOnSignOut } from "../storage-keys";
 
-/**
- * Every localStorage key a game/app hands to useAuthSync MUST be cleared by
- * signOutAndClear() — otherwise the next kid to sign in on a shared family
- * computer inherits (and uploads) the previous kid's progress. This test scans
- * the real source tree so a new game can't silently reintroduce the leak
- * (2026-07-10 review: five "-state" keys had slipped through the suffix nets).
- *
- * Scope: the scan matches STRING-LITERAL localStorageKey values (every synced
- * game today uses one). A key passed via a const/variable would evade the
- * regex — if that pattern ever appears, extend the scan.
- */
+/** Keep the legacy logical-key inventory complete for owner-bound discovery.
+ * Classification never grants permission to delete frozen legacy evidence. */
 
 const SRC_ROOTS = [
   join(__dirname, "..", "..", "games"),
@@ -47,8 +38,17 @@ function collectSyncKeys(): Map<string, string> {
   return keys;
 }
 
-describe("signOutAndClear coverage", () => {
-  it("clears every localStorage key wired into useAuthSync", () => {
+describe("legacy progress-key inventory", () => {
+  it("retains legacy bytes and owner evidence even through the compatibility clear API", () => {
+    localStorage.setItem("oregon-trail-storage", "original");
+    localStorage.setItem("hanks-hits-progress-owner", "A");
+    clearGameStorage();
+    expect(localStorage.getItem("oregon-trail-storage")).toBe("original");
+    expect(localStorage.getItem("hanks-hits-progress-owner")).toBe("A");
+    localStorage.clear();
+  });
+
+  it("recognizes every logical key wired into useAuthSync", () => {
     const keys = collectSyncKeys();
 
     // Sanity: the scan itself works (30+ synced games/apps exist)
@@ -59,7 +59,7 @@ describe("signOutAndClear coverage", () => {
     );
     expect(
       leaked,
-      `These sync keys survive logout and would leak the previous user's progress: ${leaked
+      `These sync keys are missing from the legacy inventory: ${leaked
         .map(([key, file]) => `${key} (${file})`)
         .join(", ")} — add them to GAME_STORAGE_KEYS in storage-keys.ts`
     ).toEqual([]);

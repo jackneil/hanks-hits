@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
+
+const loadProgressModule = () => import("@/games/arkanoid/ArkanoidGameShell");
 
 const ArkanoidGameShell = dynamic(
-  () => import("@/games/arkanoid/ArkanoidGameShell"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -22,6 +25,14 @@ const ArkanoidGameShell = dynamic(
   }
 );
 
-export default function ArkanoidPage() {
+function ArkanoidPageContent() {
   return <ArkanoidGameShell />;
+}
+
+export default function ArkanoidPage() {
+  return (
+    <ProgressHydrationBoundary appId="arkanoid" loadModule={loadProgressModule}>
+      <ArkanoidPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

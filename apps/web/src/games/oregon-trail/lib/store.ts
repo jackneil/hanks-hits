@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 // Oregon Trail - Zustand Store
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -261,6 +263,8 @@ export const useOregonTrailStore = create<OregonTrailStore>()(persist((set, get)
     }));
   },
 }), {
+      storage: createOwnerPersistStorage("oregon-trail-storage", "oregon-trail"),
+      skipHydration: true,
   name: "oregon-trail-storage",
   version: 1,
   // The whole state, marked as a save of the new code, with a sum of the
@@ -294,4 +298,5 @@ stamp.attach(useOregonTrailStore);
 
 // A save of the old code has no time: write the time that the load gave it
 // once, so that the next load does not make the old journey newer again.
+bindPersistedStore("oregon-trail-storage", useOregonTrailStore.persist, () => useOregonTrailStore.setState({}));
 persistSettledSave(useOregonTrailStore, UNTOUCHED);

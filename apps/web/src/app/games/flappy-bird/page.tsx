@@ -1,9 +1,20 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 
-const FlappyBirdGameShell = dynamic(() => import("@/games/flappy-bird/GameShell"), { ssr: false });
+const loadProgressModule = () => import("@/games/flappy-bird/GameShell");
+
+const FlappyBirdGameShell = dynamic(loadProgressModule, { ssr: false });
+
+function FlappyBirdPageContent() {
+  return <FlappyBirdGameShell />;
+}
 
 export default function FlappyBirdPage() {
-  return <FlappyBirdGameShell />;
+  return (
+    <ProgressHydrationBoundary appId="flappy-bird" loadModule={loadProgressModule}>
+      <FlappyBirdPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

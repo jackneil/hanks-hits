@@ -1,10 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 
+const loadProgressModule = () => import("@/games/retro-arcade");
+
 const RetroArcadeGame = dynamic(
-  () => import("@/games/retro-arcade"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -24,10 +27,18 @@ const RetroArcadeGame = dynamic(
 // sits above this header. Its own top bar has the restart button (with the
 // same confirmation dialog). On the other screens nothing is running, so a
 // restart button in this header would do nothing.
-export default function RetroArcadePage() {
+function RetroArcadePageContent() {
   return (
     <GameShell appId="retro-arcade" gameName="Retro Arcade" canPause={false}>
       <RetroArcadeGame />
     </GameShell>
+  );
+}
+
+export default function RetroArcadePage() {
+  return (
+    <ProgressHydrationBoundary appId="retro-arcade" loadModule={loadProgressModule}>
+      <RetroArcadePageContent />
+    </ProgressHydrationBoundary>
   );
 }

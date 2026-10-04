@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signInWithCredentials, signInWithGoogle } from "@/lib/auth-client";
 import { safeReturnTo } from "@/shared/clips/ui/clipPublishing";
 import { Header } from "@/shared/components/Header";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [returnTo, setReturnTo] = useState("/");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,13 +29,10 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const result = await signInWithCredentials(email, password);
+      const result = await signInWithCredentials(email, password, returnTo);
 
       if (result?.error) {
         setError("Invalid email or password");
-      } else {
-        router.push(returnTo);
-        router.refresh();
       }
     } catch {
       setError("Something went wrong. Please try again.");

@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
@@ -105,6 +107,8 @@ export const useAchievementsStore = create<AchievementsState>()(
       clearCelebrations: () => set({ celebrationQueue: [] }),
     }),
     {
+      storage: createOwnerPersistStorage("achievements-progress", "achievements"),
+      skipHydration: true,
       name: "achievements-progress",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -129,3 +133,5 @@ export function reportProgressToAchievements(
 ): void {
   useAchievementsStore.getState().reportProgress(appId, blob);
 }
+
+bindPersistedStore("achievements-progress", useAchievementsStore.persist, () => useAchievementsStore.setState({}));

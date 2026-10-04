@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 // Arkanoid Game - State Management
 // Zustand store with progress persistence
 
@@ -254,6 +256,8 @@ export const useArkanoidStore = create<State & Actions>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("arkanoid-state", "arkanoid"),
+      skipHydration: true,
       name: "arkanoid-state",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -266,3 +270,5 @@ export const useArkanoidStore = create<State & Actions>()(
     }
   )
 );
+
+bindPersistedStore("arkanoid-state", useArkanoidStore.persist, () => useArkanoidStore.setState({}));

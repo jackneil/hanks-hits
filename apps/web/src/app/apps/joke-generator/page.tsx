@@ -1,10 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 
+const loadProgressModule = () => import("@/apps/joke-generator");
+
 const JokeGenerator = dynamic(
-  () => import("@/apps/joke-generator"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -20,10 +23,18 @@ const JokeGenerator = dynamic(
   }
 );
 
-export default function JokeGeneratorPage() {
+function JokeGeneratorPageContent() {
   return (
     <GameShell gameName="Joke Generator" canPause={false}>
       <JokeGenerator />
     </GameShell>
+  );
+}
+
+export default function JokeGeneratorPage() {
+  return (
+    <ProgressHydrationBoundary appId="joke-generator" loadModule={loadProgressModule}>
+      <JokeGeneratorPageContent />
+    </ProgressHydrationBoundary>
   );
 }

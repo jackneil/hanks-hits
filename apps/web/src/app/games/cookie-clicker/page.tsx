@@ -1,11 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 import { useCookieClickerStore } from "@/games/cookie-clicker/lib/store";
 
+const loadProgressModule = () => import("@/games/cookie-clicker");
+
 const CookieClickerGame = dynamic(
-  () => import("@/games/cookie-clicker"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -21,7 +24,7 @@ const CookieClickerGame = dynamic(
   }
 );
 
-export default function CookieClickerPage() {
+function CookieClickerPageContent() {
   return (
     <GameShell
       gameName="Cookie Clicker"
@@ -33,5 +36,13 @@ export default function CookieClickerPage() {
     >
       <CookieClickerGame />
     </GameShell>
+  );
+}
+
+export default function CookieClickerPage() {
+  return (
+    <ProgressHydrationBoundary appId="cookie-clicker" loadModule={loadProgressModule}>
+      <CookieClickerPageContent />
+    </ProgressHydrationBoundary>
   );
 }

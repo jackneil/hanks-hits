@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
@@ -391,6 +393,8 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("memory-match-progress", "memory-match"),
+      skipHydration: true,
       name: "memory-match-progress",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -405,3 +409,5 @@ export const useMemoryMatchStore = create<GameState & GameActions>()(
     }
   )
 );
+
+bindPersistedStore("memory-match-progress", useMemoryMatchStore.persist, () => useMemoryMatchStore.setState({}));

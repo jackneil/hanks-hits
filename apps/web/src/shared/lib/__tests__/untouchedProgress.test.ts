@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { ownerBoundProgress, bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import {
   PROGRESS_SUM_KEY,
   PROGRESS_TIME_MARKER,
@@ -202,18 +204,23 @@ describe("the sum of a save (a rollback to the old code)", () => {
 
 describe("persistSettledSave", () => {
   type Flat = { highScore: number; lastModified: number; bump: () => void };
-  const makeStore = (name: string) => {
+  const makeStore = async (name: string) => {
     const store = create<Flat>()(
       persist(
         (set) => ({ highScore: 0, lastModified: 0, bump: () => set((s) => ({ highScore: s.highScore + 1 })) }),
         {
           name,
+          storage: createOwnerPersistStorage(name, "snake"),
+          skipHydration: true,
           merge: settleOnLoad(flat),
           partialize: (state) => markSaved({ highScore: state.highScore, lastModified: state.lastModified }),
         }
       )
     );
+    bindPersistedStore(name, store.persist);
     persistSettledSave(store, flat);
+    await ownerBoundProgress.updateSession("unauthenticated");
+    await ownerBoundProgress.whenHydrated(name);
     return store;
   };
 
@@ -222,9 +229,9 @@ describe("persistSettledSave", () => {
     try {
       vi.setSystemTime(new Date("2026-10-05T12:00:00Z"));
       localStorage.setItem("settle-test", JSON.stringify({ state: { highScore: 4 }, version: 0 }));
-      const store = makeStore("settle-test");
+      const store = await makeStore("settle-test");
       expect(store.getState().lastModified).toBe(Date.parse("2026-10-05T12:00:00Z"));
-      expect(isMarkedSave(JSON.parse(localStorage.getItem("settle-test")!).state)).toBe(true);
+      expect(isMarkedSave(JSON.parse(ownerBoundProgress.readScoped("settle-test")!).state)).toBe(true);
       // The next load, two days later and with no change: the same time.
       vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
       await store.persist.rehydrate();
@@ -235,10 +242,10 @@ describe("persistSettledSave", () => {
     }
   });
 
-  it("writes nothing for a save of this code", () => {
+  it("writes nothing for a save of this code", async () => {
     const raw = JSON.stringify({ state: markSaved({ highScore: 4, lastModified: 77 }), version: 0 });
     localStorage.setItem("settle-test-2", raw);
-    const store = makeStore("settle-test-2");
+    const store = await makeStore("settle-test-2");
     expect(store.getState().lastModified).toBe(77);
     expect(localStorage.getItem("settle-test-2")).toBe(raw);
     localStorage.removeItem("settle-test-2");

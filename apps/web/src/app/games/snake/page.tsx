@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
+
+const loadProgressModule = () => import("@/games/snake/SnakeGameShell");
 
 const SnakeGameShell = dynamic(
-  () => import("@/games/snake/SnakeGameShell"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -19,6 +22,14 @@ const SnakeGameShell = dynamic(
   }
 );
 
-export default function SnakePage() {
+function SnakePageContent() {
   return <SnakeGameShell />;
+}
+
+export default function SnakePage() {
+  return (
+    <ProgressHydrationBoundary appId="snake" loadModule={loadProgressModule}>
+      <SnakePageContent />
+    </ProgressHydrationBoundary>
+  );
 }

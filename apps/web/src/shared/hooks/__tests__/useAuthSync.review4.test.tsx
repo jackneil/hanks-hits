@@ -470,3 +470,15 @@ describe("virtual-pet: what time alone earned, and a pet that only changed a set
     expect(useVirtualPetStore.getState().progress.lastModified).toBe(Date.parse("2026-10-21T09:00:00Z"));
   });
 });
+
+vi.mock("@/lib/owner-bound-progress", async () => {
+  const { useSession: readSession } = await import("next-auth/react");
+  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
+  return createSyncOwnerFixture(readSession);
+});
+
+// B1 reconciliation fixtures retain their historical physical save format.
+vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
+  const { createJSONStorage } = await import("zustand/middleware");
+  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
+});

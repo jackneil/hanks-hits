@@ -1,347 +1,237 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import {
-  GAME_STORAGE_KEYS,
-  PROGRESS_OWNER_KEY,
-  SIGNOUT_BROADCAST_KEY,
-} from "@/lib/storage-keys";
-
-// Authenticated session for "user B" — the kid signing in after someone else
-// used the device.
-vi.mock("next-auth/react", () => ({
-  useSession: () => ({
-    data: { user: { id: "user-B" } },
-    status: "authenticated",
-  }),
-}));
-
-import {
-  useAuthSync,
-  __unsafeResetForeignPurgeLockForTests,
-} from "../useAuthSync";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import "@/games/snake/lib/store"; // Register Snake's real persisted-state projection.
+import { createJSONStorage, persist } from "zustand/middleware";
+import { PROGRESS_OWNER_KEY, SIGNOUT_BROADCAST_KEY } from "@/lib/storage-keys";
+import { createOwnerBoundProgress, type OwnerBoundProgress } from "@/lib/owner-bound-progress/core";
+import { useAuthSync, __unsafeResetForeignPurgeLockForTests } from "../useAuthSync";
+import { createProgressServer } from "@/__tests__/fake-progress-server";
 
-type FakeProgress = { highScore: number; lastModified: number };
+const auth = vi.hoisted(() => ({ status: "authenticated", data: { user: { id: "user-B" } } }));
+const authority = vi.hoisted(() => ({ current: null as unknown as OwnerBoundProgress }));
+vi.mock("next-auth/react", () => ({ useSession: () => auth }));
+vi.mock("@/lib/owner-bound-progress", async () => {
+  const { createOwnerBoundProgress } = await import("@/lib/owner-bound-progress/core");
+  authority.current = createOwnerBoundProgress();
+  return {
+    ownerBoundProgress: new Proxy({}, { get: (_target, key) => authority.current[key as keyof OwnerBoundProgress] }),
+    createOwnerBoundStorage: (key: string, appId?: string) => authority.current.createStorage(key, appId),
+    bindPersistedStore: (key: string, handle: Parameters<OwnerBoundProgress["bindPersistedStore"]>[1]) => authority.current.bindPersistedStore(key, handle),
+  };
+});
 
-describe("useAuthSync shared-device owner guard", () => {
-  let fetchSpy: ReturnType<typeof vi.fn>;
-  let beaconSpy: ReturnType<typeof vi.fn>;
+const key = "snake-game-state";
+type Progress = { highScore: number; gamesPlayed: number; totalFoodEaten: number; longestSnake: number; lastModified: number };
+const defaults: Progress = { highScore: 0, gamesPlayed: 0, totalFoodEaten: 0, longestSnake: 0, lastModified: 0 };
+const played = (highScore = 77): Progress => ({ highScore, gamesPlayed: 1, totalFoodEaten: 10, longestSnake: 10, lastModified: 100 });
+const raw = (value: Progress) => JSON.stringify({ state: { progress: value, progressTimeV: 1 }, version: 0 });
+const settle = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(100); }); };
+let fetchSpy: ReturnType<typeof vi.fn>;
+let beacon: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
-    localStorage.clear();
-    beaconSpy = vi.fn(() => true);
-    Object.defineProperty(navigator, "sendBeacon", {
-      writable: true,
-      configurable: true,
-      value: beaconSpy,
-    });
-    fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
-      if (!init || init.method === undefined || init.method === "GET") {
-        return {
-          ok: true,
-          json: async () => ({ data: null, lastSyncedAt: null }),
-        } as Response;
+function store() {
+  const runtime = authority.current;
+  const state = create(persist(() => ({ progress: { ...defaults } }), {
+    name: key, storage: createJSONStorage(() => runtime.createStorage(key, "snake")), skipHydration: true,
+  }));
+  runtime.bindPersistedStore(key, state.persist, () => state.setState({}));
+  return state;
+}
+function mount(state: ReturnType<typeof store>) {
+  return renderHook(() => useAuthSync<Progress>({ appId: "snake", localStorageKey: key,
+    getState: () => state.getState().progress, setState: progress => state.setState({ progress }), debounceMs: 10 }));
+}
+async function confirm() {
+  await authority.current.updateSession("authenticated", auth.data.user.id);
+  await authority.current.whenHydrated(key);
+}
+
+async function seedHandoff(account: Progress, guest: Progress) {
+  const existing = createOwnerBoundProgress(); await existing.updateSession("authenticated", "user-B");
+  existing.writeScoped(key, raw(account));
+  const visitor = createOwnerBoundProgress(); await visitor.updateSession("unauthenticated");
+  visitor.writeScoped(key, raw(guest));
+  visitor.writeScoped("flappy-bird-progress", raw(guest));
+  expect(visitor.prepareGuestHandoff()).toBe(true);
+  const proof = visitor.getGuestHandoffProof()!;
+  authority.current = createOwnerBoundProgress();
+  authority.current.authorizeGuestHandoff(proof);
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  localStorage.clear(); sessionStorage.clear();
+  auth.status = "authenticated"; auth.data = { user: { id: "user-B" } };
+  authority.current = createOwnerBoundProgress();
+  __unsafeResetForeignPurgeLockForTests();
+  fetchSpy = vi.fn(async (_url: unknown, init?: RequestInit) => ({ ok: true, status: 200,
+    json: async () => init?.method === "POST" ? { success: true, updatedAt: new Date().toISOString() } : { data: null, lastSyncedAt: null } }));
+  vi.stubGlobal("fetch", fetchSpy);
+  beacon = vi.fn(() => true);
+  Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: beacon });
+});
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe("useAuthSync with the real owner storage authority", () => {
+  it("preflights explicit guest records before merging a returning account's namespace against newer cloud data", async () => {
+    await seedHandoff({ ...played(80), gamesPlayed: 5, lastModified: 300 }, { ...played(100), lastModified: 200 });
+    const server = createProgressServer({ current: auth });
+    server.rows.set("user-B:snake", { data: { ...played(50), gamesPlayed: 3, lastModified: 500 }, updatedAt: new Date(500) });
+    fetchSpy.mockImplementation(server.fetch);
+    const state = store(); await confirm();
+    const originalCandidate = authority.current.readGuestCandidate(key)!;
+    mount(state); await settle();
+    expect(server.rejected).toEqual([]);
+    expect(server.posts[0]).toMatchObject({ merge: true, data: { highScore: 100, lastModified: 200 } });
+    expect(server.posts[1]).toMatchObject({ merge: true, data: { highScore: 80, gamesPlayed: 5, lastModified: 300 } });
+    expect(server.row("snake", "user-B")).toMatchObject({ highScore: 100, gamesPlayed: 5, lastModified: 500 });
+    expect(state.getState().progress.highScore).toBe(100);
+    expect(authority.current.readGuestCandidate(key)).toBeNull();
+    const reload = createOwnerBoundProgress(); await reload.updateSession("authenticated", "user-B");
+    expect(reload.readGuestCandidate(key)).toBeNull();
+    expect(reload.readGuestCandidate("flappy-bird-progress")).not.toBeNull();
+    expect(originalCandidate.id).toBeTruthy();
+  });
+
+  it("retains a failed guest preflight while unrelated account sync succeeds, then retries without a new timestamp", async () => {
+    await seedHandoff({ ...played(80), lastModified: 300 }, { ...played(100), lastModified: 200 });
+    const server = createProgressServer({ current: auth });
+    let guestFailed = false;
+    fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && !guestFailed) {
+        guestFailed = true;
+        return { ok: false, status: 503, json: async () => ({ error: "Unavailable" }) };
       }
-      return {
-        ok: true,
-        json: async () => ({ success: true }),
-      } as Response;
+      return server.fetch(url, init);
     });
-    vi.stubGlobal("fetch", fetchSpy);
+    const state = store(); await confirm(); const view = mount(state); await settle();
+    expect(view.result.current.ready).toBe(true);
+    expect(server.row("snake", "user-B")).toMatchObject({ highScore: 80 });
+    expect(authority.current.readGuestCandidate(key)).not.toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    await settle();
+    expect(server.row("snake", "user-B")).toMatchObject({ highScore: 100, lastModified: 300 });
+    expect(authority.current.readGuestCandidate(key)).toBeNull();
+    expect(server.posts.find(post => (post.data as Progress).highScore === 100)?.data.lastModified).toBe(200);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    localStorage.clear();
-    // jsdom never actually reloads, so release the module-level purge lock
-    // the mismatch tests set (in a browser the reload clears it naturally).
-    __unsafeResetForeignPurgeLockForTests();
+  it("flushes untouched guest progress through actual middleware once without uploading or retrying", async () => {
+    const guest = createOwnerBoundProgress(); await guest.updateSession("unauthenticated");
+    guest.writeScoped(key, raw(defaults)); guest.prepareGuestHandoff();
+    const proof = guest.getGuestHandoffProof()!;
+    authority.current = createOwnerBoundProgress();
+    authority.current.authorizeGuestHandoff(proof);
+    const state = store(); await confirm();
+    expect(authority.current.readGuestCandidate(key)).not.toBeNull();
+    const view = mount(state); await settle();
+    expect(view.result.current.ready).toBe(true);
+    expect(authority.current.readGuestCandidate(key)).toBeNull();
+    expect(authority.current.hasDurable(key)).toBe(true);
+    expect(state.getState().progress.lastModified).toBe(0);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("throws in dev/test when the key is not covered by signOutAndClear", () => {
-    expect(() =>
-      renderHook(() =>
-        useAuthSync<FakeProgress>({
-          appId: "snake",
-          localStorageKey: "totally-uncovered-key",
-          getState: () => ({ highScore: 0, lastModified: 0 }),
-          setState: () => {},
-        })
-      )
-    ).toThrow(/not covered by\s+signOutAndClear/);
+  it.each(["GET", "POST"])("revokes on an authoritative %s owner_changed refusal without uploading again", async method => {
+    localStorage.setItem(key, raw(played()));
+    const state = store(); await confirm();
+    const normal = fetchSpy.getMockImplementation() as (url: unknown, init?: RequestInit) => Promise<unknown>;
+    fetchSpy.mockImplementation(async (url, init) => (init?.method ?? "GET") === method
+      ? { ok: false, status: 409, json: async () => ({ code: "owner_changed" }) }
+      : normal(url, init));
+    const view = mount(state); await settle();
+    expect(authority.current.getSnapshot().status).toBe("revoked");
+    expect(view.result.current.ready).toBe(false);
+    const count = fetchSpy.mock.calls.length;
+    await act(async () => { await view.result.current.forceSync(); });
+    window.dispatchEvent(new Event("beforeunload"));
+    expect(fetchSpy).toHaveBeenCalledTimes(count);
+    expect(beacon).not.toHaveBeenCalled();
   });
 
-  it("never uploads a previous user's local progress (owner mismatch): clears, claims, reloads, and locks every upload path", async () => {
-    // User A's leftovers: owner marker + a stale game blob. The in-memory
-    // zustand store has already hydrated A's data, so clearing disk alone
-    // is not enough — the guard must hard-reload and lock uploads until
-    // the reload lands.
-    localStorage.setItem(PROGRESS_OWNER_KEY, "user-A");
-    localStorage.setItem(
-      "snake-game-state",
-      JSON.stringify({
-        state: { progress: { highScore: 9999, lastModified: 123 } },
-      })
-    );
-
-    const reloadSpy = vi.fn();
-    const originalLocation = window.location;
-    Object.defineProperty(window, "location", {
-      writable: true,
-      configurable: true,
-      value: { ...originalLocation, reload: reloadSpy },
-    });
-
-    // shouldAdvanceTime keeps waitFor's real-time polling alive while
-    // letting us jump the hook's 1s auto-save poller deterministically.
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-
-    try {
-      // Mutable so we can simulate the kid playing a move (trigger #1).
-      let foreignState: FakeProgress = { highScore: 9999, lastModified: 123 };
-      const { result, unmount } = renderHook(() =>
-        useAuthSync<FakeProgress>({
-          appId: "snake",
-          localStorageKey: "snake-game-state",
-          getState: () => foreignState,
-          setState: () => {},
-          debounceMs: 10,
-        })
-      );
-
-      // The guard claims the marker and schedules the reload.
-      await waitFor(() => {
-        expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-B");
-      });
-      expect(reloadSpy).toHaveBeenCalledTimes(1);
-
-      // Every game storage key was dropped, including A's stale blob.
-      expect(localStorage.getItem("snake-game-state")).toBeNull();
-      for (const key of GAME_STORAGE_KEYS) {
-        expect(localStorage.getItem(key)).toBeNull();
-      }
-
-      // Even if the reload were blocked, the instance is locked: mutate the
-      // state, then fire the 1s auto-save poller AND the debounce window so
-      // debouncedSave really runs against the foreignDataRef gate...
-      foreignState = { highScore: 10000, lastModified: 999 };
-      await vi.advanceTimersByTimeAsync(1100);
-      await vi.advanceTimersByTimeAsync(50);
-      // ...and forceSync (the game-over flush every game calls) is a no-op.
-      await result.current.forceSync();
-
-      const posts = fetchSpy.mock.calls.filter(
-        ([, init]) => init && (init as RequestInit).method === "POST"
-      );
-      expect(posts).toEqual([]);
-
-      // The beacon channels (beforeunload + unmount flush) stay silent too.
-      // (Double-gated: initialSyncDone never completes in the mismatch branch
-      // AND the foreignData lock covers them — this asserts the outcome.)
-      window.dispatchEvent(new Event("beforeunload"));
-      unmount();
-      expect(beaconSpy).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-      Object.defineProperty(window, "location", {
-        writable: true,
-        configurable: true,
-        value: originalLocation,
-      });
-    }
+  it("quarantines foreign legacy progress without changing the original or its marker", async () => {
+    const original = raw(played());
+    localStorage.setItem(PROGRESS_OWNER_KEY, "user-A"); localStorage.setItem(key, original);
+    const state = store(); await confirm();
+    const view = mount(state); await settle();
+    expect(state.getState().progress).toEqual(defaults);
+    expect(view.result.current.ready).toBe(true);
+    expect(fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST")).toEqual([]);
+    expect(localStorage.getItem(key)).toBe(original);
+    expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-A");
+    expect(beacon).not.toHaveBeenCalled();
   });
 
-  it("clears a persist write-back on pagehide (the reload-window race)", async () => {
-    // The real threat: zustand's persist middleware re-writes the foreign
-    // blob from memory AFTER clearGameStorage() but BEFORE the reload's
-    // navigation commits (cookie-clicker ticks 20x/s). The guard's pagehide
-    // listener must make the clear the FINAL write.
-    localStorage.setItem(PROGRESS_OWNER_KEY, "user-A");
-    localStorage.setItem(
-      "snake-game-state",
-      JSON.stringify({
-        state: { progress: { highScore: 9999, lastModified: 123 } },
-      })
-    );
-
-    // A real persist-backed store on a covered key, hydrated with A's data.
-    const useTestStore = create<{ progress: FakeProgress }>()(
-      persist(() => ({ progress: { highScore: 9999, lastModified: 123 } }), {
-        name: "snake-game-state",
-        partialize: (s) => ({ progress: s.progress }),
-      })
-    );
-
-    const reloadSpy = vi.fn();
-    const originalLocation = window.location;
-    Object.defineProperty(window, "location", {
-      writable: true,
-      configurable: true,
-      value: { ...originalLocation, reload: reloadSpy },
-    });
-
-    try {
-      renderHook(() =>
-        useAuthSync<FakeProgress>({
-          appId: "snake",
-          localStorageKey: "snake-game-state",
-          getState: () => useTestStore.getState().progress,
-          setState: () => {},
-        })
-      );
-
-      await waitFor(() => expect(reloadSpy).toHaveBeenCalled());
-      expect(localStorage.getItem("snake-game-state")).toBeNull();
-
-      // A ticking store writes the foreign blob straight back to disk —
-      // this is the race the reload alone cannot win.
-      useTestStore.setState({
-        progress: { highScore: 9999, lastModified: 124 },
-      });
-      expect(localStorage.getItem("snake-game-state")).not.toBeNull();
-
-      // pagehide (the navigation committing) makes the clear the final word.
-      window.dispatchEvent(new Event("pagehide"));
-      expect(localStorage.getItem("snake-game-state")).toBeNull();
-    } finally {
-      Object.defineProperty(window, "location", {
-        writable: true,
-        configurable: true,
-        value: originalLocation,
-      });
-    }
+  it("admits a marker-free legacy guest candidate without claiming its marker", async () => {
+    const original = raw(played()); localStorage.setItem(key, original);
+    const state = store(); await confirm(); mount(state); await settle();
+    const posts = fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0][1]!.body as string)).toMatchObject({ data: played(), expectedOwnerId: "user-B" });
+    expect(localStorage.getItem(key)).toBe(original);
+    expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBeNull();
   });
 
-  it("reloads this tab when another tab broadcasts a sign-out", async () => {
-    // Layer-1 defense: a second open tab must reload on sign-out so its
-    // in-memory store can't re-persist the just-cleared keys.
-    const reloadSpy = vi.fn();
-    const originalLocation = window.location;
-    Object.defineProperty(window, "location", {
-      writable: true,
-      configurable: true,
-      value: { ...originalLocation, reload: reloadSpy },
+  it("waits for real hydration before fetching, observing or exposing readiness", async () => {
+    const state = store();
+    let finish!: () => void;
+    authority.current.bindPersistedStore(key, {
+      rehydrate: () => new Promise<void>(resolve => { finish = resolve; }),
+      hasHydrated: () => true, onFinishHydration: () => () => {},
     });
-    try {
-      renderHook(() =>
-        useAuthSync<FakeProgress>({
-          appId: "snake",
-          localStorageKey: "snake-game-state",
-          getState: () => ({ highScore: 0, lastModified: 0 }),
-          setState: () => {},
-        })
-      );
-
-      // Unrelated storage events must NOT reload.
-      window.dispatchEvent(
-        new StorageEvent("storage", { key: "some-other-key" })
-      );
-      expect(reloadSpy).not.toHaveBeenCalled();
-
-      // The sign-out broadcast key does.
-      window.dispatchEvent(
-        new StorageEvent("storage", { key: SIGNOUT_BROADCAST_KEY })
-      );
-      expect(reloadSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      Object.defineProperty(window, "location", {
-        writable: true,
-        configurable: true,
-        value: originalLocation,
-      });
-    }
+    await authority.current.updateSession("authenticated", "user-B");
+    const view = mount(state); await settle();
+    expect(view.result.current.ready).toBe(false); expect(fetchSpy).not.toHaveBeenCalled();
+    await act(async () => { state.setState({ progress: played() }); finish(); });
+    await settle();
+    expect(view.result.current.ready).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // The first GET starts only after hydration.
   });
 
-  it("uploads (not drops) existing progress on the first login after deploy (no marker yet)", async () => {
-    // Deploy-day migration contract: devices with real progress but no
-    // owner marker belong to the signing-in user — claim, don't clear.
-    const existing: FakeProgress = { highScore: 4242, lastModified: 456 };
-    localStorage.setItem(
-      "snake-game-state",
-      JSON.stringify({ state: { progress: existing } })
-    );
-
-    renderHook(() =>
-      useAuthSync<FakeProgress>({
-        appId: "snake",
-        localStorageKey: "snake-game-state",
-        getState: () => existing,
-        setState: () => {},
-      })
-    );
-
-    await waitFor(() => {
-      const posts = fetchSpy.mock.calls.filter(
-        ([, init]) => init && (init as RequestInit).method === "POST"
-      );
-      expect(posts.length).toBeGreaterThan(0);
-      expect(String(posts[0][1]?.body)).toContain('"highScore":4242');
+  it("rejects an in-flight response and every flush after the account changes", async () => {
+    localStorage.setItem(key, raw(played()));
+    const state = store(); await confirm();
+    let respond!: (value: unknown) => void;
+    fetchSpy.mockImplementationOnce(() => new Promise(resolve => { respond = resolve; }));
+    const view = mount(state); await settle();
+    await act(async () => {
+      auth.data = { user: { id: "user-C" } };
+      await authority.current.updateSession("authenticated", "user-C");
+      view.rerender();
     });
-
-    expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-B");
-    expect(localStorage.getItem("snake-game-state")).not.toBeNull();
+    await act(async () => { respond({ ok: true, json: async () => ({ data: played(999), lastSyncedAt: null }) }); });
+    await settle();
+    expect(authority.current.getSnapshot().status).toBe("revoked");
+    expect(state.getState().progress.highScore).toBe(77);
+    await act(async () => { await view.result.current.forceSync(); });
+    window.dispatchEvent(new Event("beforeunload")); view.unmount();
+    expect(fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST")).toEqual([]);
+    expect(beacon).not.toHaveBeenCalled();
   });
 
-  it("the achievements observer never awards a previous user's leftovers during the purge window", async () => {
-    const { useAchievementsStore } = await import("@/shared/lib/achievements");
-    useAchievementsStore.setState({
-      progress: { unlocked: {}, lastModified: 0 },
-      watermarks: { apps: {}, playedApps: [], bestIncreases: 0 },
-      celebrationQueue: [],
-    });
-
-    // User A's leftovers, rich enough that the observer WOULD unlock
-    // several trophies if it evaluated them.
-    localStorage.setItem(PROGRESS_OWNER_KEY, "user-A");
-    const foreignState = { highScore: 500, gamesPlayed: 30, lastModified: 123 };
-
-    const reloadSpy = vi.fn();
-    const originalLocation = window.location;
-    Object.defineProperty(window, "location", {
-      configurable: true,
-      value: { ...originalLocation, reload: reloadSpy },
-    });
-
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      renderHook(() =>
-        useAuthSync<typeof foreignState>({
-          appId: "snake",
-          localStorageKey: "snake-game-state",
-          getState: () => foreignState,
-          setState: () => {},
-        })
-      );
-
-      // Past the purge trigger (setTimeout 0) and several observer ticks.
-      await vi.advanceTimersByTimeAsync(3500);
-
-      expect(reloadSpy).toHaveBeenCalled(); // purge engaged
-      expect(useAchievementsStore.getState().progress.unlocked).toEqual({});
-      expect(localStorage.getItem("achievements-progress")).toBeNull();
-    } finally {
-      vi.useRealTimers();
-      Object.defineProperty(window, "location", {
-        configurable: true,
-        value: originalLocation,
-      });
-    }
+  it("revokes on sign-out broadcast and never repairs or deletes legacy bytes on pagehide", async () => {
+    const original = raw(played()); localStorage.setItem(key, original);
+    const state = store(); await confirm(); const view = mount(state); await settle();
+    const lease = authority.current.captureLease()!;
+    await act(async () => { window.dispatchEvent(new StorageEvent("storage", { key: SIGNOUT_BROADCAST_KEY })); });
+    state.setState({ progress: played(1000) }); window.dispatchEvent(new Event("pagehide"));
+    expect(authority.current.isCurrent(lease)).toBe(false);
+    expect(localStorage.getItem(key)).toBe(original);
+    expect(view.result.current.ready).toBe(false);
+    expect(authority.current.getSnapshot().needsNavigation).toBe(true);
   });
 
-  it("claims ownership for the signing-in user when no marker exists", async () => {
-    renderHook(() =>
-      useAuthSync<FakeProgress>({
-        appId: "snake",
-        localStorageKey: "snake-game-state",
-        getState: () => ({ highScore: 0, lastModified: 0 }),
-        setState: () => {},
-      })
-    );
-
-    await waitFor(() => {
-      expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-B");
-    });
+  it("ignores foreign namespace events and processes only its own owner namespace", async () => {
+    const state = store(); await confirm(); mount(state); await settle();
+    const foreign = createOwnerBoundProgress(); await foreign.updateSession("authenticated", "user-A");
+    foreign.writeScoped(key, raw(played(999)));
+    const foreignKey = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!).find(value => value.startsWith("hh-progress:v2:"))!;
+    await act(async () => { window.dispatchEvent(new StorageEvent("storage", { key: foreignKey })); });
+    expect(state.getState().progress.highScore).toBe(0);
+    authority.current.writeScoped(key, raw(played(42)));
+    const ownKey = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!).find(value => value.startsWith("hh-progress:v2:") && value !== foreignKey)!;
+    await act(async () => { window.dispatchEvent(new StorageEvent("storage", { key: ownKey })); });
+    expect(state.getState().progress.highScore).toBe(42);
   });
 });

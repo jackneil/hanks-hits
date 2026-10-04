@@ -1,5 +1,7 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
-import { createJSONStorage, persist, type PersistStorage } from "zustand/middleware";
+import { persist, type PersistStorage } from "zustand/middleware";
 import { stampIfChanged } from "@/shared/lib/progressStamp";
 import { PROGRESS_TIME_MARKER, defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
 import {
@@ -191,41 +193,9 @@ function createCoins(startId: number, obstacleX: number): CoinType[] {
  */
 type PersistedRunner = { progress: EndlessRunnerProgress; [PROGRESS_TIME_MARKER]?: number };
 
-/**
- * localStorage for the store that writes only when the progress changes.
- * persist writes after every set, and the game loop sets the store on every
- * frame of a run (60 to 120 times a second), but the progress changes only
- * at the end of a run and with a character. Each write turns the progress
- * into a string on the main thread (review wave 2, 2026-10-02). When the
- * key is gone (a sign-out clears it), the next set writes it again, as
- * before. Unavailable storage (the server) gives undefined, like persist's
- * own default.
- */
-export function progressStorage(): PersistStorage<PersistedRunner> | undefined {
-  let local: Storage;
-  try {
-    local = window.localStorage;
-  } catch {
-    return undefined;
-  }
-  const json = createJSONStorage<PersistedRunner>(() => local);
-  if (!json) return undefined;
-  // The progress object last written. Every change to the progress makes a
-  // new object, so the same object means the same data.
-  let saved: EndlessRunnerProgress | null = null;
-  return {
-    getItem: (name) => json.getItem(name),
-    setItem: (name, value) => {
-      if (value.state.progress === saved && local.getItem(name) !== null) return;
-      json.setItem(name, value);
-      // Only after the write: a failed write is tried again at the next set.
-      saved = value.state.progress;
-    },
-    removeItem: (name) => {
-      saved = null;
-      return json.removeItem(name);
-    },
-  };
+/** Owner-bound persistence retains the runner's unchanged-frame write suppression. */
+export function progressStorage(): PersistStorage<PersistedRunner> {
+  return createOwnerPersistStorage<PersistedRunner>("endless-runner-storage", "endless-runner");
 }
 
 export const useEndlessRunnerStore = create<EndlessRunnerState>()(
@@ -553,6 +523,7 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
     {
       name: "endless-runner-storage",
       storage: progressStorage(),
+      skipHydration: true,
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
       // save (shared/lib/untouchedProgress.ts).
@@ -561,3 +532,5 @@ export const useEndlessRunnerStore = create<EndlessRunnerState>()(
     }
   )
 );
+
+bindPersistedStore("endless-runner-storage", useEndlessRunnerStore.persist, () => useEndlessRunnerStore.setState({}));

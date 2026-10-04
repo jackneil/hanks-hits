@@ -3,7 +3,6 @@ import { Nunito } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { AuthProvider } from "@/shared/components";
-import { AchievementCelebrations } from "@/shared/components/AchievementCelebrations";
 import { SITE } from "@/config/site";
 
 const nunito = Nunito({
@@ -69,8 +68,6 @@ export default function RootLayout({
       <body className={`${nunito.className} antialiased min-h-dvh bg-slate-950`}>
         <AuthProvider>
           {children}
-          {/* Trophy Case: global unlock celebrations + achievements cloud sync */}
-          <AchievementCelebrations />
         </AuthProvider>
       </body>
     </html>

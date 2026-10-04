@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { playSound } from "./sounds";
 import { persist } from "zustand/middleware";
@@ -711,6 +713,8 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
       setProgress: (data: AsteroidsProgress) => set({ progress: data }),
     }),
     {
+      storage: createOwnerPersistStorage("asteroids-game-state", "asteroids"),
+      skipHydration: true,
       name: "asteroids-game-state",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -722,3 +726,5 @@ export const useAsteroidsStore = create<AsteroidsGameState & AsteroidsActions>()
     }
   )
 );
+
+bindPersistedStore("asteroids-game-state", useAsteroidsStore.persist, () => useAsteroidsStore.setState({}));

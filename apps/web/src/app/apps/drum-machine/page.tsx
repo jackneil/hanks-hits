@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 
-const DrumMachine = dynamic(() => import("@/apps/drum-machine"), {
+const loadProgressModule = () => import("@/apps/drum-machine");
+
+const DrumMachine = dynamic(loadProgressModule, {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center min-h-full bg-slate-900">
@@ -13,10 +16,18 @@ const DrumMachine = dynamic(() => import("@/apps/drum-machine"), {
   ),
 });
 
-export default function DrumMachinePage() {
+function DrumMachinePageContent() {
   return (
     <GameShell gameName="Drum Machine" canPause={false}>
       <DrumMachine />
     </GameShell>
+  );
+}
+
+export default function DrumMachinePage() {
+  return (
+    <ProgressHydrationBoundary appId="drum-machine" loadModule={loadProgressModule}>
+      <DrumMachinePageContent />
+    </ProgressHydrationBoundary>
   );
 }

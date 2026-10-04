@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { stampIfChanged } from "@/shared/lib/progressStamp";
@@ -369,6 +371,8 @@ export const useFourWheeler3dStore = create<
         })),
     }),
     {
+      storage: createOwnerPersistStorage("four-wheeler-3d-game-state", "four-wheeler-3d"),
+      skipHydration: true,
       name: "four-wheeler-3d-game-state",
       partialize: (state) => markSaved({ progress: state.progress }),
       // A save of the code before the sync-time fix first gets the real
@@ -395,3 +399,5 @@ export const useFourWheeler3dStore = create<
     },
   ),
 );
+
+bindPersistedStore("four-wheeler-3d-game-state", useFourWheeler3dStore.persist, () => useFourWheeler3dStore.setState({}));

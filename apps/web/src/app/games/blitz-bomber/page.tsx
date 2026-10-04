@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
+
+const loadProgressModule = () => import("@/games/blitz-bomber/BlitzBomberGameShell");
 
 const BlitzBomberGameShell = dynamic(
-  () => import("@/games/blitz-bomber/BlitzBomberGameShell"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -19,6 +22,14 @@ const BlitzBomberGameShell = dynamic(
   }
 );
 
-export default function BlitzBomberPage() {
+function BlitzBomberPageContent() {
   return <BlitzBomberGameShell />;
+}
+
+export default function BlitzBomberPage() {
+  return (
+    <ProgressHydrationBoundary appId="blitz-bomber" loadModule={loadProgressModule}>
+      <BlitzBomberPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

@@ -8,6 +8,8 @@ import { useDinoRunnerStore } from "../lib/store";
 // (negative) velocity while the jump was held, so a held jump reached 74 px
 // and a tapped one 108 px. A kid who held for a big cactus got a stubby hop.
 
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+
 const STEP_MS = 1000 / 60;
 
 /** Runs one jump to its apex and back to the ground; returns the apex height in px above the ground. */
@@ -28,7 +30,9 @@ function jumpApex(holdMs: number): number {
   return apex;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await ownerBoundProgress.whenHydrated("dino-runner-progress");
   localStorage.clear();
   useDinoRunnerStore.getState().reset();
 });
@@ -56,7 +60,7 @@ describe("Dino Runner runs", () => {
     useDinoRunnerStore.getState().gameOver();
     useDinoRunnerStore.getState().startGame();
     expect(useDinoRunnerStore.getState()).toMatchObject({ gameState: "playing", runId: first + 3, score: 0 });
-    const saved = JSON.parse(window.localStorage.getItem("dino-runner-progress") ?? "{}");
+    const saved = JSON.parse(ownerBoundProgress.readScoped("dino-runner-progress") ?? "{}");
     expect(saved.state).not.toHaveProperty("runId");
   });
 });

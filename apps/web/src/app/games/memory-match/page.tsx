@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
+
+const loadProgressModule = () => import("@/games/memory-match/MemoryMatchGameShell");
 
 const MemoryMatchGameShell = dynamic(
-  () => import("@/games/memory-match/MemoryMatchGameShell"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -19,6 +22,14 @@ const MemoryMatchGameShell = dynamic(
   }
 );
 
-export default function MemoryMatchPage() {
+function MemoryMatchPageContent() {
   return <MemoryMatchGameShell />;
+}
+
+export default function MemoryMatchPage() {
+  return (
+    <ProgressHydrationBoundary appId="memory-match" loadModule={loadProgressModule}>
+      <MemoryMatchPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { stampIfChanged } from "@/shared/lib/progressStamp";
@@ -445,6 +447,8 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
       setProgress: (data) => set({ progress: data }),
     }),
     {
+      storage: createOwnerPersistStorage("blitz-bomber-progress", "blitz-bomber"),
+      skipHydration: true,
       name: "blitz-bomber-progress",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -454,3 +458,5 @@ export const useBlitzBomberStore = create<BlitzBomberState>()(
     }
   )
 );
+
+bindPersistedStore("blitz-bomber-progress", useBlitzBomberStore.persist, () => useBlitzBomberStore.setState({}));

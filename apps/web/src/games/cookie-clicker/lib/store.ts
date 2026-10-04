@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 // store.ts - Cookie Clicker Zustand store with persistence
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -677,6 +679,8 @@ export const useCookieClickerStore = create<
       },
     }),
     {
+      storage: createOwnerPersistStorage("cookie-clicker-storage", "cookie-clicker"),
+      skipHydration: true,
       name: "cookie-clicker-storage",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -696,3 +700,5 @@ export const useCookieClickerStore = create<
     }
   )
 );
+
+bindPersistedStore("cookie-clicker-storage", useCookieClickerStore.persist, () => useCookieClickerStore.setState({}));

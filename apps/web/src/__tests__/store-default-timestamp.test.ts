@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AppProgressData } from "@hank-neil/db/schema";
@@ -28,6 +28,13 @@ import { useVirtualPetStore } from "@/apps/virtual-pet/lib/store";
  * it. This test covers every store that useAuthSync syncs: a new game that
  * is not in SYNCED_STORES fails the first test.
  */
+
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+
+beforeAll(async () => {
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await Promise.all(SYNCED_STORES.map(entry => ownerBoundProgress.whenHydrated(entry.key)));
+});
 
 const SRC = join(__dirname, "..");
 
@@ -111,7 +118,7 @@ describe("every synced store starts untouched", () => {
     expect(entry.store.persist.getOptions().version).toBe(oldVersion);
     entry.reset();
     entry.store.setState({});
-    const saved = JSON.parse(localStorage.getItem(entry.key)!);
+    const saved = JSON.parse(ownerBoundProgress.readScoped(entry.key)!);
     expect(saved.state[PROGRESS_TIME_MARKER]).toBe(PROGRESS_TIME_VERSION);
     entry.reset();
   });
@@ -120,7 +127,7 @@ describe("every synced store starts untouched", () => {
     // useAuthSync reads saves of other tabs and the save at hydration with it.
     entry.reset();
     entry.store.getState().setProgress({ ...progressOf(entry), [entry.timeKey]: 1_700_000_000_456 } as never);
-    const saved = JSON.parse(localStorage.getItem(entry.key)!);
+    const saved = JSON.parse(ownerBoundProgress.readScoped(entry.key)!);
     const read = progressFromSave(appId, saved.state);
     expect(read).not.toBeNull();
     expect(sameProgress(read, progressOf(entry))).toBe(true);

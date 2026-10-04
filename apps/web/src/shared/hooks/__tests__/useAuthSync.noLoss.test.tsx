@@ -422,3 +422,15 @@ describe("a played save of the old code with no time keeps one time across loads
     expect(timeOf(progressFromSave(appId, JSON.parse(localStorage.getItem(entry.key)!).state))).toBe(first);
   });
 });
+
+vi.mock("@/lib/owner-bound-progress", async () => {
+  const { useSession: readSession } = await import("next-auth/react");
+  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
+  return createSyncOwnerFixture(readSession);
+});
+
+// B1 reconciliation fixtures retain their historical physical save format.
+vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
+  const { createJSONStorage } = await import("zustand/middleware");
+  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
+});

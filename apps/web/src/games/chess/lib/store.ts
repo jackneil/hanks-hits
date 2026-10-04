@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { sameProgress } from "@/shared/lib/progressStamp";
@@ -456,6 +458,8 @@ export const useChessStore = create<GameState & GameActions>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("hank-chess-state", "chess"),
+      skipHydration: true,
       name: "hank-chess-state",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -471,3 +475,5 @@ export const useChessStore = create<GameState & GameActions>()(
     }
   )
 );
+
+bindPersistedStore("hank-chess-state", useChessStore.persist, () => useChessStore.setState({}));
