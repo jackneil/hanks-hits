@@ -1,8 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 
-const PlatformerGameShell = dynamic(() => import("@/games/platformer/PlatformerGameShell"), {
+const loadProgressModule = () => import("@/games/platformer/PlatformerGameShell");
+
+const PlatformerGameShell = dynamic(loadProgressModule, {
   ssr: false,
   loading: () => (
     <div className="min-h-full bg-gradient-to-b from-sky-400 to-sky-600 flex flex-col items-center justify-center">
@@ -19,6 +22,14 @@ const PlatformerGameShell = dynamic(() => import("@/games/platformer/PlatformerG
   ),
 });
 
-export default function PlatformerPage() {
+function PlatformerPageContent() {
   return <PlatformerGameShell />;
+}
+
+export default function PlatformerPage() {
+  return (
+    <ProgressHydrationBoundary appId="platformer" loadModule={loadProgressModule}>
+      <PlatformerPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

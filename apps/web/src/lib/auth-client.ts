@@ -1,55 +1,133 @@
 "use client";
 
 import { signIn as nextAuthSignIn, signOut as nextAuthSignOut } from "next-auth/react";
-import { SIGNOUT_BROADCAST_KEY, clearGameStorage } from "./storage-keys";
+import { ownerBoundProgress } from "./owner-bound-progress";
+import { SIGNOUT_BROADCAST_KEY } from "./storage-keys";
+import { safeReturnTo } from "./safe-return-to";
 
-// Re-export NextAuth client functions with our customizations
 export { useSession, SessionProvider } from "next-auth/react";
 
-/**
- * Sign in with credentials (email/password)
- */
-export async function signInWithCredentials(
-  email: string,
-  password: string
-) {
-  return nextAuthSignIn("credentials", {
-    email,
-    password,
-    redirect: false,
-  });
+export const PROGRESS_SESSION_CHANNEL = "hanks-hits-progress-session";
+export const GUEST_HANDOFF_PARAM = "__hh_guest_handoff";
+let authNavigationPending = false;
+let navigationTarget: string | null = null;
+
+/** The provider must not reload before an in-flight auth request completes. */
+export function isAuthNavigationPending(): boolean { return authNavigationPending; }
+
+/** Also used by the visible retry control when navigation did not complete. */
+export function reloadProgressPage(): void {
+  if (!navigationTarget) { window.location.reload(); return; }
+  const target = new URL(navigationTarget, window.location.origin);
+  const changesOnlyHash = target.pathname === window.location.pathname
+    && target.search === window.location.search && !!(target.hash || window.location.hash);
+  window.location.assign(target.href);
+  // A fragment navigation does not replace permanently revoked module stores.
+  if (changesOnlyHash) window.location.reload();
 }
 
-/**
- * Sign in with Google OAuth
- */
-export async function signInWithGoogle(callbackUrl: string = "/") {
-  return nextAuthSignIn("google", { callbackUrl });
+function revokeForNavigation(target: string): void {
+  authNavigationPending = true;
+  navigationTarget = target;
+  ownerBoundProgress.revoke();
 }
 
-/**
- * Sign out and clear localStorage (security fix)
- * Prevents cross-user data contamination on shared devices. The key registry
- * and matching rules live in storage-keys.ts so a test can prove every synced
- * game's key gets cleared.
- */
-export async function signOutAndClear(callbackUrl: string = "/") {
-  if (typeof window !== "undefined") {
-    // Never let a storage failure (blocked webviews) strand the user
-    // logged in — the sign-out itself must always proceed.
-    try {
-      clearGameStorage();
-      // Tell every OTHER open tab to reload: their in-memory zustand stores
-      // would otherwise re-persist the just-cleared keys within seconds and
-      // hand this user's progress to whoever signs in next.
-      localStorage.setItem(SIGNOUT_BROADCAST_KEY, String(Date.now()));
-    } catch (err) {
-      console.warn("Could not clear game storage on sign-out:", err);
-    }
+function cleanCallbackUrl(callbackUrl: string): string {
+  const target = new URL(safeReturnTo(callbackUrl), window.location.origin);
+  target.searchParams.delete(GUEST_HANDOFF_PARAM);
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
+function guestCallbackUrl(callbackUrl: string): string {
+  ownerBoundProgress.prepareGuestHandoff();
+  const target = new URL(cleanCallbackUrl(callbackUrl), window.location.origin);
+  const proof = ownerBoundProgress.getGuestHandoffProof();
+  if (proof) target.searchParams.set(GUEST_HANDOFF_PARAM, proof);
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
+/** Remove navigation authority before a denied storage write can strand it. */
+export function consumeGuestHandoffNavigation(): void {
+  let cleanTarget = "/";
+  try {
+    const target = new URL(window.location.href);
+    const proofs = target.searchParams.getAll(GUEST_HANDOFF_PARAM);
+    if (!proofs.length) return;
+    target.searchParams.delete(GUEST_HANDOFF_PARAM);
+    cleanTarget = `${target.pathname}${target.search}${target.hash}`;
+    window.history.replaceState(window.history.state, "", cleanTarget);
+    if (proofs.length === 1 && /^[a-f0-9]{48}$/.test(proofs[0])) {
+      ownerBoundProgress.authorizeGuestHandoff(proofs[0]);
+    } else ownerBoundProgress.reportGuestHandoffFailure();
+  } catch {
+    // Without successful URL consumption, no stored unbound receipt is eligible.
+    ownerBoundProgress.reportGuestHandoffFailure();
+    ownerBoundProgress.cancelGuestHandoff();
+    // Retain only a clean retry target, even if navigation is also denied.
+    revokeForNavigation(cleanTarget);
+    try { window.location.replace(new URL(cleanTarget, window.location.origin).href); }
+    catch { /* Revoked consumers stay hidden behind the explicit Reload control. */ }
   }
-
-  return nextAuthSignOut({ callbackUrl });
 }
 
-// Re-export raw functions for advanced use cases
+/** Only an explicit sign-in action may carry confirmed guest progress forward. */
+export async function signInWithCredentials(email: string, password: string, callbackUrl = "/") {
+  const target = guestCallbackUrl(callbackUrl);
+  authNavigationPending = true;
+  navigationTarget = cleanCallbackUrl(callbackUrl);
+  let result;
+  try {
+    result = await nextAuthSignIn("credentials", { email, password, redirect: false });
+  } catch (error) {
+    ownerBoundProgress.cancelGuestHandoff();
+    authNavigationPending = false;
+    navigationTarget = null;
+    throw error;
+  }
+  if (!result || result.error || !result.ok) {
+    ownerBoundProgress.cancelGuestHandoff();
+    authNavigationPending = false;
+    navigationTarget = null;
+    return result;
+  }
+  revokeForNavigation(cleanCallbackUrl(callbackUrl));
+  // The source document can be restored from bfcache. Its retry never replays proof.
+  try { window.location.assign(new URL(target, window.location.origin).href); }
+  catch { /* The provider exposes a Reload control with the clean return path. */ }
+  return result;
+}
+
+export async function signInWithGoogle(callbackUrl = "/") {
+  const target = guestCallbackUrl(callbackUrl);
+  // OAuth leaves this document. No subsequent work may reuse its stores.
+  revokeForNavigation(cleanCallbackUrl(callbackUrl));
+  try {
+    return await nextAuthSignIn("google", { callbackUrl: target });
+  } catch (error) {
+    ownerBoundProgress.cancelGuestHandoff();
+    throw error;
+  }
+}
+
+/** Sign-out never removes frozen originals or another owner's durable partition. */
+export async function signOutAndClear(callbackUrl = "/") {
+  const target = cleanCallbackUrl(callbackUrl);
+  revokeForNavigation(target);
+  if (typeof window !== "undefined") {
+    // Independent attempts: denied storage must not suppress the other signal
+    // or prevent authentication sign-out. Messages contain no player data.
+    try { localStorage.setItem(SIGNOUT_BROADCAST_KEY, String(Date.now())); } catch { /* Retain sources. */ }
+    try {
+      const channel = new BroadcastChannel(PROGRESS_SESSION_CHANNEL);
+      channel.postMessage("signout");
+      channel.close();
+    } catch { /* Session updates still invalidate this document. */ }
+  }
+  // Auth's canonical server host can differ from this browser's reachable host.
+  // Finish the sign-out before navigating, and never follow its returned URL.
+  const result = await nextAuthSignOut({ callbackUrl: target, redirect: false });
+  try { reloadProgressPage(); } catch { /* Keep revoked consumers behind Reload. */ }
+  return result;
+}
+
 export { nextAuthSignIn as signIn, nextAuthSignOut as signOut };

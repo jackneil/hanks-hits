@@ -435,3 +435,23 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     expect(useCookieClickerStore.getState().cookies).toBeGreaterThanOrEqual(expected * 0.999);
   });
 });
+
+// Keep these historical bakery/outage inputs in their original physical format.
+// The real-authority suite separately verifies namespace ownership and handoff.
+// Journal enumeration remains real within this fixture so reload/ACK/conflict
+// assertions exercise CookieContinuation and BakerySyncSession unchanged.
+vi.mock("@/lib/owner-bound-progress", async () => {
+  const { useSession: readSession } = await import("next-auth/react");
+  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
+  const fixture = createSyncOwnerFixture(readSession);
+  return { ...fixture, ownerBoundProgress: { ...fixture.ownerBoundProgress,
+    listScoped: (prefix: string) => Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!)
+      .filter(key => key.startsWith(prefix)),
+    listLegacyKeys: () => [],
+    readLegacy: () => ({ raw: null, marker: null, markerReadable: true }),
+  } };
+});
+vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
+  const { createJSONStorage } = await import("zustand/middleware");
+  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
+});

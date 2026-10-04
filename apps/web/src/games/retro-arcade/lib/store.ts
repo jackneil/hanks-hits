@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { sameProgress } from "@/shared/lib/progressStamp";
@@ -397,6 +399,8 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
         })),
     }),
     {
+      storage: createOwnerPersistStorage("retro-arcade-progress", "retro-arcade"),
+      skipHydration: true,
       name: "retro-arcade-progress",
       // Version 1: save states left localStorage (they are in IndexedDB now).
       version: RETRO_ARCADE_STORAGE_VERSION,
@@ -418,3 +422,5 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
     }
   )
 );
+
+bindPersistedStore("retro-arcade-progress", useRetroArcadeStore.persist, () => useRetroArcadeStore.setState({}));

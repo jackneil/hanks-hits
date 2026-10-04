@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -246,6 +248,8 @@ export const use2048Store = create<GameState & GameActions>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("2048-game-state", "2048"),
+      skipHydration: true,
       name: "2048-game-state",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -265,3 +269,5 @@ export const use2048Store = create<GameState & GameActions>()(
     }
   )
 );
+
+bindPersistedStore("2048-game-state", use2048Store.persist, () => use2048Store.setState({}));

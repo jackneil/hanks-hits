@@ -1,10 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 import { useTriviaStore } from "@/apps/trivia/lib/store";
 
-const Trivia = dynamic(() => import("@/apps/trivia"), {
+const loadProgressModule = () => import("@/apps/trivia");
+
+const Trivia = dynamic(loadProgressModule, {
   ssr: false,
   loading: () => (
     <div className="min-h-full bg-gradient-to-b from-indigo-900 via-purple-900 to-pink-900 flex flex-col items-center justify-center">
@@ -21,7 +24,7 @@ const Trivia = dynamic(() => import("@/apps/trivia"), {
   ),
 });
 
-export default function TriviaPage() {
+function TriviaPageContent() {
   return (
     <GameShell
       gameName="Trivia Quiz"
@@ -34,5 +37,13 @@ export default function TriviaPage() {
     >
       <Trivia />
     </GameShell>
+  );
+}
+
+export default function TriviaPage() {
+  return (
+    <ProgressHydrationBoundary appId="trivia" loadModule={loadProgressModule}>
+      <TriviaPageContent />
+    </ProgressHydrationBoundary>
   );
 }

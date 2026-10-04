@@ -62,17 +62,25 @@ describe("Checkers results", () => {
 
 describe("Checkers saved choices", () => {
   it("a reload starts the board with the saved rules and mode", async () => {
+    vi.resetModules();
+    localStorage.clear();
+    const original = JSON.stringify({ state: { progress: { variant: "casual", gameMode: "vs-friend" }, difficulty: "hard" }, version: 2 });
     localStorage.setItem(
       "checkers-progress",
-      JSON.stringify({ state: { progress: { variant: "casual", gameMode: "vs-friend" }, difficulty: "hard" }, version: 2 })
+      original,
     );
+    // A fresh document captures legacy evidence before confirming its owner.
+    const { ownerBoundProgress } = await import("@/lib/owner-bound-progress");
+    const { useCheckersStore: reloaded } = await import("../lib/store");
     await act(async () => {
-      await useCheckersStore.persist.rehydrate();
+      await ownerBoundProgress.updateSession("unauthenticated");
+      await ownerBoundProgress.whenHydrated("checkers-progress");
     });
-    const s = useCheckersStore.getState();
+    const s = reloaded.getState();
     expect(s.rules.variant).toBe("casual");
     expect(s.gameMode).toBe("vs-friend");
     expect(s.difficulty).toBe("hard");
+    expect(localStorage.getItem("checkers-progress")).toBe(original);
     localStorage.clear();
   });
 });

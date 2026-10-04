@@ -25,7 +25,7 @@ import { extractTimestamp } from "@/lib/progress-merge";
 import { PROGRESS_TIME_MARKER, isUntouchedProgress } from "@/shared/lib/untouchedProgress";
 import { validateProgress } from "@/lib/progress-schemas";
 import type { ValidAppId } from "@hank-neil/db/schema";
-import { SYNCED_STORES, syncedStore } from "@/__tests__/synced-stores";
+import { SYNCED_STORES } from "@/__tests__/synced-stores";
 import legacy from "@/__tests__/fixtures/legacy-saves.json";
 
 type Save = { state: Record<string, unknown>; version: number };
@@ -41,12 +41,17 @@ function savedTime(save: Save): number | null {
 }
 
 async function load(appId: string, save: Save) {
+  localStorage.setItem(SAVES[appId].key, JSON.stringify(save));
+  // Each fixture is a new document. Capture raw bytes and loadAt only after
+  // seeding the disk, then confirm the owner and await real hydration.
+  vi.resetModules();
+  const { syncedStore, SYNCED_STORES: freshStores } = await import("@/__tests__/synced-stores");
+  const { ownerBoundProgress: authority } = await import("@/lib/owner-bound-progress");
   const entry = syncedStore(appId);
-  entry.reset();
-  localStorage.setItem(entry.key, JSON.stringify(save));
-  await entry.store.persist.rehydrate();
+  await authority.updateSession("unauthenticated");
+  await Promise.all(freshStores.map(item => authority.whenHydrated(item.key)));
   const progress = entry.store.getState().getProgress() as Record<string, unknown>;
-  return { entry, progress, time: extractTimestamp(progress as AppProgressData) };
+  return { entry, authority, progress, time: extractTimestamp(progress as AppProgressData) };
 }
 
 const scenarios = (name: string) =>
@@ -87,13 +92,14 @@ describe("the fixture", () => {
 
 describe.each(scenarios("untouched"))("%s: an untouched save of the old code", (appId, save) => {
   it("loads with time 0 and untouched progress", async () => {
-    const { entry, progress, time } = await load(appId, save);
+    const { entry, authority, progress, time } = await load(appId, save);
     expect(time).toBe(0);
     expect(isUntouchedProgress(appId, progress)).toBe(true);
     // The next write saves the real time with the marker, in the old
     // version (so the old code still loads it).
     entry.store.setState({});
-    const stored = JSON.parse(localStorage.getItem(entry.key)!);
+    const stored = JSON.parse(authority.readScoped(entry.key)!);
+    expect(localStorage.getItem(entry.key)).toBe(JSON.stringify(save));
     expect(stored.version).toBe(save.version);
     expect(stored.state[PROGRESS_TIME_MARKER]).toBe(1);
     expect(extractTimestamp((stored.state.progress ?? stored.state) as AppProgressData)).toBe(0);
@@ -125,28 +131,27 @@ describe.each(scenarios("played"))("%s: a save with a player's change", (appId, 
   });
 
   it("keeps that time on the next load, when the page changed nothing (the settled save is written once)", async () => {
-    const { entry, time } = await load(appId, save);
+    const { entry, authority, time } = await load(appId, save);
     // A page that makes no change of its own (Oregon Trail's title screen).
     vi.setSystemTime(new Date(LOAD_TIME + 2 * 24 * 60 * 60 * 1000));
-    const onDisk = localStorage.getItem(entry.key)!;
-    entry.reset();
-    localStorage.setItem(entry.key, onDisk);
-    await entry.store.persist.rehydrate();
-    expect(extractTimestamp(entry.store.getState().getProgress() as AppProgressData)).toBe(time);
+    const onDisk = authority.readScoped(entry.key)!;
+    const { time: nextTime } = await load(appId, JSON.parse(onDisk) as Save);
+    expect(nextTime).toBe(time);
   });
 });
 
 describe("a save of the new version is never migrated again", () => {
-  it.each(SYNCED_STORES.map((entry) => [entry.appId, entry] as const))("%s", async (_appId, entry) => {
+  it.each(SYNCED_STORES.map((entry) => [entry.appId, entry] as const))("%s", async (appId) => {
+    const { entry, authority } = await load(appId, SAVES[appId].untouched as Save);
     entry.reset();
     // The untouched defaults, saved by the new code with a real time.
     entry.store.getState().setProgress({
       ...(entry.store.getState().getProgress() as Record<string, unknown>),
       [entry.timeKey]: 1_234,
     } as never);
-    const saved = localStorage.getItem(entry.key)!;
+    const saved = authority.readScoped(entry.key)!;
     entry.reset();
-    localStorage.setItem(entry.key, saved);
+    authority.writeScoped(entry.key, saved);
     await entry.store.persist.rehydrate();
     expect(extractTimestamp(entry.store.getState().getProgress() as AppProgressData)).toBe(1_234);
   });

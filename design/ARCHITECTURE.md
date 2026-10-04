@@ -437,6 +437,11 @@ same button, in the same place: under the words, above the action buttons.
   settings) and the install steps that the 📲 button opens (in the header
   or in the pause menu).
 - 3000: dialogs (RestartConfirmationDialog).
+- 4000: ProgressStorageNotice, a dismissible device storage warning above
+  fixed game content, headers, and dialogs. It portals to `document.body`,
+  respects safe-area insets, and has a 44 px acknowledgement button. Its
+  outer layer takes no taps outside the warning. Acknowledgement hides the
+  displayed failures; a newly distinct failure displays its own warning.
 
 Every layer above 1000 portals to `document.body` or mounts in the root
 layout, so no game container can trap it (gameplay clips plan, section

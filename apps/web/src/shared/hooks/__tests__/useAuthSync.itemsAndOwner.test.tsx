@@ -325,8 +325,8 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
     view.rerender();
     await settle(100);
     expect(reloadSpy).toHaveBeenCalled();
-    expect(localStorage.getItem(entry.key)).toBeNull();
-    expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-B");
+    expect(localStorage.getItem(entry.key)).not.toBeNull();
+    expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-A");
     await settle(4_000);
     await act(async () => { await view.result.current.forceSync(); });
     window.dispatchEvent(new Event("beforeunload"));
@@ -335,7 +335,7 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
     expect(rowOfB()).toMatchObject(kidB);
   });
 
-  it("a session that changes to kid B on a mounted page: no save reaches B, the device's saves go, and the page reloads", async () => {
+  it("a session that changes to kid B on a mounted page: no save reaches B, legacy saves remain, and the page reloads", async () => {
     const { entry, view } = await kidAPlays();
     const postsBefore = server.posts.length;
 
@@ -360,8 +360,8 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
     expect(rowOfB()).toMatchObject(kidB);
     expect(server.posts.length).toBe(postsBefore);
     expect(reloadSpy).toHaveBeenCalled();
-    expect(saveAfterSwitch).toBeNull();
-    expect(ownerAfterSwitch).toBe("user-B");
+    expect(saveAfterSwitch).not.toBeNull();
+    expect(ownerAfterSwitch).toBeNull(); // Current identity never claims the legacy marker.
   });
 
   it.each([["pageshow"], ["storage"]] as const)(
@@ -401,4 +401,16 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
     expect((server.row("flappy-bird", "user-A") as Record<string, number>).highScore).toBe(90);
     view.unmount();
   });
+});
+
+vi.mock("@/lib/owner-bound-progress", async () => {
+  const { useSession: readSession } = await import("next-auth/react");
+  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
+  return createSyncOwnerFixture(readSession);
+});
+
+// B1 reconciliation fixtures retain their historical physical save format.
+vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
+  const { createJSONStorage } = await import("zustand/middleware");
+  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
 });

@@ -1,9 +1,20 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 
-const QuoridorGameShell = dynamic(() => import("@/games/quoridor/GameShell"), { ssr: false });
+const loadProgressModule = () => import("@/games/quoridor/GameShell");
+
+const QuoridorGameShell = dynamic(loadProgressModule, { ssr: false });
+
+function QuoridorPageContent() {
+  return <QuoridorGameShell />;
+}
 
 export default function QuoridorPage() {
-  return <QuoridorGameShell />;
+  return (
+    <ProgressHydrationBoundary appId="quoridor" loadModule={loadProgressModule}>
+      <QuoridorPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { reportProgressToAchievements, useAchievementsStore } from "../store";
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
 
 function resetStore() {
   useAchievementsStore.setState({
@@ -10,7 +11,11 @@ function resetStore() {
   });
 }
 
-beforeEach(resetStore);
+beforeEach(async () => {
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await ownerBoundProgress.whenHydrated("achievements-progress");
+  resetStore();
+});
 
 describe("achievements store", () => {
   it("unlocks exactly once for repeated identical reports (idempotent)", () => {
@@ -68,7 +73,11 @@ describe("achievements store", () => {
     reportProgressToAchievements("snake", { gamesPlayed: 1 });
     const q = [...useAchievementsStore.getState().celebrationQueue];
     expect(q).toContain("first-play:snake");
-    const stored = () => JSON.parse(localStorage.getItem("achievements-progress") ?? "{}").state;
+    const stored = () => {
+      const key = `hh-progress:v2:${JSON.stringify(["guest", "achievements-progress"])}`;
+      const envelope = JSON.parse(localStorage.getItem(key) ?? "{}");
+      return JSON.parse(envelope.raw).state;
+    };
     expect(stored().celebrationQueue).toEqual(q);
 
     useAchievementsStore.getState().dequeueCelebration(q[0]);

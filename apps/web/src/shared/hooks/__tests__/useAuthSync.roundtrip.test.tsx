@@ -172,7 +172,7 @@ describe.each(cases)("%s: a page that loads after the last save", (_appId, entry
     vi.setSystemTime(new Date("2026-10-02T12:30:00Z"));
     await signOutAndClear("/");
     session.current = { data: null, status: "unauthenticated" };
-    expect(localStorage.getItem(entry.key)).toBeNull();
+    expect(localStorage.getItem(entry.key)).not.toBeNull(); // Legacy sources survive sign-out.
 
     // The sign-in round trip is a new page load, at 13:05.
     vi.setSystemTime(new Date("2026-10-02T13:05:00Z"));
@@ -321,10 +321,11 @@ describe("a guest who plays and then signs in without a reload (review waves 3 a
     await settle(1_000);
     const guest = { ...progressOf(entry), highScore: account.highScore + 50, gamesPlayed: 1, lastModified: Date.now() };
     entry.store.getState().setProgress(guest as never);
-    signIn();
-    view.rerender();
-    await settle(6_000);
     view.unmount();
+    signIn();
+    const signedInView = mount(entry); // Sign-in completes in a new owner-bound document.
+    await settle(6_000);
+    signedInView.unmount();
 
     expect(rejected).toEqual([]);
     const row = rowOf(entry) as { highScore: number; gamesPlayed: number };
@@ -361,4 +362,16 @@ describe("virtual-pet: the daily-visit streak (review wave 3)", () => {
     expect(row.stats.currentStreak).toBe(streak + 1);
     expect(row.stats.lastPlayDate).toBe(new Date().toDateString());
   });
+});
+
+vi.mock("@/lib/owner-bound-progress", async () => {
+  const { useSession: readSession } = await import("next-auth/react");
+  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
+  return createSyncOwnerFixture(readSession);
+});
+
+// B1 reconciliation fixtures retain their historical physical save format.
+vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
+  const { createJSONStorage } = await import("zustand/middleware");
+  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
 });

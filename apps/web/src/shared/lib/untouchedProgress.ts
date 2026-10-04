@@ -54,6 +54,9 @@
 import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
 import { mergeProgress } from "@/lib/progress-merge";
 import { sameProgress } from "./progressStamp";
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+import { registerAdmissionProjector } from "@/lib/owner-bound-progress/admission";
+import { stripProgressWords } from "@/lib/progress-words";
 
 export type ProgressTimeKey = "lastModified" | "updatedAt";
 
@@ -85,7 +88,7 @@ export interface UntouchedProgressRule {
   /** True when the progress holds nothing that a player made. */
   isUntouched: (progress: unknown) => boolean;
   /** The time for progress from a save of the code before this change. */
-  legacyTime: (progress: unknown) => number;
+  legacyTime: (progress: unknown, loadedAt?: number) => number;
   /** The progress as getProgress() returns it, from a saved state (without the marker). */
   progressOf: (saved: Saved) => unknown;
   /**
@@ -209,10 +212,10 @@ export function defineUntouchedProgress(appId: ValidAppId, spec: Spec): Untouche
     timeKey,
     layout,
     isUntouched,
-    legacyTime(progress) {
+    legacyTime(progress, loadedAt) {
       if (!isRecord(progress) || isUntouched(progress)) return 0;
       const time = progress[timeKey];
-      return typeof time === "number" ? time : Date.now();
+      return typeof time === "number" ? time : (loadedAt ?? Date.now());
     },
     progressOf: spec.progressOf ?? (layout === "flat" ? (saved) => saved : (saved) => saved.progress),
     foldNested: spec.foldNested ?? ((base) => base),
@@ -220,6 +223,15 @@ export function defineUntouchedProgress(appId: ValidAppId, spec: Spec): Untouche
     lists: spec.lists ?? {},
   };
   rules.set(appId, rule);
+  registerAdmissionProjector(appId, (saved, loadedAt) => {
+    // Interpret old-code edits before removing checksum-covered words. Then
+    // mark the projected save with its settled time and matching checksum.
+    const settled = settleSave(saved, rule, loadedAt) as Saved;
+    const projected = rule.layout === "flat"
+      ? stripProgressWords(appId, settled)
+      : { ...settled, progress: stripProgressWords(appId, settled.progress) };
+    return PROGRESS_SUM_KEY in saved ? markSavedWithSum(rule, projected) : markSaved(projected);
+  });
   return rule;
 }
 
@@ -478,14 +490,14 @@ function withTime(saved: Saved, rule: UntouchedProgressRule, time: number): Save
  * rule's time: 0 when it is untouched, else Date.now(), as for a save of
  * that code with no time.
  */
-export function settleSave(saved: unknown, rule: UntouchedProgressRule): unknown {
+export function settleSave(saved: unknown, rule: UntouchedProgressRule, loadedAt?: number): unknown {
   if (!isRecord(saved)) return saved;
   if (isMarkedSave(saved)) {
     const rest = withoutMarker(saved);
     if (!changedByOldCode(saved, rule)) return rest;
-    return withTime(rest, rule, rule.isUntouched(rule.progressOf(rest)) ? 0 : Date.now());
+    return withTime(rest, rule, rule.isUntouched(rule.progressOf(rest)) ? 0 : (loadedAt ?? Date.now()));
   }
-  return withTime(saved, rule, rule.legacyTime(rule.progressOf(saved)));
+  return withTime(saved, rule, rule.legacyTime(rule.progressOf(saved), loadedAt));
 }
 
 type SettledStore = {
@@ -512,7 +524,7 @@ export function persistSettledSave(store: SettledStore, rule: UntouchedProgressR
   const write = () => {
     try {
       const name = api.getOptions().name;
-      const raw = name ? localStorage.getItem(name) : null;
+      const raw = name ? ownerBoundProgress.readEvidence(name).raw : null;
       if (raw === null) return;
       const parsed = JSON.parse(raw) as unknown;
       if (settlesOnLoad(isRecord(parsed) ? parsed.state : null, rule)) store.setState({});
@@ -534,7 +546,7 @@ export function settleOnLoad<S>(
   rule: UntouchedProgressRule,
   merge: (persisted: unknown, current: S) => S = shallowMerge
 ): (persisted: unknown, current: S) => S {
-  return (persisted, current) => merge(settleSave(persisted, rule), current);
+  return (persisted, current) => merge(settleSave(persisted, rule, ownerBoundProgress.getLoadTime(rule.appId)), current);
 }
 
 /**
@@ -542,10 +554,10 @@ export function settleOnLoad<S>(
  * localStorage save of `appId`, with its real time. Null for an app with no
  * rule, or a save with no progress.
  */
-export function progressFromSave(appId: string, saved: unknown): Record<string, unknown> | null {
+export function progressFromSave(appId: string, saved: unknown, loadedAt?: number): Record<string, unknown> | null {
   const rule = rules.get(appId);
   if (!rule || !isRecord(saved)) return null;
-  const settled = settleSave(saved, rule);
+  const settled = settleSave(saved, rule, loadedAt);
   if (!isRecord(settled)) return null;
   const progress = rule.progressOf(settled);
   return isRecord(progress) ? progress : null;

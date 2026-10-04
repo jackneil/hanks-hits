@@ -1,8 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 
-const HextrisGameShell = dynamic(() => import("@/games/hextris/HextrisGameShell"), {
+const loadProgressModule = () => import("@/games/hextris/HextrisGameShell");
+
+const HextrisGameShell = dynamic(loadProgressModule, {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center min-h-full bg-slate-900">
@@ -12,6 +15,14 @@ const HextrisGameShell = dynamic(() => import("@/games/hextris/HextrisGameShell"
   ),
 });
 
-export default function HextrisPage() {
+function HextrisPageContent() {
   return <HextrisGameShell />;
+}
+
+export default function HextrisPage() {
+  return (
+    <ProgressHydrationBoundary appId="hextris" loadModule={loadProgressModule}>
+      <HextrisPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

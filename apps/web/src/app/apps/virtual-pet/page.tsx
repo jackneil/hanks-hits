@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 
-const VirtualPet = dynamic(() => import("@/apps/virtual-pet"), {
+const loadProgressModule = () => import("@/apps/virtual-pet");
+
+const VirtualPet = dynamic(loadProgressModule, {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center min-h-full bg-amber-50">
@@ -13,10 +16,18 @@ const VirtualPet = dynamic(() => import("@/apps/virtual-pet"), {
   ),
 });
 
-export default function VirtualPetPage() {
+function VirtualPetPageContent() {
   return (
     <GameShell gameName="Virtual Pet" canPause={false}>
       <VirtualPet />
     </GameShell>
+  );
+}
+
+export default function VirtualPetPage() {
+  return (
+    <ProgressHydrationBoundary appId="virtual-pet" loadModule={loadProgressModule}>
+      <VirtualPetPageContent />
+    </ProgressHydrationBoundary>
   );
 }

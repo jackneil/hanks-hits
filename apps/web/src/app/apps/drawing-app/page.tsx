@@ -1,10 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 
+const loadProgressModule = () => import("@/apps/drawing-app");
+
 const DrawingApp = dynamic(
-  () => import("@/apps/drawing-app"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -20,10 +23,18 @@ const DrawingApp = dynamic(
   }
 );
 
-export default function DrawingAppPage() {
+function DrawingAppPageContent() {
   return (
     <GameShell gameName="Drawing" canPause={false}>
       <DrawingApp />
     </GameShell>
+  );
+}
+
+export default function DrawingAppPage() {
+  return (
+    <ProgressHydrationBoundary appId="drawing-app" loadModule={loadProgressModule}>
+      <DrawingAppPageContent />
+    </ProgressHydrationBoundary>
   );
 }

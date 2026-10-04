@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { stampIfChanged } from "@/shared/lib/progressStamp";
@@ -818,6 +820,8 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
       setProgress: (data: BreakoutProgress) => set({ progress: data }),
     }),
     {
+      storage: createOwnerPersistStorage("breakout-game-state", "breakout"),
+      skipHydration: true,
       name: "breakout-game-state",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -829,3 +833,5 @@ export const useBreakoutStore = create<BreakoutGameState & BreakoutActions>()(
     }
   )
 );
+
+bindPersistedStore("breakout-game-state", useBreakoutStore.persist, () => useBreakoutStore.setState({}));

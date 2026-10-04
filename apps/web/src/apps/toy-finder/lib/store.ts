@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 /**
  * Toy Finder Zustand Store
  * Handles wishlist, filtering, and persistence
@@ -173,6 +175,8 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("toy-finder-progress", "toy-finder"),
+      skipHydration: true,
       name: STORAGE_KEY,
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -187,3 +191,5 @@ export const useToyFinderStore = create<ToyFinderState & ToyFinderActions>()(
     }
   )
 );
+
+bindPersistedStore("toy-finder-progress", useToyFinderStore.persist, () => useToyFinderStore.setState({}));

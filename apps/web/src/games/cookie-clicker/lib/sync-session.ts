@@ -17,10 +17,13 @@ export type BakeryJournal = {
   resolving: boolean;
   choiceBackup: { live: CookieClickerProgress; acknowledged: BakerySnapshot; sent: BakeryRequest | null } | null;
   resolvedCopies?: Array<[string, number]>;
+  /** Exact guest sources included in a player's explicit bakery choice. */
+  guestCandidateIds?: string[];
 };
 
-// A separate key per writer prevents one tab from erasing another's pending
-// operation. The suffix is covered by clearGameStorage on sign-out/purge.
+// A separate logical key per writer prevents one tab from erasing another's
+// pending operation. The adapter stores new journals in the captured owner's
+// namespace; legacy journals retain this key and are never rewritten or removed.
 export const BAKERY_JOURNAL_PREFIX = "cookie-clicker-sync-";
 export const bakeryJournalKey = (writerId: string) => `${BAKERY_JOURNAL_PREFIX}${writerId}-storage`;
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -53,6 +56,8 @@ export function parseBakeryJournal(raw: string, ownerId: string): BakeryJournal 
     if (row.resolvedCopies !== undefined && (!Array.isArray(row.resolvedCopies) || row.resolvedCopies.some(
       (entry) => !Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string" || !Number.isSafeInteger(entry[1]) || entry[1] < 0,
     ))) return null;
+    if (row.guestCandidateIds !== undefined && (!Array.isArray(row.guestCandidateIds)
+      || row.guestCandidateIds.some(id => typeof id !== "string"))) return null;
     return copy(row);
   } catch {
     return null;
@@ -161,7 +166,7 @@ export class BakerySyncSession {
   }
 
   /** An explicit choice is conditional on the exact alternative shown to the player. */
-  choose(displayed: BakerySnapshot, selected: CookieClickerProgress, alternatives: CookieClickerProgress[] = []): boolean {
+  choose(displayed: BakerySnapshot, selected: CookieClickerProgress, alternatives: CookieClickerProgress[] = [], guestCandidateIds: string[] = []): boolean {
     if (!this.io.maySave() || !sameProgress(displayed, this.journal.conflict)) return false;
     this.journal.choiceBackup ??= copy({
       live: this.journal.live, acknowledged: this.journal.acknowledged, sent: this.journal.sent,
@@ -171,6 +176,7 @@ export class BakerySyncSession {
     this.journal.live = continueBakery(displayed.data, continueBakery(this.journal.live, records));
     this.journal.sent = null;
     this.journal.resolving = true;
+    this.journal.guestCandidateIds = [...new Set([...(this.journal.guestCandidateIds ?? []), ...guestCandidateIds])];
     // Keep the old conflict until a matching write is acknowledged.
     this.persist();
     return true;

@@ -1,10 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { GameShell } from "@/shared/components";
 
+const loadProgressModule = () => import("@/apps/weather");
+
 const Weather = dynamic(
-  () => import("@/apps/weather"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -20,10 +23,18 @@ const Weather = dynamic(
   }
 );
 
-export default function WeatherPage() {
+function WeatherPageContent() {
   return (
     <GameShell gameName="Weather Buddy" canPause={false}>
       <Weather />
     </GameShell>
+  );
+}
+
+export default function WeatherPage() {
+  return (
+    <ProgressHydrationBoundary appId="weather" loadModule={loadProgressModule}>
+      <WeatherPageContent />
+    </ProgressHydrationBoundary>
   );
 }

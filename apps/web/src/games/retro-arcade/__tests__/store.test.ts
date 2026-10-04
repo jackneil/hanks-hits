@@ -1,9 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RETRO_ARCADE_STORAGE_VERSION,
   useRetroArcadeStore,
   type RetroArcadeProgress,
 } from "../lib/store";
+
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+
+beforeAll(async () => {
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await ownerBoundProgress.whenHydrated("retro-arcade-progress");
+});
 
 describe("Retro Arcade store favorites", () => {
   beforeEach(() => {
@@ -93,7 +100,7 @@ describe("Retro Arcade store favorites", () => {
     expect(useRetroArcadeStore.getState().getProgress().customRoms).toEqual([
       { id: "rom-1", name: "hank.nes", system: "nes", addedAt: 1 },
     ]);
-    const persisted = JSON.parse(localStorage.getItem("retro-arcade-progress") ?? "{}");
+    const persisted = JSON.parse(ownerBoundProgress.readScoped("retro-arcade-progress") ?? "{}");
     expect(persisted.state.customRoms).toEqual([{ id: "rom-1", name: "hank.nes", system: "nes", addedAt: 1 }]);
   });
 
@@ -180,7 +187,7 @@ describe("Retro Arcade store: a cloud pull keeps the uploaded files of this visi
     expect(useRetroArcadeStore.getState().getProgress().customRoms).toEqual([
       { id: "n64-demo.n64-1", name: "demo.n64", system: "n64", addedAt: 1 },
     ]);
-    const persisted = JSON.parse(localStorage.getItem("retro-arcade-progress") ?? "{}");
+    const persisted = JSON.parse(ownerBoundProgress.readScoped("retro-arcade-progress") ?? "{}");
     expect(persisted.state.customRoms).toEqual([{ id: "n64-demo.n64-1", name: "demo.n64", system: "n64", addedAt: 1 }]);
   });
 });
@@ -224,15 +231,20 @@ describe("Retro Arcade store: save states left the progress", () => {
       "retro-arcade-progress",
       JSON.stringify({ state: legacyProgress, version: 0 })
     );
-    await useRetroArcadeStore.persist.rehydrate();
+    vi.resetModules();
+    const { useRetroArcadeStore: freshStore } = await import("../lib/store");
+    const { ownerBoundProgress: freshAuthority } = await import("@/lib/owner-bound-progress");
+    await freshAuthority.updateSession("unauthenticated");
+    await freshAuthority.whenHydrated("retro-arcade-progress");
 
-    const state = useRetroArcadeStore.getState();
+    const state = freshStore.getState();
     expect(state).not.toHaveProperty("saveStates");
     expect(state.favorites).toEqual(["snes-Super Mario World"]);
     expect(state.customRoms).toEqual(legacyProgress.customRoms);
 
-    // The migrated data is written back without the field.
-    const stored = JSON.parse(localStorage.getItem("retro-arcade-progress") ?? "{}");
+    // The namespace gets the migrated value; legacy recovery bytes stay intact.
+    expect(JSON.parse(localStorage.getItem("retro-arcade-progress")!).state).toHaveProperty("saveStates");
+    const stored = JSON.parse(freshAuthority.readScoped("retro-arcade-progress") ?? "{}");
     expect(stored.version).toBe(RETRO_ARCADE_STORAGE_VERSION);
     expect(stored.state).not.toHaveProperty("saveStates");
     expect(stored.state.favorites).toEqual(["snes-Super Mario World"]);
@@ -240,7 +252,7 @@ describe("Retro Arcade store: save states left the progress", () => {
 
   it("writes no saveStates field to localStorage", () => {
     useRetroArcadeStore.getState().addFavorite("gb-tetris.gb");
-    const stored = JSON.parse(localStorage.getItem("retro-arcade-progress") ?? "{}");
+    const stored = JSON.parse(ownerBoundProgress.readScoped("retro-arcade-progress") ?? "{}");
     expect(stored.state).not.toHaveProperty("saveStates");
     expect(JSON.stringify(stored)).not.toMatch(/saveState/);
   });

@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 /**
  * Drawing App Zustand Store
  * Handles tools, colors, saved artworks, and persistence
@@ -352,6 +354,8 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
       },
     }),
     {
+      storage: createOwnerPersistStorage("drawing-app-progress", "drawing-app"),
+      skipHydration: true,
       name: STORAGE_KEY,
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -367,3 +371,5 @@ export const useDrawingStore = create<DrawingStoreState & DrawingStoreActions>()
     }
   )
 );
+
+bindPersistedStore("drawing-app-progress", useDrawingStore.persist, () => useDrawingStore.setState({}));

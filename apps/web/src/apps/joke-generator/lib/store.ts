@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 /**
  * Joke Generator Zustand Store
  * Handles favorites, ratings, stats, and persistence
@@ -276,6 +278,8 @@ export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("joke-generator-progress", "joke-generator"),
+      skipHydration: true,
       name: STORAGE_KEY,
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -295,3 +299,5 @@ export const useJokeStore = create<JokeStoreState & JokeStoreActions>()(
     }
   )
 );
+
+bindPersistedStore("joke-generator-progress", useJokeStore.persist, () => useJokeStore.setState({}));

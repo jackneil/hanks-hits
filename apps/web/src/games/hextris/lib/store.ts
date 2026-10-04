@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { stampIfChanged } from "@/shared/lib/progressStamp";
@@ -492,6 +494,8 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
       setProgress: (data: HextrisProgress) => set({ progress: data }),
     }),
     {
+      storage: createOwnerPersistStorage("hextris-game-state", "hextris"),
+      skipHydration: true,
       name: "hextris-game-state",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -503,3 +507,5 @@ export const useHextrisStore = create<HextrisGameState & HextrisActions>()(
     }
   )
 );
+
+bindPersistedStore("hextris-game-state", useHextrisStore.persist, () => useHextrisStore.setState({}));

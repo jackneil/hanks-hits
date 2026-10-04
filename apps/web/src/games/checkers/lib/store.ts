@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { sameProgress } from "@/shared/lib/progressStamp";
@@ -350,6 +352,8 @@ export const useCheckersStore = create<GameState & GameActions>()(
         }),
     }),
     {
+      storage: createOwnerPersistStorage("checkers-progress", "checkers"),
+      skipHydration: true,
       name: "checkers-progress",
       version: 2,
       migrate: (persistedState: unknown, version: number) => {
@@ -396,3 +400,5 @@ export const useCheckersStore = create<GameState & GameActions>()(
     }
   )
 );
+
+bindPersistedStore("checkers-progress", useCheckersStore.persist, () => useCheckersStore.setState({}));

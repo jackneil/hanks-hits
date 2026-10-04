@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
+
+const loadProgressModule = () => import("@/games/bomberman/BombermanGameShell");
 
 const BombermanGameShell = dynamic(
-  () => import("@/games/bomberman/BombermanGameShell"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -15,6 +18,14 @@ const BombermanGameShell = dynamic(
   }
 );
 
-export default function BombermanPage() {
+function BombermanPageContent() {
   return <BombermanGameShell />;
+}
+
+export default function BombermanPage() {
+  return (
+    <ProgressHydrationBoundary appId="bomberman" loadModule={loadProgressModule}>
+      <BombermanPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

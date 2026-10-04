@@ -1,9 +1,20 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 
-const WordleGameShell = dynamic(() => import("@/games/wordle/GameShell"), { ssr: false });
+const loadProgressModule = () => import("@/games/wordle/GameShell");
+
+const WordleGameShell = dynamic(loadProgressModule, { ssr: false });
+
+function WordlePageContent() {
+  return <WordleGameShell />;
+}
 
 export default function WordlePage() {
-  return <WordleGameShell />;
+  return (
+    <ProgressHydrationBoundary appId="wordle" loadModule={loadProgressModule}>
+      <WordlePageContent />
+    </ProgressHydrationBoundary>
+  );
 }

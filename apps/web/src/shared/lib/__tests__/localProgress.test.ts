@@ -1,14 +1,16 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { findLocalProgress } from "../localProgress";
-import { isClearedOnSignOut } from "@/lib/storage-keys";
-
-// The shelf's stat line depends on finding progress under whichever key
-// convention a game happened to pick. These tests use the REAL key names
-// from GAME_STORAGE_KEYS so a convention drift breaks loudly here.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { findLocalProgress as FindLocalProgress } from "../localProgress";
+let findLocalProgress: typeof FindLocalProgress;
+let owner: typeof import("@/lib/owner-bound-progress").ownerBoundProgress;
 
 describe("findLocalProgress", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
+    vi.resetModules();
+    ({ findLocalProgress } = await import("../localProgress"));
+    ({ ownerBoundProgress: owner } = await import("@/lib/owner-bound-progress"));
+    await owner.updateSession("unauthenticated");
   });
 
   it("reads a persist envelope with a partialized progress field", () => {
@@ -71,42 +73,25 @@ describe("findLocalProgress", () => {
     expect(findLocalProgress("2048")).toBeNull();
   });
 
-  it("never displays a convention key that sign-out would not clear", () => {
-    // Structural invariant: every convention-probed key must satisfy
-    // isClearedOnSignOut, so account-linked progress that survives a
-    // sign-out can never leak onto the next kid's shelf. Probe a key
-    // shape outside both the registry and the cleared suffixes.
-    window.localStorage.setItem(
-      "mystery-kid-game-state",
-      JSON.stringify({ state: { progress: { highScore: 9 } }, version: 0 })
-    );
-    // "-game-state" IS a cleared suffix, so this one is displayable...
-    expect(findLocalProgress("mystery-kid")?.progress).toEqual({
-      highScore: 9,
-    });
-    // ...and every candidate the helper can probe is clear-safe by
-    // construction. Assert the invariant over the whole convention space.
-    const suffixes = [
-      "-storage",
-      "-progress",
-      "-save",
-      "-game-state",
-      "-state",
-      "-app-progress",
-    ];
-    for (const suffix of suffixes) {
-      const key = `any-game${suffix}`;
-      if (!isClearedOnSignOut(key)) {
-        // A non-cleared shape must never be displayed: seed it and prove
-        // the helper refuses to read it.
-        window.localStorage.setItem(
-          key,
-          JSON.stringify({ state: { progress: { highScore: 1 } }, version: 0 })
-        );
-        expect(findLocalProgress("any-game")).toBeNull();
-        window.localStorage.removeItem(key);
-      }
-    }
+  it("does not guess unknown keys into the account registry", () => {
+    window.localStorage.setItem("mystery-kid-game-state", JSON.stringify({ state: { highScore: 9 } }));
+    expect(findLocalProgress("mystery-kid")).toBeNull();
+  });
+
+  it("hides foreign legacy progress from a guest", () => {
+    window.localStorage.setItem("hanks-hits-progress-owner", "account-A");
+    window.localStorage.setItem("snake-game-state", JSON.stringify({ state: { highScore: 99 } }));
+    expect(findLocalProgress("snake")).toBeNull();
+  });
+
+  it("reads its namespace without importing a store, and never a different owner's namespace", async () => {
+    const { createOwnerBoundProgress } = await import("@/lib/owner-bound-progress");
+    const other = createOwnerBoundProgress();
+    await other.updateSession("authenticated", "account-A");
+    other.writeScoped("snake-game-state", JSON.stringify({ state: { highScore: 99 } }));
+    expect(findLocalProgress("snake")).toBeNull();
+    owner.writeScoped("snake-game-state", JSON.stringify({ state: { highScore: 7 } }));
+    expect(findLocalProgress("snake")?.progress).toEqual({ highScore: 7 });
   });
 
   describe("device-owned alias saves (four-wheeler's My Land)", () => {
@@ -134,18 +119,9 @@ describe("findLocalProgress", () => {
     });
   });
 
-  it("documents the key-collision hazard for future slugs", () => {
-    // A game slugged "snake-game" would probe "snake-game-state" - which
-    // is Snake's REAL key - and cheerfully show Snake's score as its own.
-    // No current id collides; this test records the hazard so a future
-    // colliding slug fails loudly here instead of lying quietly on the
-    // shelf.
-    window.localStorage.setItem(
-      "snake-game-state",
-      JSON.stringify({ state: { progress: { highScore: 99 } }, version: 0 })
-    );
-    expect(findLocalProgress("snake-game")?.progress).toEqual({
-      highScore: 99,
-    });
+  it("does not confuse a colliding slug with an exact registered game", () => {
+    window.localStorage.setItem("snake-game-state", JSON.stringify({ state: { progress: { highScore: 99 } }, version: 0 }));
+    expect(findLocalProgress("snake-game")).toBeNull();
+    expect(findLocalProgress("snake")?.progress).toEqual({ highScore: 99 });
   });
 });

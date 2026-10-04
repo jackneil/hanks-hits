@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
@@ -426,6 +428,8 @@ export const useQuoridorStore = create<GameState & GameActions>()(
       };
     },
     {
+      storage: createOwnerPersistStorage("quoridor-progress", "quoridor"),
+      skipHydration: true,
       name: "quoridor-progress",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -440,3 +444,5 @@ export const useQuoridorStore = create<GameState & GameActions>()(
     }
   )
 );
+
+bindPersistedStore("quoridor-progress", useQuoridorStore.persist, () => useQuoridorStore.setState({}));

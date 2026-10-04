@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, useSyncExternalStore } from "react";
 import { useSession } from "next-auth/react";
 import type { ValidAppId, AppProgressData } from "@hank-neil/db/schema";
 import { extractTimestamp } from "@/lib/progress-merge";
@@ -11,7 +11,6 @@ import {
   applyOwnChanges,
   foldProgress,
   isLegacyUntouchedRow,
-  isMarkedSave,
   isRecord,
   isUntouchedProgress,
   listItemKeys,
@@ -21,11 +20,10 @@ import {
   type ListItemKeys,
 } from "@/shared/lib/untouchedProgress";
 import {
-  PROGRESS_OWNER_KEY,
   SIGNOUT_BROADCAST_KEY,
-  clearGameStorage,
   isClearedOnSignOut,
 } from "@/lib/storage-keys";
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
 
 import type { ProgressContinuation, ProgressRead } from "@/shared/lib/progressContinuation";
 
@@ -50,7 +48,7 @@ type UseAuthSyncReturn = {
   /**
    * True when the page may change progress by itself (a time update, a
    * catch-up for the time away, a first item that shows by itself): for a
-   * guest at once, for a signed-in player when the first sync is done, so
+   * guest after local hydration, for a signed-in player when first sync is done, so
    * the change goes onto the account's progress and not onto an old copy.
    * When the account cannot be reached for READY_FALLBACK_MS, the page runs
    * on the device's progress (as a guest's page does), and a later sync
@@ -120,20 +118,8 @@ function addKeys(into: Map<string, Set<string>>, keys: ListItemKeys): void {
   }
 }
 
-/** localStorage.getItem, or null when the storage is blocked. */
-function readKey(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-// True from the moment a foreign-owner purge begins until the pending hard
-// reload lands. MODULE-level on purpose: it must survive client-side
-// navigation and remounts (a fresh hook instance would otherwise sail past
-// the now-matching marker and upload the foreign in-memory state), and it
-// dies automatically with the reload.
+// Lock sync across remounts after authority revocation until the provider
+// completes a hard navigation. Legacy saves and their marker remain untouched.
 let foreignPurgePending = false;
 
 /** Test-only escape hatch: jsdom never actually reloads, so tests must
@@ -145,10 +131,10 @@ export function __unsafeResetForeignPurgeLockForTests() {
 /**
  * Hook for syncing game/app state between localStorage and database
  *
- * - Guest mode: saves to localStorage only
+ * - Guest mode: saves in the confirmed guest namespace
  * - Authenticated: syncs to DB with debounced auto-save
- * - On login: merges localStorage → DB
- * - On logout: clears localStorage (handled by signOutAndClear)
+ * - On login: merges the owner-approved local snapshot with DB
+ * - On logout: revokes the document; original legacy sources remain intact
  *
  * Untouched progress never replaces the account's progress. The server
  * merges by the time in the progress (last write wins), and a store that no
@@ -193,9 +179,8 @@ export function useAuthSync<T extends AppProgressData>({
   onSyncComplete,
   continuation,
 }: UseAuthSyncOptions<T>): UseAuthSyncReturn {
-  // Every synced key MUST be cleared by signOutAndClear, or the next kid on
-  // a shared device inherits (and uploads) this one's progress. The scan test
-  // only sees string literals, so catch every construction here at mount.
+  // Keep every synced logical key inventoried. Physical owner isolation and
+  // legacy preservation are enforced by the storage authority.
   if (process.env.NODE_ENV !== "production" && !isClearedOnSignOut(localStorageKey)) {
     throw new Error(
       `useAuthSync localStorageKey "${localStorageKey}" is not covered by ` +
@@ -204,6 +189,14 @@ export function useAuthSync<T extends AppProgressData>({
   }
 
   const { data: session, status } = useSession();
+  const ownerSnapshot = useSyncExternalStore(ownerBoundProgress.subscribe, ownerBoundProgress.getSnapshot, ownerBoundProgress.getSnapshot);
+  const leaseRef = useRef<ReturnType<typeof ownerBoundProgress.captureLease>>(null);
+  if (leaseRef.current === null && ownerSnapshot.status === "ready") leaseRef.current = ownerBoundProgress.captureLease();
+  const bindingIsCurrent = useCallback(() => leaseRef.current !== null && ownerBoundProgress.isCurrent(leaseRef.current)
+    && ownerBoundProgress.matchesSession(status, session?.user?.id), [status, session?.user?.id]);
+  const bindingIsCurrentRef = useRef(bindingIsCurrent);
+  bindingIsCurrentRef.current = bindingIsCurrent;
+  const hydrated = ownerBoundProgress.isHydrated(localStorageKey);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
@@ -222,26 +215,17 @@ export function useAuthSync<T extends AppProgressData>({
   // The account whose progress the page loaded (the owner key at the first
   // render), and the mark of the last sign-out at that time. Another tab can
   // change both while this page holds the loaded progress in memory.
-  const ownerAtLoadRef = useRef<string | null | undefined>(undefined);
-  const signOutMarkRef = useRef<string | null>(null);
   // The keys of the list items that this page shares with the account or
   // another tab (its save at load, its uploads, the progress that it took),
   // per list. An item that is not here and that newer progress does not
   // hold is an item that the player made on this page and did not save yet.
   const knownItemsRef = useRef<Map<string, Set<string>> | null>(null);
-  if (savedAtLoadRef.current === null && typeof window !== "undefined") {
-    try {
-      savedAtLoadRef.current = localStorage.getItem(localStorageKey) !== null;
-    } catch {
-      savedAtLoadRef.current = true;
-    }
+  if (savedAtLoadRef.current === null && hydrated) {
+    const evidence = ownerBoundProgress.readEvidence(localStorageKey);
+    savedAtLoadRef.current = !evidence.markerReadable || evidence.raw !== null;
   }
-  if (tsAtLoadRef.current === undefined) {
+  if (tsAtLoadRef.current === undefined && hydrated) {
     tsAtLoadRef.current = extractTimestamp(getState() as AppProgressData);
-  }
-  if (ownerAtLoadRef.current === undefined && typeof window !== "undefined") {
-    ownerAtLoadRef.current = readKey(PROGRESS_OWNER_KEY);
-    signOutMarkRef.current = readKey(SIGNOUT_BROADCAST_KEY);
   }
   if (knownItemsRef.current === null) {
     knownItemsRef.current = new Map();
@@ -263,6 +247,9 @@ export function useAuthSync<T extends AppProgressData>({
   const initialSyncUserIdRef = useRef<string | null>(null);
   const syncAttemptsRef = useRef(0);
   const syncInFlightRef = useRef(false);
+  const acceptedGuestCandidatesRef = useRef(new Set<string>());
+  const guestCanonicalRef = useRef(false);
+  const retryGuestRef = useRef(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [retryTick, setRetryTick] = useState(0);
   // The account cannot be reached for READY_FALLBACK_MS: `ready` anyway.
@@ -306,6 +293,17 @@ export function useAuthSync<T extends AppProgressData>({
     [noteKnown]
   );
 
+  const acknowledgeGuestCandidates = useCallback(() => {
+    const lease = leaseRef.current;
+    if (!lease || !bindingIsCurrentRef.current() || !guestCanonicalRef.current) return;
+    if (acceptedGuestCandidatesRef.current.size) ownerBoundProgress.flushStore(localStorageKey, lease);
+    for (const id of acceptedGuestCandidatesRef.current) {
+      if (ownerBoundProgress.acknowledgeGuestCandidate(localStorageKey, id, lease)) {
+        acceptedGuestCandidatesRef.current.delete(id);
+      }
+    }
+  }, [localStorageKey]);
+
   /**
    * True when a save may leave the page: the first sync is done for the
    * session's account, and no other account took the page or the device.
@@ -314,98 +312,26 @@ export function useAuthSync<T extends AppProgressData>({
     () =>
       !foreignDataRef.current &&
       !foreignPurgePending &&
+      bindingIsCurrentRef.current() &&
       syncedUserIdRef.current !== null &&
       syncedUserIdRef.current === sessionUserIdRef.current,
     []
   );
 
-  /**
-   * The progress in memory belongs to another account than `userId`: lock
-   * every save, remove the saves on this device, claim the device for
-   * `userId`, and reload. A hard reload is the only thing that removes the
-   * progress that the stores hold in memory (see runInitialSync).
-   */
-  const enterForeignOwner = useCallback((userId: string) => {
-    foreignDataRef.current = true;
-    foreignPurgePending = true;
-    try {
-      clearGameStorage();
-      localStorage.setItem(PROGRESS_OWNER_KEY, userId);
-    } catch {
-      // Blocked storage: nothing is saved on this device.
-    }
-    // The persist middleware can re-write the foreign blob from memory
-    // BEFORE the reload's navigation commits (cookie-clicker's ticker
-    // writes 20x/s). pagehide fires when the navigation commits, after
-    // the document's last timer — so this makes the clear the final
-    // write and the reload always boots from clean disk.
-    window.addEventListener(
-      "pagehide",
-      () => {
-        try {
-          clearGameStorage();
-        } catch {
-          // Blocked storage.
-        }
-      },
-      { once: true }
-    );
-    // bfcache escape: if a competing navigation preempts the reload and
-    // this document is later restored frozen, reload it then too.
-    window.addEventListener(
-      "pageshow",
-      (e) => {
-        if ((e as PageTransitionEvent).persisted) {
-          window.location.reload();
-        }
-      },
-      { once: true }
-    );
-    window.location.reload();
-  }, []);
-
-  /**
-   * Another tab changed the device under this page (a sign-out, or the
-   * claim of the device for another account): the progress in memory is
-   * stale. Lock every save and reload. The other tab already handled the
-   * saves on disk, so this page puts back the save of this key as the other
-   * tab left it, as the last write before the reload (the persist
-   * middleware can write the old progress from memory first).
-   */
+  /** The provider owns navigation. Revocation never changes legacy storage. */
   const leaveStalePage = useCallback(() => {
     if (foreignDataRef.current) return;
     foreignDataRef.current = true;
     foreignPurgePending = true;
-    const left = readKey(localStorageKey);
-    window.addEventListener(
-      "pagehide",
-      () => {
-        try {
-          if (left === null) localStorage.removeItem(localStorageKey);
-          else localStorage.setItem(localStorageKey, left);
-        } catch {
-          // Blocked storage.
-        }
-      },
-      { once: true }
-    );
-    window.location.reload();
-  }, [localStorageKey]);
-
-  /**
-   * True when another tab changed the device since this page loaded or
-   * synced its progress: a sign-out (the broadcast mark), or a new owner
-   * of the device (the owner key).
-   */
-  const deviceChangedUnderPage = useCallback(() => {
-    if (readKey(SIGNOUT_BROADCAST_KEY) !== signOutMarkRef.current) return true;
-    const expected = syncedUserIdRef.current ?? ownerAtLoadRef.current ?? null;
-    return expected !== null && readKey(PROGRESS_OWNER_KEY) !== expected;
+    ownerBoundProgress.revoke();
   }, []);
 
-  // Another tab signing out clears localStorage, but THIS tab's in-memory
-  // store would re-persist it within seconds. Reload on the broadcast so the
-  // previous user's progress can't survive into the next login.
+  const deviceChangedUnderPage = useCallback(
+    () => !bindingIsCurrentRef.current(), []
+  );
+
+  // A sign-out invalidates this document before navigation. Scoped events
+  // can update only the currently captured owner binding.
   //
   // Another tab that saves newer progress for this key: take it now (the
   // way the first sync takes the account's progress), so that this tab's
@@ -417,7 +343,7 @@ export function useAuthSync<T extends AppProgressData>({
   useEffect(() => {
     const takeNewer = (raw: string | null) => {
       if (raw === null) return;
-      if (foreignDataRef.current || foreignPurgePending) return;
+      if (foreignDataRef.current || foreignPurgePending || !bindingIsCurrentRef.current()) return;
       let saved: unknown;
       try {
         const parsed = JSON.parse(raw);
@@ -425,7 +351,7 @@ export function useAuthSync<T extends AppProgressData>({
       } catch {
         return;
       }
-      const theirs = progressFromSave(appId, saved);
+      const theirs = progressFromSave(appId, saved, ownerBoundProgress.readEvidence(localStorageKey).loadAt);
       if (!theirs) return;
       if (continuationRef.current?.active) {
         continuationRef.current.observeOtherTab(theirs as T);
@@ -456,36 +382,41 @@ export function useAuthSync<T extends AppProgressData>({
     };
     const onStorage = (e: StorageEvent) => {
       if (e.key === SIGNOUT_BROADCAST_KEY) {
-        window.location.reload();
+        leaveStalePage();
         return;
       }
-      if (e.key === PROGRESS_OWNER_KEY) {
-        // Another tab claimed the device for another account (its first
-        // sync found progress of a different owner).
-        if (deviceChangedUnderPage()) leaveStalePage();
-        return;
-      }
-      if (e.key !== localStorageKey) return;
-      takeNewer(e.newValue);
+      if (ownerBoundProgress.getSnapshot().status === "unresolved") return;
+      if (deviceChangedUnderPage()) { leaveStalePage(); return; }
+      if (!ownerBoundProgress.isScopedStorageEvent(e, localStorageKey)) return;
+      takeNewer(ownerBoundProgress.readScoped(localStorageKey, leaseRef.current ?? undefined));
     };
     // A page from the back-forward cache missed the storage events of the
     // time it was away: a sign-out or a new owner reloads it; else it reads
     // the save again.
     const onPageShow = (e: PageTransitionEvent) => {
       if (!e.persisted) return;
+      // The provider's capture-phase handler first revalidates authentication.
+      // Suspension is not evidence that a different owner took this document.
+      if (ownerBoundProgress.getSnapshot().status === "unresolved") return;
       if (deviceChangedUnderPage()) {
         leaveStalePage();
         return;
       }
-      takeNewer(readKey(localStorageKey));
+      takeNewer(ownerBoundProgress.readScoped(localStorageKey, leaseRef.current ?? undefined));
     };
     window.addEventListener("storage", onStorage);
     window.addEventListener("pageshow", onPageShow);
+    // A provider may have suspended the bfcache event while checking auth.
+    // Once this owner is confirmed, merge its latest bytes through the same
+    // B1 path, without rehydrating over in-memory play.
+    if (bindingIsCurrentRef.current() && hydrated) {
+      takeNewer(ownerBoundProgress.readScoped(localStorageKey, leaseRef.current ?? undefined));
+    }
     return () => {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("pageshow", onPageShow);
     };
-  }, [appId, localStorageKey, noteKnown, deviceChangedUnderPage, leaveStalePage]);
+  }, [appId, localStorageKey, noteKnown, deviceChangedUnderPage, leaveStalePage, hydrated, ownerSnapshot.generation]);
 
   // The session's account changed on this mounted page (another tab signed
   // in as another kid; the login page does not sign out first). The
@@ -496,34 +427,49 @@ export function useAuthSync<T extends AppProgressData>({
     const synced = syncedUserIdRef.current ?? initialSyncUserIdRef.current;
     if (!sessionUserId || synced === null || sessionUserId === synced) return;
     if (foreignDataRef.current || foreignPurgePending) return;
-    enterForeignOwner(sessionUserId);
-  }, [sessionUserId, enterForeignOwner]);
+    leaveStalePage();
+  }, [sessionUserId, leaveStalePage]);
 
   /**
    * Fetch progress from server
    */
   const fetchFromServer = useCallback(async (): Promise<ProgressRead<T> | null> => {
+    const lease = leaseRef.current;
+    const ownerId = sessionUserIdRef.current;
+    if (!lease || !ownerId || !bindingIsCurrentRef.current()) return null;
     try {
-      const res = await fetch(`/api/progress/${appId}`);
+      const res = await fetch(`/api/progress/${appId}`, { headers: { "x-hh-expected-owner": ownerId } });
+      if (!ownerBoundProgress.isCurrent(lease) || !bindingIsCurrentRef.current()) return null;
       if (!res.ok) {
+        if (res.status === 409) {
+          const body: unknown = await res.json();
+          if (!ownerBoundProgress.isCurrent(lease) || !bindingIsCurrentRef.current()) return null;
+          if (isRecord(body) && body.code === "owner_changed") leaveStalePage();
+        }
         console.error("Failed to fetch progress:", res.status);
         return null;
       }
-      return res.json();
+      const result = await res.json();
+      return ownerBoundProgress.isCurrent(lease) && bindingIsCurrentRef.current() ? result : null;
     } catch (error) {
       console.error("Fetch progress error:", error);
       return null;
     }
-  }, [appId]);
+  }, [appId, leaveStalePage]);
 
   /**
    * Save progress to server
    */
   const saveToServer = useCallback(
     async (data: T, merge = false): Promise<SaveResult> => {
+      const lease = leaseRef.current;
+      const ownerId = sessionUserIdRef.current;
+      if (!lease || !ownerId || !bindingIsCurrentRef.current()) return { ok: false, status: null };
+      const current = () => ownerBoundProgress.isCurrent(lease) && bindingIsCurrentRef.current();
       if (continuationRef.current?.active) {
         setSyncStatus("syncing");
         const result = await continuationRef.current.save(data);
+        if (!current()) return { ok: false, status: result.status };
         setSyncStatus(result.ok ? "synced" : "error");
         if (result.ok) setLastSynced(new Date());
         return result;
@@ -537,15 +483,22 @@ export function useAuthSync<T extends AppProgressData>({
           body: JSON.stringify({
             data,
             merge,
+            expectedOwnerId: ownerId,
           }),
         });
+        if (!current()) return { ok: false, status: res.status };
 
         if (!res.ok) {
           // The status and the server's reason (a field path and a rule,
           // never a value of the progress), so that a refusal can be found.
           let reason = "";
           try {
-            const body = (await res.json()) as { error?: unknown };
+            const body = (await res.json()) as { error?: unknown; code?: unknown };
+            if (!current()) return { ok: false, status: res.status };
+            if (res.status === 409 && body?.code === "owner_changed") {
+              leaveStalePage();
+              return { ok: false, status: res.status };
+            }
             if (typeof body?.error === "string") reason = body.error.slice(0, 300);
           } catch {
             // No JSON body.
@@ -556,68 +509,25 @@ export function useAuthSync<T extends AppProgressData>({
         }
 
         const result = await res.json();
+        if (!current()) return { ok: false, status: res.status };
         setSyncStatus("synced");
         setLastSynced(new Date(result.updatedAt));
         return { ok: true, status: res.status };
       } catch (error) {
+        if (!current()) return { ok: false, status: null };
         console.error("Save progress error:", error);
         setSyncStatus("error");
         return { ok: false, status: null };
       }
     },
-    [appId]
+    [appId, leaveStalePage]
   );
 
-  /**
-   * Wait for Zustand persist hydration from localStorage
-   * This prevents uploading empty state if hydration hasn't completed yet
-   */
+  /** Middleware completion, never a timer or an equality guess. */
   const waitForHydration = useCallback(async (): Promise<T> => {
-    // Check if localStorage has data for this key
-    const stored = localStorage.getItem(localStorageKey);
-    if (!stored) {
-      // No localStorage data, no need to wait
-      return getStateRef.current();
-    }
-
-    // The progress that the store holds after hydration: the save's
-    // progress as the store's rule reads it (shared/lib/untouchedProgress.ts).
-    // A save of the code before the sync-time fix gets its real time on load
-    // (the load time when it has none), so it is compared without its time.
-    let expected: Record<string, unknown> | null = null;
-    let legacy = false;
-    try {
-      const parsed = JSON.parse(stored);
-      const saved = isRecord(parsed) ? parsed.state : null;
-      legacy = !isMarkedSave(saved);
-      expected = progressFromSave(appId, saved);
-    } catch {
-      // If parse fails, just return current state
-      return getStateRef.current();
-    }
-    if (!expected) return getStateRef.current();
-    const ignore = legacy ? [progressTimeKey(appId)] : [];
-
-    // Wait until the store's state actually EQUALS the persisted snapshot.
-    // (The old heuristic returned as soon as lastModified was defined — which
-    // the pre-hydration DEFAULT state satisfies, so default zeros could be
-    // uploaded as if they were the player's progress.)
-    const maxWait = 500;
-    const checkInterval = 25;
-    let waited = 0;
-
-    while (waited < maxWait) {
-      const state = getStateRef.current();
-      if (sameProgress(state, expected, ignore)) {
-        return state;
-      }
-      await new Promise((r) => setTimeout(r, checkInterval));
-      waited += checkInterval;
-    }
-
-    // Return whatever we have after waiting
+    await ownerBoundProgress.whenHydrated(localStorageKey);
     return getStateRef.current();
-  }, [appId, localStorageKey]);
+  }, [localStorageKey]);
 
   /** The first sync for `userId` is done: saves may start, and the page is ready. */
   const markSynced = useCallback((userId: string) => {
@@ -660,36 +570,11 @@ export function useAuthSync<T extends AppProgressData>({
     syncAttemptsRef.current += 1;
     setSyncStatus("syncing");
 
-    // Shared-device guard: if the locally stored progress belongs to a
-    // DIFFERENT user (the previous kid on a family computer — possible when
-    // a second open tab re-persisted after sign-out cleared the keys), never
-    // let it reach this account. Clearing localStorage is NOT enough: the
-    // module-level zustand store already hydrated the foreign data into
-    // memory, where any later save path (debounce, forceSync, the unmount
-    // beacon, or a remount after client-side navigation) could upload it.
-    // A hard reload is the only thing that destroys that in-memory state;
-    // after it, stores hydrate to defaults, the marker matches, and the
-    // normal path adopts server state. Fail-closed by construction — even
-    // if the server is down post-reload, defaults are all that's left to
-    // upload. foreignDataRef locks every save path on THIS instance in the
-    // window before the reload lands (and in any context that blocks it).
-    //
-    // The owner at the page's first render counts too: another tab can claim
-    // the device for this account (and remove the saves on disk) while this
-    // page holds the previous account's progress in memory.
     const userId = session?.user?.id;
-    if (!userId) return;
+    if (!userId || !bindingIsCurrentRef.current()) return;
     initialSyncUserIdRef.current = userId;
-    const owner = localStorage.getItem(PROGRESS_OWNER_KEY);
-    const ownerAtLoad = ownerAtLoadRef.current ?? null;
-    if ((owner && owner !== userId) || (ownerAtLoad !== null && ownerAtLoad !== userId)) {
-      enterForeignOwner(userId);
-      return;
-    }
-    localStorage.setItem(PROGRESS_OWNER_KEY, userId);
-    // The session changed while this sync waited (another tab signed in as
-    // another account): stop. The session effect locks the page.
-    const sessionMoved = () => foreignDataRef.current || foreignPurgePending || sessionUserIdRef.current !== userId;
+    const sessionMoved = () => foreignDataRef.current || foreignPurgePending
+      || sessionUserIdRef.current !== userId || !bindingIsCurrentRef.current();
 
     const tsAtStart = extractTimestamp(getStateRef.current() as AppProgressData);
 
@@ -704,6 +589,35 @@ export function useAuthSync<T extends AppProgressData>({
 
     // Wait for Zustand to hydrate from localStorage first
     let localState = await waitForHydration();
+    if (sessionMoved()) return;
+
+    // Admit explicit guest play through the existing server merge before the
+    // normal first GET. The hydrated account namespace remains our local side.
+    // Cookie wallets require an explicit recovery choice instead.
+    retryGuestRef.current = false;
+    if (appId !== "cookie-clicker") {
+      const lease = leaseRef.current!;
+      for (const candidate of ownerBoundProgress.listGuestCandidates(localStorageKey, lease)) {
+        if (acceptedGuestCandidatesRef.current.has(candidate.id)) continue;
+        let progress: Record<string, unknown> | null = null;
+        try {
+          const envelope: unknown = JSON.parse(candidate.raw);
+          progress = progressFromSave(appId, isRecord(envelope) ? envelope.state : null, candidate.loadAt);
+        } catch { /* Unsupported candidates remain available for recovery. */ }
+        if (!progress) continue;
+        if (uploadable(appId, progress)) {
+          const accepted = await saveToServer(progress as T, true);
+          if (sessionMoved()) return;
+          if (!accepted.ok) {
+            retryGuestRef.current ||= retryable(accepted);
+            continue; // An unavailable candidate does not block account saving.
+          }
+        }
+        acceptedGuestCandidatesRef.current.add(candidate.id);
+        guestCanonicalRef.current = false;
+      }
+      if (retryGuestRef.current) scheduleRetry();
+    }
 
     // Fetch server state
     const serverResult = await fetchFromServer();
@@ -805,6 +719,12 @@ export function useAuthSync<T extends AppProgressData>({
       markSynced(userId);
       setSyncStatus("synced");
       onSyncCompleteRef.current?.(source);
+      guestCanonicalRef.current = true;
+      acknowledgeGuestCandidates();
+      if (acceptedGuestCandidatesRef.current.size) {
+        retryGuestRef.current = true;
+        scheduleRetry();
+      }
     };
     /**
      * A save of the first sync failed. A failure worth trying again (no
@@ -949,14 +869,15 @@ export function useAuthSync<T extends AppProgressData>({
     markSynced,
     noteKnown,
     noteSaved,
-    enterForeignOwner,
     deviceChangedUnderPage,
+    acknowledgeGuestCandidates,
+    localStorageKey,
     session?.user?.id,
   ]);
 
   /** One initial sync at a time (a retry or a second effect run waits its turn). */
   const performInitialSync = useCallback(async () => {
-    if (initialSyncDoneRef.current || foreignPurgePending || syncInFlightRef.current) return;
+    if ((initialSyncDoneRef.current && !retryGuestRef.current) || foreignPurgePending || syncInFlightRef.current || !bindingIsCurrentRef.current()) return;
     syncInFlightRef.current = true;
     try {
       await runInitialSync();
@@ -1043,7 +964,7 @@ export function useAuthSync<T extends AppProgressData>({
   useEffect(() => {
     let syncTimer: ReturnType<typeof setTimeout> | undefined;
 
-    if (isAuthenticated && !initialSyncDoneRef.current) {
+    if (isAuthenticated && hydrated && bindingIsCurrent() && (!initialSyncDoneRef.current || retryGuestRef.current)) {
       syncTimer = setTimeout(() => {
         performInitialSync();
       }, 0);
@@ -1057,7 +978,7 @@ export function useAuthSync<T extends AppProgressData>({
     return () => {
       if (syncTimer) clearTimeout(syncTimer);
     };
-  }, [isAuthenticated, status, performInitialSync, retryTick]);
+  }, [isAuthenticated, status, hydrated, bindingIsCurrent, performInitialSync, retryTick]);
 
   // Achievements observer — ALWAYS on (the auto-save poll below is
   // auth-gated, which would lock guest kids out of trophies). Every synced
@@ -1070,7 +991,7 @@ export function useAuthSync<T extends AppProgressData>({
 
     let lastReported = "";
     const interval = setInterval(() => {
-      if (foreignDataRef.current || foreignPurgePending) return;
+      if (foreignDataRef.current || foreignPurgePending || !bindingIsCurrentRef.current() || !ownerBoundProgress.isHydrated(localStorageKey)) return;
       const state = getStateRef.current();
       const stateStr = JSON.stringify(state);
       if (stateStr === lastReported) return;
@@ -1079,7 +1000,7 @@ export function useAuthSync<T extends AppProgressData>({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [appId]);
+  }, [appId, localStorageKey]);
 
   // Subscribe to state changes for auto-save
   useEffect(() => {
@@ -1123,7 +1044,7 @@ export function useAuthSync<T extends AppProgressData>({
 
       // merge:true so this best-effort write can never blind-overwrite a
       // newer save that raced it.
-      const payload = JSON.stringify({ data, merge: true });
+      const payload = JSON.stringify({ data, merge: true, expectedOwnerId: sessionUserIdRef.current });
 
       // Must use Blob with Content-Type or API's request.json() fails
       const blob = new Blob([payload], { type: "application/json" });
@@ -1155,7 +1076,7 @@ export function useAuthSync<T extends AppProgressData>({
           }
           lastSavedRef.current = dataStr;
           // merge:true — same race protection as the unload beacon.
-          const payload = JSON.stringify({ data, merge: true });
+          const payload = JSON.stringify({ data, merge: true, expectedOwnerId: sessionUserIdRef.current });
           // Must use Blob with Content-Type or API's request.json() fails
           const blob = new Blob([payload], { type: "application/json" });
           navigator.sendBeacon(`/api/progress/${appId}`, blob);
@@ -1174,8 +1095,8 @@ export function useAuthSync<T extends AppProgressData>({
     syncStatus: isLoading ? "syncing" : syncStatus,
     lastSynced,
     forceSync,
-    ready: !isLoading && (!isAuthenticated || syncedUserId === session?.user?.id || offline),
-    synced: isAuthenticated && syncedUserId === session?.user?.id,
+    ready: !isLoading && hydrated && bindingIsCurrent() && (!isAuthenticated || syncedUserId === session?.user?.id || offline),
+    synced: isAuthenticated && hydrated && bindingIsCurrent() && syncedUserId === session?.user?.id,
   };
 }
 

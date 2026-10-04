@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
+
+const loadProgressModule = () => import("@/games/breakout/BreakoutGameShell");
 
 const BreakoutGameShell = dynamic(
-  () => import("@/games/breakout/BreakoutGameShell"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -19,6 +22,14 @@ const BreakoutGameShell = dynamic(
   }
 );
 
-export default function BreakoutPage() {
+function BreakoutPageContent() {
   return <BreakoutGameShell />;
+}
+
+export default function BreakoutPage() {
+  return (
+    <ProgressHydrationBoundary appId="breakout" loadModule={loadProgressModule}>
+      <BreakoutPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

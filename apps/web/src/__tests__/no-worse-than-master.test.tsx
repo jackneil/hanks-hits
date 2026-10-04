@@ -153,3 +153,16 @@ describe("loss comparison follows field meaning", () => {
     expect(lostValues("memory-match", { kid: { bestTimes: { easy: 13 } } }, { bestTimes: { easy: 20 } }, { bestTimes: { easy: null } })).toEqual(["kid:bestTimes.easy=13"]);
   });
 });
+
+// This recorded B1 oracle compares reconciliation using the same legacy saves
+// and cells as master. Real namespace/auth lifecycle coverage lives separately;
+// the hashed cross-version harness and its loss assertions stay unchanged.
+vi.mock("@/lib/owner-bound-progress", async () => {
+  const { useSession: readSession } = await import("next-auth/react");
+  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
+  return createSyncOwnerFixture(readSession);
+});
+vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
+  const { createJSONStorage } = await import("zustand/middleware");
+  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
+});

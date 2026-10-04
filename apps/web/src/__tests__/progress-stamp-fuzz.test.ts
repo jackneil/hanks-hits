@@ -30,6 +30,7 @@ import { validateProgress } from "@/lib/progress-schemas";
 import { sameProgress } from "@/shared/lib/progressStamp";
 import { installAudioMock } from "@/__tests__/audio-mock";
 import { SYNCED_STORES, type SyncedStoreEntry } from "@/__tests__/synced-stores";
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
 import { DRIVERS, READ_ONLY, SYNC, int, pick, seeded } from "@/__tests__/store-drivers";
 
 // Stores capture initial timestamps during import, so freeze their clock too.
@@ -51,7 +52,9 @@ const actionsOf = (entry: SyncedStoreEntry) =>
     .map(([name]) => name)
     .sort();
 
-beforeAll(() => {
+beforeAll(async () => {
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await Promise.all(SYNCED_STORES.map(entry => ownerBoundProgress.whenHydrated(entry.key)));
   installAudioMock();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });

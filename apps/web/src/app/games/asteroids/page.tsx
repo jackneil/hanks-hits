@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
+
+const loadProgressModule = () => import("@/games/asteroids/AsteroidsGameShell");
 
 const AsteroidsGameShell = dynamic(
-  () => import("@/games/asteroids/AsteroidsGameShell"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -15,6 +18,14 @@ const AsteroidsGameShell = dynamic(
   }
 );
 
-export default function AsteroidsPage() {
+function AsteroidsPageContent() {
   return <AsteroidsGameShell />;
+}
+
+export default function AsteroidsPage() {
+  return (
+    <ProgressHydrationBoundary appId="asteroids" loadModule={loadProgressModule}>
+      <AsteroidsPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

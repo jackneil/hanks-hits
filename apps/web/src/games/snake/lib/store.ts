@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { stampIfChanged } from "@/shared/lib/progressStamp";
@@ -307,6 +309,8 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
       setProgress: (data: SnakeProgress) => set({ progress: data }),
     }),
     {
+      storage: createOwnerPersistStorage("snake-game-state", "snake"),
+      skipHydration: true,
       name: "snake-game-state",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -318,3 +322,5 @@ export const useSnakeStore = create<SnakeGameState & SnakeGameActions>()(
     }
   )
 );
+
+bindPersistedStore("snake-game-state", useSnakeStore.persist, () => useSnakeStore.setState({}));

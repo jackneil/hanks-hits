@@ -1,3 +1,4 @@
+import { AchievementsHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
 import { TrophiesPage } from "@/shared/components/TrophiesPage";
 
 export const metadata = {
@@ -6,5 +7,5 @@ export const metadata = {
 };
 
 export default function TrophiesRoute() {
-  return <TrophiesPage />;
+  return <AchievementsHydrationBoundary><TrophiesPage /></AchievementsHydrationBoundary>;
 }

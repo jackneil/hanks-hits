@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 /**
  * Hill Climb Racing - Zustand Store
  *
@@ -595,6 +597,8 @@ export const useHillClimbStore = create<GameState & GameActions>()(
       },
     }),
     {
+      storage: createOwnerPersistStorage("hill-climb-storage", "hill-climb"),
+      skipHydration: true,
       name: 'hill-climb-storage',
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -624,4 +628,5 @@ stamp.attach(useHillClimbStore);
 
 // A save of the old code has no time: write the time that the load gave it
 // once, so that the next load does not make the old progress newer again.
+bindPersistedStore("hill-climb-storage", useHillClimbStore.persist, () => useHillClimbStore.setState({}));
 persistSettledSave(useHillClimbStore, UNTOUCHED);

@@ -1,3 +1,5 @@
+import { bindPersistedStore } from "@/lib/owner-bound-progress";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { defineUntouchedProgress, markSaved, settleOnLoad } from "@/shared/lib/untouchedProgress";
@@ -246,6 +248,8 @@ export const useWordleStore = create<WordleState>()(
       setProgress: (data) => set((state) => ({ ...state, ...data })),
     }),
     {
+      storage: createOwnerPersistStorage("wordle-progress", "wordle"),
+      skipHydration: true,
       name: "wordle-progress",
       // A save of the code before the sync-time fix gets the real time of
       // its progress. The version stays, so that code still loads a new
@@ -263,3 +267,5 @@ export const useWordleStore = create<WordleState>()(
     }
   )
 );
+
+bindPersistedStore("wordle-progress", useWordleStore.persist, () => useWordleStore.setState({}));

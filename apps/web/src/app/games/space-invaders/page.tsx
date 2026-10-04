@@ -1,9 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { ProgressHydrationBoundary } from "@/shared/components/ProgressHydrationBoundary";
+
+const loadProgressModule = () => import("@/games/space-invaders/SpaceInvadersGameShell");
 
 const SpaceInvadersGameShell = dynamic(
-  () => import("@/games/space-invaders/SpaceInvadersGameShell"),
+  loadProgressModule,
   {
     ssr: false,
     loading: () => (
@@ -19,6 +22,14 @@ const SpaceInvadersGameShell = dynamic(
   }
 );
 
-export default function SpaceInvadersPage() {
+function SpaceInvadersPageContent() {
   return <SpaceInvadersGameShell />;
+}
+
+export default function SpaceInvadersPage() {
+  return (
+    <ProgressHydrationBoundary appId="space-invaders" loadModule={loadProgressModule}>
+      <SpaceInvadersPageContent />
+    </ProgressHydrationBoundary>
+  );
 }

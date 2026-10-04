@@ -59,12 +59,60 @@ vi.mock("@/lib/handle-generator", () => ({
     handles.queue.shift() ?? `TestHandle${++handles.next}`,
 }));
 
-import { POST } from "../route";
+import { GET, POST } from "../route";
 import { PROGRESS_SCHEMAS } from "@/lib/progress-schemas";
 import { JsonValueCounter, PROGRESS_SAVE_BODY } from "@/lib/read-body";
 import { largestSave } from "./largestSave";
 
 const USER_ID = "kid-user-1";
+
+describe("progress requests remain bound to their initiating account", () => {
+  beforeEach(() => {
+    pg.reset();
+    authState.signedIn = true;
+  });
+
+  it.each(["previous-owner", "", null, 42])("refuses an ordinary save with stale or invalid owner %s before writing", async (expectedOwnerId) => {
+    const response = await POST(new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST",
+      body: JSON.stringify({ data: { cookies: 123 }, merge: true, expectedOwnerId }),
+    }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "The signed-in account changed", code: "owner_changed" });
+    expect(pg.rows("app_progress")).toEqual([]);
+    expect(pg.rows("leaderboard_entries")).toEqual([]);
+  });
+
+  it("does not disclose the cookie owner's saved progress to a stale page", async () => {
+    pg.state.committed.set("app_progress", [{
+      id: "current-account-save", userId: USER_ID, appId: "cookie-clicker",
+      data: { privateValue: "current-account-only" }, updatedAt: new Date(),
+    }]);
+    const response = await GET(new Request("http://localhost/api/progress/cookie-clicker", {
+      headers: { "x-hh-expected-owner": "previous-owner" },
+    }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "The signed-in account changed", code: "owner_changed" });
+  });
+
+  it("accepts an ordinary save with a matching owner assertion", async () => {
+    const data = await cookieClickerBlob(123);
+    const response = await POST(new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", body: JSON.stringify({ data, merge: true, expectedOwnerId: USER_ID }),
+    }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    expect(response.status).toBe(200);
+    expect(pg.rows("app_progress")[0]).toMatchObject({ userId: USER_ID, data });
+  });
+
+  it.each([undefined, USER_ID])("allows a matching or legacy missing load assertion %s", async (owner) => {
+    const response = await GET(new Request("http://localhost/api/progress/cookie-clicker", {
+      headers: owner ? { "x-hh-expected-owner": owner } : {},
+    }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await response.json()).data).toBeNull();
+  });
+});
 
 function save(appId: string, data: Record<string, unknown>, merge = false) {
   return POST(

@@ -108,3 +108,15 @@ describe("useAuthSync achievements observer (guest mode)", () => {
     expect(useAchievementsStore.getState().progress.unlocked).toEqual({});
   });
 });
+
+vi.mock("@/lib/owner-bound-progress", async () => {
+  const { useSession: readSession } = await import("next-auth/react");
+  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
+  return createSyncOwnerFixture(readSession);
+});
+
+// B1 reconciliation fixtures retain their historical physical save format.
+vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
+  const { createJSONStorage } = await import("zustand/middleware");
+  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
+});

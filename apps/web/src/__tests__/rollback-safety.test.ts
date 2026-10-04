@@ -1,5 +1,10 @@
 /**
- * A rollback of the sync-time fix must not lose progress.
+ * Historical payload compatibility of the sync-time fix.
+ *
+ * Owner-bound persistence now stores these inner envelopes in v2 namespaces.
+ * The old-code fixtures prove payload compatibility, not physical namespace
+ * discovery. A deployment rollback MUST retain the v2 reader/writer. Frozen
+ * legacy keys remain readable and are never rewritten by the new stores.
  *
  * Review wave 4 of #26i: the fix first raised the persist version of 30
  * stores. The code before the fix (commit 86a1fe0) has no migrate step for
@@ -13,7 +18,7 @@
  * (shared/lib/untouchedProgress.ts). scripts/legacy-saves/rollback.sh
  * writes the saves of the new code (fixtures/new-saves.json) and loads them
  * with the REAL store code of ROLLBACK_COMMIT (rollback-commit.ts), the
- * master commit that a rollback of this deploy runs
+ * historical payload-compatibility target (not a supported namespace rollback)
  * (fixtures/rollback-loads.json). This test holds both files to the rules:
  * - the old code loads every new save with no error, and its progress is
  *   the new save's progress;
@@ -38,7 +43,7 @@ import type { AppProgressData } from "@hank-neil/db/schema";
 import { extractTimestamp } from "@/lib/progress-merge";
 import { sameProgress } from "@/shared/lib/progressStamp";
 import { PROGRESS_SUM_KEY, PROGRESS_TIME_MARKER, isUntouchedProgress, progressFromSave } from "@/shared/lib/untouchedProgress";
-import { SYNCED_STORES, syncedStore } from "@/__tests__/synced-stores";
+import { SYNCED_STORES } from "@/__tests__/synced-stores";
 import { writeNewSaves, type NewSaves } from "@/__tests__/new-save-scenarios";
 import newSavesFile from "@/__tests__/fixtures/new-saves.json";
 import rollbackFile from "@/__tests__/fixtures/rollback-loads.json";
@@ -71,7 +76,7 @@ describe("the fixtures", () => {
     expect(cases.length).toBeGreaterThan(SYNCED_STORES.length * 2);
   });
 
-  it("match the saves that the store code of this checkout writes", async () => {
+  it("match the inner envelopes this checkout writes durably without changing legacy keys", async () => {
     const now = await writeNewSaves();
     for (const [appId, entry] of Object.entries(NEW)) {
       expect(now[appId].version, `${appId}: ${RERUN}`).toBe(entry.version);
@@ -134,12 +139,16 @@ describe("a save whose old code keeps keys that it does not know", () => {
     const rewritten = JSON.parse(played.rewritten!).state;
     // The old code kept this code's marker and time while the kid played on.
     expect(rewritten[PROGRESS_TIME_MARKER]).toBe(1);
-    const entry = syncedStore("oregon-trail");
     vi.setSystemTime(new Date(played.at + 2 * 24 * 60 * 60 * 1000));
-    entry.reset();
     localStorage.clear();
-    localStorage.setItem(entry.key, played.rewritten!);
-    await entry.store.persist.rehydrate();
+    localStorage.setItem("oregon-trail-storage", played.rewritten!);
+    vi.resetModules();
+    const { syncedStore, SYNCED_STORES: freshStores } = await import("@/__tests__/synced-stores");
+    const { ownerBoundProgress: authority } = await import("@/lib/owner-bound-progress");
+    const entry = syncedStore("oregon-trail");
+    await authority.updateSession("unauthenticated");
+    await Promise.all(freshStores.map(item => authority.whenHydrated(item.key)));
+    expect(localStorage.getItem(entry.key)).toBe(played.rewritten!);
     const progress = entry.store.getState().getProgress() as AppProgressData;
     expect(extractTimestamp(progress)).toBeGreaterThanOrEqual(played.at);
     expect(sameProgress(progress, played.loaded, TIME_KEYS)).toBe(true);

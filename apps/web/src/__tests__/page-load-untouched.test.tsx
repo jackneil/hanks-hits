@@ -77,6 +77,8 @@ import { installAudioMock } from "@/__tests__/audio-mock";
 import { installNoop2dContext } from "@/__tests__/noop-2d-context";
 import { SYNCED_STORES, type SyncedStoreEntry } from "@/__tests__/synced-stores";
 
+import { ownerBoundProgress } from "@/lib/owner-bound-progress";
+
 type Page = { appId: string; load: () => Promise<{ default: ComponentType }> };
 
 const PAGES: Page[] = [
@@ -131,7 +133,9 @@ async function loadPage(page: Page, ms: number) {
 
 let restoreCanvas: () => void = () => {};
 
-beforeEach(() => {
+beforeEach(async () => {
+  await ownerBoundProgress.updateSession("unauthenticated");
+  await Promise.all(SYNCED_STORES.map(entry => ownerBoundProgress.whenHydrated(entry.key)));
   restoreCanvas = installNoop2dContext();
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
   vi.setSystemTime(new Date("2026-10-02T13:00:00Z"));
