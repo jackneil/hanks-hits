@@ -1,387 +1,296 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { IDBFactory } from "fake-indexeddb";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { createOwnerBoundProgress, type OwnerBoundProgress } from "@/lib/owner-bound-progress/core";
+import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
+import { createProgressServer } from "@/__tests__/fake-progress-server";
+import { ProgressJournalDatabase } from "@/shared/lib/progressJournalDatabase";
+import { ProgressJournalRepository } from "@/shared/lib/progressJournalRepository";
+import { progressSyncPresentation } from "@/shared/lib/progressSyncPresentation";
 import { useAuthSync } from "../useAuthSync";
-import { PROGRESS_OWNER_KEY } from "@/lib/storage-keys";
 
-vi.mock("next-auth/react", () => ({
-  useSession: () => ({
-    data: { user: { id: "user-1" } },
-    status: "authenticated",
-  }),
-}));
-
-type TestProgress = { score: number; highScore: number; lastModified: number };
-
-const APP_ID = "cookie-clicker" as never;
-const LS_KEY = "cookie-clicker-storage";
-
-function fetchResponse(body: unknown, ok = true) {
-  return Promise.resolve({
-    ok,
-    status: ok ? 200 : 500,
-    json: () => Promise.resolve(body),
-  } as Response);
-}
-
-describe("useAuthSync — audit save/wipe regressions", () => {
-  let state: TestProgress;
-  const getState = () => state;
-  const setState = (d: TestProgress) => {
-    state = d;
-  };
-  let fetchMock: ReturnType<typeof vi.fn>;
-  let beaconMock: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    state = { score: 0, highScore: 0, lastModified: 100 };
-    localStorage.clear();
-    fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    beaconMock = vi.fn(() => true);
-    Object.defineProperty(navigator, "sendBeacon", {
-      value: beaconMock,
-      configurable: true,
-      writable: true,
-    });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  it("auto-save actually fires ~3s after a state change (debounce not perpetually cleared)", async () => {
-    // Initial sync: no server data -> uploads local once.
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (!init || init.method !== "POST") return fetchResponse({ data: null, lastSyncedAt: null });
-      return fetchResponse({ success: true, updatedAt: new Date().toISOString() });
-    });
-
-    renderHook(() =>
-      useAuthSync<TestProgress>({
-        appId: APP_ID,
-        localStorageKey: LS_KEY,
-        getState,
-        setState,
-      })
-    );
-
-    // Let initial sync complete.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-    const postsAfterInitial = fetchMock.mock.calls.filter(
-      ([, init]) => (init as RequestInit)?.method === "POST"
-    ).length;
-
-    // Play: the state changes once.
-    state = { score: 10, highScore: 10, lastModified: 200 };
-
-    // The 1s poller runs several times while the 2s debounce is pending —
-    // the audit bug was that each poll cleared the pending save forever.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3200);
-    });
-
-    const savePosts = fetchMock.mock.calls.filter(
-      ([, init]) => (init as RequestInit)?.method === "POST"
-    );
-    expect(savePosts.length).toBe(postsAfterInitial + 1);
-    const lastBody = JSON.parse(savePosts[savePosts.length - 1][1].body as string);
-    expect(lastBody.data.score).toBe(10);
-    expect(lastBody.merge).toBe(true);
-  });
-
-  it("never beacons before the initial sync completes (StrictMode/pre-hydration zero-beacon)", async () => {
-    // GET never resolves: initial sync stays incomplete.
-    fetchMock.mockImplementation(() => new Promise(() => {}));
-
-    renderHook(() =>
-      useAuthSync<TestProgress>({
-        appId: APP_ID,
-        localStorageKey: LS_KEY,
-        getState,
-        setState,
-      })
-    );
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500);
-    });
-
-    window.dispatchEvent(new Event("beforeunload"));
-    expect(beaconMock).not.toHaveBeenCalled();
-  });
-
-  it("beacons unsaved progress with merge:true after sync is done", async () => {
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (!init || init.method !== "POST") return fetchResponse({ data: null, lastSyncedAt: null });
-      return fetchResponse({ success: true, updatedAt: new Date().toISOString() });
-    });
-
-    renderHook(() =>
-      useAuthSync<TestProgress>({
-        appId: APP_ID,
-        localStorageKey: LS_KEY,
-        getState,
-        setState,
-      })
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-
-    // Dirty state that has NOT been saved yet (debounce not elapsed).
-    state = { score: 42, highScore: 42, lastModified: 300 };
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000); // poller schedules, debounce pending
-    });
-
-    window.dispatchEvent(new Event("beforeunload"));
-    expect(beaconMock).toHaveBeenCalledTimes(1);
-    const blob = beaconMock.mock.calls[0][1] as Blob;
-    vi.useRealTimers(); // FileReader completion events don't fire under fake timers
-    const blobText = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsText(blob);
-    });
-    const payload = JSON.parse(blobText);
-    expect(payload.merge).toBe(true);
-    expect(payload.data.score).toBe(42);
-  });
-
-  it("does not adopt a stale server blob over newer local progress", async () => {
-    // localStorage snapshot matches current state => hydration check passes.
-    // The save is this account's progress (it synced on this device before).
-    state = { score: 500, highScore: 500, lastModified: 2000 };
-    localStorage.setItem(LS_KEY, JSON.stringify({ state: { progress: state } }));
-    localStorage.setItem(PROGRESS_OWNER_KEY, "user-1");
-
-    const staleServer = { score: 1, highScore: 1, lastModified: 50 };
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (!init || init.method !== "POST")
-        return fetchResponse({ data: staleServer, lastSyncedAt: null });
-      return fetchResponse({ success: true, updatedAt: new Date().toISOString(), merged: true });
-    });
-
-    renderHook(() =>
-      useAuthSync<TestProgress>({
-        appId: APP_ID,
-        localStorageKey: LS_KEY,
-        getState,
-        setState,
-      })
-    );
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000);
-    });
-
-    // The wipe: old code setState()d the re-fetched (stale) server blob.
-    expect(state.score).toBe(500);
-    expect(state.lastModified).toBe(2000);
-  });
-
-  const posts = () => fetchMock.mock.calls.filter(([, init]) => (init as RequestInit)?.method === "POST");
-
-  it("a page with no save takes the account's progress and uploads nothing, even when its progress had a time before the first render", async () => {
-    // No save for this key when the page loaded. The progress carries a
-    // time from before the first render (a store that put the page-load
-    // time into its defaults): it is newer than the account's save.
-    const account = { score: 900, highScore: 900, lastModified: 1_000 };
-    state = { score: 0, highScore: 0, lastModified: 5_000 };
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (!init || init.method !== "POST") return fetchResponse({ data: account, lastSyncedAt: null });
-      return fetchResponse({ success: true, updatedAt: new Date().toISOString() });
-    });
-
-    renderHook(() => useAuthSync<TestProgress>({ appId: APP_ID, localStorageKey: LS_KEY, getState, setState }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-
-    expect(state).toEqual(account);
-    // Nothing went up: the defaults never reached the account.
-    expect(posts()).toEqual([]);
-  });
-
-  it("an untouched store (time 0) with a save on the device takes the account's progress and uploads nothing", async () => {
-    state = { score: 0, highScore: 0, lastModified: 0 };
-    localStorage.setItem(LS_KEY, JSON.stringify({ state: { progress: state } }));
-    const account = { score: 900, highScore: 900, lastModified: 1_000 };
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (init?.method === "POST") return fetchResponse({ success: true, updatedAt: new Date().toISOString() });
-      return fetchResponse({ data: account, lastSyncedAt: null });
-    });
-
-    renderHook(() => useAuthSync<TestProgress>({ appId: APP_ID, localStorageKey: LS_KEY, getState, setState }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-
-    expect(state).toEqual(account);
-    expect(posts()).toEqual([]);
-  });
-
-  it("saves nothing before the first sync is done, and tries the sync again when the server did not answer", async () => {
-    state = { score: 10, highScore: 10, lastModified: 200 };
-    localStorage.setItem(LS_KEY, JSON.stringify({ state: { progress: state } }));
-    let gets = 0;
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (init?.method === "POST") return fetchResponse({ success: true, updatedAt: new Date().toISOString() });
-      gets += 1;
-      // The first two reads fail; the next ones work.
-      return gets <= 2 ? fetchResponse({ error: "down" }, false) : fetchResponse({ data: null, lastSyncedAt: null });
-    });
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const { result } = renderHook(() =>
-      useAuthSync<TestProgress>({ appId: APP_ID, localStorageKey: LS_KEY, getState, setState })
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500);
-    });
-    // The sync failed: the poller and forceSync wait for it.
-    await act(async () => {
-      await result.current.forceSync();
-    });
-    expect(posts()).toEqual([]);
-    expect(result.current.ready).toBe(false);
-    expect(gets).toBe(1);
-
-    // The retries wait 2 s, then 4 s. (React renders the retry at the end
-    // of an act(), so each wait gets a short act() of its own after it.)
-    const wait = async (ms: number) => {
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(ms);
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(50);
-      });
-    };
-    await wait(350); // 1.9 s after the first try
-    expect(gets).toBe(1);
-    await wait(300); // 2.3 s
-    expect(gets).toBe(2);
-    expect(posts()).toEqual([]);
-    await wait(3_600); // 6.0 s: the second wait (4 s) is not over yet
-    expect(gets).toBe(2);
-    await wait(400);
-    expect(gets).toBe(3);
-    const sent = posts();
-    expect(sent).toHaveLength(1);
-    expect(JSON.parse((sent[0][1] as RequestInit).body as string).data.score).toBe(10);
-    expect(result.current.ready).toBe(true);
-    errors.mockRestore();
-  });
-
-  it("saves progress that changes every second (the debounce never starves)", async () => {
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (!init || init.method !== "POST") return fetchResponse({ data: null, lastSyncedAt: null });
-      return fetchResponse({ success: true, updatedAt: new Date().toISOString() });
-    });
-    renderHook(() =>
-      useAuthSync<TestProgress>({ appId: APP_ID, localStorageKey: LS_KEY, getState, setState, debounceMs: 5_000 })
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-
-    // A bakery that bakes all the time: the progress changes every 500 ms.
-    for (let i = 1; i <= 20; i++) {
-      state = { score: i, highScore: i, lastModified: 1_000 + i };
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(500);
-      });
-    }
-
-    // Before the fix, each poll set a new 5 s timer and nothing was sent.
-    const sent = posts();
-    expect(sent.length).toBeGreaterThanOrEqual(1);
-    // A save sends the newest progress, not the one that started the timer.
-    const last = JSON.parse((sent[sent.length - 1][1] as RequestInit).body as string);
-    expect(last.data.score).toBeGreaterThan(5);
-  });
-
-  it("is ready for a guest at once, and for a signed-in player when the first sync is done", async () => {
-    let answer: (value: Response) => void = () => {};
-    fetchMock.mockImplementation(
-      (url: string, init?: RequestInit) =>
-        init?.method === "POST"
-          ? fetchResponse({ success: true, updatedAt: new Date().toISOString() })
-          : new Promise<Response>((resolve) => {
-              answer = resolve;
-            })
-    );
-    const { result } = renderHook(() =>
-      useAuthSync<TestProgress>({ appId: APP_ID, localStorageKey: LS_KEY, getState, setState })
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-    expect(result.current.ready).toBe(false);
-    await act(async () => {
-      answer({ ok: true, status: 200, json: () => Promise.resolve({ data: null, lastSyncedAt: null }) } as Response);
-      await vi.advanceTimersByTimeAsync(100);
-    });
-    expect(result.current.ready).toBe(true);
-  });
-
-  it("sends a change on unmount that the 1 s poller had not seen yet", async () => {
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (!init || init.method !== "POST") return fetchResponse({ data: null, lastSyncedAt: null });
-      return fetchResponse({ success: true, updatedAt: new Date().toISOString() });
-    });
-    const view = renderHook(() =>
-      useAuthSync<TestProgress>({ appId: APP_ID, localStorageKey: LS_KEY, getState, setState })
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-    state = { score: 77, highScore: 77, lastModified: 900 };
-    view.unmount();
-    expect(beaconMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("never uploads untouched progress (time 0), also when time changes it", async () => {
-    state = { score: 0, highScore: 0, lastModified: 0 };
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (!init || init.method !== "POST") return fetchResponse({ data: null, lastSyncedAt: null });
-      return fetchResponse({ success: true, updatedAt: new Date().toISOString() });
-    });
-    const view = renderHook(() =>
-      useAuthSync<TestProgress>({ appId: APP_ID, localStorageKey: LS_KEY, getState, setState })
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(100);
-    });
-    // Time passing changes the untouched progress (a pet that gets hungry),
-    // but no player changed it.
-    state = { score: 3, highScore: 0, lastModified: 0 };
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-    await act(async () => {
-      await view.result.current.forceSync();
-    });
-    window.dispatchEvent(new Event("beforeunload"));
-    view.unmount();
-    expect(posts()).toEqual([]);
-    expect(beaconMock).not.toHaveBeenCalled();
-  });
-});
-
+const auth = vi.hoisted(() => ({ status: "authenticated", data: { user: { id: "revision-owner" } } }));
+const authority = vi.hoisted(() => ({ current: null as unknown as OwnerBoundProgress }));
+vi.mock("next-auth/react", () => ({ useSession: () => auth }));
 vi.mock("@/lib/owner-bound-progress", async () => {
-  const { useSession: readSession } = await import("next-auth/react");
-  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
-  return createSyncOwnerFixture(readSession);
+  const { createOwnerBoundProgress } = await import("@/lib/owner-bound-progress/core");
+  authority.current = createOwnerBoundProgress();
+  return {
+  ownerBoundProgress: new Proxy({}, { get: (_target, key) => authority.current[key as keyof OwnerBoundProgress] }),
+  createOwnerBoundStorage: (key: string, appId?: string) => authority.current.createStorage(key, appId),
+  bindPersistedStore: (key: string, handle: Parameters<OwnerBoundProgress["bindPersistedStore"]>[1], flush?: () => void) => authority.current.bindPersistedStore(key, handle, flush),
+  };
 });
 
-// B1 reconciliation fixtures retain their historical physical save format.
-vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
-  const { createJSONStorage } = await import("zustand/middleware");
-  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
+const key = "snake-game-state";
+const defaults = { highScore: 0, gamesPlayed: 0, totalFoodEaten: 0, longestSnake: 0, lastModified: 0 };
+type Progress = typeof defaults;
+const played = (score: number): Progress => ({ highScore: score, gamesPlayed: 1, totalFoodEaten: score, longestSnake: score, lastModified: score });
+let server: ReturnType<typeof createProgressServer>;
+let fetchSpy: ReturnType<typeof vi.fn>;
+const databases: ProgressJournalDatabase[] = [];
+const entry = () => progressSyncPresentation.getSnapshot().find(row => row.appId === "snake")!;
+const flush = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); }); };
+async function fixture(initial = defaults, pauseForRecovery?: () => ((synced?: boolean) => void), strict = false, debounceMs = 10_000) {
+  const state = create(persist(() => ({ progress: { ...defaults } }), {
+    name: key, storage: createOwnerPersistStorage<{ progress: Progress }>(key, "snake"), skipHydration: true,
+  }));
+  authority.current.bindPersistedStore(key, state.persist, () => state.setState({}));
+  await authority.current.updateSession("authenticated", auth.data.user.id);
+  await authority.current.whenHydrated(key);
+  state.setState({ progress: { ...initial } });
+  const view = renderHook(() => useAuthSync({ appId: "snake", localStorageKey: key,
+    getState: () => state.getState().progress, setState: progress => state.setState({ progress }),
+    debounceMs, pauseForRecovery }), {
+    reactStrictMode: strict,
+  });
+  return { state, view };
+}
+async function ready() { await waitFor(() => expect(entry()).toBeDefined()); await waitFor(() => expect(entry().status).not.toBe("saving")); }
+async function journals() {
+  const database = new ProgressJournalDatabase(); databases.push(database);
+  const rows = await database.list(authority.current.captureLease()!.ownerKey, 0);
+  return rows.map(row => JSON.parse(JSON.parse(row.raw).current));
+}
+beforeEach(() => {
+  localStorage.clear(); sessionStorage.clear();
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  auth.status = "authenticated"; auth.data = { user: { id: "revision-owner" } };
+  authority.current = createOwnerBoundProgress();
+  server = createProgressServer({ current: auth }); fetchSpy = vi.fn(server.fetch);
+  vi.stubGlobal("fetch", fetchSpy);
+  Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: vi.fn(() => false) });
+});
+afterEach(async () => {
+  cleanup(); vi.useRealTimers(); await flush(); databases.splice(0).forEach(database => database.close());
+  vi.restoreAllMocks(); vi.unstubAllGlobals();
+  expect(progressSyncPresentation.getSnapshot()).toEqual([]);
+});
+
+describe("mounted revision-aware sync with real owner storage", () => {
+  it("automatically uploads continuing play without resetting the pending debounce", async () => {
+    const { state, view } = await fixture(defaults, undefined, false, 40); await ready();
+    for (let score = 1; score <= 12; score++) {
+      await act(async () => { state.setState({ progress: played(score) }); await new Promise(resolve => setTimeout(resolve, 15)); });
+      if (score === 8) expect(server.posts.length).toBeGreaterThan(0);
+    }
+    await waitFor(() => expect(server.row("snake", "revision-owner")).toEqual(played(12)));
+    expect(server.posts.length).toBeGreaterThan(1);
+    expect(view.result.current.syncStatus).toBe("synced");
+  });
+
+  it("retains local play through a failed first GET and retries when the server returns", async () => {
+    server.net.failGets = 1;
+    const { state, view } = await fixture(played(20));
+    await waitFor(() => expect(entry()?.status).toBe("network-error"));
+    expect(view.result.current.ready).toBe(false);
+    expect(state.getState().progress).toEqual(played(20)); expect(server.posts).toEqual([]);
+    act(() => state.setState({ progress: played(30) }));
+    await waitFor(() => expect(server.row("snake", "revision-owner")).toEqual(played(30)), { timeout: 4000 });
+    expect(view.result.current.syncStatus).toBe("synced");
+    expect(server.gets).toBe(2);
+  });
+
+  it("allows local play after the readiness timeout without claiming an offline save is synced", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    server.net.failGets = 100;
+    const { state, view } = await fixture(played(20));
+    expect(view.result.current.ready).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+    expect(view.result.current).toMatchObject({ ready: true, synced: false });
+    expect(state.getState().progress).toEqual(played(20));
+    expect(server.posts).toEqual([]);
+  });
+  it("loads the cloud into an untouched store without uploading defaults", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    const { state, view } = await fixture(); await ready();
+    expect(state.getState().progress).toEqual(played(50));
+    expect(view.result.current).toMatchObject({ ready: true, synced: true, syncStatus: "synced" });
+    expect(server.posts).toEqual([]);
+    expect(fetchSpy.mock.calls[0][1]).toMatchObject({ headers: { "x-hh-expected-owner": "revision-owner" } });
+  });
+
+  it("treats an untouched empty account as saved without creating a cloud row", async () => {
+    const { view } = await fixture(); await ready();
+    expect(view.result.current).toMatchObject({ ready: true, synced: true, syncStatus: "synced" });
+    expect(server.posts).toEqual([]);
+  });
+
+  it("does not turn an empty account's previous durable checkpoint into a recovery conflict", async () => {
+    const first = await fixture(); await ready(); first.view.unmount(); await flush();
+    const second = await fixture(); await ready();
+    expect(second.view.result.current.syncStatus).toBe("synced");
+    expect(server.posts).toEqual([]);
+  });
+
+  it("ignores a retained untouched provisional checkpoint from StrictMode's abandoned setup", async () => {
+    const original = ProgressJournalRepository.open;
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    vi.spyOn(ProgressJournalRepository, "open").mockImplementationOnce(async options => {
+      const repository = await original(options); await pending; return repository;
+    });
+    const { view } = await fixture(defaults, undefined, true); await ready();
+    release(); await flush();
+    await waitFor(async () => expect((await journals()).length).toBe(2));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(server.gets).toBe(2)); await flush();
+    expect(view.result.current.syncStatus).toBe("synced");
+    expect(server.posts).toEqual([]);
+  });
+
+  it("refreshes canonical cloud progress when the tab regains focus", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    const { state } = await fixture(); await ready();
+    server.rows.set("revision-owner:snake", { data: played(90), updatedAt: new Date(90) });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(state.getState().progress).toEqual(played(90)));
+    expect(server.posts).toEqual([]);
+  });
+
+  it("does not emit another storage event when a sibling refresh observes unchanged cloud progress", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    await fixture(); await ready(); await flush();
+    const write = vi.spyOn(localStorage, "setItem");
+    act(() => window.dispatchEvent(new StorageEvent("storage", { key: null })));
+    await waitFor(() => expect(server.gets).toBe(2)); await flush();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("retains newer edits while a conditional POST is in flight", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    const { state, view } = await fixture(); await ready();
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    fetchSpy.mockImplementationOnce(async (...args: Parameters<typeof server.fetch>) => { await pending; return server.fetch(...args); });
+    act(() => state.setState({ progress: played(70) }));
+    let saving!: Promise<void>;
+    act(() => { saving = view.result.current.forceSync(); });
+    await waitFor(() => expect(fetchSpy.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true));
+    act(() => state.setState({ progress: played(80) }));
+    await act(async () => { release(); await saving; });
+    expect(state.getState().progress).toEqual(played(80));
+    expect(server.row("snake", "revision-owner")).toEqual(played(70));
+    await act(async () => { await view.result.current.forceSync(); });
+    expect(server.row("snake", "revision-owner")).toEqual(played(80));
+    expect(view.result.current.syncStatus).toBe("synced");
+  });
+
+  it("retains a refused pagehide beacon for conditional replay after remount", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    const first = await fixture(); await ready();
+    act(() => first.state.setState({ progress: played(70) }));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(navigator.sendBeacon).toHaveBeenCalledTimes(1);
+    expect(first.view.result.current.syncStatus).not.toBe("synced");
+    first.view.unmount(); await flush();
+    const second = await fixture(played(70)); await ready();
+    expect(second.state.getState().progress).toEqual(played(70));
+    expect(server.row("snake", "revision-owner")).toEqual(played(70));
+    const posts = fetchSpy.mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(posts[0][1]!.body as string)).toMatchObject({ expectedOwnerId: "revision-owner", baseRevision: expect.stringMatching(/^[0-9a-f]{64}$/) });
+  });
+
+  it("captures a store edit before the network debounce and preserves it on unmount with localStorage full", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    const { state, view } = await fixture(); await ready();
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw Error("quota"); });
+    act(() => state.setState({ progress: played(70) }));
+    view.unmount();
+    await waitFor(async () => expect((await journals()).some(row => row.live.highScore === 70)).toBe(true));
+    expect(server.posts).toEqual([]);
+  });
+
+  it("preserves a departing edit even if repository construction has not returned", async () => {
+    const original = ProgressJournalRepository.open;
+    let opened = false, release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    vi.spyOn(ProgressJournalRepository, "open").mockImplementationOnce(async options => {
+      const repository = await original(options); opened = true; await pending; return repository;
+    });
+    const { state, view } = await fixture(); await waitFor(() => expect(opened).toBe(true));
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw Error("quota"); });
+    act(() => state.setState({ progress: played(75) })); view.unmount();
+    release();
+    await waitFor(async () => expect((await journals()).some(row => row.live.highScore === 75)).toBe(true));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the retry delay when a focus refresh encounters repeated construction failures", async () => {
+    const original = ProgressJournalRepository.open;
+    let calls = 0;
+    vi.spyOn(ProgressJournalRepository, "open").mockImplementation(async options => {
+      if (++calls < 5) throw Error("storage temporarily unavailable");
+      return original(options);
+    });
+    await fixture(); await waitFor(() => expect(calls).toBe(1));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await flush();
+    expect(calls).toBe(2);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("runs a queued focus refresh after a delayed explicit choice acknowledgement", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    const { state } = await fixture(played(20)); await ready();
+    let accepted = false, release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    fetchSpy.mockImplementation(async (...args: Parameters<typeof server.fetch>) => {
+      const response = await server.fetch(...args);
+      if (args[1]?.method === "POST") { accepted = true; await pending; }
+      return response;
+    });
+    const dialog = entry().open()!; let choosing!: ReturnType<typeof dialog.choose>;
+    act(() => { choosing = dialog.choose("local"); });
+    await waitFor(() => expect(accepted).toBe(true));
+    server.rows.set("revision-owner:snake", { data: played(90), updatedAt: new Date(90) });
+    act(() => window.dispatchEvent(new Event("focus")));
+    await act(async () => { release(); await choosing; });
+    await waitFor(() => expect(state.getState().progress).toEqual(played(90)));
+  });
+
+  it("keeps divergent local play until an explicit choice and fences stale dialog cleanup", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    const releases: ReturnType<typeof vi.fn>[] = [];
+    const pause = vi.fn(() => { const release = vi.fn(); releases.push(release); return release; });
+    const { state } = await fixture(played(20), pause); await ready();
+    expect(entry().status).toBe("conflict"); expect(server.posts).toEqual([]);
+    expect(state.getState().progress).toEqual(played(20));
+    const old = entry().open()!; old.close();
+    const current = entry().open()!;
+    old.close(); // React's cleanup for the previous modal may run after its replacement opened.
+    expect(releases[1]).not.toHaveBeenCalled();
+    let outcome;
+    await act(async () => { outcome = await current.choose("server"); });
+    expect(outcome).toMatchObject({ ok: true });
+    expect(state.getState().progress).toEqual(played(50));
+    expect(releases[1]).toHaveBeenCalledTimes(1);
+    expect(await old.choose("local")).toMatchObject({ ok: false });
+  });
+
+  it("blocks an in-flight cloud response and further saves after owner revocation", async () => {
+    let finish!: (value: Response) => void;
+    fetchSpy.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }));
+    const { state, view } = await fixture(played(20));
+    await waitFor(() => expect(finish).toBeDefined());
+    await act(async () => { await authority.current.updateSession("authenticated", "another-owner"); });
+    await act(async () => { finish({ status: 200, json: async () => ({ protocol: 1, data: played(90), revision: "a".repeat(64) }) } as Response); });
+    expect(state.getState().progress).toEqual(played(20));
+    expect(view.result.current.ready).toBe(false);
+    await act(async () => { await view.result.current.forceSync(); });
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(navigator.sendBeacon).not.toHaveBeenCalled();
+  });
+
+  it("survives StrictMode's effect replay without applying or sending stale writes", async () => {
+    server.rows.set("revision-owner:snake", { data: played(50), updatedAt: new Date(50) });
+    const { state, view } = await fixture(defaults, undefined, true); await ready();
+    expect(state.getState().progress).toEqual(played(50)); expect(server.posts).toEqual([]);
+    expect(view.result.current.syncStatus).toBe("synced");
+    expect(progressSyncPresentation.getSnapshot()).toHaveLength(1);
+  });
 });

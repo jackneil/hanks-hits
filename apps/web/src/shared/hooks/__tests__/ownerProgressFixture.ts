@@ -1,4 +1,7 @@
 import { PROGRESS_OWNER_KEY } from "@/lib/storage-keys";
+import { createHash } from "node:crypto";
+import { IDBFactory } from "fake-indexeddb";
+import { beforeEach, vi } from "vitest";
 
 /**
  * Existing B1 fixtures isolate reconciliation using their historical raw saves.
@@ -15,16 +18,37 @@ export function createSyncOwnerFixture(readSession: () => unknown) {
     return session.status === "authenticated" ? session.data?.user?.id ?? null
       : session.status === "unauthenticated" ? "guest" : null;
   };
+  const ownerKey = () => {
+    const id = owner();
+    return id === "guest" || id === null ? id : `u_${createHash("sha256").update("hh-clips:v1:" + id).digest("hex").slice(0, 20)}`;
+  };
+  let pinned: string | null = null;
+  beforeEach(() => { pinned = null; vi.stubGlobal("indexedDB", new IDBFactory()); });
   const ownerBoundProgress = {
     subscribe: () => () => {},
+    // These legacy projections are plain localStorage writes; the hook's poll
+    // observes them. Real adapter notifications have separate integration tests.
+    subscribeStoreWrites: () => () => {},
     getSnapshot: () => snapshot,
-    captureLease: (): Lease | null => owner() ? { ownerKey: owner()!, generation: 0 } : null,
-    isCurrent: (lease: Lease) => lease.ownerKey === owner(),
+    captureLease: (): Lease | null => {
+      const key = ownerKey(); if (!key || (pinned !== null && key !== pinned)) return null;
+      pinned = key; return { ownerKey: key, generation: 0 };
+    },
+    isCurrent: (lease: Lease) => lease.ownerKey === ownerKey(),
     matchesSession: (status: string, userId?: string) => status !== "loading"
-      && owner() === (status === "authenticated" ? userId : "guest"),
+      && owner() === (status === "authenticated" ? userId : "guest")
+      && (pinned === null || pinned === ownerKey()),
     isHydrated: () => true,
     whenHydrated: async () => {},
     listGuestCandidates: () => [],
+    listDurableGuestCandidates: () => ({ candidates: [], unavailable: false }),
+    listDurableLegacy: () => ({ keys: [], available: true }),
+    listDurableScoped: (prefix: string) => ({ keys: Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!).filter(key => key.startsWith(prefix)), available: true }),
+    readDurableScoped: (key: string) => {
+      try { const raw = localStorage.getItem(key); return raw === null ? { status: "missing" } : { status: "durable", raw }; }
+      catch { return { status: "unavailable", raw: null }; }
+    },
+    flushStore: () => true,
     acknowledgeGuestCandidate: () => false,
     readEvidence: (key: string) => {
       try {

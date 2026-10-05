@@ -1,12 +1,12 @@
 /**
- * Review wave 5 of #26i: no kid loses progress. The first sync, an outage,
- * a record set during the sync, another tab, and the untouched progress
- * that no save may send, with the REAL stores, the real useAuthSync, the
- * real Virtual Pet page, and a server that runs the real validation and
- * merge (src/__tests__/fake-progress-server.ts). A guest's play at sign-in
- * keeps the last-write rule in this part (the merge of both sides is #69i).
+ * Regression coverage for offline play, first-read races, untouched saves and
+ * clock behavior using real stores. Unknown ancestry now requires explicit
+ * choice, with both original versions retained. The historical raw-storage
+ * fixture isolates reconciliation; owner-guard and roundtrip use real authority.
  */
+import { progressSyncPresentation } from "@/shared/lib/progressSyncPresentation";
 import { vi } from "vitest";
+import { setTimeout as realDelay } from "node:timers/promises";
 
 vi.hoisted(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
@@ -52,6 +52,7 @@ const at = (iso: string) => vi.setSystemTime(new Date(iso));
 const settle = async (ms: number) => {
   for (let left = ms; left > 0; left -= 250) {
     await act(async () => {
+      await realDelay(5);
       await vi.advanceTimersByTimeAsync(Math.min(250, left));
     });
   }
@@ -72,6 +73,18 @@ const mount = (entry: SyncedStoreEntry, debounceMs = 1_000) =>
       debounceMs,
     })
   );
+
+/** Resolve unknown lineage only after asserting the retained alternatives. */
+async function choose(appId: string, select: (data: AppProgressData) => boolean) {
+  const entry = progressSyncPresentation.getSnapshot().find(row => row.appId === appId)!;
+  expect(entry.status).toBe("conflict");
+  const dialog = entry.open()!;
+  const option = dialog.options.find(row => select(row.data));
+  expect(option).toBeDefined();
+  server.net.getDelayMs = 0;
+  await act(async () => { expect(await dialog.choose(option!.id)).toMatchObject({ ok: true }); });
+  return dialog;
+}
 
 /** A page load: the store's defaults, then its save on disk. */
 async function loadPage(entry: SyncedStoreEntry) {
@@ -126,8 +139,8 @@ afterEach(() => {
 // F1: the device's own progress at sign-in
 // ---------------------------------------------------------------------------
 
-describe("F1: the device's own progress keeps the last-write rule", () => {
-  it("a device of this account plays while the account cannot be reached; on the next load its newer play wins", async () => {
+describe("F1: the device's offline progress is retained for explicit recovery", () => {
+  it("a device of this account plays while the account cannot be reached; on the next load its offline play remains selectable", async () => {
     const entry = syncedStore("toy-finder");
     accountHolds(entry, made(entry, "2026-10-20T11:00:00Z", () => useToyFinderStore.getState().addToWishlist({ id: "a" } as never, "need")));
     // The first sync here takes the account's progress.
@@ -153,6 +166,8 @@ describe("F1: the device's own progress keeps the last-write rule", () => {
     await loadPage(entry);
     view = mount(entry);
     await settle(6_000);
+    const copies = await choose("toy-finder", data => JSON.stringify(data).includes('"toyId":"b"'));
+    expect(copies.options.some(option => JSON.stringify(option.data).includes('"toyId":"a"'))).toBe(true);
     view.unmount();
     const ids = (server.row("toy-finder") as { wishlistItems: Array<{ toyId: string }> }).wishlistItems.map((item) => item.toyId);
     expect(ids).toEqual(["b"]);
@@ -205,11 +220,14 @@ describe("F3: a new high score set while the first GET is in flight reaches the 
     await settle(400);
     round(50);
     await settle(10_000);
+    expect((server.row("flappy-bird") as { highScore: number }).highScore).toBe(10);
+    const copies = await choose("flappy-bird", data => data.highScore === 50);
+    expect(copies.options.some(option => option.data.highScore === 10 && option.data.gamesPlayed === 20)).toBe(true);
     view.unmount();
     expect(server.rejected).toEqual([]);
     expect(useFlappyStore.getState().getProgress().highScore).toBe(50);
     expect((server.row("flappy-bird") as { highScore: number }).highScore).toBe(50);
-    expect((server.row("flappy-bird") as { gamesPlayed: number }).gamesPlayed).toBeGreaterThanOrEqual(20);
+    expect((server.row("flappy-bird") as { gamesPlayed: number }).gamesPlayed).toBe(older ? 6 : 1);
   });
 });
 
@@ -313,6 +331,7 @@ describe("no save sends progress that the store's rule calls untouched", () => {
     signIn();
     const view = mount(entry);
     await settle(4_000);
+    await choose("drawing-app", data => JSON.stringify(data).includes("Truck"));
     view.unmount();
     expect(server.rejected).toEqual([]);
     expect(JSON.stringify(server.row("drawing-app"))).toContain("Truck");
@@ -356,6 +375,8 @@ describe("Virtual Pet: the visit and the clock", () => {
     expect(useVirtualPetStore.getState().progress.lastModified).toBe(Date.parse("2026-10-19T09:00:00Z"));
     server.net.failGets = 0;
     await settle(45_000);
+    const copies = await choose("virtual-pet", data => (data.pet as { name: string }).name === "Rex");
+    expect(copies.options.some(option => (option.data.pet as { name: string }).name === "Oldie")).toBe(true);
     const row = server.row("virtual-pet") as VirtualPetProgress;
     expect(server.rejected).toEqual([]);
     expect(row.pet.name).toBe("Rex");

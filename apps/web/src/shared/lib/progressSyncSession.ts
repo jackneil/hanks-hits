@@ -44,6 +44,10 @@ export class ProgressSyncSession<T extends AppProgressData> {
 
   private write(next: ProgressJournal<T>, preserve = false, advance = true): boolean {
     if (!this.io.maySave()) return false;
+    // Identical GET observations must not create storage events that wake other
+    // writers indefinitely. Failed receipts still take the normal retry path.
+    if (this.storageAvailable && this.unpreserved.length === 0 && sameProgress(next, this.journal)
+      && sameProgress(JSON.parse(this.raw), this.journal)) return true;
     if (advance && this.journal.serial === Number.MAX_SAFE_INTEGER) { this.storageAvailable = false; return false; }
     if (advance) next.serial = this.journal.serial + 1;
     const raw = JSON.stringify(next);

@@ -143,8 +143,14 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
   private saved(): boolean {
     const row = this.session?.snapshot();
     return this.allowed() && this.phase === "ready" && Boolean(row && !row.sent && !row.conflict && !row.forceWrite
-      && sameProgress(row.live, row.acknowledged.data) && sameProgress(this.io.getLive(), row.live)
+      && this.matchesAcknowledged(row)
+      && sameProgress(this.io.getLive(), row.live)
       && this.io.repository.isDurable() && this.io.repository.snapshot()?.current === JSON.stringify(row));
+  }
+
+  private matchesAcknowledged(row: ProgressJournal<T>): boolean {
+    return sameProgress(row.live, row.acknowledged.data)
+      || (!row.provisional && row.acknowledged.data === null && this.io.isUntouched(row.live));
   }
 
   private canonical(response: ProgressResponse): ProgressSnapshot<T> | null {
@@ -165,10 +171,10 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
   }
 
   /** One immutable HTTP operation at a time. Concurrent callers still capture later play. */
-  save(): Promise<ProgressSaveResult> {
+  save(refresh = false): Promise<ProgressSaveResult> {
     this.capture();
     if (this.saving) return this.saving;
-    this.saving = this.saveOnce().catch(() => {
+    this.saving = this.saveOnce(refresh).catch(() => {
       if (this.allowed()) this.problem = "network-error";
       return { ok: false, status: null };
     }).finally(() => { this.saving = null; this.io.onChange?.(); });
@@ -176,7 +182,7 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     return this.saving;
   }
 
-  private async saveOnce(): Promise<ProgressSaveResult> {
+  private async saveOnce(refresh = false): Promise<ProgressSaveResult> {
     const failed = (status: number | null = null): ProgressSaveResult => ({ ok: false, status });
     if (!this.allowed()) return failed();
     this.problem = null;
@@ -188,6 +194,15 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
       const canonical = this.canonical(response);
       if (response.status !== 200 || !canonical) { this.problem = "network-error"; return failed(response.status); }
       if (!await this.initializeShared(canonical) || !this.allowed()) { this.problem = "storage-error"; return failed(); }
+    } else if (refresh) {
+      const response = await this.transport.read(), canonical = this.canonical(response);
+      if (response.status !== 200 || !canonical) { this.problem = "network-error"; return failed(response.status); }
+      if (!await this.refreshCopies() || !await this.captureLatest() || !this.allowed()) { this.problem = "storage-error"; return failed(); }
+      const ancestors = this.io.repository.snapshot()?.recovery?.adoptedSources ?? [];
+      if (this.copies.some(copy => !ancestors.includes(copy.sourceId)) && this.session.requireChoice(canonical) === "blocked") {
+        this.problem = "storage-error"; return failed();
+      }
+      if (!await this.observeInitialization(canonical)) { this.problem = "storage-error"; return failed(); }
     }
     if (!await this.captureLatest() || !this.allowed()) { this.problem = "storage-error"; return failed(); }
     const session = this.session!;
@@ -402,8 +417,16 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     return copies.filter(copy => {
       if (copy.writerId === this.io.writerId || resolved.has(copy.sourceId)) return false;
       const row = parseProgressJournal<T>(copy.envelope.current, this.io.appId, this.io.ownerId)!;
+      // An abandoned setup can checkpoint untouched defaults before its first
+      // GET. Retain the bytes, but do not make that empty setup a competing save.
+      // Any earlier played checkpoint or inherited source still requires recovery.
+      if (row.provisional && this.io.isUntouched(row.live) && !copy.envelope.recovery?.adoptedSources.length
+        && copy.envelope.originals.every(original => {
+          const previous = parseProgressJournal<T>(original.raw, this.io.appId, this.io.ownerId);
+          return previous?.provisional && this.io.isUntouched(previous.live);
+        })) return false;
       return row.sent !== null || row.conflict !== null || row.forceWrite
-        || !sameProgress(row.live, row.acknowledged.data) || Boolean(copy.envelope.recovery?.adoptedSources.length);
+        || !this.matchesAcknowledged(row) || Boolean(copy.envelope.recovery?.adoptedSources.length);
     });
   }
 
@@ -468,7 +491,8 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     if (!this.session!.capture(this.io.getLive())) return this.block();
     const result = this.session!.observe(canonical);
     if (!this.allowed() || result === "blocked" || result === "ignored") return this.block();
-    this.io.applyLive(this.session!.snapshot()!.live);
+    const live = this.session!.snapshot()!.live;
+    if (!sameProgress(live, this.io.getLive())) this.io.applyLive(live);
     this.phase = "ready";
     return true;
   }

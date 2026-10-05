@@ -1,3 +1,4 @@
+import { cookieRecoveryPaused } from "./recoveryPause";
 import { bindPersistedStore } from "@/lib/owner-bound-progress";
 import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
 // store.ts - Cookie Clicker Zustand store with persistence
@@ -201,6 +202,7 @@ export const useCookieClickerStore = create<
       },
 
       tick: () => {
+        if (cookieRecoveryPaused()) return;
         const state = get();
         const now = Date.now();
 
@@ -409,6 +411,7 @@ export const useCookieClickerStore = create<
       // ========================================================================
 
       checkAchievements: () => {
+        if (cookieRecoveryPaused()) return;
         const state = get();
         const newlyUnlocked: AchievementId[] = [];
 
@@ -565,6 +568,7 @@ export const useCookieClickerStore = create<
       },
 
       applyOfflineProgress: (synced = true) => {
+        if (cookieRecoveryPaused()) return 0;
         const earned = get().calculateOfflineProgress();
 
         if (earned > 0) {

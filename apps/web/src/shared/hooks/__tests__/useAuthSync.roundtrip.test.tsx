@@ -1,377 +1,188 @@
-/**
- * The account and the device after sign-out and sign-in, on a second
- * device, and across the deploy of the sync-time fix, with the REAL stores
- * of all synced games, the real useAuthSync, and a server that runs the real
- * validateProgress and mergeForSave (review waves 2 and 3 of #26i).
- *
- * The clock is a real day: the kid plays at 12:00, and the next page loads
- * at 13:05, as after a sign-out and sign-in, or on a second device. Before
- * the fix, the stores' default progress carried the page-load time, so it
- * was NEWER than the kid's save and replaced it on the account: the pet,
- * the saved beats, the wishlist, the journey and the coins.
- *
- * The played progress of each store comes from fixtures/legacy-saves.json
- * (the old store code wrote it), so it is the real shape of each game.
- */
-import { vi } from "vitest";
-
-vi.hoisted(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
-  vi.setSystemTime(new Date("2026-10-02T13:00:00Z"));
-});
-
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-
-const session = vi.hoisted(() => ({
-  current: { data: null as null | { user: { id: string } }, status: "unauthenticated" as string },
-}));
-vi.mock("next-auth/react", () => ({
-  useSession: () => session.current,
-  signOut: vi.fn(async () => undefined),
-  signIn: vi.fn(async () => undefined),
-  SessionProvider: ({ children }: { children: unknown }) => children,
-}));
-
+/** All 33 production stores: original legacy fixtures, real owner storage,
+ * IndexedDB journals, and the revision-aware wire contract. Unknown lineage is
+ * resolved explicitly; timestamps alone may not authorize replacing a save. */
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { IDBFactory } from "fake-indexeddb";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
-import { useAuthSync, __unsafeResetForeignPurgeLockForTests } from "../useAuthSync";
+import { createOwnerBoundProgress, type OwnerBoundProgress, type PersistHandle } from "@/lib/owner-bound-progress/core";
+import { createProgressServer } from "@/__tests__/fake-progress-server";
+import { SYNCED_STORES, type SyncedStoreEntry } from "@/__tests__/synced-stores";
+import legacy from "@/__tests__/fixtures/legacy-saves.json";
+import { progressSyncPresentation } from "@/shared/lib/progressSyncPresentation";
 import { signOutAndClear } from "@/lib/auth-client";
 import { PROGRESS_OWNER_KEY } from "@/lib/storage-keys";
-import { validateProgress } from "@/lib/progress-schemas";
-import { extractTimestamp, mergeForSave } from "@/lib/progress-merge";
-import { sameProgress } from "@/shared/lib/progressStamp";
-import { SYNCED_STORES, syncedStore, type SyncedStoreEntry } from "@/__tests__/synced-stores";
-import { installAudioMock } from "@/__tests__/audio-mock";
-import legacy from "@/__tests__/fixtures/legacy-saves.json";
 import { useVirtualPetStore } from "@/apps/virtual-pet/lib/store";
+import { useAuthSync } from "../useAuthSync";
 
-type Save = { state: Record<string, unknown>; version: number };
-const SAVES = legacy.saves as unknown as Record<string, Record<string, Save>>;
-
-// The server: one row per user and app, the real validation and merge.
-const rows = new Map<string, { data: AppProgressData; updatedAt: Date }>();
-const rejected: string[] = [];
-const posts: Array<{ appId: string; merge: boolean }> = [];
-
-function respond(body: unknown, status = 200) {
-  return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) } as Response);
-}
-
-function server(url: string, init?: RequestInit) {
-  const appId = url.split("/").pop() as ValidAppId;
-  const userId = session.current.data?.user.id;
-  const key = `${userId}:${appId}`;
-  if (!init?.method || init.method === "GET") {
-    const row = rows.get(key);
-    return respond(
-      row ? { data: row.data, lastSyncedAt: row.updatedAt.toISOString() } : { data: null, lastSyncedAt: null }
-    );
-  }
-  const { data, merge } = JSON.parse(init.body as string) as { data: AppProgressData; merge?: boolean };
-  posts.push({ appId, merge: !!merge });
-  const valid = validateProgress(appId, data);
-  if (!valid.success) {
-    rejected.push(`${appId}: ${valid.error}`);
-    return respond({ error: valid.error }, 400);
-  }
-  let final = valid.data as AppProgressData;
-  const existing = rows.get(key);
-  if (merge && existing) {
-    const merged = validateProgress(appId, mergeForSave(final, existing).data);
-    if (merged.success) final = merged.data as AppProgressData;
-  }
-  rows.set(key, { data: final, updatedAt: new Date() });
-  return respond({ success: true, updatedAt: new Date().toISOString() });
-}
-
-const progressOf = (entry: SyncedStoreEntry) =>
-  JSON.parse(JSON.stringify(entry.store.getState().getProgress())) as AppProgressData;
-const rowOf = (entry: SyncedStoreEntry, user = "user-1") => rows.get(`${user}:${entry.appId}`)?.data;
-const timeOf = (data: AppProgressData | undefined) => (data ? extractTimestamp(data) : null);
-
-const mount = (entry: SyncedStoreEntry) =>
-  renderHook(() =>
-    useAuthSync({
-      appId: entry.appId as ValidAppId,
-      localStorageKey: entry.key,
-      getState: () => entry.store.getState().getProgress() as AppProgressData,
-      setState: (data) => entry.store.getState().setProgress(data as never),
-      debounceMs: 1000,
-    })
-  );
-
-/** A page load: the store's defaults, then its save on disk (a load writes nothing). */
-async function loadPage(entry: SyncedStoreEntry) {
-  const saved = localStorage.getItem(entry.key);
-  entry.reset();
-  if (saved === null) localStorage.removeItem(entry.key);
-  else localStorage.setItem(entry.key, saved);
-  await entry.store.persist.rehydrate();
-}
-
-const settle = (ms: number) =>
-  act(async () => {
-    await vi.advanceTimersByTimeAsync(ms);
-  });
-
-const signIn = (id = "user-1") => {
-  session.current = { data: { user: { id } }, status: "authenticated" };
-};
-
-/**
- * The kid plays now: the store takes the played progress of the fixture (a
- * real save of the game) and a player's change stamps it with now.
- */
-async function play(entry: SyncedStoreEntry) {
-  const keep = localStorage.getItem(entry.key);
-  localStorage.setItem(entry.key, JSON.stringify(SAVES[entry.appId].played));
-  await entry.store.persist.rehydrate();
-  if (keep === null) localStorage.removeItem(entry.key);
-  entry.store.getState().setProgress({ ...progressOf(entry), [entry.timeKey]: Date.now() } as never);
-}
-
-/** The kid plays at 12:00, signed in, and the progress syncs. */
-async function playAndSync(entry: SyncedStoreEntry) {
-  vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
-  await loadPage(entry);
-  signIn();
-  const view = mount(entry);
-  await settle(1_000);
-  await play(entry);
-  await settle(6_000);
-  view.unmount();
-  const row = rowOf(entry);
-  expect(row, `${entry.appId}: the play reached the account`).toBeDefined();
-  expect(timeOf(row)).toBe(Date.parse("2026-10-02T12:00:01Z"));
-  return JSON.parse(JSON.stringify(row)) as AppProgressData;
-}
-
-beforeEach(() => {
-  localStorage.clear();
-  rows.clear();
-  rejected.length = 0;
-  posts.length = 0;
-  installAudioMock();
-  __unsafeResetForeignPurgeLockForTests();
-  session.current = { data: null, status: "unauthenticated" };
-  vi.stubGlobal("fetch", vi.fn(server));
-  Object.defineProperty(navigator, "sendBeacon", { value: vi.fn(() => true), configurable: true, writable: true });
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-  for (const entry of SYNCED_STORES) entry.reset();
-});
-
-const cases = SYNCED_STORES.map((entry) => [entry.appId, entry] as const);
-
-describe.each(cases)("%s: a page that loads after the last save", (_appId, entry) => {
-  it("sign out, then sign in again on the same device: the account keeps its progress", async () => {
-    const before = await playAndSync(entry);
-
-    vi.setSystemTime(new Date("2026-10-02T12:30:00Z"));
-    await signOutAndClear("/");
-    session.current = { data: null, status: "unauthenticated" };
-    expect(localStorage.getItem(entry.key)).not.toBeNull(); // Legacy sources survive sign-out.
-
-    // The sign-in round trip is a new page load, at 13:05.
-    vi.setSystemTime(new Date("2026-10-02T13:05:00Z"));
-    await loadPage(entry);
-    signIn();
-    const view = mount(entry);
-    await settle(6_000);
-    view.unmount();
-
-    expect(rejected).toEqual([]);
-    // The account's progress is exactly what it was, and the device shows it.
-    expect(rowOf(entry)).toEqual(before);
-    expect(sameProgress(progressOf(entry), before)).toBe(true);
-  });
-
-  it("a second device: the account keeps its progress, and the untouched device uploads nothing", async () => {
-    const before = await playAndSync(entry);
-
-    // Device 2: nothing saved, the page loads at 13:05.
-    localStorage.clear();
-    vi.setSystemTime(new Date("2026-10-02T13:05:00Z"));
-    await loadPage(entry);
-    const postsBefore = posts.length;
-    const view = mount(entry);
-    await settle(6_000);
-    view.unmount();
-
-    expect(rejected).toEqual([]);
-    expect(rowOf(entry)).toEqual(before);
-    expect(posts.length).toBe(postsBefore);
-    expect(sameProgress(progressOf(entry), before)).toBe(true);
-  });
-});
-
-describe.each(cases)("%s: after the deploy, a device with a save of the old code", (_appId, entry) => {
-  it("an untouched old save (newer page-load time) never replaces the account's older progress", async () => {
-    // The account: real progress from the day before the old save.
-    vi.setSystemTime(new Date("2026-08-31T10:00:00Z"));
-    await play(entry);
-    const account = progressOf(entry);
-    rows.set(`user-1:${entry.appId}`, { data: account, updatedAt: new Date() });
-
-    // The device: the old code's untouched save (page-load time 2026-09-01).
-    localStorage.clear();
-    localStorage.setItem(entry.key, JSON.stringify(SAVES[entry.appId].untouched));
-    vi.setSystemTime(new Date("2026-10-02T13:05:00Z"));
-    await loadPage(entry);
-    signIn();
-    const view = mount(entry);
-    await settle(6_000);
-    view.unmount();
-
-    expect(rejected).toEqual([]);
-    expect(rowOf(entry)).toEqual(account);
-    expect(sameProgress(progressOf(entry), account)).toBe(true);
-  });
-
-  it("the account's untouched progress (uploaded by the old code with a page-load time) never wins over real progress", async () => {
-    // The device: real progress from 2026-09-01 12:00.
-    vi.setSystemTime(new Date("2026-09-01T12:00:00Z"));
-    await play(entry);
-    const device = progressOf(entry);
-
-    // The account: the old code uploaded untouched defaults stamped later.
-    const untouched = (() => {
-      entry.reset();
-      return { ...progressOf(entry), [entry.timeKey]: Date.parse("2026-09-20T08:00:00Z") };
-    })();
-    rows.set(`user-1:${entry.appId}`, { data: untouched, updatedAt: new Date() });
-    entry.store.getState().setProgress(device as never);
-
-    vi.setSystemTime(new Date("2026-10-02T13:05:00Z"));
-    signIn();
-    const view = mount(entry);
-    await settle(6_000);
-    view.unmount();
-
-    expect(rejected).toEqual([]);
-    expect(sameProgress(rowOf(entry), device)).toBe(true);
-    expect(sameProgress(progressOf(entry), device)).toBe(true);
-  });
-});
-
-/** A little progress on the account: less than the device's old save holds. */
-const SMALLER_ACCOUNT: Record<string, Record<string, unknown>> = {
-  "hill-climb": { coins: 5, totalCoinsEarned: 5 },
-  "monster-truck": { coins: 5, totalCoinsEarned: 5 },
-  "oregon-trail": { pace: "grueling" },
-};
-
-describe.each([["hill-climb"], ["monster-truck"], ["oregon-trail"]])(
-  "%s: an old save with no time and more progress than the account",
-  (appId) => {
-    it("keeps the device's progress (the old rule: the device wins)", async () => {
-      const entry = syncedStore(appId);
-      // The account: an older, smaller copy, uploaded on 2026-09-01.
-      entry.reset();
-      const account = {
-        ...progressOf(entry),
-        ...SMALLER_ACCOUNT[appId],
-        lastModified: Date.parse("2026-09-01T12:00:00Z"),
-      };
-      rows.set(`user-1:${appId}`, { data: account, updatedAt: new Date() });
-
-      // The device: the old code's played save, which had no time. The
-      // account synced on this device before (the old code wrote the owner).
-      localStorage.setItem(entry.key, JSON.stringify(SAVES[appId].played));
-      localStorage.setItem(PROGRESS_OWNER_KEY, "user-1");
-      vi.setSystemTime(new Date("2026-10-02T13:05:00Z"));
-      await loadPage(entry);
-      const device = progressOf(entry);
-      signIn();
-      const view = mount(entry);
-      await settle(6_000);
-      view.unmount();
-
-      expect(rejected).toEqual([]);
-      expect(sameProgress(rowOf(entry), device, ["lastModified"])).toBe(true);
-      expect(sameProgress(progressOf(entry), device, ["lastModified"])).toBe(true);
-    });
-  }
-);
-
-describe("a guest who plays and then signs in without a reload (review waves 3 and 5)", () => {
-  /** The account: an older journey or progress, at 11:00. */
-  async function accountAt11(entry: SyncedStoreEntry) {
-    vi.setSystemTime(new Date("2026-10-02T11:00:00Z"));
-    await play(entry);
-    const account = progressOf(entry);
-    rows.set(`user-1:${entry.appId}`, { data: account, updatedAt: new Date() });
-    entry.reset();
-    localStorage.clear();
-    return account;
-  }
-
-  // A guest's play at sign-in keeps the last-write rule in this part (the
-  // merge that keeps both sides is #69i): the records of both sides stay.
-
-  it("B5: a guest's records join the account (a new high score), and the account's records stay", async () => {
-    const entry = syncedStore("flappy-bird");
-    const account = (await accountAt11(entry)) as { highScore: number; gamesPlayed: number };
-
-    vi.setSystemTime(new Date("2026-10-02T13:00:00Z"));
-    await loadPage(entry);
-    const view = mount(entry);
-    await settle(1_000);
-    const guest = { ...progressOf(entry), highScore: account.highScore + 50, gamesPlayed: 1, lastModified: Date.now() };
-    entry.store.getState().setProgress(guest as never);
-    view.unmount();
-    signIn();
-    const signedInView = mount(entry); // Sign-in completes in a new owner-bound document.
-    await settle(6_000);
-    signedInView.unmount();
-
-    expect(rejected).toEqual([]);
-    const row = rowOf(entry) as { highScore: number; gamesPlayed: number };
-    expect(row.highScore).toBe(account.highScore + 50);
-    expect(row.gamesPlayed).toBe(account.gamesPlayed);
-  });
-});
-
-describe("virtual-pet: the daily-visit streak (review wave 3)", () => {
-  it("a visit on a new day grows the streak on the account", async () => {
-    const entry = syncedStore("virtual-pet");
-    // Yesterday: the kid's pet, visited, on the account.
-    vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
-    await play(entry);
-    useVirtualPetStore.getState().updateFromTime();
-    const yesterday = progressOf(entry);
-    rows.set(`user-1:virtual-pet`, { data: yesterday, updatedAt: new Date() });
-    const streak = useVirtualPetStore.getState().progress.stats.currentStreak;
-
-    // Today, on the same device: the page syncs, then runs the time update
-    // (VirtualPet waits for `ready`).
-    vi.setSystemTime(new Date("2026-10-02T09:00:00Z"));
-    await loadPage(entry);
-    signIn();
-    const view = mount(entry);
-    await settle(1_000);
-    expect(view.result.current.ready).toBe(true);
-    useVirtualPetStore.getState().updateFromTime();
-    await settle(6_000);
-    view.unmount();
-
-    expect(rejected).toEqual([]);
-    const row = rowOf(entry) as { stats: { currentStreak: number; lastPlayDate: string } };
-    expect(row.stats.currentStreak).toBe(streak + 1);
-    expect(row.stats.lastPlayDate).toBe(new Date().toDateString());
-  });
-});
-
+const auth = vi.hoisted(() => ({ status: "authenticated", data: { user: { id: "matrix-owner" } } }));
+const fixture = vi.hoisted(() => ({ current: null as unknown as OwnerBoundProgress,
+  bindings: new Map<string, { handle: PersistHandle; flush?: () => void }>() }));
+vi.mock("next-auth/react", () => ({ useSession: () => auth, signOut: vi.fn(async () => undefined) }));
 vi.mock("@/lib/owner-bound-progress", async () => {
-  const { useSession: readSession } = await import("next-auth/react");
-  const { createSyncOwnerFixture } = await import("@/shared/hooks/__tests__/ownerProgressFixture");
-  return createSyncOwnerFixture(readSession);
+  const { createOwnerBoundProgress } = await import("@/lib/owner-bound-progress/core");
+  fixture.current = createOwnerBoundProgress();
+  return {
+    ownerBoundProgress: new Proxy({}, { get: (_target, key) => fixture.current[key as keyof OwnerBoundProgress] }),
+    createOwnerBoundStorage: (key: string, appId?: string) => ({
+      getItem: (name: string) => fixture.current.createStorage(key, appId).getItem(name),
+      setItem: (name: string, raw: string) => fixture.current.createStorage(key, appId).setItem(name, raw),
+      removeItem: (name: string) => fixture.current.createStorage(key, appId).removeItem(name),
+    }),
+    bindPersistedStore: (key: string, handle: PersistHandle, flush?: () => void) => {
+      fixture.bindings.set(key, { handle, flush }); return fixture.current.bindPersistedStore(key, handle, flush);
+    },
+  };
 });
 
-// B1 reconciliation fixtures retain their historical physical save format.
-vi.mock("@/lib/owner-bound-progress/persistStorage", async () => {
-  const { createJSONStorage } = await import("zustand/middleware");
-  return { createOwnerPersistStorage: () => createJSONStorage(() => localStorage) };
+const saves = legacy.saves as Record<string, { played: unknown; untouched: unknown }>;
+let server: ReturnType<typeof createProgressServer>;
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+const progress = (entry: SyncedStoreEntry) => clone(entry.store.getState().getProgress()) as AppProgressData;
+const tick = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); }); };
+async function confirm() {
+  await fixture.current.updateSession("authenticated", "matrix-owner");
+  await Promise.all(SYNCED_STORES.map(entry => fixture.current.whenHydrated(entry.key)));
+}
+async function load(entry: SyncedStoreEntry, save: unknown) {
+  fixture.current.writeScoped(entry.key, JSON.stringify(save));
+  await entry.store.persist.rehydrate();
+  return progress(entry);
+}
+function mount(entry: SyncedStoreEntry) {
+  return renderHook(() => useAuthSync({ appId: entry.appId as ValidAppId, localStorageKey: entry.key,
+    getState: () => progress(entry), setState: data => entry.store.getState().setProgress(data), debounceMs: 10_000 }));
+}
+const presentation = (entry: SyncedStoreEntry) => progressSyncPresentation.getSnapshot().find(row => row.appId === entry.appId);
+async function settled(entry: SyncedStoreEntry) {
+  await waitFor(() => expect(presentation(entry)).toBeDefined());
+  await waitFor(() => expect(presentation(entry)?.status).not.toBe("saving"));
+}
+function documentReset() {
+  fixture.current = createOwnerBoundProgress();
+  for (const [key, { handle, flush }] of fixture.bindings) fixture.current.bindPersistedStore(key, handle, flush);
+}
+beforeEach(async () => {
+  for (const entry of SYNCED_STORES) entry.reset();
+  localStorage.clear(); sessionStorage.clear(); vi.stubGlobal("indexedDB", new IDBFactory());
+  documentReset(); await confirm();
+  server = createProgressServer({ current: auth }); vi.stubGlobal("fetch", server.fetch);
+  Object.defineProperty(navigator, "sendBeacon", { configurable: true, value: vi.fn(() => false) });
+});
+afterEach(async () => { cleanup(); await tick(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe.each(SYNCED_STORES.map(entry => [entry.appId, entry] as const))("%s real store and revision protocol", (_appId, entry) => {
+  it("uploads played progress and preserves it through sign-out and a new same-owner document", async () => {
+    const played = await load(entry, saves[entry.appId].played);
+    const first = mount(entry); await settled(entry);
+    expect(first.result.current.syncStatus).toBe("synced");
+    expect(server.rejected).toEqual([]);
+    expect(server.row(entry.appId, "matrix-owner")).toEqual(played);
+    first.unmount(); await tick();
+    const lease = fixture.current.captureLease()!, durable = fixture.current.readScoped(entry.key);
+    await signOutAndClear("/");
+    expect(fixture.current.isCurrent(lease)).toBe(false);
+    documentReset(); await confirm();
+    expect(fixture.current.readScoped(entry.key)).toBe(durable);
+    const posted = server.posts.length;
+    const second = mount(entry); await settled(entry);
+    expect(second.result.current.syncStatus).toBe("synced");
+    expect(progress(entry)).toEqual(played);
+    expect(server.posts).toHaveLength(posted);
+  });
+
+  it("loads a played cloud save on a fresh second device without uploading defaults", async () => {
+    const played = await load(entry, saves[entry.appId].played);
+    server.rows.set(`matrix-owner:${entry.appId}`, { data: played, updatedAt: new Date() });
+    entry.reset(); localStorage.clear(); vi.stubGlobal("indexedDB", new IDBFactory()); documentReset(); await confirm();
+    const view = mount(entry); await settled(entry);
+    expect(view.result.current.syncStatus).toBe("synced");
+    expect(progress(entry)).toEqual(played);
+    expect(server.row(entry.appId, "matrix-owner")).toEqual(played);
+    expect(server.posts).toEqual([]);
+  });
+
+  it("does not replace cloud play with the old code's newer page-load defaults", async () => {
+    const played = await load(entry, saves[entry.appId].played);
+    server.rows.set(`matrix-owner:${entry.appId}`, { data: played, updatedAt: new Date(100) });
+    await load(entry, saves[entry.appId].untouched);
+    const view = mount(entry); await settled(entry);
+    expect(view.result.current.syncStatus).toBe("synced");
+    expect(progress(entry)).toEqual(played);
+    expect(server.posts).toEqual([]);
+  });
+
+  it("keeps local play when cloud contains old defaults and saves the player's explicit device choice", async () => {
+    await load(entry, saves[entry.appId].untouched);
+    const untouched = { ...progress(entry), [entry.timeKey]: Date.now() };
+    server.rows.set(`matrix-owner:${entry.appId}`, { data: untouched, updatedAt: new Date() });
+    const played = await load(entry, saves[entry.appId].played);
+    const view = mount(entry); await settled(entry);
+    expect(progress(entry)).toEqual(played);
+    expect(server.posts).toEqual([]);
+    expect(presentation(entry)?.status).toBe("conflict");
+    const dialog = presentation(entry)!.open()!;
+    await act(async () => { expect(await dialog.choose("local")).toMatchObject({ ok: true }); });
+    expect(server.rejected).toEqual([]);
+    expect(view.result.current.syncStatus).toBe("synced");
+    expect(progress(entry)).toEqual(played);
+    expect(server.row(entry.appId, "matrix-owner")).toEqual(played);
+  });
+});
+
+it.each(["hill-climb", "monster-truck", "oregon-trail"])("preserves %s legacy bytes without a timestamp and saves only an explicit choice", async appId => {
+  const entry = SYNCED_STORES.find(row => row.appId === appId)!;
+  const played = await load(entry, saves[appId].played);
+  const account = { ...played, ...(appId === "oregon-trail" ? { pace: "grueling" } : { coins: 5, totalCoinsEarned: 5 }), lastModified: 100 };
+  server.rows.set(`matrix-owner:${appId}`, { data: account, updatedAt: new Date(100) });
+  entry.reset(); localStorage.clear();
+  const original = JSON.stringify(saves[appId].played);
+  localStorage.setItem(entry.key, original); localStorage.setItem(PROGRESS_OWNER_KEY, "matrix-owner");
+  documentReset(); await confirm();
+  const local = progress(entry), view = mount(entry); await settled(entry);
+  expect(presentation(entry)?.status).toBe("conflict"); expect(server.posts).toEqual([]);
+  await act(async () => { expect(await presentation(entry)!.open()!.choose("local")).toMatchObject({ ok: true }); });
+  expect(view.result.current.syncStatus).toBe("synced");
+  expect(server.row(appId, "matrix-owner")).toEqual(local);
+  expect(localStorage.getItem(entry.key)).toBe(original);
+  expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("matrix-owner");
+});
+
+it("offers a guest's record alongside the returning account and acknowledges only the explicit resolved source", async () => {
+  const entry = SYNCED_STORES.find(row => row.appId === "flappy-bird")!;
+  const played = await load(entry, saves[entry.appId].played);
+  const account = { ...played, highScore: 50, gamesPlayed: 5, lastModified: 50 };
+  entry.store.getState().setProgress(account);
+  server.rows.set("matrix-owner:flappy-bird", { data: account, updatedAt: new Date(50) });
+  const guestProgress = { ...played, highScore: 100, gamesPlayed: 1, lastModified: 100 };
+  const guest = createOwnerBoundProgress(); await guest.updateSession("unauthenticated");
+  guest.writeScoped(entry.key, JSON.stringify({ state: { progress: guestProgress, progressTimeV: 1 }, version: 0 }));
+  expect(guest.prepareGuestHandoff()).toBe(true);
+  const proof = guest.getGuestHandoffProof()!;
+  documentReset(); fixture.current.authorizeGuestHandoff(proof); await confirm();
+  const view = mount(entry); await settled(entry);
+  expect(server.posts).toEqual([]); expect(fixture.current.readGuestCandidate(entry.key)).not.toBeNull();
+  const dialog = presentation(entry)!.open()!;
+  const choice = dialog.options.find(option => option.data.highScore === 100)!;
+  expect(choice).toBeDefined();
+  await act(async () => { expect(await dialog.choose(choice.id)).toMatchObject({ ok: true }); });
+  expect(view.result.current.syncStatus).toBe("synced");
+  expect(server.row(entry.appId, "matrix-owner")).toEqual(guestProgress);
+  expect(fixture.current.readGuestCandidate(entry.key)).toBeNull();
+});
+
+it("advances a synced pet's next-day visit without replacing the account's pet", async () => {
+  const entry = SYNCED_STORES.find(row => row.appId === "virtual-pet")!;
+  await load(entry, saves[entry.appId].played);
+  const played = useVirtualPetStore.getState().getProgress(), yesterday = new Date(Date.now() - 86_400_000);
+  const account = { ...played, lastModified: yesterday.getTime(), pet: { ...played.pet, lastChecked: yesterday.toISOString() },
+    stats: { ...played.stats, currentStreak: 5, lastPlayDate: yesterday.toDateString() } };
+  useVirtualPetStore.getState().setProgress(account);
+  server.rows.set("matrix-owner:virtual-pet", { data: account, updatedAt: yesterday });
+  const view = mount(entry); await settled(entry);
+  act(() => useVirtualPetStore.getState().updateFromTime(true));
+  await act(async () => { await view.result.current.forceSync(); });
+  expect(server.rejected).toEqual([]);
+  expect(server.row(entry.appId, "matrix-owner")).toMatchObject({ pet: { name: account.pet.name },
+    stats: { currentStreak: 6, lastPlayDate: new Date().toDateString() } });
 });
