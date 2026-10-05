@@ -8,6 +8,7 @@ import { nextJournalEnvelope } from "../progressJournalEnvelope";
 import { ProgressJournalDatabase } from "../progressJournalDatabase";
 import { ProgressJournalRepository } from "../progressJournalRepository";
 import { ProgressSyncSession } from "../progressSyncSession";
+import { journalSourceId } from "../progressJournalRecovery";
 
 class MemoryStorage {
   data = new Map<string, string>();
@@ -258,6 +259,22 @@ describe("owner-bound journal repository", () => {
     expect((await h.create({ writerId: "cold" })).recovery.unavailable).toBe(true);
     h.local.failRead = true;
     expect((await h.create({ writerId: "fresh" })).recovery.unavailable).toBe(true);
+  });
+
+  it("leaves foreign recovery metadata unreadable instead of applying its receipts", async () => {
+    const h = await fixture(), { repository } = await h.create();
+    repository.persist(JSON.stringify(journal()), []); await repository.settle();
+    const envelope = repository.snapshot()!;
+    envelope.recovery = { version: 1, adoptedSources: [], resolutions: [{
+      sourceId: journalSourceId(`u_${"f".repeat(20)}`, appId, "other", "foreign"), revision: "b".repeat(64),
+    }] };
+    const raw = JSON.stringify(envelope);
+    h.authority.writeScoped(progressJournalKey(appId, "writer"), raw);
+    const recovery = (await h.create({ writerId: "cold" })).recovery;
+    expect(recovery.unavailable).toBe(true);
+    expect(recovery.copies[0].envelope.recovery!.resolutions).toEqual([]);
+    const physical = h.authority.readDurableScoped(progressJournalKey(appId, "writer"));
+    expect(physical).toEqual({ status: "durable", raw });
   });
 
   it("does not require IndexedDB availability for a physically verified local checkpoint", async () => {

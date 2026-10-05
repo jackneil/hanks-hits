@@ -7,10 +7,11 @@ import { parseProgressJournal, progressJournalKey, PROGRESS_JOURNAL_PREFIX } fro
 import { DeletedJournalOwnerError, JournalWriterConflictError, type JournalCheckpoint, type ProgressJournalDatabase } from "./progressJournalDatabase";
 import { journalOriginalRetention, nextJournalEnvelope, readJournalEnvelope, type JournalAddress, type JournalEnvelope } from "./progressJournalEnvelope";
 import { sameProgress } from "./progressStamp";
+import { isJournalRecovery, journalSourceId, type JournalCopy } from "./progressJournalRecovery";
 
 type Authority = Pick<ReturnType<typeof createOwnerBoundProgress>, "isCurrent" | "readDurableScoped" | "writeScoped" | "listDurableScoped">;
 type Database = Pick<ProgressJournalDatabase, "ownerEpoch" | "isOwnerDeleted" | "put" | "list">;
-export type JournalCopy = { sourceId: string; writerId: string; envelope: JournalEnvelope };
+export type { JournalCopy } from "./progressJournalRecovery";
 type RepositoryOptions = {
   authority: Authority; database: Database; words: MigrationDatabase;
   lease: ProgressLease; appId: ValidAppId; ownerId: string; writerId: string;
@@ -18,7 +19,6 @@ type RepositoryOptions = {
 };
 export type JournalRecovery = { copies: JournalCopy[]; unavailable: boolean };
 const digest = (raw: string) => [...sha256(new TextEncoder().encode(raw))].map(n => n.toString(16).padStart(2, "0")).join("");
-const sourceId = (owner: string, app: ValidAppId, writer: string, raw: string) => JSON.stringify([owner, app, writer, digest(raw)]);
 
 /**
  * Each instance owns a NEW writer key. It never writes a recovered writer's key.
@@ -93,13 +93,14 @@ export class ProgressJournalRepository {
     for (const row of rows) {
       const envelope = readJournalEnvelope(row.raw, { ...this.address, writerId: row.writerId });
       if (!envelope || (row.generation !== undefined && row.generation !== envelope.generation)) { unavailable = true; continue; }
+      if (envelope.recovery && !isJournalRecovery(envelope.recovery, this.address.appId, this.lease.ownerKey)) { unavailable = true; continue; }
       const prior = latest.get(row.writerId);
       if (prior && prior.envelope.generation > envelope.generation) continue;
       if (prior?.envelope.generation === envelope.generation) {
         if (!sameProgress(prior.envelope, envelope)) unavailable = true;
         continue;
       }
-      latest.set(row.writerId, { sourceId: sourceId(this.lease.ownerKey, this.address.appId, row.writerId, envelope.current), writerId: row.writerId, envelope });
+      latest.set(row.writerId, { sourceId: journalSourceId(this.lease.ownerKey, this.address.appId, row.writerId, envelope.current), writerId: row.writerId, envelope });
     }
     return { copies: [...latest.values()], unavailable };
   }

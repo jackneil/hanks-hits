@@ -84,7 +84,7 @@ describe("atomic progress journal envelopes", () => {
   it("refuses future envelopes and foreign current/original owners", () => {
     const raw = JSON.stringify(journal());
     const envelope = nextJournalEnvelope(null, raw, [], address);
-    expect(readJournalEnvelope(JSON.stringify({ ...envelope, version: 2 }), address)).toBeNull();
+    expect(readJournalEnvelope(JSON.stringify({ ...envelope, version: 3 }), address)).toBeNull();
     expect(readJournalEnvelope(JSON.stringify(envelope), { ...address, writerId: "other" })).toBeNull();
     const foreign = JSON.stringify({ ...journal(), ownerId: "other" });
     expect(readJournalEnvelope(JSON.stringify({ ...envelope, originals: [{ raw: foreign, choice: false }] }), address)).toBeNull();

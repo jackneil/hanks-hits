@@ -2,14 +2,16 @@ import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
 import { extractProgressWords, type WordField } from "@/lib/progress-words";
 import { parseProgressJournal, type ProgressJournal } from "./progressJournal";
 import { sameProgress } from "./progressStamp";
+import { emptyJournalRecovery, isJournalRecovery, type JournalRecoveryMetadata } from "./progressJournalRecovery";
 
 export type JournalOriginal = { raw: string; choice: boolean };
 export type JournalEnvelope = {
   format: "hh-progress-journal";
-  version: 1;
+  version: 1 | 2;
   generation: number;
   current: string;
   originals: JournalOriginal[];
+  recovery?: JournalRecoveryMetadata;
 };
 export type JournalAddress = { appId: ValidAppId; ownerId: string; writerId: string };
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -19,9 +21,10 @@ export function readJournalEnvelope(raw: string, address: JournalAddress): Journ
     const value: unknown = JSON.parse(raw);
     let row: JournalEnvelope;
     if (object(value) && value.format === "hh-progress-journal") {
-      if (value.version !== 1 || !Number.isSafeInteger(value.generation) || (value.generation as number) < 0
+      if (![1, 2].includes(value.version as number) || !Number.isSafeInteger(value.generation) || (value.generation as number) < 0
         || typeof value.current !== "string" || !Array.isArray(value.originals)
         || value.originals.some(item => !object(item) || typeof item.raw !== "string" || typeof item.choice !== "boolean")) return null;
+      if (value.version === 2 ? !isJournalRecovery(value.recovery, address.appId) : value.recovery !== undefined) return null;
       row = value as JournalEnvelope;
     } else row = { format: "hh-progress-journal", version: 1, generation: 0, current: raw, originals: [] };
     const journal = parseProgressJournal(row.current, address.appId, address.ownerId);
@@ -49,8 +52,9 @@ export function nextJournalEnvelope(previous: JournalEnvelope | null, current: s
       && original.conflict && !journal.conflict && journal.forceWrite);
     retained.set(raw, (retained.get(raw) ?? false) || choice);
   }
-  return { format: "hh-progress-journal", version: 1, generation, current,
-    originals: [...retained].map(([raw, choice]) => ({ raw, choice })) };
+  return { format: "hh-progress-journal", version: 2, generation, current,
+    originals: [...retained].map(([raw, choice]) => ({ raw, choice })),
+    recovery: structuredClone(previous?.recovery ?? emptyJournalRecovery()) };
 }
 
 function words(row: ProgressJournal<AppProgressData>): WordField[] {
