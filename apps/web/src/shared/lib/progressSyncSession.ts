@@ -113,6 +113,12 @@ export class ProgressSyncSession<T extends AppProgressData> {
     return this.write(next, true) ? "conflict" : "blocked";
   }
 
+  /** A sibling writer resolved inherited work; retain it for an explicit choice. */
+  requireChoice(remote: ProgressSnapshot<T>): Result {
+    if (!this.io.maySave() || !isProgressSnapshot<T>(this.journal.appId, remote)) return "ignored";
+    return this.conflict(remote, "unknown-lineage", ["$root"]);
+  }
+
   private accept(remote: ProgressSnapshot<T>, sent: ProgressRequest<T>): Result {
     if (remote.data === null) return "ignored";
     // Rebase edits made while the request was in flight over the actual ACK.
@@ -130,6 +136,7 @@ export class ProgressSyncSession<T extends AppProgressData> {
   private rebase(remote: ProgressSnapshot<T>): Result {
     const row = this.journal;
     let live = row.live;
+    if (row.forceWrite && !sameProgress(row.acknowledged, remote)) return this.conflict(remote, "concurrent-edit", ["$root"]);
     if (row.acknowledged.data === null || remote.data === null) {
       if (!sameProgress(row.acknowledged, remote)) return this.conflict(remote, "unknown-lineage", ["$root"]);
     } else {
@@ -179,13 +186,13 @@ export class ProgressSyncSession<T extends AppProgressData> {
   }
 
   /** The exact displayed revision fences an explicit choice against later edits. */
-  choose(displayed: ProgressSnapshot<T>, selected: "local" | "server" | { empty: T }): boolean {
+  choose(displayed: ProgressSnapshot<T>, selected: "local" | "server" | { empty: T } | { data: T }): boolean {
     if (!this.io.maySave() || !sameProgress(displayed, this.journal.conflict?.remote)) return false;
     // A deleted cloud row has no playable state. The adapter offers "Start
     // fresh" with this game's validated defaults and sends a conditional write
     // against the absent row. That write fences a delayed pre-deletion request.
-    if (typeof selected === "object" && displayed.data !== null) return false;
-    const live = typeof selected === "object" ? selected.empty
+    if (typeof selected === "object" && "empty" in selected && displayed.data !== null) return false;
+    const live = typeof selected === "object" ? ("empty" in selected ? selected.empty : selected.data)
       : selected === "local" ? this.journal.live : displayed.data;
     if (live === null || !isJournalProgress(this.journal.appId, live)) return false;
     const next = { ...cloneProgress(this.journal), acknowledged: cloneProgress(displayed), live: cloneProgress(live),

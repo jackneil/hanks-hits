@@ -89,7 +89,7 @@ describe("owner-bound journal repository", () => {
   it("preserves every displayed source until a cohort choice is acknowledged", async () => {
     const { h, repository, raw, own, sources } = await cohort();
     const ids = sources.map(source => source.sourceId);
-    expect(await repository.retainSources(ids, raw)).toBe(true);
+    expect(await repository.retainSources(sources, raw)).toBe(true);
     expect(repository.snapshot()!.originals.map(original => original.raw)).toEqual(expect.arrayContaining(sources.map(source => source.envelope.current)));
     expect(await repository.resolve(ids, raw)).toBe(false);
     const session = new ProgressSyncSession<ReturnType<typeof defaults>>(raw, appId, ownerId,
@@ -111,7 +111,7 @@ describe("owner-bound journal repository", () => {
     vi.spyOn(h.database, "archive").mockImplementationOnce(async (...args) => {
       entered.resolve(); await release.promise; return archive(...args);
     });
-    const pending = repository.retainSources(sources.map(source => source.sourceId), raw);
+    const pending = repository.retainSources(sources, raw);
     await entered.promise;
     if (changed === "owner") h.authority.revoke();
     else if (changed === "source") { one.serial++; one.live.stats.totalDrawTime++; first.persist(JSON.stringify(one), []); await first.settle(); }
@@ -121,14 +121,24 @@ describe("owner-bound journal repository", () => {
     if (changed !== "owner") expect(repository.snapshot()!.recovery!.adoptedSources).toEqual([]);
   });
 
+  it("rejects a changed displayed envelope even when its current source ID stays the same", async () => {
+    const { repository, raw, sources, first, one } = await cohort();
+    const late = JSON.stringify(journal("one", "late-original"));
+    first.persist(JSON.stringify(one), [late]); await first.settle();
+    const now = (await repository.recover()).copies.find(copy => copy.writerId === "one")!;
+    expect(now.sourceId).toBe(sources.find(copy => copy.writerId === "one")!.sourceId);
+    expect(await repository.retainSources(sources, raw)).toBe(false);
+    expect(repository.snapshot()!.recovery!.adoptedSources).toEqual([]);
+  });
+
   it("retries partial cohort archival without certifying an unacknowledged choice", async () => {
     const { h, repository, raw, sources } = await cohort();
     const archive = h.database.archive.bind(h.database);
     vi.spyOn(h.database, "archive").mockImplementationOnce(archive).mockRejectedValueOnce(Error("quota"));
     const ids = sources.map(source => source.sourceId);
-    expect(await repository.retainSources(ids, raw)).toBe(false);
+    expect(await repository.retainSources(sources, raw)).toBe(false);
     expect(repository.snapshot()!.recovery!.adoptedSources).toEqual([]);
-    expect(await repository.retainSources(ids, raw)).toBe(true);
+    expect(await repository.retainSources(sources, raw)).toBe(true);
     expect(await repository.resolve(ids, raw)).toBe(false);
   });
 
@@ -149,7 +159,7 @@ describe("owner-bound journal repository", () => {
     const own = newProgressJournal(appId, ownerId, "cold", resolverSession.snapshot()!.acknowledged, newer, false);
     const raw = JSON.stringify(own);
     cold.persist(raw, []); await cold.settle();
-    expect(await cold.retainSources([childSource.sourceId], raw)).toBe(true);
+    expect(await cold.retainSources([childSource], raw)).toBe(true);
     expect(cold.snapshot()!.recovery!.adoptedSources).toEqual([childSource.sourceId]);
     const choice = new ProgressSyncSession<ReturnType<typeof defaults>>(raw, appId, ownerId,
       { maySave: () => h.authority.isCurrent(h.lease), persist: cold.persist, requestId: () => "new-choice" });

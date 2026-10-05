@@ -185,8 +185,9 @@ export class ProgressJournalRepository {
   }
 
   /** Attach an explicitly displayed cohort before a choice can replace its alternatives. */
-  async retainSources(sourceIds: readonly string[], expectedCurrent: string): Promise<boolean> {
-    const ids = [...new Set(sourceIds)];
+  async retainSources(displayed: readonly JournalCopy[], expectedCurrent: string): Promise<boolean> {
+    const ids = [...new Set(displayed.map(source => source.sourceId))];
+    if (ids.length !== displayed.length) return false;
     const current = () => this.allowed() && this.isDurable() && this.current?.current === expectedCurrent;
     const expected = parseProgressJournal(expectedCurrent, this.address.appId, this.address.ownerId);
     if (!expected?.conflict || !current()) return false;
@@ -196,7 +197,7 @@ export class ProgressJournalRepository {
     const copies: JournalCopy[] = [];
     for (const id of ids) {
       const source = inventory.copies.find(copy => copy.sourceId === id && copy.writerId !== this.address.writerId);
-      if (!source || resolved.has(id)) return false;
+      if (!source || resolved.has(id) || !sameProgress(source, displayed.find(copy => copy.sourceId === id))) return false;
       copies.push(source);
     }
     for (const source of copies) {
