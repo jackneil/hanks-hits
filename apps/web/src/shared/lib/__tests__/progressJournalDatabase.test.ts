@@ -64,6 +64,17 @@ describe("large progress journal checkpoints", () => {
     expect(await db.list(other, 0)).toEqual([]);
     db.close();
   });
+  it("compares the last receipt atomically rather than letting a larger generation claim another writer", async () => {
+    const { db } = setup();
+    const original = row(3, "original");
+    await db.put(original, 0, null);
+    await expect(db.put(row(4, "foreign"), 0, null)).rejects.toThrow("generation conflicts");
+    await expect(db.put(row(4, "foreign"), 0, { generation: 2, raw: "older" })).rejects.toThrow("generation conflicts");
+    expect(await db.put(row(4, "own next"), 0, original)).toBe("durable");
+    expect(await db.put(row(4, "own next"), 0, original)).toBe("durable");
+    expect(await db.list(ownerKey, 0)).toEqual([row(4, "own next")]);
+    db.close();
+  });
   it.each(["InvalidStateError", "UnknownError"])("reopens after %s without a browser close event", async name => {
     const { db } = setup();
     await db.put(row(), 0);

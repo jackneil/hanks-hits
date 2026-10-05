@@ -33,6 +33,41 @@ function storeFor(service: ReturnType<typeof createOwnerBoundProgress>) {
 }
 
 describe("owner-bound progress", () => {
+  it("distinguishes exact physical bytes from failed-write memory and physical tombstones", async () => {
+    const { service, local } = setup();
+    await service.updateSession("authenticated", "alice");
+    const lease = service.captureLease()!;
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "missing" });
+    service.writeScoped(key, raw(1), lease);
+    local.failWrite = true;
+    expect(service.writeScoped(key, raw(2), lease)).toBe(false);
+    expect(service.readScoped(key, lease)).toBe(raw(2));
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "durable", raw: raw(1) });
+    local.failWrite = false;
+    service.removeScoped(key, lease);
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "durable", raw: null });
+    local.failRead = true;
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "unavailable" });
+    local.failRead = false; service.revoke();
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "unavailable" });
+  });
+
+  it("enumerates unreadable physical rows without leaking another owner or trusting memory", async () => {
+    const { service, local } = setup();
+    await service.updateSession("authenticated", "alice");
+    const lease = service.captureLease()!;
+    local.data.set(physical("u_alice", "journal-broken"), "invalid");
+    local.data.set(physical("u_bob", "journal-foreign"), "invalid");
+    local.failWrite = true;
+    service.writeScoped("journal-memory", "pending", lease);
+    expect(service.listDurableScoped("journal-", lease)).toEqual({ keys: ["journal-broken"], available: true });
+    local.failRead = true;
+    vi.spyOn(local, "key").mockImplementation(() => { throw Error("unavailable"); });
+    expect(service.listDurableScoped("journal-", lease)).toEqual({ keys: [], available: false });
+    service.revoke();
+    expect(service.listDurableScoped("journal-", lease)).toEqual({ keys: [], available: false });
+  });
+
   it("keeps legacy bytes and marker frozen while hydrating and writing only the resolved owner", async () => {
     const { service, local, clock } = setup();
     local.setItem(key, raw(3)); local.setItem(marker, "alice");

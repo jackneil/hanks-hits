@@ -13,6 +13,12 @@ export const PROGRESS_JOURNAL_DB = "hh-progress-journals:v1";
 export class DeletedJournalOwnerError extends Error {
   constructor() { super("This owner's recovery copies were deleted."); this.name = "DeletedJournalOwnerError"; }
 }
+export class JournalWriterConflictError extends Error {
+  constructor() { super("Journal checkpoint generation conflicts"); this.name = "JournalWriterConflictError"; }
+}
+// Share explicit deletion intent across database clients in this document.
+// Cross-document account changes must also revoke the owner authority's lease.
+const deletedOwners = new WeakMap<IDBFactory, Map<string, Set<string>>>();
 const owner = (key: string) => { if (!isOwnerKey(key)) throw new Error("Invalid journal owner"); };
 const request = <T>(req: IDBRequest<T>): Promise<T> => new Promise((resolve, reject) => {
   req.onsuccess = () => resolve(req.result);
@@ -34,6 +40,18 @@ export class ProgressJournalDatabase {
   private opening: Promise<IDBDatabase> | null = null;
   private closed = false;
   constructor(private readonly factory?: IDBFactory, private readonly name = PROGRESS_JOURNAL_DB) {}
+
+  private deletionFence(): Set<string> | undefined {
+    const factory = this.factory ?? globalThis.indexedDB;
+    if (!factory) return undefined;
+    let names = deletedOwners.get(factory);
+    if (!names) { names = new Map(); deletedOwners.set(factory, names); }
+    let owners = names.get(this.name);
+    if (!owners) { owners = new Set(); names.set(this.name, owners); }
+    return owners;
+  }
+
+  isOwnerDeleted(ownerKey: string): boolean { return this.deletionFence()?.has(ownerKey) ?? false; }
 
   private open(): Promise<IDBDatabase> {
     if (this.closed) return Promise.reject(new Error("Journal storage is closed"));
@@ -87,8 +105,9 @@ export class ProgressJournalDatabase {
 
   private async epoch(tx: IDBTransaction, ownerKey: string, expected?: number): Promise<number> {
     owner(ownerKey);
+    if (this.isOwnerDeleted(ownerKey)) throw new DeletedJournalOwnerError();
     const row = await request<{ ownerKey: string; epoch: number; deleted?: boolean } | undefined>(tx.objectStore("owners").get(ownerKey));
-    if (row?.deleted) throw new DeletedJournalOwnerError();
+    if (row?.deleted) { this.deletionFence()?.add(ownerKey); throw new DeletedJournalOwnerError(); }
     const epoch = row?.epoch ?? 0;
     if (expected !== undefined && epoch !== expected) throw new Error("Journal owner epoch changed");
     return epoch;
@@ -98,8 +117,10 @@ export class ProgressJournalDatabase {
     return this.run("readonly", tx => this.epoch(tx, ownerKey));
   }
 
-  async put(checkpoint: JournalCheckpoint, expectedEpoch: number): Promise<"durable" | "superseded"> {
+  async put(checkpoint: JournalCheckpoint, expectedEpoch: number,
+    previous?: Pick<JournalCheckpoint, "generation" | "raw"> | null): Promise<"durable" | "superseded"> {
     const row = { ...checkpoint };
+    const expected = previous ? { ...previous } : previous;
     owner(row.ownerKey);
     if (!VALID_APP_IDS.includes(row.appId) || !/^[a-zA-Z0-9-]{1,100}$/.test(row.writerId)
       || !Number.isSafeInteger(row.generation) || row.generation < 0 || typeof row.raw !== "string") throw new Error("Invalid journal checkpoint");
@@ -107,9 +128,14 @@ export class ProgressJournalDatabase {
       await this.epoch(tx, row.ownerKey, expectedEpoch);
       const store = tx.objectStore("checkpoints");
       const prior = await request<JournalCheckpoint | undefined>(store.get([row.ownerKey, row.appId, row.writerId]));
+      if (prior?.generation === row.generation && prior.raw === row.raw) return "durable";
+      // Repository writers compare their last exact receipt, including absence
+      // on the first write. A larger generation cannot claim somebody else's key.
+      if (expected !== undefined && (expected === null ? Boolean(prior)
+        : !prior || prior.generation !== expected.generation || prior.raw !== expected.raw)) throw new JournalWriterConflictError();
       if (prior && prior.generation > row.generation) return "superseded";
       if (prior?.generation === row.generation) {
-        if (prior.raw !== row.raw) throw new Error("Journal checkpoint generation conflicts");
+        if (prior.raw !== row.raw) throw new JournalWriterConflictError();
         return "durable";
       }
       await request(store.put(row));
@@ -127,6 +153,9 @@ export class ProgressJournalDatabase {
   /** Explicit owner deletion only; the tombstone fences writers holding epoch 0. */
   deleteOwner(ownerKey: string): Promise<void> {
     owner(ownerKey);
+    // Fence synchronous dispatch immediately, including while deletion awaits
+    // its transaction. A failed deletion remains conservatively fenced here.
+    this.deletionFence()?.add(ownerKey);
     return this.run("readwrite", async tx => {
       const owners = tx.objectStore("owners");
       const prior = await request<{ epoch: number } | undefined>(owners.get(ownerKey));

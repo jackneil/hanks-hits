@@ -186,6 +186,32 @@ export function createOwnerBoundProgress(deps: {
     if (row.memory?.raw === null) return null;
     return readEvidence(key).raw;
   };
+  /** Exact physical bytes only. Memory fallback must never serve as a receipt. */
+  const readDurableScoped = (key: string, lease: ProgressLease | null = captureLease()):
+    { status: "durable"; raw: string | null } | { status: "missing" | "unavailable" } => {
+    if (!lease || !isCurrent(lease)) return { status: "unavailable" };
+    const found = readPhysical(key, lease);
+    if (!isCurrent(lease) || !found.readable) return { status: "unavailable" };
+    return found.present ? { status: "durable", raw: found.raw } : { status: "missing" };
+  };
+  /** Includes unreadable entries so recovery can report them without overwriting them. */
+  const listDurableScoped = (prefix: string, lease: ProgressLease | null = captureLease()): { keys: string[]; available: boolean } => {
+    if (!lease || !isCurrent(lease)) return { keys: [], available: false };
+    try {
+      const local = storage();
+      if (!local) return { keys: [], available: false };
+      const keys: string[] = [];
+      for (let i = 0; i < local.length; i++) {
+        const key = local.key(i);
+        if (!key?.startsWith(PROGRESS_NAMESPACE)) continue;
+        let pair: unknown;
+        try { pair = JSON.parse(key.slice(PROGRESS_NAMESPACE.length)); } catch { continue; }
+        if (Array.isArray(pair) && pair.length === 2 && pair[0] === lease.ownerKey
+          && typeof pair[1] === "string" && pair[1].startsWith(prefix)) keys.push(pair[1]);
+      }
+      return isCurrent(lease) ? { keys, available: true } : { keys: [], available: false };
+    } catch { return { keys: [], available: false }; }
+  };
   const preserveMalformed = (local: StorageLike, key: string, lease: ProgressLease): void => {
     const previous = local.getItem(physicalKey(lease.ownerKey, key));
     if (previous === null) return;
@@ -377,7 +403,7 @@ export function createOwnerBoundProgress(deps: {
     },
     matchesSession: (status: AuthStatus, userId?: string): boolean => snapshot.status === "ready"
       && status !== "loading" && (status === "authenticated" ? !!userId && pinnedIdentity === userId : pinnedIdentity === null),
-    readEvidence, readScoped, writeScoped, removeScoped, listScoped, readLegacy, listLegacyKeys,
+    readEvidence, readScoped, readDurableScoped, listDurableScoped, writeScoped, removeScoped, listScoped, readLegacy, listLegacyKeys,
     readGuestCandidate, listGuestCandidates,
     acknowledgeGuestCandidate: (key: string, id: string, lease: ProgressLease | null = captureLease()): boolean => {
       if (!lease || !isCurrent(lease)) return false;
