@@ -344,7 +344,9 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     fireEvent.click(screen.getByRole("button", { name: /review saves/i }));
     const postsBeforeChoice = server.posts.length;
     fireEvent.click(screen.getByText("Use cloud save"));
-    await settle(100);
+    // Yield to actual IndexedDB work even when the full suite is busy. Once
+    // POST starts, stop advancing its deliberately delayed response clock.
+    for (let attempts = 0; server.posts.length === postsBeforeChoice && attempts < 50; attempts++) await settle(100);
     expect(server.posts).toHaveLength(postsBeforeChoice + 1);
     expect(progress().cookies).toBe(200);
     server.rows.set("user-1:cookie-clicker", { data: { ...progress(), cookies: 400 }, updatedAt: new Date() });

@@ -70,6 +70,27 @@ afterEach(async () => {
 });
 
 describe("mounted revision-aware sync with real owner storage", () => {
+  it("retains its exact checkpoint when a server refuses the client protocol", async () => {
+    server.net.postStatus = 428;
+    const { state, view } = await fixture(played(20));
+    await waitFor(() => expect(entry()?.status).toBe("network-error"));
+    expect(view.result.current.syncStatus).not.toBe("synced");
+    expect(state.getState().progress).toEqual(played(20));
+    expect(server.row("snake", "revision-owner")).toBeUndefined();
+    view.unmount(); await flush();
+    const saved = await journals();
+    expect(saved.some(row => row.live.highScore === 20 && row.sent?.data.highScore === 20)).toBe(true);
+    server.net.postStatus = 0;
+    const reopened = await fixture(played(20));
+    // An uncertain create against a null base cannot prove it was never deleted.
+    await waitFor(() => expect(entry()?.status).toBe("conflict"));
+    const dialog = entry().open()!;
+    expect(dialog.options.find(option => option.id === "local")!.data).toEqual(played(20));
+    await act(async () => { expect(await dialog.choose("local")).toMatchObject({ ok: true }); });
+    await waitFor(() => expect(reopened.view.result.current.syncStatus).toBe("synced"));
+    expect(server.row("snake", "revision-owner")).toEqual(played(20));
+  });
+
   it("automatically uploads continuing play without resetting the pending debounce", async () => {
     const { state, view } = await fixture(defaults, undefined, false, 40); await ready();
     for (let score = 1; score <= 12; score++) {

@@ -98,10 +98,29 @@ describe("progress requests remain bound to their initiating account", () => {
   it("accepts an ordinary save with a matching owner assertion", async () => {
     const data = await cookieClickerBlob(123);
     const response = await POST(new Request("http://localhost/api/progress/cookie-clicker", {
-      method: "POST", body: JSON.stringify({ data, merge: true, expectedOwnerId: USER_ID }),
+      method: "POST", body: JSON.stringify({ data, merge: true, baseRevision: null, expectedOwnerId: USER_ID }),
     }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
     expect(response.status).toBe(200);
     expect(pg.rows("app_progress")[0]).toMatchObject({ userId: USER_ID, data });
+  });
+
+  it.each([false, true])("refuses legacy writes and beacons without changing existing=%s progress", async existing => {
+    const data = await cookieClickerBlob(9000);
+    if (existing) expect((await save("cookie-clicker", data)).status).toBe(200);
+    const before = structuredClone(pg.rows("app_progress"));
+    const boardBefore = structuredClone(pg.rows("leaderboard_entries"));
+    for (const merge of [false, true]) {
+      for (const expectedOwnerId of [undefined, USER_ID]) {
+        // Blob bodies also model old pagehide sendBeacon payloads.
+        const response = await POST(new Request("http://localhost/api/progress/cookie-clicker", {
+          method: "POST", body: new Blob([JSON.stringify({ data: { ...data, cookies: 1 }, merge, expectedOwnerId })], { type: "application/json" }),
+        }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+        expect(response.status).toBe(428);
+        expect(await response.json()).toEqual({ error: "Refresh this page before saving again", code: "upgrade_required", protocol: 1 });
+        expect(pg.rows("app_progress")).toEqual(before);
+        expect(pg.rows("leaderboard_entries")).toEqual(boardBefore);
+      }
+    }
   });
 
   it("stores an exact conditional choice and refuses a stale second choice", async () => {
@@ -138,12 +157,14 @@ describe("progress requests remain bound to their initiating account", () => {
   });
 });
 
-function save(appId: string, data: Record<string, unknown>, merge = false) {
+async function save(appId: string, data: Record<string, unknown>, merge = false) {
+  const canonical = await (await GET(new Request(`http://localhost/api/progress/${appId}`), { params: Promise.resolve({ appId }) })).json();
   return POST(
     new Request(`http://localhost/api/progress/${appId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data, merge }),
+      body: JSON.stringify({ data, merge, baseRevision: canonical.revision, expectedOwnerId: USER_ID,
+        ...(!merge ? { resolution: true } : {}) }),
     }),
     { params: Promise.resolve({ appId }) }
   );
@@ -382,7 +403,7 @@ describe("POST merge: a merged blob that breaks the schema", () => {
     vi.restoreAllMocks();
   });
 
-  it("newer row + an older save whose union is too long: the row stays the base, and the save's records still fold in", async () => {
+  it("a current-revision continuation keeps its wallet despite an older clock and folds records that fit", async () => {
     const now = Date.now();
     putRow(
       "cookie-clicker",
@@ -395,32 +416,34 @@ describe("POST merge: a merged blob that breaks the schema", () => {
 
     expect(res.status).toBe(200);
     const stored = progressRow("cookie-clicker")!.data as Record<string, unknown>;
-    expect(stored.cookies).toBe(7_000); // the newer row's wallet, not the older save's
+    expect(stored.cookies).toBe(3); // Matching revision establishes continuation; device clocks do not.
     expect(stored.totalCookiesBaked).toBe(5_000); // the older save's record
     expect(stored.totalClicks).toBe(50);
-    expect(stored.unlockedAchievements).toEqual(ids("row-", 300)); // 600 > 500: left out
+    expect(stored.unlockedAchievements).toEqual(ids("dev-", 300)); // 600 > 500: keep the continuation's list
     expect(stored.lastModified).toBe(now - 60_000);
     const logged = printed(warn);
     expect(logged).toContain("left out [unlockedAchievements]");
-    expect(logged).toContain("stored row");
+    expect(logged).toContain("incoming save");
     expect(logged).not.toContain("dev-0");
   });
 
-  it("newer row that the schema of today refuses + an older save: 409, and the row is not touched", async () => {
+  it("an obsolete client cannot overwrite a stored row with an unfamiliar schema", async () => {
     const now = Date.now();
     const rowData = await mathBlob({ highScore: 900, gamesPlayed: 40, settings: { soundEnabled: true, difficulty: "13yo" }, lastModified: now - 60_000 });
     const rowTime = new Date(now - 60_000);
     putRow("math-attack", rowData, rowTime);
     const older = await mathBlob({ highScore: 100, gamesPlayed: 5, lastModified: now - HOUR });
 
-    const res = await save("math-attack", older, true);
+    const res = await POST(new Request("http://localhost/api/progress/math-attack", {
+      method: "POST", body: JSON.stringify({ data: older, merge: true }),
+    }), { params: Promise.resolve({ appId: "math-attack" }) });
 
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual(expect.objectContaining({ kept: "existing" }));
+    expect(res.status).toBe(428);
+    expect(await res.json()).toMatchObject({ code: "upgrade_required" });
     const row = progressRow("math-attack")!;
     expect(row.data).toEqual(rowData);
     expect(row.updatedAt).toBe(rowTime);
-    expect(printed(warn)).toContain("kept the newer stored row");
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("older row + a newer save whose union is too long: the save is stored, with the row's records that fit", async () => {
@@ -526,7 +549,7 @@ describe("POST /api/progress/[appId]: the body limit (100 MiB, no time limit, no
 
   it("accepts a save body of exactly 100 MiB (a valid save and white space), and refuses one byte more", async () => {
     const { useSnakeStore } = await import("@/games/snake/lib/store");
-    const head = JSON.stringify({ data: { ...useSnakeStore.getState().getProgress(), highScore: 7 }, merge: false });
+    const head = JSON.stringify({ data: { ...useSnakeStore.getState().getProgress(), highScore: 7 }, merge: false, baseRevision: null, expectedOwnerId: USER_ID });
     const exact = head + " ".repeat(PROGRESS_SAVE_BODY.maxBytes - head.length);
     const send = (text: string) =>
       POST(
@@ -638,7 +661,7 @@ describe("POST /api/progress/[appId]: the body limit (100 MiB, no time limit, no
   it("saves a body that pauses for 35 s in the middle (no time limit of our own: a phone in a tunnel)", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { useSnakeStore } = await import("@/games/snake/lib/store");
-    const text = JSON.stringify({ data: { ...useSnakeStore.getState().getProgress(), highScore: 35 }, merge: true });
+    const text = JSON.stringify({ data: { ...useSnakeStore.getState().getProgress(), highScore: 35 }, merge: true, baseRevision: null, expectedOwnerId: USER_ID });
     const bytes = new TextEncoder().encode(text);
     const half = Math.floor(bytes.length / 2);
     let step = 0;
@@ -716,7 +739,7 @@ describe("POST /api/progress/[appId]: the largest valid save of every game passe
     expect(unbounded).toEqual(UNBOUNDED[appId] ?? []);
     expect(schema.safeParse(value).success, "the largest save is valid").toBe(true);
 
-    const body = JSON.stringify({ data: value, merge: true });
+    const body = JSON.stringify({ data: value, merge: true, baseRevision: null, expectedOwnerId: USER_ID });
     const bytes = Buffer.byteLength(body, "utf8");
     sizes[appId] = bytes;
     expect(bytes).toBeLessThanOrEqual(PROGRESS_SAVE_BODY.maxBytes);
@@ -725,7 +748,7 @@ describe("POST /api/progress/[appId]: the largest valid save of every game passe
     // most marks) is under the value count, with room to spare.
     const most = largestSave(schema, ASCII_PATHS, (v) => marksOf(JSON.stringify(v) ?? ""));
     expect(schema.safeParse(most.value).success, "the save with the most values is valid").toBe(true);
-    marks[appId] = Math.max(marksOf(body), marksOf(JSON.stringify({ data: most.value, merge: true })));
+    marks[appId] = Math.max(marksOf(body), marksOf(JSON.stringify({ data: most.value, merge: true, baseRevision: null, expectedOwnerId: USER_ID })));
     expect(marks[appId]).toBeLessThanOrEqual(PROGRESS_SAVE_BODY.maxJsonValues!);
     const allocationsOf = (v: unknown) => {
       const counter = new JsonValueCounter();
@@ -751,9 +774,9 @@ describe("POST /api/progress/[appId]: the largest valid save of every game passe
     expect(largest[1]).toBeLessThan(PROGRESS_SAVE_BODY.maxBytes);
   });
 
-  it("the Drum Machine's 10,261,528 marks fit the total budget", () => {
+  it("the Drum Machine's 10,261,532 marks fit the total budget", () => {
     const most = Object.entries(marks).sort((a, b) => b[1] - a[1])[0];
-    expect(most).toEqual(["drum-machine", 10_261_528]);
+    expect(most).toEqual(["drum-machine", 10_261_532]);
     expect(most[1]).toBeLessThan(PROGRESS_SAVE_BODY.maxJsonValues!);
   });
 

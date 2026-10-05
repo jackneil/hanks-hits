@@ -332,7 +332,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     // Guard ordinary saves and unload beacons as well as conditional writes.
-    // Missing assertions remain compatible with older non-conditional clients.
+    // Stale owner assertions take precedence over protocol upgrade errors.
     if ((conditional || suppliedOwner) && expectedOwnerId !== session.user.id) {
       return NextResponse.json({ error: "The signed-in account changed", code: "owner_changed" }, { status: 409 });
     }
@@ -343,6 +343,12 @@ export async function POST(request: Request, context: RouteContext) {
         { error: "Invalid progress data" },
         { status: 400 }
       );
+    }
+
+    // All current clients use revisions. Refuse stale tabs before any database
+    // mutation, including legacy unload beacons that cannot process a response.
+    if (!conditional) {
+      return NextResponse.json({ error: "Refresh this page before saving again", code: "upgrade_required", protocol: 1 }, { status: 428 });
     }
 
     const userId = session.user.id;

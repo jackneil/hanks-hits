@@ -140,15 +140,25 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
-  function save(appId: string, data: Record<string, unknown>, merge = true) {
+  async function save(appId: string, data: Record<string, unknown>, merge = true) {
+    const canonical = await (await route.GET(new Request(`http://localhost/api/progress/${appId}`, {
+      headers: { "x-hh-expected-owner": ids.user },
+    }), { params: Promise.resolve({ appId }) })).json();
     return route.POST(
       new Request(`http://localhost/api/progress/${appId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data, merge }),
+        body: JSON.stringify({ data, merge, baseRevision: canonical.revision, expectedOwnerId: ids.user,
+          ...(!merge ? { resolution: true } : {}) }),
       }),
       { params: Promise.resolve({ appId }) }
     );
+  }
+
+  function legacySave(appId: string, data: Record<string, unknown>) {
+    return route.POST(new Request(`http://localhost/api/progress/${appId}`, {
+      method: "POST", body: JSON.stringify({ data, merge: true }),
+    }), { params: Promise.resolve({ appId }) });
   }
 
   async function hillClimbBlob(bestDistance: number) {
@@ -328,7 +338,7 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     return rows[0];
   }
 
-  it("keeps a newer row as the base when the merge is too long, and folds in the older save's record", async () => {
+  it("uses a matching revision continuation despite an older clock and folds records within bounds", async () => {
     const list = (prefix: string) => Array.from({ length: 300 }, (_, i) => `${prefix}${i}`);
     const now = Date.now();
     await putRow(
@@ -342,12 +352,12 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
 
     expect(res.status).toBe(200);
     const stored = await progressOf("cookie-clicker");
-    expect(stored?.cookies).toBe(7_000);
+    expect(stored?.cookies).toBe(3);
     expect(stored?.totalCookiesBaked).toBe(5_000);
-    expect(stored?.unlockedAchievements).toEqual(list("row-"));
+    expect(stored?.unlockedAchievements).toEqual(list("dev-"));
   });
 
-  it("answers 409 and leaves a newer row that the schema refuses untouched", async () => {
+  it("refuses a legacy write and leaves an unfamiliar stored schema untouched", async () => {
     const { useMathAttackStore } = await import("@/games/math-attack/lib/store");
     const now = Date.now();
     const rowData = {
@@ -360,9 +370,9 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     const before = await rowOf("math-attack");
     const older = { ...useMathAttackStore.getState().getProgress(), highScore: 100, lastModified: now - 3_600_000 };
 
-    const res = await save("math-attack", older);
+    const res = await legacySave("math-attack", older);
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(428);
     const after = await rowOf("math-attack");
     expect(after?.data).toEqual(rowData);
     expect(after?.updatedAt.getTime()).toBe(before?.updatedAt.getTime());
@@ -472,15 +482,14 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     expect(await cloud()).toMatchObject({ data: after.data, revision: after.revision });
   });
 
-  it("legacy equal-time writes retain the stored wallet but advance revision even within one millisecond", async () => {
+  it("refuses equal-time legacy overwrites without advancing the revision", async () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.now());
     const first = await (await compareSave({ ...await cookieClickerBlob(9000), cookies: 9000 }, null)).json();
-    expect((await save("cookie-clicker", { ...first.data, cookies: 2000 })).status).toBe(200);
-    const second = await cloud();
-    expect(second.data!.cookies).toBe(9000);
-    expect(second.revision).not.toBe(first.revision);
-    expect(new Date(second.updatedAt!).getTime()).toBeGreaterThan(new Date(first.updatedAt).getTime());
-    expect((await compareSave({ ...first.data, cookies: 9100 }, first.revision)).status).toBe(409);
+    const response = await legacySave("cookie-clicker", { ...first.data, cookies: 2000 });
+    expect(response.status).toBe(428);
+    expect(await response.json()).toMatchObject({ code: "upgrade_required", protocol: 1 });
+    expect(await cloud()).toMatchObject({ data: first.data, revision: first.revision, updatedAt: first.updatedAt });
+    expect((await compareSave({ ...first.data, cookies: 9100 }, first.revision)).status).toBe(200);
   });
 
   it("only one of two concurrent continuations commits and the other gets the actual winner", async () => {
@@ -567,7 +576,7 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     const second = await cloud();
     expect(second.revision).not.toBe(first.revision);
     expect((await compareSave(data, first.revision)).status).toBe(409);
-    expect((await save("cookie-clicker", data)).status).toBe(409);
+    expect((await legacySave("cookie-clicker", data)).status).toBe(428);
     expect(await cloud()).toEqual(second);
     const restarted = await compareSave(data, second.revision);
     expect(restarted.status).toBe(200);
@@ -596,8 +605,8 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     const stale = await pending;
     expect(restarted!.status).toBe(200);
     const fresh = await restarted!.json();
-    expect(stale.status).toBe(409);
-    expect(await stale.json()).toMatchObject({ data: fresh.data, revision: fresh.revision });
+    expect(stale.status).toBe(428);
+    expect(await stale.json()).toMatchObject({ code: "upgrade_required" });
     expect(await cloud()).toMatchObject({ data: fresh.data, revision: fresh.revision });
   });
 
@@ -732,7 +741,7 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     expect((await chooseSave(selected, null)).status).toBe(409);
     expect((await chooseSave(selected, fence.revision)).status).toBe(200);
     expect((await rowOf("cookie-clicker"))!.revisionRequired).toBe(true);
-    expect((await save("cookie-clicker", await cookieClickerBlob(9000))).status).toBe(409);
+    expect((await legacySave("cookie-clicker", await cookieClickerBlob(9000))).status).toBe(428);
     expect((await cloud()).data).toEqual(selected);
   });
 
@@ -826,15 +835,20 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     expect(rows[0].progressId).toBe("other-word-progress");
   });
 
-  it("recovers the original words while two old clients race to replace them", async () => {
+  it("recovers the original words while two conditional clients race to replace them", async () => {
     await save("weather", weatherWords("Before the race"), false);
     await enableLocalWords();
+    const { revision } = await cloud("weather");
+    const writeAtRevision = (data: Record<string, unknown>) => route.POST(new Request("http://localhost/api/progress/weather", {
+      method: "POST", body: JSON.stringify({ data, merge: true, baseRevision: revision, expectedOwnerId: ids.user }),
+    }), { params: Promise.resolve({ appId: "weather" }) });
     const [first, recovery, second] = await Promise.all([
-      save("weather", weatherWords("Race A"), true),
+      writeAtRevision(weatherWords("Race A")),
       recoverWords(),
-      save("weather", weatherWords("Race B"), false),
+      writeAtRevision(weatherWords("Race B")),
     ]);
-    expect([first.status, second.status, recovery.status]).toEqual([200, 200, 200]);
+    expect([first.status, second.status].sort()).toEqual([200, 409]);
+    expect(recovery.status).toBe(200);
     for (const response of [recovery, await recoverWords()]) {
       const candidates = (await response.json()).candidates;
       expect(candidates).toHaveLength(1);
