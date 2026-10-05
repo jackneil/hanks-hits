@@ -71,7 +71,7 @@ export function journalOriginalRetention(original: JournalOriginal, current: str
   const before = parseProgressJournal(original.raw, address.appId, address.ownerId);
   const after = parseProgressJournal(current, address.appId, address.ownerId);
   if (!before || !after || after.writerId !== address.writerId) return "pinned";
-  if (original.choice && after.forceWrite) return "pinned";
+  if (original.choice && (after.forceWrite || after.conflict !== null)) return "pinned";
   const kept = words(after);
   return words(before).every(field => kept.some(candidate => sameProgress(field, candidate))) ? "covered" : "capture";
 }

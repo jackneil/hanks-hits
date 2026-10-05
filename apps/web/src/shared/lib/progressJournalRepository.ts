@@ -184,6 +184,43 @@ export class ProgressJournalRepository {
     return raw;
   }
 
+  /** Attach an explicitly displayed cohort before a choice can replace its alternatives. */
+  async retainSources(sourceIds: readonly string[], expectedCurrent: string): Promise<boolean> {
+    const ids = [...new Set(sourceIds)];
+    const current = () => this.allowed() && this.isDurable() && this.current?.current === expectedCurrent;
+    const expected = parseProgressJournal(expectedCurrent, this.address.appId, this.address.ownerId);
+    if (!expected?.conflict || !current()) return false;
+    const inventory = await this.recover();
+    const resolved = resolvedJournalSources(inventory.copies, this.address.appId, this.lease.ownerKey);
+    if (!current() || inventory.unavailable || !resolved) return false;
+    const copies: JournalCopy[] = [];
+    for (const id of ids) {
+      const source = inventory.copies.find(copy => copy.sourceId === id && copy.writerId !== this.address.writerId);
+      if (!source || resolved.has(id)) return false;
+      copies.push(source);
+    }
+    for (const source of copies) {
+      try { await this.io.database.archive({ ownerKey: this.lease.ownerKey, appId: this.address.appId,
+        sourceId: source.sourceId, raw: JSON.stringify(source.envelope) }, this.epoch); }
+      catch { return false; }
+      if (!current()) return false;
+    }
+    // A source may advance or be resolved while its archival transaction waits.
+    const latest = await this.recover();
+    const nowResolved = resolvedJournalSources(latest.copies, this.address.appId, this.lease.ownerKey);
+    if (!current() || latest.unavailable || !nowResolved || copies.some(source =>
+      !latest.copies.some(copy => copy.sourceId === source.sourceId && sameProgress(copy.envelope, source.envelope))
+      || nowResolved.has(source.sourceId))) return false;
+    const recovery = structuredClone(this.current!.recovery ?? emptyJournalRecovery());
+    recovery.adoptedSources = [...new Set([...recovery.adoptedSources, ...copies.flatMap(source =>
+      [source.sourceId, ...(source.envelope.recovery?.adoptedSources ?? [])])])].filter(id => !nowResolved.has(id));
+    const originals = copies.flatMap(source => [source.envelope.current, ...source.envelope.originals.map(original => original.raw)])
+      .map(raw => ({ raw, choice: true }));
+    this.write(expectedCurrent, originals.map(original => original.raw), recovery, originals);
+    await this.settle();
+    return current() && ids.every(id => this.current!.recovery?.adoptedSources.includes(id));
+  }
+
   private async archivedCopies(sourceId: string): Promise<JournalCopy[] | null> {
     try {
       const rows = await this.io.database.archivedSources(this.lease.ownerKey, this.address.appId, sourceId, this.epoch);

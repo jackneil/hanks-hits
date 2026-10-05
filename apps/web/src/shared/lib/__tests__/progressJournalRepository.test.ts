@@ -71,6 +71,95 @@ describe("owner-bound journal repository", () => {
     return repository.snapshot()!.current;
   }
 
+  async function cohort() {
+    const h = await fixture();
+    const first = (await h.create({ writerId: "one" })).repository;
+    const second = (await h.create({ writerId: "two" })).repository;
+    const one = journal("one", "first"), two = journal("two", "second");
+    first.persist(JSON.stringify(one), []); second.persist(JSON.stringify(two), []);
+    await first.settle(); await second.settle();
+    const { repository, recovery } = await h.create();
+    const own = journal("writer", "mounted");
+    own.conflict = { remote: { data: { ...defaults(), savedArtworks: [] }, revision: "c".repeat(64) }, reason: "unknown-lineage", paths: ["$root"] };
+    const raw = JSON.stringify(own);
+    repository.persist(raw, []); await repository.settle();
+    return { h, repository, raw, own, first, second, one, two, sources: recovery.copies };
+  }
+
+  it("preserves every displayed source until a cohort choice is acknowledged", async () => {
+    const { h, repository, raw, own, sources } = await cohort();
+    const ids = sources.map(source => source.sourceId);
+    expect(await repository.retainSources(ids, raw)).toBe(true);
+    expect(repository.snapshot()!.originals.map(original => original.raw)).toEqual(expect.arrayContaining(sources.map(source => source.envelope.current)));
+    expect(await repository.resolve(ids, raw)).toBe(false);
+    const session = new ProgressSyncSession<ReturnType<typeof defaults>>(raw, appId, ownerId,
+      { maySave: () => h.authority.isCurrent(h.lease), persist: repository.persist, requestId: () => "choice" });
+    expect(session.choose(own.conflict!.remote, "local")).toBe(true);
+    const sent = session.prepare(own.live)!;
+    expect(await repository.resolve(ids, repository.snapshot()!.current)).toBe(false);
+    expect(session.receive(sent.id, { data: own.live, revision: "d".repeat(64) }, "accepted", own.live)).toBe("saved");
+    expect(await repository.resolve(ids, repository.snapshot()!.current)).toBe(true);
+    const captured = await h.words.listSources(h.lease.ownerKey);
+    expect(sources.every(source => captured.some(record => record.raw === source.envelope.current))).toBe(true);
+    expect(h.local.data.has(h.physical("one"))).toBe(true);
+    expect(h.local.data.has(h.physical("two"))).toBe(true);
+  });
+
+  it.each(["source", "current", "owner"])("refuses a changed %s while cohort archival waits", async changed => {
+    const { h, repository, raw, own, sources, first, one } = await cohort();
+    const entered = deferred<void>(), release = deferred<void>(), archive = h.database.archive.bind(h.database);
+    vi.spyOn(h.database, "archive").mockImplementationOnce(async (...args) => {
+      entered.resolve(); await release.promise; return archive(...args);
+    });
+    const pending = repository.retainSources(sources.map(source => source.sourceId), raw);
+    await entered.promise;
+    if (changed === "owner") h.authority.revoke();
+    else if (changed === "source") { one.serial++; one.live.stats.totalDrawTime++; first.persist(JSON.stringify(one), []); await first.settle(); }
+    else { own.serial++; own.live.stats.totalDrawTime++; repository.persist(JSON.stringify(own), []); await repository.settle(); }
+    release.resolve();
+    expect(await pending).toBe(false);
+    if (changed !== "owner") expect(repository.snapshot()!.recovery!.adoptedSources).toEqual([]);
+  });
+
+  it("retries partial cohort archival without certifying an unacknowledged choice", async () => {
+    const { h, repository, raw, sources } = await cohort();
+    const archive = h.database.archive.bind(h.database);
+    vi.spyOn(h.database, "archive").mockImplementationOnce(archive).mockRejectedValueOnce(Error("quota"));
+    const ids = sources.map(source => source.sourceId);
+    expect(await repository.retainSources(ids, raw)).toBe(false);
+    expect(repository.snapshot()!.recovery!.adoptedSources).toEqual([]);
+    expect(await repository.retainSources(ids, raw)).toBe(true);
+    expect(await repository.resolve(ids, raw)).toBe(false);
+  });
+
+  it("allows an explicit choice of later play even when its inherited parent was resolved elsewhere", async () => {
+    const { h, repository: child, source, session: childSession } = await pendingRecovery();
+    const newer = childSession.snapshot()!.live;
+    newer.savedArtworks = [...(newer.savedArtworks ?? []), art("later-child-drawing")];
+    childSession.capture(newer); await child.settle();
+    const resolver = (await h.create({ writerId: "resolver" })).repository;
+    const adopted = (await resolver.adopt(source.sourceId))!;
+    const resolverSession = new ProgressSyncSession<ReturnType<typeof defaults>>(adopted, appId, ownerId,
+      { maySave: () => h.authority.isCurrent(h.lease), persist: resolver.persist, requestId: () => "resolve-parent" });
+    const ack = await acknowledge(resolverSession, resolver);
+    expect(await resolver.resolve([source.sourceId], ack)).toBe(true);
+    const { repository: cold, recovery } = await h.create({ writerId: "cold" });
+    const childSource = recovery.copies.find(copy => copy.writerId === "writer")!;
+    expect(await cold.adopt(childSource.sourceId)).toBeNull();
+    const own = newProgressJournal(appId, ownerId, "cold", resolverSession.snapshot()!.acknowledged, newer, false);
+    const raw = JSON.stringify(own);
+    cold.persist(raw, []); await cold.settle();
+    expect(await cold.retainSources([childSource.sourceId], raw)).toBe(true);
+    expect(cold.snapshot()!.recovery!.adoptedSources).toEqual([childSource.sourceId]);
+    const choice = new ProgressSyncSession<ReturnType<typeof defaults>>(raw, appId, ownerId,
+      { maySave: () => h.authority.isCurrent(h.lease), persist: cold.persist, requestId: () => "new-choice" });
+    expect(choice.choose(own.conflict!.remote, "local")).toBe(true);
+    const sent = choice.prepare(newer)!;
+    expect(choice.receive(sent.id, { data: newer, revision: "c".repeat(64) }, "accepted", newer)).toBe("saved");
+    expect(await cold.resolve([childSource.sourceId], cold.snapshot()!.current)).toBe(true);
+    expect((await h.words.listSources(h.lease.ownerKey)).some(row => row.raw === childSource.envelope.current)).toBe(true);
+  });
+
   it("records an exact source receipt only after ACK and word capture, without deleting the original", async () => {
     const { h, repository, source, session } = await pendingRecovery();
     const before = h.local.data.get(h.physical("original"));
