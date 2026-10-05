@@ -89,8 +89,8 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
   it("keeps visible and spoken run duration stable through report jitter and drops it just outside eligibility", () => {
     const frozen = run(4.2);
     const first = resultChipClipActions(snapshot({ bufferedSec: 4.2 }), frozen);
-    for (const since of [0.1, 0.9, 1.1, 2]) {
-      expect(resultChipClipActions(snapshot({ bufferedSec: 4.2 }), frozen, since)).toEqual(first);
+    for (const [bufferedSec, since] of [[3.9, 0.1], [4.5, 0.9], [4.15, 1.1], [4.2, 2]]) {
+      expect(resultChipClipActions(snapshot({ bufferedSec }), frozen, since)).toEqual(first);
     }
     expect(first[0]).toMatchObject({ label: watchRunLabel("0:04"), spoken: "Watch the whole run, 4 seconds" });
     expect(resultChipClipActions(snapshot({ bufferedSec: 4.2 }), frozen, 2.001).map((a) => a.id)).toEqual(["watchEnd"]);
