@@ -1,12 +1,70 @@
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it, vi } from "vitest";
 import { DeletedJournalOwnerError, ProgressJournalDatabase, type JournalCheckpoint } from "../progressJournalDatabase";
+import { journalSourceId } from "../progressJournalRecovery";
 
 const ownerKey = `u_${"a".repeat(20)}`, other = `u_${"b".repeat(20)}`;
 const row = (generation = 1, raw = "exact journal bytes"): JournalCheckpoint => ({ ownerKey, appId: "drawing-app", writerId: "writer", generation, raw });
 const setup = () => { const factory = new IDBFactory(); return { factory, db: new ProgressJournalDatabase(factory) }; };
 
 describe("large progress journal checkpoints", () => {
+  it("keeps immutable archive variants and finds them after cold reopen", async () => {
+    const { db, factory } = setup(), sourceId = journalSourceId(ownerKey, "drawing-app", "writer", "current");
+    const archive = { ownerKey, appId: "drawing-app" as const, sourceId, raw: "first envelope" };
+    await db.archive(archive, 0); await db.archive(archive, 0);
+    await db.archive({ ...archive, raw: "same current with another original" }, 0);
+    db.close();
+    const cold = new ProgressJournalDatabase(factory);
+    expect((await cold.archivedSources(ownerKey, "drawing-app", sourceId, 0)).map(row => row.raw).sort()).toEqual(["first envelope", "same current with another original"]);
+    await expect(cold.archivedSources(other, "drawing-app", sourceId, 0)).rejects.toThrow("Invalid journal source identity");
+    cold.close();
+  });
+
+  it("deletes archives with their owner and fences late archival writes", async () => {
+    const { db, factory } = setup(), sourceId = journalSourceId(ownerKey, "drawing-app", "writer", "current");
+    const archive = { ownerKey, appId: "drawing-app" as const, sourceId, raw: "original" };
+    await db.archive(archive, 0);
+    const foreign = { ...archive, ownerKey: other, sourceId: journalSourceId(other, "drawing-app", "writer", "current") };
+    await db.archive(foreign, 0);
+    const late = new ProgressJournalDatabase(factory);
+    await db.deleteOwner(ownerKey);
+    await expect(late.archive(archive, 0)).rejects.toBeInstanceOf(DeletedJournalOwnerError);
+    await expect(late.archivedSources(ownerKey, "drawing-app", sourceId, 0)).rejects.toBeInstanceOf(DeletedJournalOwnerError);
+    expect(await db.archivedSources(other, "drawing-app", foreign.sourceId, 0)).toEqual([foreign]);
+    const connection = (db as unknown as { connection: IDBDatabase }).connection;
+    const remaining = await new Promise<number>((resolve, reject) => {
+      const count = connection.transaction("archives").objectStore("archives").index("owner").count(ownerKey);
+      count.onsuccess = () => resolve(count.result); count.onerror = () => reject(count.error);
+    });
+    expect(remaining).toBe(0);
+    db.close(); late.close();
+  });
+
+  it("upgrades a version-1 database without losing checkpoints or owner tombstones", async () => {
+    const factory = new IDBFactory();
+    const legacy = await new Promise<IDBDatabase>((resolve, reject) => {
+      const open = factory.open("hh-progress-journals:v1", 1);
+      open.onupgradeneeded = () => {
+        open.result.createObjectStore("checkpoints", { keyPath: ["ownerKey", "appId", "writerId"] }).createIndex("owner", "ownerKey");
+        open.result.createObjectStore("owners", { keyPath: "ownerKey" });
+      };
+      open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = legacy.transaction(["checkpoints", "owners"], "readwrite");
+      tx.objectStore("checkpoints").put(row());
+      tx.objectStore("owners").put({ ownerKey: other, epoch: 1, deleted: true });
+      tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
+    });
+    legacy.close();
+    const db = new ProgressJournalDatabase(factory);
+    expect(await db.list(ownerKey, 0)).toEqual([row()]);
+    await expect(db.ownerEpoch(other)).rejects.toBeInstanceOf(DeletedJournalOwnerError);
+    const sourceId = journalSourceId(ownerKey, "drawing-app", "writer", "current");
+    await db.archive({ ownerKey, appId: "drawing-app", sourceId, raw: "archive" }, 0);
+    expect(await db.archivedSources(ownerKey, "drawing-app", sourceId, 0)).toHaveLength(1);
+    db.close();
+  });
   it("survives a cold database reopen with bytes larger than a small synchronous storage budget", async () => {
     const { db, factory } = setup(), original = row(1, "x".repeat(4 * 1024 * 1024));
     expect(await db.put(original, 0)).toBe("durable");

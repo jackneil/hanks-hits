@@ -115,7 +115,7 @@ describe("exact-source journal recovery", () => {
     const old = readJournalEnvelope(raw, address)!;
     expect(old.current).toBe(copy.envelope.current); expect(old.recovery).toBeUndefined();
     const next = nextJournalEnvelope(old, old.current, [], address);
-    expect(next.version).toBe(2); expect(next.recovery).toEqual(emptyJournalRecovery());
+    expect(next.version).toBe(3); expect(next.recovery).toEqual(emptyJournalRecovery());
     expect(readJournalEnvelope(JSON.stringify(next), address)).toEqual(next);
   });
 

@@ -4,11 +4,12 @@ import { cloneProgress, parseProgressJournal, type ProgressJournal } from "./pro
 import type { JournalAddress, JournalEnvelope, JournalOriginal } from "./progressJournalEnvelope";
 import { sameProgress } from "./progressStamp";
 
-export type JournalResolution = { sourceId: string; revision: string };
+export type JournalResolution = { sourceId: string; revision: string; preservedOriginals?: string[] };
 export type JournalRecoveryMetadata = { version: 1; adoptedSources: string[]; resolutions: JournalResolution[] };
 export type JournalCopy = { sourceId: string; writerId: string; envelope: JournalEnvelope };
 export type RecoveryAddress = JournalAddress & { ownerKey: string };
 const hash = (raw: string) => [...sha256(new TextEncoder().encode(raw))].map(n => n.toString(16).padStart(2, "0")).join("");
+export const journalOriginalId = hash;
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const identifier = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9-]{1,100}$/.test(value);
 const revision = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
@@ -32,7 +33,8 @@ export function isJournalRecovery(value: unknown, appId: ValidAppId, ownerKey?: 
   return object(value) && value.version === 1 && Array.isArray(value.adoptedSources)
     && value.adoptedSources.every(id => isJournalSourceId(id, appId, ownerKey))
     && Array.isArray(value.resolutions) && value.resolutions.every(item => object(item)
-      && isJournalSourceId(item.sourceId, appId, ownerKey) && revision(item.revision));
+      && isJournalSourceId(item.sourceId, appId, ownerKey) && revision(item.revision)
+      && (item.preservedOriginals === undefined || (Array.isArray(item.preservedOriginals) && item.preservedOriginals.every(revision))));
 }
 
 /**
@@ -65,11 +67,19 @@ export function adoptJournalCopy<T extends AppProgressData>(copy: JournalCopy, a
 
 /** Resolve exact sources only; another version of that writer is independent. */
 export function resolvedJournalSources(copies: readonly JournalCopy[], appId: ValidAppId, ownerKey: string): Set<string> | null {
-  const resolved = new Set<string>();
+  const coverage = new Map<string, Set<string>>();
   for (const copy of copies) {
     const recovery = copy.envelope.recovery ?? emptyJournalRecovery();
     if (!isJournalRecovery(recovery, appId, ownerKey)) return null;
-    for (const receipt of recovery.resolutions) resolved.add(receipt.sourceId);
+    for (const receipt of recovery.resolutions) {
+      const originals = coverage.get(receipt.sourceId) ?? new Set<string>();
+      for (const digest of receipt.preservedOriginals ?? []) originals.add(digest);
+      coverage.set(receipt.sourceId, originals);
+    }
   }
-  return resolved;
+  // Adding an alternative under unchanged current bytes is new preservation
+  // work. Compaction only removes alternatives, so its receipts remain valid.
+  return new Set([...coverage].filter(([id, originals]) => copies.filter(copy => copy.sourceId === id)
+    .every(copy => copy.envelope.originals.every(original => originals.has(hash(original.raw)))))
+    .map(([id]) => id));
 }

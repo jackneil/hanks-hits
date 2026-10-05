@@ -1,5 +1,6 @@
 import { VALID_APP_IDS, type ValidAppId } from "@hank-neil/db/schema";
 import { isOwnerKey } from "@/shared/clips/library/ownerKey";
+import { isJournalSourceId, journalOriginalId } from "./progressJournalRecovery";
 
 export type JournalCheckpoint = {
   ownerKey: string;
@@ -9,6 +10,7 @@ export type JournalCheckpoint = {
   /** Exact serialized envelope, including originals awaiting preservation. */
   raw: string;
 };
+export type JournalArchive = { ownerKey: string; appId: ValidAppId; sourceId: string; raw: string };
 export const PROGRESS_JOURNAL_DB = "hh-progress-journals:v1";
 export class DeletedJournalOwnerError extends Error {
   constructor() { super("This owner's recovery copies were deleted."); this.name = "DeletedJournalOwnerError"; }
@@ -60,11 +62,18 @@ export class ProgressJournalDatabase {
     const factory = this.factory ?? globalThis.indexedDB;
     if (!factory) return Promise.reject(new Error("Journal storage is unavailable"));
     this.opening = new Promise<IDBDatabase>((resolve, reject) => {
-      const req = factory.open(this.name, 1);
+      const req = factory.open(this.name, 2);
       let rejected = false;
-      req.onupgradeneeded = () => {
-        req.result.createObjectStore("checkpoints", { keyPath: ["ownerKey", "appId", "writerId"] }).createIndex("owner", "ownerKey");
-        req.result.createObjectStore("owners", { keyPath: "ownerKey" });
+      req.onupgradeneeded = event => {
+        if (event.oldVersion < 1) {
+          req.result.createObjectStore("checkpoints", { keyPath: ["ownerKey", "appId", "writerId"] }).createIndex("owner", "ownerKey");
+          req.result.createObjectStore("owners", { keyPath: "ownerKey" });
+        }
+        if (event.oldVersion < 2) {
+          const archives = req.result.createObjectStore("archives", { keyPath: ["ownerKey", "appId", "sourceId", "digest"] });
+          archives.createIndex("owner", "ownerKey");
+          archives.createIndex("source", ["ownerKey", "appId", "sourceId"]);
+        }
       };
       req.onerror = () => reject(req.error ?? new Error("Could not open journal storage"));
       req.onblocked = () => { rejected = true; reject(new Error("Journal storage upgrade is blocked")); };
@@ -94,7 +103,7 @@ export class ProgressJournalDatabase {
       }
     };
     let tx: IDBTransaction;
-    try { tx = db.transaction(["owners", "checkpoints"], mode); }
+    try { tx = db.transaction(["owners", "checkpoints", "archives"], mode); }
     catch (error) { invalidate(error); throw error; }
     const done = completed(tx);
     // Observe a possible abort while body awaits an IDB request.
@@ -150,6 +159,32 @@ export class ProgressJournalDatabase {
     });
   }
 
+  /** Immutable source variants survive a writer advancing and recovery chains. */
+  async archive(source: JournalArchive, expectedEpoch: number): Promise<void> {
+    const row = { ...source, digest: journalOriginalId(source.raw) };
+    owner(row.ownerKey);
+    if (!VALID_APP_IDS.includes(row.appId) || !isJournalSourceId(row.sourceId, row.appId, row.ownerKey)
+      || typeof row.raw !== "string") throw new Error("Invalid journal source archive");
+    await this.run("readwrite", async tx => {
+      await this.epoch(tx, row.ownerKey, expectedEpoch);
+      const store = tx.objectStore("archives");
+      const prior = await request<JournalArchive | undefined>(store.get([row.ownerKey, row.appId, row.sourceId, row.digest]));
+      if (prior) {
+        if (prior.raw !== row.raw) throw new Error("Journal source archive conflicts");
+      } else await request(store.add(row));
+    });
+  }
+
+  archivedSources(ownerKey: string, appId: ValidAppId, sourceId: string, expectedEpoch: number): Promise<JournalArchive[]> {
+    owner(ownerKey);
+    if (!isJournalSourceId(sourceId, appId, ownerKey)) return Promise.reject(new Error("Invalid journal source identity"));
+    return this.run("readonly", async tx => {
+      await this.epoch(tx, ownerKey, expectedEpoch);
+      const rows = await request<JournalArchive[]>(tx.objectStore("archives").index("source").getAll([ownerKey, appId, sourceId]));
+      return rows.map(row => ({ ownerKey: row.ownerKey, appId: row.appId, sourceId: row.sourceId, raw: row.raw }));
+    });
+  }
+
   /** Explicit owner deletion only; the tombstone fences writers holding epoch 0. */
   deleteOwner(ownerKey: string): Promise<void> {
     owner(ownerKey);
@@ -161,6 +196,8 @@ export class ProgressJournalDatabase {
       const prior = await request<{ epoch: number } | undefined>(owners.get(ownerKey));
       const keys = await request(tx.objectStore("checkpoints").index("owner").getAllKeys(ownerKey));
       for (const key of keys) await request(tx.objectStore("checkpoints").delete(key));
+      const archives = await request(tx.objectStore("archives").index("owner").getAllKeys(ownerKey));
+      for (const key of archives) await request(tx.objectStore("archives").delete(key));
       await request(owners.put({ ownerKey, epoch: (prior?.epoch ?? 0) + 1, deleted: true }));
     });
   }

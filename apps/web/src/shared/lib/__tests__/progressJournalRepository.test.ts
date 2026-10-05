@@ -8,7 +8,7 @@ import { nextJournalEnvelope } from "../progressJournalEnvelope";
 import { ProgressJournalDatabase } from "../progressJournalDatabase";
 import { ProgressJournalRepository } from "../progressJournalRepository";
 import { ProgressSyncSession } from "../progressSyncSession";
-import { journalSourceId } from "../progressJournalRecovery";
+import { journalSourceId, resolvedJournalSources } from "../progressJournalRecovery";
 
 class MemoryStorage {
   data = new Map<string, string>();
@@ -49,6 +49,183 @@ async function fixture() {
 }
 
 describe("owner-bound journal repository", () => {
+  async function pendingRecovery() {
+    const h = await fixture(), original = (await h.create({ writerId: "original" })).repository;
+    const pending = journal("original", "only-drawing"); pending.acknowledged.data = { ...defaults(), savedArtworks: [] };
+    const raw = JSON.stringify(pending);
+    original.persist(raw, []); await original.settle();
+    const { repository, recovery } = await h.create();
+    const source = recovery.copies[0];
+    const adopted = (await repository.adopt(source.sourceId))!;
+    const session = new ProgressSyncSession<ReturnType<typeof defaults>>(adopted, appId, ownerId,
+      { maySave: () => h.authority.isCurrent(h.lease), persist: repository.persist, requestId: () => "fresh" });
+    return { h, original, repository, source, session, raw, pending };
+  }
+
+  async function acknowledge(session: ProgressSyncSession<ReturnType<typeof defaults>>, repository: ProgressJournalRepository) {
+    const initial = session.snapshot()!;
+    expect(session.observe(initial.acknowledged)).toBe("pending");
+    const request = session.prepare(initial.live)!;
+    expect(session.receive(request.id, { data: request.data, revision: "b".repeat(64) }, "accepted", initial.live)).toBe("saved");
+    await repository.settle();
+    return repository.snapshot()!.current;
+  }
+
+  it("records an exact source receipt only after ACK and word capture, without deleting the original", async () => {
+    const { h, repository, source, session } = await pendingRecovery();
+    const before = h.local.data.get(h.physical("original"));
+    expect(await repository.resolve([source.sourceId], repository.snapshot()!.current)).toBe(false);
+    const acknowledged = await acknowledge(session, repository);
+    expect(await repository.resolve([source.sourceId], acknowledged)).toBe(true);
+    expect(repository.snapshot()!.recovery).toEqual({ version: 1, adoptedSources: [],
+      resolutions: [{ sourceId: source.sourceId, revision: "b".repeat(64), preservedOriginals: [] }] });
+    expect(h.local.data.get(h.physical("original"))).toBe(before);
+    expect((await h.words.listSources(h.lease.ownerKey)).some(record => record.raw === source.envelope.current)).toBe(true);
+    const cold = (await h.create({ writerId: "cold" })).repository;
+    expect(await cold.adopt(source.sourceId)).toBeNull();
+  });
+
+  it("fences a second recovery tab once the exact adopted copy is resolved elsewhere", async () => {
+    const { h, repository, source, session } = await pendingRecovery();
+    const other = (await h.create({ writerId: "other-recovery" })).repository;
+    expect(await other.adopt(source.sourceId)).not.toBeNull();
+    expect(await other.adoptionStatus()).toBe("clear");
+    const acknowledged = await acknowledge(session, repository);
+    await repository.resolve([source.sourceId], acknowledged);
+    expect(await other.adoptionStatus()).toBe("resolved");
+    expect(other.snapshot()!.current).toContain("only-drawing");
+  });
+
+  it("does not resolve a later source version or unrelated source under an old ACK", async () => {
+    const { original, repository, source, session, pending } = await pendingRecovery();
+    const acknowledged = await acknowledge(session, repository);
+    pending.serial++; pending.live.stats.totalDrawTime++;
+    original.persist(JSON.stringify(pending), []); await original.settle();
+    expect(await repository.resolve([source.sourceId], acknowledged)).toBe(true);
+    const later = (await repository.recover()).copies.find(copy => copy.writerId === "original")!;
+    expect(later.sourceId).not.toBe(source.sourceId);
+    expect(await repository.resolve([later.sourceId], acknowledged)).toBe(false);
+    expect(repository.snapshot()!.recovery!.resolutions.map(item => item.sourceId)).toEqual([source.sourceId]);
+  });
+
+  it("retains unresolved provenance on capture failure and retries partial capture safely", async () => {
+    const { h, repository, source, session } = await pendingRecovery();
+    const acknowledged = await acknowledge(session, repository);
+    vi.spyOn(h.words, "capture").mockRejectedValueOnce(Error("quota"));
+    expect(await repository.resolve([source.sourceId], acknowledged)).toBe(false);
+    expect(repository.snapshot()!.recovery!.adoptedSources).toContain(source.sourceId);
+    expect(await repository.resolve([source.sourceId], acknowledged)).toBe(true);
+  });
+
+  it.each(["edit", "revoke"])("does not publish a receipt after %s during word capture", async action => {
+    const { h, repository, source, session } = await pendingRecovery();
+    const acknowledged = await acknowledge(session, repository), gate = deferred<void>(), entered = deferred<void>();
+    const capture = h.words.capture.bind(h.words);
+    vi.spyOn(h.words, "capture").mockImplementationOnce(async (...args) => { entered.resolve(); await gate.promise; return capture(...args); });
+    const resolving = repository.resolve([source.sourceId], acknowledged);
+    await entered.promise;
+    if (action === "revoke") h.authority.revoke();
+    else { const live = session.snapshot()!.live; live.stats.totalDrawTime++; session.capture(live); await repository.settle(); }
+    gate.resolve();
+    expect(await resolving).toBe(false);
+    const rows = await h.database.list(h.lease.ownerKey, 0);
+    const own = rows.find(row => row.writerId === "writer")!;
+    expect(JSON.parse(own.raw).recovery.resolutions).toEqual([]);
+    if (action === "edit") expect(JSON.parse(own.raw).current).not.toBe(acknowledged);
+  });
+
+  it("keeps a failed receipt write invisible to other recovery tabs until it is durable", async () => {
+    const { h, repository, source, session } = await pendingRecovery();
+    const acknowledged = await acknowledge(session, repository);
+    h.local.failWrite = true;
+    const put = vi.spyOn(h.database, "put").mockRejectedValue(Error("quota"));
+    expect(await repository.resolve([source.sourceId], acknowledged)).toBe(false);
+    const inventory = await repository.recover();
+    expect(inventory.copies.find(copy => copy.writerId === "writer")!.envelope.recovery!.resolutions).toEqual([]);
+    put.mockRestore();
+    expect(await repository.retry()).toBe(true);
+    expect((await repository.recover()).copies.find(copy => copy.writerId === "writer")!.envelope.recovery!.resolutions).toHaveLength(1);
+  });
+
+  it("blocks adoption and dispatch checks when a backend cannot be inspected", async () => {
+    const { h, source, repository } = await pendingRecovery();
+    vi.spyOn(h.database, "list").mockRejectedValue(Error("unavailable"));
+    expect(await repository.adoptionStatus()).toBe("unavailable");
+    const cold = (await h.create({ writerId: "cold" })).repository;
+    expect(await cold.adopt(source.sourceId)).toBeNull();
+  });
+
+  it("can retry an adoption whose first writes failed without claiming durability early", async () => {
+    const { h, source } = await pendingRecovery();
+    const cold = (await h.create({ writerId: "cold" })).repository;
+    h.local.failWrite = true;
+    const put = vi.spyOn(h.database, "put").mockRejectedValue(Error("quota"));
+    expect(await cold.adopt(source.sourceId)).toBeNull();
+    expect(cold.isDurable()).toBe(false);
+    put.mockRestore();
+    expect(await cold.adopt(source.sourceId)).not.toBeNull();
+    expect(cold.isDurable()).toBe(true);
+  });
+
+  it("resolves inherited exact sources after cold recovery even when the ancestor writer advanced", async () => {
+    const { h, original, pending, source } = await pendingRecovery();
+    pending.serial++; pending.live.stats.totalDrawTime++;
+    original.persist(JSON.stringify(pending), []); await original.settle();
+    h.database.close();
+    const database = new ProgressJournalDatabase(h.factory); close.push(() => database.close());
+    const { repository, recovery } = await h.create({ writerId: "cold", database });
+    const intermediate = recovery.copies.find(copy => copy.writerId === "writer")!;
+    const raw = (await repository.adopt(intermediate.sourceId))!;
+    expect(repository.snapshot()!.recovery!.adoptedSources).toEqual([intermediate.sourceId, source.sourceId]);
+    const session = new ProgressSyncSession<ReturnType<typeof defaults>>(raw, appId, ownerId,
+      { maySave: () => true, persist: repository.persist, requestId: () => "cold-request" });
+    const acknowledged = await acknowledge(session, repository);
+    expect(await repository.resolve([intermediate.sourceId, source.sourceId], acknowledged)).toBe(true);
+    expect(repository.snapshot()!.recovery!.adoptedSources).toEqual([]);
+    expect((await h.words.listSources(h.lease.ownerKey)).some(record => record.raw === source.envelope.current)).toBe(true);
+    const inventory = await repository.recover();
+    const resolved = resolvedJournalSources(inventory.copies, appId, h.lease.ownerKey)!;
+    expect(resolved.has(source.sourceId)).toBe(true);
+    expect(resolved.has(inventory.copies.find(copy => copy.writerId === "original")!.sourceId)).toBe(false);
+  });
+
+  it("does not suppress a retained alternative added under the same source identity during capture", async () => {
+    const { h, repository, source, session, original, raw } = await pendingRecovery();
+    const acknowledged = await acknowledge(session, repository), gate = deferred<void>(), entered = deferred<void>();
+    const capture = h.words.capture.bind(h.words);
+    vi.spyOn(h.words, "capture").mockImplementationOnce(async (...args) => { entered.resolve(); await gate.promise; return capture(...args); });
+    const resolving = repository.resolve([source.sourceId], acknowledged);
+    await entered.promise;
+    const late = JSON.stringify(journal("original", "late-alternative"));
+    original.persist(raw, [late]); await original.settle();
+    gate.resolve();
+    expect(await resolving).toBe(true);
+    const inventory = await repository.recover();
+    expect(inventory.copies.find(copy => copy.writerId === "original")!.sourceId).toBe(source.sourceId);
+    expect(resolvedJournalSources(inventory.copies, appId, h.lease.ownerKey)!.has(source.sourceId)).toBe(false);
+    const cold = (await h.create({ writerId: "cold" })).repository;
+    expect(await cold.adopt(source.sourceId)).not.toBeNull();
+    expect(cold.snapshot()!.originals.some(item => item.raw === late)).toBe(true);
+  });
+
+  it("does not adopt until the original envelope archive is durable", async () => {
+    const { h, source } = await pendingRecovery();
+    const cold = (await h.create({ writerId: "cold" })).repository;
+    const archive = vi.spyOn(h.database, "archive").mockRejectedValueOnce(Error("quota"));
+    expect(await cold.adopt(source.sourceId)).toBeNull();
+    expect(cold.snapshot()).toBeNull();
+    expect(await cold.adopt(source.sourceId)).not.toBeNull();
+    expect(archive).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a corrupt archived ancestor instead of interpreting it as preservation proof", async () => {
+    const { h, source, session, repository } = await pendingRecovery();
+    const acknowledged = await acknowledge(session, repository);
+    vi.spyOn(h.database, "archivedSources").mockResolvedValue([{ ownerKey: h.lease.ownerKey, appId, sourceId: source.sourceId, raw: "unreadable" }]);
+    expect(await repository.resolve([source.sourceId], acknowledged)).toBe(false);
+    expect(repository.snapshot()!.recovery!.resolutions).toEqual([]);
+  });
+
   it("recovers exact bytes from a new document and refuses to reuse any recovered writer", async () => {
     const h = await fixture(), { repository } = await h.create();
     const raw = JSON.stringify(journal(), null, 2);

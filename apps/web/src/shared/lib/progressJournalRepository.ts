@@ -5,12 +5,13 @@ import type { MigrationDatabase } from "@/lib/local-words/migration";
 import { captureProgressJournalWords } from "@/lib/local-words/progressJournalSources";
 import { parseProgressJournal, progressJournalKey, PROGRESS_JOURNAL_PREFIX } from "./progressJournal";
 import { DeletedJournalOwnerError, JournalWriterConflictError, type JournalCheckpoint, type ProgressJournalDatabase } from "./progressJournalDatabase";
-import { journalOriginalRetention, nextJournalEnvelope, readJournalEnvelope, type JournalAddress, type JournalEnvelope } from "./progressJournalEnvelope";
+import { journalOriginalRetention, nextJournalEnvelope, readJournalEnvelope, type JournalAddress, type JournalEnvelope, type JournalOriginal } from "./progressJournalEnvelope";
 import { sameProgress } from "./progressStamp";
-import { isJournalRecovery, journalSourceId, type JournalCopy } from "./progressJournalRecovery";
+import { adoptJournalCopy, emptyJournalRecovery, isJournalRecovery, journalOriginalId, journalSourceId, resolvedJournalSources,
+  type JournalCopy, type JournalRecoveryMetadata } from "./progressJournalRecovery";
 
 type Authority = Pick<ReturnType<typeof createOwnerBoundProgress>, "isCurrent" | "readDurableScoped" | "writeScoped" | "listDurableScoped">;
-type Database = Pick<ProgressJournalDatabase, "ownerEpoch" | "isOwnerDeleted" | "put" | "list">;
+type Database = Pick<ProgressJournalDatabase, "ownerEpoch" | "isOwnerDeleted" | "put" | "list" | "archive" | "archivedSources">;
 export type { JournalCopy } from "./progressJournalRecovery";
 type RepositoryOptions = {
   authority: Authority; database: Database; words: MigrationDatabase;
@@ -41,6 +42,7 @@ export class ProgressJournalRepository {
   private draining: Promise<boolean> | null = null;
   private readonly captured = new Set<string>();
   private readonly observedWriters = new Set<string>();
+  private adoptionDraft: { sourceId: string; raw: string } | null = null;
 
   private constructor(private readonly io: RepositoryOptions) {
     this.lease = { ...io.lease };
@@ -116,11 +118,20 @@ export class ProgressJournalRepository {
   }
 
   /** Satisfies the state machine's persist callback, including exact async retries. */
-  persist = (next: string, originals: readonly string[]): boolean => {
+  persist = (next: string, originals: readonly string[]): boolean => this.write(next, originals);
+
+  private write(next: string, originals: readonly string[], recovery?: JournalRecoveryMetadata, imported?: readonly JournalOriginal[]): boolean {
     if (!this.allowed()) return false;
     try {
-      let candidate = this.compact(nextJournalEnvelope(this.current, next, originals, this.address));
-      if (this.current && candidate.current === this.current.current && sameProgress(candidate.originals, this.current.originals)) candidate = this.current;
+      let candidate = nextJournalEnvelope(this.current, next, originals, this.address);
+      if (recovery) candidate.recovery = structuredClone(recovery);
+      if (imported) {
+        const pinned = new Set(imported.filter(item => item.choice).map(item => item.raw));
+        candidate.originals = candidate.originals.map(item => ({ ...item, choice: item.choice || pinned.has(item.raw) }));
+      }
+      candidate = this.compact(candidate);
+      if (this.current && candidate.current === this.current.current && sameProgress(candidate.originals, this.current.originals)
+        && sameProgress(candidate.recovery, this.current.recovery)) candidate = this.current;
       const raw = JSON.stringify(candidate);
       const physical = this.io.authority.readDurableScoped(this.key, this.lease);
       // An unexpected write to this supposedly unique key is not ours to replace.
@@ -144,7 +155,113 @@ export class ProgressJournalRepository {
       this.enqueue(candidate);
       return this.durable === raw;
     } catch { return false; }
-  };
+  }
+
+  /** Fresh-writer adoption only, from a complete inventory with no resolution fence. */
+  async adopt(sourceId: string): Promise<string | null> {
+    const retry = () => this.adoptionDraft?.sourceId === sourceId
+      && this.snapshot()?.current === this.adoptionDraft.raw;
+    if (!this.allowed() || (this.current && !retry())) return null;
+    const inventory = await this.recover();
+    if (!this.allowed() || (this.current && !retry()) || inventory.unavailable) return null;
+    const resolved = resolvedJournalSources(inventory.copies, this.address.appId, this.lease.ownerKey);
+    let source = inventory.copies.find(copy => copy.sourceId === sourceId);
+    if (!source && retry()) source = (await this.archivedCopies(sourceId))?.sort((a, b) => b.envelope.generation - a.envelope.generation)[0];
+    if (!this.allowed() || (this.current && !retry())) return null;
+    if (!source || !resolved || resolved.has(sourceId)
+      || source.envelope.recovery?.adoptedSources.some(id => resolved.has(id))) return null;
+    const adopted = adoptJournalCopy(source, { ...this.address, ownerKey: this.lease.ownerKey });
+    const raw = JSON.stringify(adopted.journal);
+    try { await this.io.database.archive({ ownerKey: this.lease.ownerKey, appId: this.address.appId,
+      sourceId, raw: JSON.stringify(source.envelope) }, this.epoch); }
+    catch { return null; }
+    if (!this.allowed() || (this.current && !retry())) return null;
+    this.adoptionDraft = { sourceId, raw };
+    this.write(raw, adopted.originals.map(item => item.raw), adopted.recovery, adopted.originals);
+    await this.settle();
+    if (!this.isDurable() || this.snapshot()?.current !== raw) return null;
+    this.adoptionDraft = null;
+    return raw;
+  }
+
+  private async archivedCopies(sourceId: string): Promise<JournalCopy[] | null> {
+    try {
+      const rows = await this.io.database.archivedSources(this.lease.ownerKey, this.address.appId, sourceId, this.epoch);
+      if (!this.allowed()) return null;
+      const writerId: string = JSON.parse(sourceId)[2];
+      const copies: JournalCopy[] = [];
+      for (const row of rows) {
+        const envelope = readJournalEnvelope(row.raw, { ...this.address, writerId });
+        if (!envelope || row.ownerKey !== this.lease.ownerKey || row.appId !== this.address.appId || row.sourceId !== sourceId
+          || journalSourceId(this.lease.ownerKey, this.address.appId, writerId, envelope.current) !== sourceId
+          || (envelope.recovery && !isJournalRecovery(envelope.recovery, this.address.appId, this.lease.ownerKey))) return null;
+        copies.push({ sourceId, writerId, envelope });
+      }
+      return copies;
+    } catch { return null; }
+  }
+
+  /** Check immediately before dispatching any operation inherited from another writer. */
+  async adoptionStatus(): Promise<"clear" | "resolved" | "unavailable"> {
+    if (!this.allowed() || !this.current) return "unavailable";
+    const inventory = await this.recover();
+    if (!this.allowed() || inventory.unavailable) return "unavailable";
+    const resolved = resolvedJournalSources(inventory.copies, this.address.appId, this.lease.ownerKey);
+    if (!resolved) return "unavailable";
+    return this.current.recovery?.adoptedSources.some(id => resolved.has(id)) ? "resolved" : "clear";
+  }
+
+  /**
+   * The coordinator supplies exact adopted sources and the acknowledged journal
+   * it just proved. Queued beacons and pending choices cannot produce receipts.
+   * Never remove the source key; later edits by that writer remain independent.
+   */
+  async resolve(sourceIds: readonly string[], expectedCurrent: string): Promise<boolean> {
+    const ids = [...new Set(sourceIds)];
+    const expected = parseProgressJournal(expectedCurrent, this.address.appId, this.address.ownerId);
+    const current = () => this.allowed() && this.isDurable() && this.current?.current === expectedCurrent;
+    if (!expected || expected.writerId !== this.address.writerId || expected.sent || expected.conflict
+      || expected.forceWrite || expected.acknowledged.revision === null || !current()) return false;
+    const provenance = this.current!.recovery?.adoptedSources ?? [];
+    if (ids.some(id => !provenance.includes(id))) return false;
+    const inventory = await this.recover();
+    if (!current() || inventory.unavailable) return false;
+    const resolved = resolvedJournalSources(inventory.copies, this.address.appId, this.lease.ownerKey);
+    if (!resolved) return false;
+    const coverage = new Map<string, Set<string>>();
+    for (const id of ids) {
+      const originals = new Set(inventory.copies.flatMap(copy => copy.envelope.recovery?.resolutions ?? [])
+        .filter(receipt => receipt.sourceId === id).flatMap(receipt => receipt.preservedOriginals ?? []));
+      coverage.set(id, originals);
+      if (resolved.has(id)) continue;
+      const archived = await this.archivedCopies(id);
+      if (!archived || !current()) return false;
+      const sources = [...archived, ...inventory.copies.filter(copy => copy.sourceId === id)];
+      if (!sources.length) return false;
+      const rawSources = new Set(sources.flatMap(source => [source.envelope.current, ...source.envelope.originals.map(item => item.raw)]));
+      for (const raw of rawSources) {
+        const parsed = parseProgressJournal(raw, this.address.appId, this.address.ownerId);
+        if (!parsed || !current() || !await captureProgressJournalWords({ raw,
+          logicalKey: progressJournalKey(this.address.appId, parsed.writerId), appId: this.address.appId,
+          ownerId: this.address.ownerId, lease: this.lease, isCurrent: current, database: this.io.words }) || !current()) return false;
+      }
+      for (const source of sources) for (const original of source.envelope.originals) originals.add(journalOriginalId(original.raw));
+    }
+    if (!current()) return false;
+    const recovery = structuredClone(this.current!.recovery ?? emptyJournalRecovery());
+    for (const id of ids) {
+      const preservedOriginals = [...coverage.get(id)!];
+      if (!recovery.resolutions.some(item => item.sourceId === id
+        && preservedOriginals.every(hash => item.preservedOriginals?.includes(hash)))) {
+        recovery.resolutions.push({ sourceId: id, revision: expected.acknowledged.revision, preservedOriginals });
+      }
+    }
+    recovery.adoptedSources = recovery.adoptedSources.filter(id => !ids.includes(id));
+    this.write(expectedCurrent, [], recovery);
+    await this.settle();
+    const saved = current() && ids.every(id => this.current!.recovery?.resolutions.some(item => item.sourceId === id));
+    return saved;
+  }
 
   private enqueue(candidate: JournalEnvelope): void {
     this.pending = candidate;
