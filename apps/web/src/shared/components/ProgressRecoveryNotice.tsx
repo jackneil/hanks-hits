@@ -126,7 +126,7 @@ export function ProgressRecoveryNotice() {
   const close = () => { selected?.view.close(); setSelected(null); };
   if (typeof document === "undefined") return null;
   return createPortal(<>
-    {!!warnings.length && <aside aria-label="Save status" className="pointer-events-none fixed inset-x-0 bottom-0 z-[3900] flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    {!!warnings.length && <aside aria-label="Save status" className="pointer-events-none fixed inset-x-0 bottom-0 z-[4000] flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto max-h-[35dvh] w-full max-w-xl space-y-2 overflow-y-auto rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-950 shadow-lg">
         {warnings.map(row => <div key={row.id} className="flex items-center justify-between gap-3">
           <p role="status" className="text-sm leading-5"><strong>{getGameMetadata(row.appId).name}: </strong>

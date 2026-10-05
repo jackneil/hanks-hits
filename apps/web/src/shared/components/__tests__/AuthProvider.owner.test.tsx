@@ -59,7 +59,7 @@ describe("progress session boundary", () => {
     mock.snapshot = { ...mock.snapshot, memoryOnly: true };
     render(<ProgressSessionBoundary><button>Play</button></ProgressSessionBoundary>);
     expect(screen.getByRole("button", { name: "Play" })).toBeVisible();
-    expect(screen.getByRole("status")).toHaveTextContent("cannot save new progress for a reload");
+    expect(screen.getByRole("status")).toHaveTextContent("Some device saves are unavailable");
   });
 
   it("keeps revoked consumers hidden and retries no automatic navigation twice", async () => {

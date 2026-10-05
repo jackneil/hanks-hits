@@ -12,7 +12,7 @@ import { beforeEach, vi } from "vitest";
 export function createSyncOwnerFixture(readSession: () => unknown) {
   type Session = { status: string; data?: { user?: { id?: string } } | null };
   type Lease = { ownerKey: string; generation: number };
-  const snapshot = { status: "ready" as const, generation: 0, ownerKey: "fixture", hydrating: false, needsNavigation: false, memoryOnly: false };
+  let snapshot = { status: "ready" as const, generation: 0, ownerKey: "fixture", hydrating: false, needsNavigation: false, memoryOnly: false };
   const owner = () => {
     const session = readSession() as Session;
     return session.status === "authenticated" ? session.data?.user?.id ?? null
@@ -29,7 +29,11 @@ export function createSyncOwnerFixture(readSession: () => unknown) {
     // These legacy projections are plain localStorage writes; the hook's poll
     // observes them. Real adapter notifications have separate integration tests.
     subscribeStoreWrites: () => () => {},
-    getSnapshot: () => snapshot,
+    getSnapshot: () => {
+      const key = ownerKey() ?? "fixture";
+      if (snapshot.ownerKey !== key) snapshot = { ...snapshot, ownerKey: key };
+      return snapshot;
+    },
     captureLease: (): Lease | null => {
       const key = ownerKey(); if (!key || (pinned !== null && key !== pinned)) return null;
       pinned = key; return { ownerKey: key, generation: 0 };
