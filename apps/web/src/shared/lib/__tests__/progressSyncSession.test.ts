@@ -250,6 +250,42 @@ describe("durable revision sessions", () => {
     expect(h.session.prepare(later)).not.toBeNull();
     expect(h.session.prepare(later)).toBeNull();
   });
+  it("retries the exact failed capture bytes so an asynchronous durable receipt can satisfy it", () => {
+    const h = harness(), local = setting(drawing, { showGrid: true });
+    h.writable(false);
+    expect(h.session.capture(local)).toBe(false);
+    const first = h.persist.mock.calls.at(-1)!;
+    h.writable(true);
+    expect(h.session.capture(local)).toBe(true);
+    expect(h.persist.mock.calls.at(-1)).toEqual(first);
+  });
+  it("keeps a failed prepared request's identity stable until exact persistence succeeds", () => {
+    const h = harness(), local = setting(drawing, { showGrid: true });
+    h.session.capture(local);
+    h.writable(false);
+    expect(h.session.prepare(local)).toBeNull();
+    const first = h.persist.mock.calls.at(-1)!;
+    h.writable(true);
+    const sent = h.session.prepare(local)!;
+    expect(JSON.parse(first[0]).sent).toEqual(sent);
+    expect(h.persist.mock.calls.at(-1)).toEqual(first);
+  });
+  it("keeps later live edits separate from a prepared request whose persistence was delayed", () => {
+    const h = harness(), first = setting(drawing, { showGrid: true });
+    h.session.capture(first);
+    h.writable(false);
+    expect(h.session.prepare(first)).toBeNull();
+    const proposed = JSON.parse(h.persist.mock.calls.at(-1)![0]).sent;
+    const later = setting(first, { soundEnabled: false });
+    h.session.capture(later);
+    h.writable(true);
+    const sent = h.session.prepare(later)!;
+    expect(sent).toEqual(proposed);
+    expect(h.session.receive(sent.id, snapshot(first, 2), "accepted", later)).toBe("pending");
+    const next = h.session.prepare(state(h.session).live)!;
+    expect(next.data).toEqual(later);
+    expect(next.base).toEqual(snapshot(first, 2));
+  });
   it("blocks reads, dispatch, choices and responses after mounted owner revocation", () => {
     const h = harness(), local = setting(drawing, { showGrid: true });
     const request = h.session.prepare(local)!;

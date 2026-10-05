@@ -16,6 +16,7 @@ type Result = "saved" | "pending" | "conflict" | "blocked" | "ignored";
 export class ProgressSyncSession<T extends AppProgressData> {
   private journal: ProgressJournal<T>;
   private freshRequest: string | null = null;
+  private prepared: ProgressRequest<T> | null = null;
   private raw: string;
   private replayReady = false;
   private unpreserved: string[] = [];
@@ -41,15 +42,15 @@ export class ProgressSyncSession<T extends AppProgressData> {
     return this.io.maySave() ? cloneProgress(this.journal) : null;
   }
 
-  private write(next: ProgressJournal<T>, preserve = false): boolean {
+  private write(next: ProgressJournal<T>, preserve = false, advance = true): boolean {
     if (!this.io.maySave()) return false;
-    if (this.journal.serial === Number.MAX_SAFE_INTEGER) { this.storageAvailable = false; return false; }
-    next.serial = this.journal.serial + 1;
+    if (advance && this.journal.serial === Number.MAX_SAFE_INTEGER) { this.storageAvailable = false; return false; }
+    if (advance) next.serial = this.journal.serial + 1;
     const raw = JSON.stringify(next);
     const originals = [...new Set([
       ...this.unpreserved, ...(preserve ? [this.raw] : []),
       ...(preserve && !sameProgress(JSON.parse(this.raw), this.journal) ? [JSON.stringify(this.journal)] : []),
-    ])];
+    ])].filter(original => original !== raw);
     try { this.storageAvailable = this.io.persist(raw, originals); }
     catch { this.storageAvailable = false; }
     if (!this.storageAvailable || !this.io.maySave()) {
@@ -64,7 +65,13 @@ export class ProgressSyncSession<T extends AppProgressData> {
 
   capture(live: T): boolean {
     if (!this.io.maySave() || !isJournalProgress(this.journal.appId, live)) return false;
-    if (sameProgress(this.journal.live, live) && this.storageAvailable) return true;
+    if (sameProgress(this.journal.live, live)) {
+      // A failed structural transition did not make the prior row non-durable.
+      // A failed capture did change memory: retry its exact attempted serial so
+      // the repository can recognize an asynchronous persistence receipt.
+      if (this.storageAvailable || sameProgress(JSON.parse(this.raw), this.journal)) return true;
+      return this.write(cloneProgress(this.journal), true, false);
+    }
     const next = { ...cloneProgress(this.journal), live: cloneProgress(live) };
     if (this.write(next, true)) return true;
     // Keep the player's latest edit in memory even when the disk is full. No
@@ -83,9 +90,11 @@ export class ProgressSyncSession<T extends AppProgressData> {
       return cloneProgress(row.sent);
     }
     if (!row.forceWrite && sameProgress(row.live, row.acknowledged.data)) return null;
-    const sent = { id: this.io.requestId(), base: cloneProgress(row.acknowledged), data: cloneProgress(row.live) };
+    const sent = this.prepared ?? { id: this.io.requestId(), base: cloneProgress(row.acknowledged), data: cloneProgress(row.live) };
+    this.prepared = sent;
     const next = { ...cloneProgress(row), sent };
     if (!parseProgressJournal<T>(JSON.stringify(next), row.appId, row.ownerId) || !this.write(next)) return null;
+    this.prepared = null;
     this.freshRequest = sent.id;
     this.replayReady = false;
     return cloneProgress(sent);
@@ -112,6 +121,7 @@ export class ProgressSyncSession<T extends AppProgressData> {
     const next = { ...cloneProgress(this.journal), acknowledged: cloneProgress(remote), live: merged.data,
       sent: null, conflict: null, forceWrite: false };
     if (!this.write(next, true)) return "blocked";
+    this.prepared = null;
     this.freshRequest = null;
     this.replayReady = false;
     return sameProgress(next.live, remote.data) ? "saved" : "pending";
@@ -129,6 +139,7 @@ export class ProgressSyncSession<T extends AppProgressData> {
     }
     const next = { ...cloneProgress(row), acknowledged: cloneProgress(remote), live, sent: null, conflict: null };
     if (!this.write(next, true)) return "blocked";
+    this.prepared = null;
     this.freshRequest = null;
     this.replayReady = false;
     return !next.forceWrite && sameProgress(live, remote.data) ? "saved" : "pending";
@@ -178,6 +189,7 @@ export class ProgressSyncSession<T extends AppProgressData> {
     const next = { ...cloneProgress(this.journal), acknowledged: cloneProgress(displayed), live: cloneProgress(live),
       sent: null, conflict: null, forceWrite: true };
     if (!this.write(next, true)) return false;
+    this.prepared = null;
     this.freshRequest = null;
     this.replayReady = false;
     return true;
