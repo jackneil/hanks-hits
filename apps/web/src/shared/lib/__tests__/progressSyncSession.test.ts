@@ -36,6 +36,26 @@ function harness(appId: ValidAppId = "drawing-app", data = drawing, live = data,
 const state = (session: ProgressSyncSession<AppProgressData>) => session.snapshot()!;
 
 describe("durable revision sessions", () => {
+  it.each([false, true])("does not replay a lost-ACK initial creation after deletion (cold recovery=%s)", cold => {
+    const row = newProgressJournal("drawing-app", "owner", "writer", { data: null, revision: null }, drawing, true);
+    const h = harness("drawing-app", drawing, drawing, true, JSON.stringify(row));
+    const request = h.session.prepare(drawing)!;
+    expect(request.base).toEqual({ data: null, revision: null });
+    // The first create committed, its response was lost, and another device
+    // deleted the row. Absence now equals the old base, but is not the old state.
+    h.session.uncertain(request.id);
+    const sessions = cold ? [0, 1].map(index => harness("drawing-app", drawing, drawing, true,
+      JSON.stringify({ ...JSON.parse(h.raw()), writerId: `recovery-${index}` })).session) : [h.session];
+    for (const session of sessions) {
+      expect(session.observe({ data: null, revision: null })).toBe("conflict");
+      expect(state(session).conflict?.reason).toBe("ambiguous-delivery");
+      expect(session.prepare(drawing)).toBeNull();
+      expect(state(session).sent).toEqual(request);
+      expect(session.choose({ data: null, revision: null }, "local")).toBe(true);
+      expect(session.prepare(drawing)?.base).toEqual({ data: null, revision: null });
+    }
+  });
+
   it("persists the exact request before dispatch and never creates overlapping requests", () => {
     const h = harness(), live = setting(drawing, { showGrid: true });
     const request = h.session.prepare(live)!;

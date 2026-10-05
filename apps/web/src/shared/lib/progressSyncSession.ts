@@ -167,12 +167,14 @@ export class ProgressSyncSession<T extends AppProgressData> {
     // BASE with an advanced revision does not: another player may have deleted
     // an addition after it committed. Preserve that as an ambiguous choice.
     if (!row.forceWrite && sameProgress(remote.data, row.sent.data)) return this.accept(remote, row.sent);
-    if (sameProgress(remote, row.sent.base)) {
+    if (row.sent.base.revision !== null && sameProgress(remote, row.sent.base)) {
       // The original may still arrive after this GET. Retry the SAME immutable
       // operation without restoring first-attempt status, including after a crash.
       this.replayReady = true;
       return "pending";
     }
+    // Absence has no incarnation: create -> lost ACK -> DELETE returns to the
+    // same null base. Only an explicit choice may create again after uncertainty.
     return this.conflict(remote, "ambiguous-delivery", ["$root"]);
   }
 
