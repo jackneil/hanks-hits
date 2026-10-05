@@ -424,9 +424,11 @@ describe("shared progress network runtime", () => {
     h.edit(changed(initial, { showGrid: true }));
     const saving = h.runtime.save(); await entered.promise;
     expect(network.write).not.toHaveBeenCalled();
-    release.resolve(); await saving; await h.repository.settle();
-    // ACK persistence may itself require an async retry before the UI can claim saved.
-    await h.runtime.save(); await h.repository.settle();
+    release.resolve();
+    expect(await saving).toEqual({ ok: true, status: 200 });
+    expect(h.runtime.status()).toBe("saved");
+    expect(h.runtime.snapshot().journal!.sent).toBeNull();
+    expect(h.runtime.snapshot().journal!.acknowledged).toEqual(network.get());
     expect(network.get().data!.settings.showGrid).toBe(true);
     expect(network.write).toHaveBeenCalledTimes(1);
   });
@@ -441,6 +443,104 @@ describe("shared progress network runtime", () => {
     expect((await saving).ok).toBe(false);
     expect(h.applyLive).not.toHaveBeenCalled();
     expect(h.runtime.status()).toBe("revoked");
+  });
+
+  it("recognizes a lost ACK through an asynchronous GET checkpoint without replay", async () => {
+    const initial = painted("start"), network = wire(cloud(initial)), h = await fixture(initial, network);
+    await h.runtime.initialize(network.get()); await h.repository.settle();
+    vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+    h.edit(changed(initial, { showGrid: true }));
+    const post = network.write.getMockImplementation()!;
+    network.write.mockImplementationOnce(async body => { await post(body); throw Error("lost response"); });
+    expect((await h.runtime.save()).ok).toBe(false);
+    expect(await h.runtime.save()).toEqual({ ok: true, status: null });
+    expect(h.runtime.status()).toBe("saved");
+    expect(h.runtime.snapshot().journal!.acknowledged).toEqual(network.get());
+    expect(h.runtime.snapshot().journal!.sent).toBeNull();
+    expect(network.write).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains finite later edits during an ACK receipt and finishes on the protected retry", async () => {
+    const initial = painted("start"), network = wire(cloud(initial)), h = await fixture(initial, network);
+    await h.runtime.initialize(network.get()); await h.repository.settle();
+    vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+    const entered = deferred(), release = deferred(), put = h.database.put.bind(h.database);
+    let delayed = false;
+    vi.spyOn(h.database, "put").mockImplementation(async (...args) => {
+      const row = JSON.parse(JSON.parse(args[0].raw).current);
+      if (!delayed && !row.sent && row.acknowledged.revision !== initialRevision) {
+        delayed = true; entered.resolve(); await release.promise;
+      }
+      return put(...args);
+    });
+    const initialRevision = network.get().revision;
+    const first = changed(initial, { showGrid: true });
+    h.edit(first);
+    const saving = h.runtime.save(); await entered.promise;
+    const later = { ...first, savedArtworks: [...first.savedArtworks!, art("later")], lastModified: 12 };
+    h.edit(later); h.runtime.capture(); release.resolve();
+    expect(await saving).toEqual({ ok: false, status: null });
+    expect(h.runtime.status()).toBe("storage-error");
+    expect(h.getLive()).toEqual(later);
+    expect(network.write).toHaveBeenCalledTimes(1);
+    expect(await h.runtime.save()).toEqual({ ok: true, status: 200 });
+    expect(h.runtime.status()).toBe("saved");
+    expect(network.get().data).toEqual(later);
+    expect(network.write).toHaveBeenCalledTimes(2);
+    expect(network.write.mock.calls[0][0].data).toEqual(first);
+    expect(network.write.mock.calls[1][0].data).toEqual(later);
+  });
+
+  it("does not apply an ACK after owner revocation during its IndexedDB receipt", async () => {
+    const initial = painted("start"), network = wire(cloud(initial)), h = await fixture(initial, network);
+    await h.runtime.initialize(network.get()); await h.repository.settle();
+    vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+    const entered = deferred(), release = deferred(), put = h.database.put.bind(h.database);
+    vi.spyOn(h.database, "put").mockImplementation(async (...args) => {
+      const row = JSON.parse(JSON.parse(args[0].raw).current);
+      if (!row.sent && row.acknowledged.revision !== initialRevision) { entered.resolve(); await release.promise; }
+      return put(...args);
+    });
+    const initialRevision = network.get().revision;
+    h.applyLive.mockClear(); h.edit(changed(initial, { showGrid: true }));
+    const saving = h.runtime.save(); await entered.promise;
+    h.authority.revoke(); release.resolve();
+    expect((await saving).ok).toBe(false);
+    expect(h.applyLive).not.toHaveBeenCalled();
+    expect(h.runtime.status()).toBe("revoked");
+    expect(network.write).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an accepted operation retryable when both stores refuse the ACK", async () => {
+    const initial = painted("start"), network = wire(cloud(initial)), h = await fixture(initial, network);
+    await h.runtime.initialize(network.get()); await h.repository.settle();
+    const post = network.write.getMockImplementation()!;
+    network.write.mockImplementationOnce(async body => {
+      const response = await post(body);
+      vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+      vi.spyOn(h.database, "put").mockRejectedValue(Error("unavailable"));
+      return response;
+    });
+    h.edit(changed(initial, { showGrid: true }));
+    expect(await h.runtime.save()).toEqual({ ok: false, status: null });
+    expect(h.runtime.status()).toBe("storage-error");
+    expect(h.runtime.snapshot().journal!.sent).not.toBeNull();
+    expect(h.repository.isDurable()).toBe(false);
+    expect(network.write).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the proven rejection and independent edits across an async rebase receipt", async () => {
+    const initial = painted("start"), network = wire(cloud(initial)), h = await fixture(initial, network);
+    await h.runtime.initialize(network.get()); await h.repository.settle();
+    vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+    h.edit(changed(initial, { showGrid: true }));
+    network.set(cloud(changed(initial, { soundEnabled: false }), "b".repeat(64)));
+    expect(await h.runtime.save()).toEqual({ ok: false, status: 409 });
+    expect(h.runtime.status()).toBe("pending");
+    expect(h.runtime.snapshot().journal!.sent).toBeNull();
+    expect(h.getLive().settings).toMatchObject({ showGrid: true, soundEnabled: false });
+    expect(await h.runtime.save()).toEqual({ ok: true, status: 200 });
+    expect(network.write.mock.calls[1][0].baseRevision).toBe("b".repeat(64));
   });
 
   it("revokes on owner_changed without adopting the current cookie owner's data", async () => {
@@ -602,6 +702,26 @@ describe("explicit runtime recovery choices", () => {
 });
 
 describe("inherited operations resolved by another writer", () => {
+  it("keeps a failed source resolution retryable even when the ACK itself is durable", async () => {
+    const network = wire(cloud(defaults())), h = await fixture(painted("old"), network);
+    await h.source("original", painted("old"));
+    await h.runtime.initialize(network.get());
+    const sources = [...h.repository.snapshot()!.recovery!.adoptedSources];
+    expect(sources).toHaveLength(1);
+    const resolve = vi.spyOn(h.repository, "resolve").mockResolvedValueOnce(false);
+    expect(await h.runtime.save()).toEqual({ ok: false, status: null });
+    expect(h.runtime.status()).toBe("storage-error");
+    expect(h.repository.isDurable()).toBe(true);
+    expect(h.runtime.snapshot().journal!.sent).toBeNull();
+    expect(h.runtime.snapshot().journal!.acknowledged).toEqual(network.get());
+    expect(h.repository.snapshot()!.recovery!.adoptedSources).toEqual(sources);
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(await h.runtime.save()).toEqual({ ok: true, status: null });
+    expect(h.runtime.status()).toBe("saved");
+    expect(h.repository.snapshot()!.recovery!.adoptedSources).toEqual([]);
+    expect(network.write).toHaveBeenCalledTimes(1);
+  });
+
   it("offers a preserved choice instead of retrying or wedging the old operation", async () => {
     const network = wire(cloud(defaults())), h = await fixture(painted("old"), network);
     await h.source("original", painted("old"));
