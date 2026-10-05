@@ -351,8 +351,11 @@ shows up there after the next `pnpm build` (the home shelf sees it immediately i
    };
    ```
 
-2. **getProgress/setProgress Functions** - Required for cloud sync:
+2. **getProgress/setProgress Functions and owner-bound persistence** - Required for local saves and cloud sync. Register `"my-game": "my-game-state"` in `src/lib/owner-bound-progress/keys.ts` first.
    ```typescript
+   import { bindPersistedStore } from "@/lib/owner-bound-progress";
+   import { createOwnerPersistStorage } from "@/lib/owner-bound-progress/persistStorage";
+
    const useMyGameStore = create<State & Actions>()(
      persist(
        (set, get) => ({
@@ -366,13 +369,17 @@ shows up there after the next `pnpm build` (the home shelf sees it immediately i
        }),
        {
          name: "my-game-state",
+         storage: createOwnerPersistStorage("my-game-state", "my-game"),
+         skipHydration: true,
          partialize: (state) => ({ progress: state.progress }),
        }
      )
    );
+   bindPersistedStore("my-game-state", useMyGameStore.persist, () => useMyGameStore.setState({}));
    ```
+   Keep partialized values immutable and reference-stable when unchanged. Never allocate equivalent arrays/objects inside `partialize`; the shared adapter skips unchanged projections before JSON serialization. Mirror `breakout` for `markSaved`/`settleOnLoad` timestamp normalization. Hydration is authorized by the owner binding, never eagerly by a game.
 
-3. **Always update lastModified** when progress changes:
+3. **Update lastModified only when durable progress changes**, not on transient frame updates or repeated no-op actions. Cloud adoption preserves the supplied timestamp:
    ```typescript
    set({
      progress: {
@@ -410,7 +417,7 @@ When building a new game or app, you MUST do ALL of these. **Steps 7 and 8 are t
 
 **Create these files** (under `apps/web/`):
 1. **`src/games/my-game/metadata.ts`** — home-page discovery (`id`, `name`, `emoji`, `category`); **kid-built or kid-remixed games also need `madeByKid: true`** or they silently never appear on the home "My Games" shelf / profile "Games I Made" (everything stays green — no error tells you)
-2. **`src/games/my-game/lib/store.ts`** — Zustand `persist` store with the `Progress` type, `getProgress`, `setProgress`, and `lastModified`. The persist `name` MUST end in a standard suffix (`-storage`, `-progress`, `-save`, `-game-state`; the template's `"my-game-state"` is fine) — a novel suffix (e.g. `-store`) means sign-out won't clear it AND the My Games shelf will never show its personal-best stat
+2. **`src/games/my-game/lib/store.ts`** - Zustand `persist` store with the `Progress` type, `getProgress`, `setProgress`, and `lastModified`. Register the exact app/key pair in `src/lib/owner-bound-progress/keys.ts`, use `createOwnerPersistStorage` with `skipHydration: true`, and bind the store with `bindPersistedStore`. Use a conventional key such as `"my-game-state"` for discovery compatibility; owner authorization and sign-out fencing depend on explicit registration/binding, not suffix matching. Add its loader to `src/__tests__/persisted-store-fixtures.ts`; the source scan and real-store tests enforce this contract. Add actual loop-action coverage when the game updates a store during play.
 3. **`src/games/my-game/index.ts`** — exports the `default` component + the store + the Progress type
 4. **`src/games/my-game/Game.tsx`** — main component (`"use client"`, `default` export, wires `useAuthSync`)
 5. **`src/app/games/my-game/page.tsx`** — thin route: `dynamic(() => import("@/games/my-game"), { ssr: false })` inside `<GameShell>`
