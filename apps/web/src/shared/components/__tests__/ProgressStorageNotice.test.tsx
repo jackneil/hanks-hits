@@ -25,7 +25,7 @@ describe("progress storage warning", () => {
     fireEvent.click(screen.getByRole("button", { name: "Got it" }));
     view.rerender(<ProgressStorageNotice memoryOnly guestHandoffUnavailable />);
     expect(screen.getByRole("status")).toHaveTextContent("Guest progress could not be carried into this account");
-    expect(screen.queryByText(/cannot save new progress/)).toBeNull();
+    expect(screen.queryByText(/Some device saves are unavailable/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Got it" }));
     view.rerender(<ProgressStorageNotice memoryOnly guestHandoffUnavailable />);
     expect(screen.queryByRole("status")).toBeNull();
@@ -34,7 +34,7 @@ describe("progress storage warning", () => {
   it("acknowledges both present failures together without blocking gameplay", () => {
     render(<><button>Play</button><ProgressStorageNotice memoryOnly guestHandoffUnavailable /></>);
     expect(screen.getByRole("status")).toHaveTextContent("Your guest save is still on this device");
-    expect(screen.getByRole("status")).toHaveTextContent("You can keep playing");
+    expect(screen.getByRole("status")).toHaveTextContent("Some device saves are unavailable. Keep this page open until your save status is confirmed.");
     expect(screen.getByRole("button", { name: "Play" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Got it" }));
     expect(screen.queryByRole("status")).toBeNull();

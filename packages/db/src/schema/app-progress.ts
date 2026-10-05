@@ -1,5 +1,6 @@
 import {
   pgTable,
+  boolean,
   text,
   integer,
   jsonb,
@@ -21,7 +22,9 @@ export const appProgress = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     appId: text("app_id").notNull(), // e.g., "hill-climb", "monster-truck", "weather"
-    data: jsonb("data").notNull(), // THE ENTIRE GAME STATE AS JSON BLOB
+    data: jsonb("data").notNull(), // Game state, or JSONB null after explicit deletion.
+    // Persists across recreation, fencing delayed unconditional pre-delete saves.
+    revisionRequired: boolean("revision_required").notNull().default(false),
     lastSyncedAt: timestamp("last_synced_at"), // For conflict resolution
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

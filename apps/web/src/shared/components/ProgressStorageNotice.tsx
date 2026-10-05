@@ -19,7 +19,7 @@ export function ProgressStorageNotice({ memoryOnly, guestHandoffUnavailable }: {
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1 space-y-2 text-sm leading-5">
             {!!(pending & 2) && <p>Guest progress could not be carried into this account. Your guest save is still on this device.</p>}
-            {!!(pending & 1) && <p>You can keep playing. This device cannot save new progress for a reload.</p>}
+            {!!(pending & 1) && <p>Some device saves are unavailable. Keep this page open until your save status is confirmed.</p>}
           </div>
           <button type="button" className="min-h-11 min-w-11 shrink-0 rounded-lg bg-amber-950 px-4 py-2 font-bold text-amber-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-950" onClick={() => setAcknowledged(previous => previous | active)}>Got it</button>
         </div>

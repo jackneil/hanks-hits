@@ -10,6 +10,9 @@
  * bakes onto an old copy of the bakery or eats the time away.
  */
 import { vi } from "vitest";
+import { setTimeout as realDelay } from "node:timers/promises";
+import { ProgressRecoveryNotice } from "@/shared/components/ProgressRecoveryNotice";
+import { progressSyncPresentation } from "@/shared/lib/progressSyncPresentation";
 
 vi.hoisted(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
@@ -29,7 +32,7 @@ vi.mock("@/shared/components/FullscreenButton", () => ({ FullscreenButton: () =>
 vi.mock("@/shared/components/IOSInstallPrompt", () => ({ IOSInstallPrompt: () => null }));
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { CookieClickerGame } from "../Game";
 import { useCookieClickerStore, type CookieClickerProgress } from "../lib/store";
 import { installAudioMock } from "@/__tests__/audio-mock";
@@ -44,6 +47,7 @@ const HOUR = 3_600_000;
 const settle = async (ms: number) => {
   for (let left = ms; left > 0; left -= 100) {
     await act(async () => {
+      await realDelay(1);
       await vi.advanceTimersByTimeAsync(Math.min(100, left));
     });
   }
@@ -73,6 +77,8 @@ async function deviceBakery(ago: number, buildings: Partial<CookieClickerProgres
 beforeEach(() => {
   localStorage.clear();
   server.reset();
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  HTMLDialogElement.prototype.close = function () { this.open = false; };
   syncedStore("cookie-clicker").reset();
   installAudioMock();
   __unsafeResetForeignPurgeLockForTests();
@@ -82,8 +88,8 @@ beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  cleanup(); await realDelay(30);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   syncedStore("cookie-clicker").reset();
@@ -101,7 +107,7 @@ describe("Cookie Clicker: the bake and the account", () => {
     expect(progress().lastModified).toBe(1_000);
   });
 
-  it("a stale device that taps Play and clicks during the first sync takes the account's newer purchases", async () => {
+  it("a stale device that taps Play and clicks during the first sync can choose the account's newer purchases while retaining its own clicks", async () => {
     // The account: 5 grandmas and a bakery, bought at 12:00 on another device.
     const account = {
       ...(await deviceBakery(HOUR, { grandma: 5, bakery: 1, cursor: 2 })),
@@ -115,7 +121,7 @@ describe("Cookie Clicker: the bake and the account", () => {
 
     signIn();
     server.net.getDelayMs = 1_500;
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(300);
     fireEvent.click(screen.getByRole("button", { name: /play/i }));
     for (let i = 0; i < 5; i++) useCookieClickerStore.getState().clickCookie();
@@ -124,6 +130,11 @@ describe("Cookie Clicker: the bake and the account", () => {
     expect(server.rejected).toEqual([]);
     expect(row()?.buildings.grandma).toBe(5);
     expect(row()?.buildings.bakery).toBe(1);
+    expect(progress().buildings.grandma).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: /review saves/i }));
+    server.net.getDelayMs = 0;
+    fireEvent.click(screen.getByRole("button", { name: "Use cloud save" }));
+    await settle(1000);
     expect(useCookieClickerStore.getState().buildings.grandma).toBe(5);
   });
 
@@ -132,7 +143,7 @@ describe("Cookie Clicker: the bake and the account", () => {
     await deviceBakery(HOUR, { cursor: 10 });
     server.rows.set("user-1:cookie-clicker", { data: progress(), updatedAt: new Date() });
     signIn();
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(1_000);
     fireEvent.click(screen.getByRole("button", { name: /play/i }));
     await settle(2_000);
@@ -149,11 +160,13 @@ describe("Cookie Clicker: the bake and the account", () => {
     // until the player chooses; choosing the saved purchases keeps our record.
     expect(row()!.totalCookiesBaked).toBe(elsewhere.totalCookiesBaked);
     expect(progress().totalCookiesBaked).toBeGreaterThan(elsewhere.totalCookiesBaked);
-    fireEvent.click(screen.getByRole("button", { name: /choose a bakery/i }));
-    fireEvent.click(screen.getByText("Use saved bakery"));
+    fireEvent.click(screen.getByRole("button", { name: /review saves/i }));
+    fireEvent.click(screen.getByText("Use cloud save"));
     await settle(1_000);
     expect(row()?.buildings.grandma).toBe(3);
-    expect(row()!.totalCookiesBaked).toBeGreaterThan(elsewhere.totalCookiesBaked);
+    expect(row()!.totalCookiesBaked).toBe(elsewhere.totalCookiesBaked);
+    // Explicit selection is exact. The higher local record was displayed and
+    // retained rather than silently folding it into another bakery's wallet.
   });
 
   it.each([[0], [1_500]])(
@@ -164,7 +177,7 @@ describe("Cookie Clicker: the bake and the account", () => {
       const cps = useCookieClickerStore.getState().calculateCps();
       signIn();
       server.net.getDelayMs = latency;
-      render(<CookieClickerGame />);
+      render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
       await settle(200);
       fireEvent.click(screen.getByRole("button", { name: /play/i }));
       await settle(10_000);
@@ -177,7 +190,7 @@ describe("Cookie Clicker: the bake and the account", () => {
     await deviceBakery(HOUR, { cursor: 10 });
     signIn();
     server.net.failGets = 1_000;
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(200);
     fireEvent.click(screen.getByRole("button", { name: /play/i }));
     const before = useCookieClickerStore.getState().cookies;
@@ -222,7 +235,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
 
     signIn();
     server.net.failGets = 1_000;
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(READY_FALLBACK_MS + 2_000);
     // The page runs on the old copy: the time away bakes, with no stamp.
     expect(useCookieClickerStore.getState().cookies).toBeGreaterThan(1_000);
@@ -233,6 +246,11 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     expect(server.rejected).toEqual([]);
     expect(row()?.buildings.grandma).toBe(5);
     expect(row()?.buildings.bakery).toBe(1);
+    expect(progress().buildings.grandma).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: /review saves/i }));
+    server.net.getDelayMs = 0;
+    fireEvent.click(screen.getByRole("button", { name: "Use cloud save" }));
+    await settle(1000);
     expect(useCookieClickerStore.getState().buildings.grandma).toBe(5);
   });
 
@@ -243,7 +261,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     thisAccountsDevice();
     // next-auth's session fetch fails: the status is "unauthenticated".
     session.current = { data: null, status: "unauthenticated" };
-    const view = render(<CookieClickerGame />);
+    const view = render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(3_000);
     view.unmount();
     const disk = JSON.parse(localStorage.getItem("cookie-clicker-storage")!).state as CookieClickerProgress;
@@ -252,7 +270,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     vi.setSystemTime(Date.now() + 10 * 60_000);
     await useCookieClickerStore.persist.rehydrate();
     signIn();
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(20_000);
     expect(row()?.buildings.grandma).toBe(5);
   });
@@ -261,7 +279,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     await deviceBakery(0, {});
     server.rows.set("user-1:cookie-clicker", { data: progress(), updatedAt: new Date() });
     signIn();
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(1000);
     server.net.postDelayMs = 4000;
     useCookieClickerStore.setState({ cookies: 1100, totalCookiesBaked: 5100 });
@@ -278,63 +296,73 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
   it("never grants a newer device's revision to local play retained during initial sync", async () => {
     await deviceBakery(0, {});
     const start = progress();
-    const older = { ...start, cookies: 500, lastModified: start.lastModified - 1000 };
     const newer = { ...start, cookies: 9000, totalCookiesBaked: 9000, lastModified: start.lastModified + 1000 };
-    server.rows.set("user-1:cookie-clicker", { data: older, updatedAt: new Date() });
-    let gets = 0;
-    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
-      if (url.endsWith("/cookie-clicker")) {
-        if (!init?.method && ++gets === 2) server.rows.set("user-1:cookie-clicker", { data: newer, updatedAt: new Date() });
-        if (init?.method === "POST" && gets === 1) useCookieClickerStore.setState({ cookies: 1500, lastModified: start.lastModified + 1 });
-      }
-      return server.fetch(url, init);
-    });
-    signIn();
-    render(<CookieClickerGame />);
+    server.rows.set("user-1:cookie-clicker", { data: { ...start, cookies: 500 }, updatedAt: new Date() });
+    server.net.getDelayMs = 1500; signIn();
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
+    await settle(400);
+    useCookieClickerStore.setState({ cookies: 1500, lastModified: start.lastModified + 1 });
+    server.rows.set("user-1:cookie-clicker", { data: newer, updatedAt: new Date() });
     await settle(9000);
     expect(progress().cookies).toBe(1500);
-    expect(row()?.cookies).toBe(9000);
-    expect(screen.getByRole("button", { name: /choose a bakery/i })).toBeTruthy();
+    expect(row()?.cookies).toBe(9000); expect(server.posts).toEqual([]);
+    expect(screen.getByRole("button", { name: /review saves/i })).toBeTruthy();
   });
 
   it("keeps conditional saves enabled through an authentication loading transition", async () => {
     await deviceBakery(0, {});
     server.rows.set("user-1:cookie-clicker", { data: progress(), updatedAt: new Date() });
     signIn();
-    const view = render(<CookieClickerGame />);
+    const view = render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(1000);
     session.current = { data: { user: { id: "user-1" } }, status: "loading" };
-    view.rerender(<CookieClickerGame />);
+    view.rerender(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(100);
     signIn();
-    view.rerender(<CookieClickerGame />);
+    view.rerender(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     useCookieClickerStore.setState({ cookies: 1100, totalCookiesBaked: 5100 });
     await settle(8000);
+    const entry = progressSyncPresentation.getSnapshot().find(row => row.appId === "cookie-clicker")!;
+    expect(entry.status).toBe("conflict");
+    const dialog = entry.open()!;
+    expect(dialog.options.find(option => option.id === "local")!.data.cookies).toBe(1100);
+    await act(async () => { expect(await dialog.choose("local")).toMatchObject({ ok: true }); });
     expect(row()?.cookies).toBe(1100);
+    expect(server.posts.every(post => post.merge)).toBe(true);
   });
 
   it("offers the original local bakery after a failed choice and after reload", async () => {
     await deviceBakery(0, {});
     server.rows.set("user-1:cookie-clicker", { data: progress(), updatedAt: new Date() });
     signIn();
-    const view = render(<CookieClickerGame />);
+    const view = render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(1000);
     useCookieClickerStore.setState({ cookies: 1200, totalCookiesBaked: 5200 });
     server.rows.set("user-1:cookie-clicker", { data: { ...progress(), cookies: 200 }, updatedAt: new Date() });
     await settle(8000);
     server.net.postDelayMs = 1000;
-    fireEvent.click(screen.getByRole("button", { name: /choose a bakery/i }));
-    fireEvent.click(screen.getByText("Use saved bakery"));
+    fireEvent.click(screen.getByRole("button", { name: /review saves/i }));
+    const postsBeforeChoice = server.posts.length;
+    fireEvent.click(screen.getByText("Use cloud save"));
+    // Yield to actual IndexedDB work even when the full suite is busy. Once
+    // POST starts, stop advancing its deliberately delayed response clock.
+    for (let attempts = 0; server.posts.length === postsBeforeChoice && attempts < 50; attempts++) await settle(100);
+    expect(server.posts).toHaveLength(postsBeforeChoice + 1);
+    expect(progress().cookies).toBe(200);
     server.rows.set("user-1:cookie-clicker", { data: { ...progress(), cookies: 400 }, updatedAt: new Date() });
     await settle(1500);
-    expect(screen.getByText("Use bakery before your choice")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Choose a save" })).toBeVisible();
+    expect(screen.getAllByText("1,200").length).toBeGreaterThan(0);
     view.unmount();
     await settle(1500);
     await useCookieClickerStore.persist.rehydrate();
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(1500);
-    fireEvent.click(screen.getByRole("button", { name: /choose a bakery/i }));
-    fireEvent.click(screen.getByText("Use bakery before your choice"));
+    fireEvent.click(screen.getByRole("button", { name: /review saves/i }));
+    const card = Array.from(screen.getByRole("dialog", { name: "Choose a save" }).querySelectorAll("section")).find(section => section.textContent?.includes("1,200"));
+    expect(card).toBeDefined();
+    expect(card!.textContent).toContain("Retained save");
+    fireEvent.click(within(card! as HTMLElement).getByRole("button"));
     await settle(1500);
     expect(row()?.cookies).toBe(1200);
   });
@@ -343,7 +371,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     await deviceBakery(0, {});
     server.rows.set("user-1:cookie-clicker", { data: progress(), updatedAt: new Date() });
     signIn();
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(1000);
     server.net.losePostResponses = 1;
     useCookieClickerStore.setState({ cookies: 1100, totalCookiesBaked: 5100 });
@@ -353,14 +381,14 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     await settle(14000);
     expect(progress().cookies).toBe(1200);
     expect(row()?.cookies).toBe(1200);
-    expect(screen.queryByRole("button", { name: /choose a bakery/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /review saves/i })).toBeNull();
   });
 
   it("recovers a failed pending save after navigation without a legacy overwrite", async () => {
     await deviceBakery(0, {});
     server.rows.set("user-1:cookie-clicker", { data: progress(), updatedAt: new Date() });
     signIn();
-    const first = render(<CookieClickerGame />);
+    const first = render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(1000);
     server.net.postStatus = 500;
     useCookieClickerStore.setState({ cookies: 1300, totalCookiesBaked: 5300 });
@@ -369,7 +397,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     await settle(100);
     server.net.postStatus = 0;
     await useCookieClickerStore.persist.rehydrate();
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(8000);
     expect(progress().cookies).toBe(1300);
     expect(row()?.cookies).toBe(1300);
@@ -389,7 +417,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
 
     signIn();
     server.net.failGets = 1_000;
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(300);
     if (play) fireEvent.click(screen.getByRole("button", { name: /play/i }));
     await settle(READY_FALLBACK_MS + 2_000);
@@ -409,7 +437,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
     await deviceBakery(0, { cursor: 10, grandma: 5 });
     server.rows.set("user-1:cookie-clicker", { data: progress(), updatedAt: new Date() });
     signIn();
-    const view = render(<CookieClickerGame />);
+    const view = render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(1_000);
     fireEvent.click(screen.getByRole("button", { name: /play/i }));
     await settle(1_000);
@@ -429,7 +457,7 @@ describe("Cookie Clicker: an outage and the account (review wave 5)", () => {
 
     vi.setSystemTime(Date.now() + awayHours * HOUR);
     await useCookieClickerStore.persist.rehydrate();
-    render(<CookieClickerGame />);
+    render(<><CookieClickerGame /><ProgressRecoveryNotice /></>);
     await settle(5_000);
     const expected = onDevice + cps * Math.min(awayHours, 8) * 3600;
     expect(useCookieClickerStore.getState().cookies).toBeGreaterThanOrEqual(expected * 0.999);

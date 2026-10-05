@@ -35,9 +35,9 @@ function isBakery(value: unknown): value is CookieClickerProgress {
 export function isBakerySnapshot(value: unknown): value is BakerySnapshot {
   if (!value || typeof value !== "object") return false;
   const snapshot = value as BakerySnapshot;
-  return snapshot.data === null
-    ? snapshot.revision === null
-    : isBakery(snapshot.data) && typeof snapshot.revision === "string" && /^[a-f0-9]{64}$/.test(snapshot.revision);
+  if (snapshot.revision === null) return snapshot.data === null;
+  return typeof snapshot.revision === "string" && /^[a-f0-9]{64}$/.test(snapshot.revision)
+    && (snapshot.data === null || isBakery(snapshot.data));
 }
 
 /** Corrupt or foreign records never become a candidate for this account. */
@@ -153,7 +153,8 @@ export class BakerySyncSession {
     }
     // A legacy no-op can advance the revision without changing the base. This
     // equality proves it is safe to retry the same snapshot on that revision.
-    if (sameProgress(remote.data, request.base.data)) {
+    // Null data may be a new deletion fence, never permission to recreate.
+    if (remote.data !== null && sameProgress(remote.data, request.base.data)) {
       this.journal.acknowledged = copy(remote);
       this.journal.sent = { ...copy(request), id: this.io.requestId(), base: copy(remote) };
       this.persist();

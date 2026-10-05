@@ -437,7 +437,7 @@ same button, in the same place: under the words, above the action buttons.
   settings) and the install steps that the 📲 button opens (in the header
   or in the pause menu).
 - 3000: dialogs (RestartConfirmationDialog).
-- 4000: ProgressStorageNotice, a dismissible device storage warning above
+- 4000: ProgressStorageNotice and ProgressRecoveryNotice, device storage and save recovery warnings above
   fixed game content, headers, and dialogs. It portals to `document.body`,
   respects safe-area insets, and has a 44 px acknowledgement button. Its
   outer layer takes no taps outside the warning. Acknowledgement hides the
@@ -856,47 +856,64 @@ save.
 - The next save writes the board row again, because the route reads the
   score from the full saved blob.
 
-**Optional revision protocol (server foundation).** GET includes `protocol: 1`
-and an opaque `revision` for the returned canonical row, or `null` when no row
-exists. A conditional POST includes that exact `baseRevision` and the mounted
-account's `expectedOwnerId`. Omit `baseRevision` for the existing protocol;
-explicit `null` means create only if the row is still absent. Invalid revisions
-are rejected, never treated as an ordinary save.
+**Required revision protocol.** GET includes `protocol: 1` and an opaque
+`revision` for the canonical row, or `null` when no row exists. Every POST,
+including unload beacons, must include that exact `baseRevision` and the mounted
+account's `expectedOwnerId`. A missing revision returns 428 `upgrade_required`
+before database mutation. Old tabs must reload; never downgrade a retry to an
+unconditional write. Explicit `null` means create only if the row has never been
+saved or deleted. Invalid revisions receive 400; stale owner assertions receive
+409 without disclosing another account's progress.
 
-- All POSTs, including old clients, and DELETE take the same per-owner/app
-  transaction advisory lock before reading the row. The lock is a separate SQL
-  command so a waiting transaction reads the winner's committed state. This
-  serializes writes without adding a save timeout or rejecting concurrent saves.
+- Accepted-protocol POSTs and DELETE take the same per-owner/app transaction
+  advisory lock before reading the row. A separate SQL command ensures a waiting
+  writer reads the winner's committed state. Concurrent stale writers receive
+  409, rather than overwriting each other. Body size and read behavior are unchanged.
 - A matching revision makes the incoming blob the continuation base, including
   idle progress with an unchanged player timestamp. The field rules and final
   schema validation still apply. The success response contains the canonical
   stored `data` and new `revision`, read back inside the transaction.
+- An explicit recovery choice adds `resolution: true`. Only literal true is
+  accepted, and both revision and owner assertions are required. After the same
+  locked revision check, the selected validated snapshot replaces the stored
+  snapshot without ordinary record folding. Word projection and transactional
+  preservation of the old word source still apply. The runtime derives this
+  mode from its persisted `forceWrite` choice, retains it on uncertain retries,
+  and removes it only after acknowledgement. An unchanged choice still advances
+  the revision. Clients omitting `resolution` use normal conditional record folding.
 - A stale revision returns 409 `revision_conflict` with current canonical data
   and revision, without writing either progress or leaderboard. A changed owner
   returns 409 `owner_changed` without revealing the current account's data.
 - Revisions hash owner, app, row id and driver-visible update time. Every
   cooperating write advances that time by at least one millisecond, even for a
-  no-op or a backward wall clock. Deleting and recreating a row changes its id.
-- Deploy this server and drain old server instances before enabling a client
-  that depends on revisions. Old browser clients can continue using legacy
-  requests against the new server. Rolling back the server requires first
-  disabling revision clients; the old server ignores their preconditions.
-- Client integration is separate. It must retain the acknowledged canonical
-  base, immutable sent snapshot and later local edits independently. A lost
-  acknowledgement is not permission to overwrite a new revision: fetch and
-  reconcile, retain both alternatives on a real conflict, and never retry as a
-  legacy unconditional write. A beacon is not an acknowledgement.
+  no-op or a backward wall clock. DELETE retains a metadata-only row with JSONB
+  null data and an advanced revision, including when no save existed yet. SQL
+  NULL is not used. Repeated deletion advances the fence again.
+- DELETE atomically clears transaction logs, legacy word archives, and the game's
+  leaderboard entries. Aggregate progress excludes metadata-only rows; a per-game
+  GET returns null data with the deletion revision. Account deletion still removes
+  the whole row through the owner cascade.
+- Migration `0004_progress_deletion_fence` adds `revision_required` with a false
+  default. DELETE sets it true; recreation preserves it. Once set, every save must
+  include the exact revision. Otherwise an old unconditional request could arrive
+  after deletion and a legitimate restart, silently restoring the deleted game.
+- Apply the additive migration before new server instances start. Drain all old
+  server instances and their requests before relying on deletion fences. An old
+  server ignores revisions and can physically erase the fence. After activation,
+  rollback is only safe to a tombstone-aware server that preserves this flag.
+- The shared `useAuthSync` hook supplies revisions on initial, guest, force,
+  debounced, retry and unload writes for all registered games. It retains the
+  acknowledged canonical base, immutable sent snapshot and later local edits
+  independently. Lost acknowledgements require canonical reconciliation or an
+  explicit choice. A queued beacon is not an acknowledgement.
+- Recovery uses `ProgressRecoveryNotice`. Storage failure reports unsaved state;
+  it never certifies that an in-memory copy is recoverable after reload.
 
-No database migration is required. This foundation does not complete #69 or
-change any browser client's save behavior by itself.
+**Server record folding.** The route uses `src/lib/progress-merge.ts` for
+ordinary conditional saves; explicit recovery choices store the selected copy.
 
-**How the legacy server merge works.** The client (`useAuthSync`) sends
-`merge: true` with each save after the first sync. The route merges the
-save with the stored row in `src/lib/progress-merge.ts`.
-
-- The newer blob is the base. The route compares the `lastModified` value
-  of each blob (last write wins). The row's `updatedAt` is used only when a
-  blob has no time.
+- The matching-revision continuation is the base. Clock ordering remains a
+  compatibility policy in the pure merge helper, not authority for a POST.
 - Each field then follows the reviewed table of its game in
   `src/lib/progress-field-rules.ts`:
   - `max`: keep the larger value. Use it for a field that only grows (a
@@ -1021,10 +1038,8 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
 - A continuous change never stamps: a clock that runs while the page is
   open (Cookie Clicker's bake, the Four-Wheeler world clock, the pet's
   needs). A stamp there makes an idle page newer than what the kid did on
-  another device, and its saves replace that. Equal-time saves retain
-  the stored row, with only the reviewed field reconciliation applied.
-  Cookie Clicker opts into revision-based continuation after initial sync;
-  other games' lineage-aware automatic progress remains part of B2.
+  another device. Save lineage comes from revisions, not those clocks.
+  All games now use the shared revision runtime.
 - A page that changes progress by itself waits for `ready` from
   `useAuthSync`. Then the change applies to the account's progress, not to
   an old copy on the device. When the account cannot be reached for
@@ -1058,71 +1073,35 @@ the account's pet, beats, wishlist, journey and coins (issue #26i).
 - Do not set progress from a component with `setProgress()`. Put the
   player action in the store, so that it stamps the time.
 
-**What the first sync does (`useAuthSync`):**
+**Shared synchronization and recovery (`useAuthSync`).**
 
-- An untouched device (time `0`, or only settings and clocks changed)
-  takes the account's progress. What time alone earned on the device (an
-  unlocked pet species, a visit streak) is folded in.
-- An account row of untouched progress gives way to the device's real
-  progress, and keeps its records. The new code never uploads untouched
-  progress, so such a row is a row of the old code, whatever its time (a
-  tab that still runs the old code, a rollback, a wrong clock).
-- Every touched device sends its progress with `merge: true`. The server's
-  last-write rule decides, including guest play. There is no guest/lineage
-  classifier in B1. Cookie's durable recovery records are an explicit exception
-  before this first-sync selection; per-store guest merging remains #69i.
-- After the first GET, the hook reads live progress again. If an untouched
-  device was played during that request, its live snapshot follows the
-  touched rule. New account list items join that snapshot using the store's
-  recency and eviction rules, preserving drawings or beats made during GET.
-- A refusal from the server's schema keeps the device's progress and makes
-  the page ready. A retryable network/server failure keeps trying; an
-  unchanged schema-refused payload is not repeatedly sent.
-- No save sends progress that the store's rule calls untouched. A change
-  to a setting alone reaches the account with the kid's next real change.
-- Another tab that saves newer progress for the same key: the tab takes it
-  before its next change, and folds in its own records that the other tab
-  does not hold. Only this tab's unsaved new list items join the other tab's
-  list; a previously shared item deleted there stays deleted. Any addition
-  stays pending for upload. Lists use their store's own recency and bounds,
-  and each eviction is logged without values. A page restored from the
-  back-forward cache checks ownership before taking the saved progress.
-- Every save path requires the completed first-sync owner to match the
-  session. Account changes during or after the first sync lock uploads,
-  clear foreign saves, and reload. Debounce, force-sync, unload, and unmount
-  all use the same ownership check.
-- Equal-time saves keep the stored row under master's existing conflict
-  ordering. Equal timestamps do not establish shared lineage.
+The owner-scoped repository captures local progress before waiting for cloud
+access. Its provisional journal cannot authorize a write. Complete source
+inventory and a canonical GET establish readiness; unknown ancestry, concurrent
+wallet changes and ambiguous delivery require an explicit choice. Independent
+edits with known lineage reconcile through the reviewed per-game policies.
 
-**Cookie continuation and recovery.** Cookie Clicker alone supplies the optional
-`ProgressContinuation` adapter to `useAuthSync`. A canonical revision is paired
-with its exact data before offline baking starts. Retained local progress that
-did not adopt the returned canonical row requires a choice; it cannot borrow
-that row's revision. Every subsequent send, including beacons, uses conditional
-POSTs. The server foundation must already be deployed with old server writers
-drained before this client is released.
+Each mounted writer has its own `progress-sync-v1-<app>-<writer>-storage`
+envelope. Owner-bound localStorage is the synchronous checkpoint path; an exact
+IndexedDB receipt supplies durability when localStorage is full. The acknowledged
+base, immutable request, pending live edits and unresolved alternatives remain
+separate. A write never dispatches without a durable checkpoint. Lifecycle flush
+captures immediately, skips oversized beacons and preserves unacknowledged work.
+A cold writer conservatively treats an inherited operation as possibly sent;
+advanced cloud data may require a choice even when edits appear independent.
 
-The Cookie session keeps acknowledged, immutable sent, and live snapshots
-separately. It retries an unknown outcome with the same sent snapshot. A 409
-can recover automatically only when canonical data equals the expected sent
-result (lost acknowledgement) or the old base (an intervening no-op). Otherwise
-the game presents both alternatives. Cookie balances and overlapping offline
-earnings are never added together. Successful acknowledgements preserve later
-local edits and transient frenzy/golden-cookie state.
+The recovery dialog freezes the offered copies and rechecks current state,
+owner, sources and revision before installing a choice. The selected exact copy
+uses `resolution: true`. Unchosen copies remain pinned until acknowledgement;
+unique personal words and drawings require preservation receipts before pruning.
+Cookie Clicker and Virtual Pet pause automatic progression during recovery.
 
-Each writer uses a separate `cookie-clicker-sync-<uuid>-storage` journal. The
-suffix is cleared on sign-out and foreign-owner purge. Recovery includes all
-unresolved same-owner journals and pre-choice backups. A choice folds reviewed
-records from every offered alternative, while its wallet comes only from the
-selected copy. Original copies remain actionable until acknowledgement. Exact
-writer-key/serial receipts retire incorporated copies without deleting another
-tab's concurrently changed record. Failed storage remains in memory and is
-reported visibly. Account/lifecycle checks reject late responses and prevent
-recreating data after sign-out. Cookie storage events retain the current writer's
-progress instead of treating another tab's timestamp as a canonical revision.
-
-The shared hook's existing behavior remains for games without this adapter.
-This does not complete the all-game reconciliation and two-device proof in #69.
+`import-progress-journals.ts` inventories durable owner-scoped and legacy Cookie
+journals, retaining exact source bytes inside generic journals. Pending imports
+require explicit recovery; old retirement receipts cannot silently suppress them.
+Failed enumeration or malformed same-owner data blocks dispatch. Legacy keys
+remain unchanged. Guest acknowledgement also requires exact canonical and durable
+local receipts. Owner/session revocation fences every asynchronous transition.
 
 **Enforcement:**
 

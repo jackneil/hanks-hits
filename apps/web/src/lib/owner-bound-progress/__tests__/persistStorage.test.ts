@@ -16,6 +16,22 @@ async function fixture() {
 }
 
 describe("real persist wrapper owner lifecycle", () => {
+  it("notifies journal capture synchronously through the optimized production adapter, including quota failure", async () => {
+    const { authority, store } = await fixture();
+    const scores: number[] = [];
+    authority.subscribeStoreWrites("snake-game-state", () => {
+      scores.push(store.getState().progress.score);
+      authority.writeScoped("progress-sync-v1-snake-writer-storage", "journal");
+    });
+    store.setState({ progress: { score: 2 } }); expect(scores).toEqual([2]);
+    store.setState({}); expect(scores).toEqual([2]);
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw Error("quota"); });
+    store.setState({ progress: { score: 3 } }); expect(scores).toEqual([2, 3]);
+    await authority.updateSession("loading"); store.setState({ progress: { score: 4 } });
+    expect(scores).toEqual([2, 3]);
+    await authority.updateSession("authenticated", "alice"); expect(scores).toEqual([2, 3, 4]);
+  });
+
   it("retains and flushes paused-session cleanup without rehydrating over live state", async () => {
     const { authority, store } = await fixture();
     store.setState({ progress: { score: 2 } });

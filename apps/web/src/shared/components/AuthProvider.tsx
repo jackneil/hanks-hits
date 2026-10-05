@@ -9,6 +9,7 @@ import { ownerBoundProgress } from "@/lib/owner-bound-progress";
 import { SIGNOUT_BROADCAST_KEY } from "@/lib/storage-keys";
 import { consumeGuestHandoffNavigation, isAuthNavigationPending, PROGRESS_SESSION_CHANNEL, reloadProgressPage } from "@/lib/auth-client";
 import { ProgressHydrationBoundary, ProgressReloadNotice } from "./ProgressHydrationBoundary";
+import { ProgressRecoveryNotice } from "./ProgressRecoveryNotice";
 import { ProgressStorageNotice } from "./ProgressStorageNotice";
 
 const loadAchievements = () => import("./AchievementCelebrations");
@@ -89,6 +90,7 @@ export function ProgressSessionBoundary({ children }: { children: ReactNode }) {
   return (
     <>
       <ProgressStorageNotice memoryOnly={snapshot.memoryOnly} guestHandoffUnavailable={snapshot.guestHandoffUnavailable} />
+      <ProgressRecoveryNotice />
       {children}
       {matches && snapshot.status === "ready" && (
         <ProgressHydrationBoundary appId="achievements" loadModule={loadAchievements} fallback={null}>

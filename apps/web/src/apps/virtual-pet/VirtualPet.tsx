@@ -45,7 +45,7 @@ function StatBar({ label, value, color, icon }: { label: string; value: number; 
 // ============================================
 // MINI GAME (Catch treats)
 // ============================================
-function MiniGame({ onEnd }: { onEnd: (score: number) => void }) {
+function MiniGame({ onEnd, paused }: { onEnd: (score: number) => void; paused: boolean }) {
   const [score, setScore] = useState(0);
   const [treats, setTreats] = useState<{ id: number; x: number; y: number }[]>([]);
   const [timeLeft, setTimeLeft] = useState(15);
@@ -53,6 +53,7 @@ function MiniGame({ onEnd }: { onEnd: (score: number) => void }) {
 
   // Timer
   useEffect(() => {
+    if (paused) return;
     if (timeLeft <= 0) {
       onEnd(score);
       return;
@@ -60,10 +61,11 @@ function MiniGame({ onEnd }: { onEnd: (score: number) => void }) {
 
     const timer = setTimeout(() => setTimeLeft(t => t - 1), 1000);
     return () => clearTimeout(timer);
-  }, [timeLeft, score, onEnd]);
+  }, [timeLeft, score, onEnd, paused]);
 
   // Spawn treats
   useEffect(() => {
+    if (paused) return;
     const spawnInterval = setInterval(() => {
       if (timeLeft <= 0) return;
 
@@ -78,10 +80,11 @@ function MiniGame({ onEnd }: { onEnd: (score: number) => void }) {
     }, 800);
 
     return () => clearInterval(spawnInterval);
-  }, [timeLeft]);
+  }, [timeLeft, paused]);
 
   // Move treats down
   useEffect(() => {
+    if (paused) return;
     const moveInterval = setInterval(() => {
       setTreats(prev =>
         prev
@@ -93,9 +96,10 @@ function MiniGame({ onEnd }: { onEnd: (score: number) => void }) {
     }, 50);
 
     return () => clearInterval(moveInterval);
-  }, []);
+  }, [paused]);
 
   const catchTreat = (id: number) => {
+    if (paused) return;
     setTreats(prev => prev.filter(t => t.id !== id));
     setScore(s => s + 1);
   };
@@ -155,6 +159,9 @@ export function VirtualPet() {
   const petEmoji = species.evolutions[stage];
   const moodEmoji = getMoodEmoji(mood);
 
+  const recoveryPaused = useRef(false);
+  const [recoveryHeld, setRecoveryHeld] = useState(false);
+
   // Auth sync
   const { ready, synced } = useAuthSync({
     appId: "virtual-pet",
@@ -162,6 +169,15 @@ export function VirtualPet() {
     getState: store.getProgress,
     setState: store.setProgress,
     debounceMs: 1000,
+    pauseForRecovery: () => {
+      recoveryPaused.current = true;
+      setRecoveryHeld(true);
+      return (canonical) => {
+        recoveryPaused.current = false;
+        setRecoveryHeld(false);
+        if (canonical !== undefined) useVirtualPetStore.getState().updateFromTime(canonical);
+      };
+    },
   });
 
   // Update stats on mount and periodically, once the sync is ready: the
@@ -172,10 +188,10 @@ export function VirtualPet() {
   // runs again at once on the account's pet.
   useEffect(() => {
     if (!ready) return;
-    useVirtualPetStore.getState().updateFromTime(synced);
+    if (!recoveryPaused.current) useVirtualPetStore.getState().updateFromTime(synced);
 
     const interval = setInterval(() => {
-      useVirtualPetStore.getState().updateFromTime(synced);
+      if (!recoveryPaused.current) useVirtualPetStore.getState().updateFromTime(synced);
     }, 60000); // Every minute
 
     return () => clearInterval(interval);
@@ -194,7 +210,7 @@ export function VirtualPet() {
   });
 
   if (store.isPlaying) {
-    return <MiniGame onEnd={(score) => store.endMiniGame(score)} />;
+    return <MiniGame onEnd={(score) => store.endMiniGame(score)} paused={recoveryHeld} />;
   }
 
   // Care, the shop, the sound and the stats: always on screen (the care

@@ -279,15 +279,18 @@ function getChallengeCompletionUpdate(state: ChallengeCompletionSnapshot): {
   reward: number;
 } {
   let reward = 0;
+  let completedAny = false;
   const challenges = state.challenges.map((challenge) => {
     if (challenge.completed) return challenge;
     if (getChallengeProgress(state, challenge) < challenge.target) return challenge;
 
+    completedAny = true;
     reward += challenge.reward;
     return { ...challenge, completed: true };
   });
 
-  return { challenges, reward };
+  // Keep transient session updates out of the persisted progress projection.
+  return { challenges: completedAny ? challenges : state.challenges, reward };
 }
 
 /** The synced progress of a new player (time 0: untouched). */

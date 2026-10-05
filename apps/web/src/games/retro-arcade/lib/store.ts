@@ -187,6 +187,17 @@ function stripRuntimeFile(rom: CustomRom): Omit<CustomRom, "file"> {
   };
 }
 
+// Immutable ROM-list changes invalidate this projection; loading/pause updates do not.
+const persistedRomMetadata = new WeakMap<CustomRom[], Omit<CustomRom, "file">[]>();
+function romMetadataForSave(roms: CustomRom[]): Omit<CustomRom, "file">[] {
+  let metadata = persistedRomMetadata.get(roms);
+  if (!metadata) {
+    metadata = roms.map(stripRuntimeFile);
+    persistedRomMetadata.set(roms, metadata);
+  }
+  return metadata;
+}
+
 /**
  * The ROM list after a cloud pull (setProgress). The cloud list gives the
  * names; the files stay in memory for this visit only, so the cloud never
@@ -414,7 +425,7 @@ export const useRetroArcadeStore = create<RetroArcadeState>()(
           favorites: state.favorites,
           recentlyPlayed: state.recentlyPlayed,
           // Never persist the uploaded files
-          customRoms: state.customRoms.map(stripRuntimeFile),
+          customRoms: romMetadataForSave(state.customRoms),
           stats: state.stats,
           settings: state.settings,
           lastModified: state.lastModified,

@@ -1,9 +1,14 @@
 /**
- * Review wave 4 of #26i: the first sync, the account and other tabs, with
- * the REAL stores, the real useAuthSync and a server that runs the real
- * validation and merge (src/__tests__/fake-progress-server.ts).
+ * Legacy-store regression coverage migrated to the revision protocol:
+ * no timestamp-only replacement, retained alternatives for unknown ancestry,
+ * bounded uncertain delivery, readiness and exact-original preservation.
+ * Owner namespace integration has separate real-authority tests.
  */
+import { progressSyncPresentation } from "@/shared/lib/progressSyncPresentation";
+import { LocalWordsDatabase } from "@/lib/local-words/database";
+import { ownerKeyFor } from "@/shared/clips/library/ownerKey";
 import { vi } from "vitest";
+import { setTimeout as realDelay } from "node:timers/promises";
 
 vi.hoisted(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
@@ -21,7 +26,7 @@ vi.mock("next-auth/react", () => ({
 }));
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
 import { READY_FALLBACK_MS, useAuthSync, __unsafeResetForeignPurgeLockForTests } from "../useAuthSync";
 import { extractTimestamp } from "@/lib/progress-merge";
@@ -46,6 +51,7 @@ const at = (iso: string) => vi.setSystemTime(new Date(iso));
 const settle = async (ms: number) => {
   for (let left = ms; left > 0; left -= 250) {
     await act(async () => {
+      await realDelay(5);
       await vi.advanceTimersByTimeAsync(Math.min(250, left));
     });
   }
@@ -65,6 +71,16 @@ const mount = (entry: SyncedStoreEntry) =>
       debounceMs: 1_000,
     })
   );
+
+async function choose(appId: string, id = "local") {
+  const entry = progressSyncPresentation.getSnapshot().find(row => row.appId === appId)!;
+  expect(entry.status).toBe("conflict");
+  const dialog = entry.open()!;
+  expect(dialog.options.some(option => option.id === id)).toBe(true);
+  server.net.getDelayMs = 0;
+  await act(async () => { expect(await dialog.choose(id)).toMatchObject({ ok: true }); });
+  return dialog;
+}
 
 /** A page load: the store's defaults, then its save on disk. */
 async function loadPage(entry: SyncedStoreEntry) {
@@ -103,7 +119,8 @@ beforeEach(() => {
   at("2026-10-20T13:00:00Z");
 });
 
-afterEach(() => {
+afterEach(async () => {
+  cleanup(); await realDelay(30);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   for (const entry of SYNCED_STORES) entry.reset();
@@ -128,7 +145,7 @@ describe("a new account: play while the first GET is in flight reaches the accou
     expect(extractTimestamp(played as AppProgressData)).toBeGreaterThan(0);
     // forceSync before the first sync is done: it saves when the sync is.
     await act(async () => {
-      await view.result.current.forceSync();
+      void view.result.current.forceSync();
     });
     await settle(4_000);
     view.unmount();
@@ -153,6 +170,7 @@ describe("a change during the first sync", () => {
     await settle(250);
     useToyFinderStore.getState().addToWishlist({ id: "b" } as never, "maybe");
     await settle(6_000);
+    await choose("toy-finder");
     view.unmount();
     const ids = (server.row("toy-finder") as { wishlistItems: Array<{ toyId?: string; id?: string }> }).wishlistItems.map(
       (item) => item.toyId ?? item.id
@@ -160,7 +178,7 @@ describe("a change during the first sync", () => {
     expect(ids).toEqual(expect.arrayContaining(["a", "b"]));
   });
 
-  it("on an old copy, when the account holds newer progress: the account wins, and a wish made during the sync joins it (F4)", async () => {
+  it("keeps an old copy and its new wish selectable beside newer account progress", async () => {
     const entry = syncedStore("toy-finder");
     const account = made(entry, "2026-10-20T12:00:00Z", () => {
       useToyFinderStore.getState().addToWishlist({ id: "a" } as never, "need");
@@ -180,11 +198,13 @@ describe("a change during the first sync", () => {
     await settle(250);
     useToyFinderStore.getState().addToWishlist({ id: "y" } as never, "maybe");
     await settle(6_000);
+    expect(server.row("toy-finder")).toEqual(account);
+    const copies = await choose("toy-finder");
+    expect(copies.options.find(option => option.id === "server")!.data).toEqual(account);
     view.unmount();
-    // The old copy's own wish (x) goes; the account's wishes stay, and the
-    // wish that the kid made during the sync (y) joins them.
+    // Unknown ancestry cannot authorize dropping x or inventing a merged list.
     const ids = (p: unknown) => (p as { wishlistItems: Array<{ toyId: string }> }).wishlistItems.map((item) => item.toyId);
-    expect(ids(server.row("toy-finder"))).toEqual(["a", "b", "y"]);
+    expect(ids(server.row("toy-finder"))).toEqual(["x", "y"]);
     expect(sameProgress(progressOf(entry), server.row("toy-finder"))).toBe(true);
   });
 });
@@ -202,11 +222,11 @@ describe("a save that the server refuses", () => {
     await settle(5 * 60_000);
     view.unmount();
     expect(server.posts.length).toBe(1);
-    expect(server.gets).toBe(1);
+    expect(server.gets).toBe(2);
     expect(sameProgress(progressOf(entry), device)).toBe(true);
   });
 
-  it("a 500 at the first sync tries again, and the sync completes when the server is back", async () => {
+  it("a failed first upload to an absent cloud remains selectable until a confirmed explicit retry", async () => {
     const entry = syncedStore("toy-finder");
     useToyFinderStore.getState().addToWishlist({ id: "t1" } as never, "need");
     const device = progressOf(entry);
@@ -214,9 +234,11 @@ describe("a save that the server refuses", () => {
     signIn();
     const view = mount(entry);
     await settle(8_000);
-    expect(server.posts.length).toBeGreaterThan(1);
+    expect(server.posts.length).toBe(1);
+    expect(progressSyncPresentation.getSnapshot().find(row => row.appId === entry.appId)?.status).toBe("conflict");
     server.net.postStatus = 0;
     await settle(40_000);
+    await choose("toy-finder");
     view.unmount();
     expect(sameProgress(server.row("toy-finder"), device)).toBe(true);
   });
@@ -249,7 +271,7 @@ describe("another tab saves newer progress", () => {
     window.dispatchEvent(new StorageEvent("storage", { key, newValue: raw }));
   }
 
-  it("this tab takes it before its next change, so the stale tab never replaces it", async () => {
+  it("a stale tab keeps its new wish and offers the cloud save before replacing either", async () => {
     const entry = syncedStore("toy-finder");
     signIn();
     const view = mount(entry);
@@ -266,10 +288,12 @@ describe("another tab saves newer progress", () => {
     at("2026-10-20T13:05:00Z");
     useToyFinderStore.getState().addToWishlist({ id: "ball" } as never, "maybe");
     await settle(4_000);
+    expect(JSON.stringify(server.row("toy-finder"))).toContain("lego");
+    expect(JSON.stringify(progressOf(entry))).toContain("ball");
+    const copies = await choose("toy-finder");
+    expect(JSON.stringify(copies.options.find(option => option.id === "server")!.data)).toContain("lego");
     view.unmount();
-    const ids = JSON.stringify(server.row("toy-finder"));
-    expect(ids).toContain("lego");
-    expect(ids).toContain("ball");
+    expect(JSON.stringify(server.row("toy-finder"))).toContain("ball");
   });
 
   it("an older save, or an untouched save of the old code, is not taken", async () => {
@@ -298,7 +322,7 @@ describe("the account's untouched progress (findings 2 and 10; wave 5: no cutoff
     ["before the deploy", "2026-09-20T08:00:00Z"],
     ["after the deploy (an old tab, a rollback)", "2026-10-22T08:00:00Z"],
     ["from a clock that runs ahead", "2027-03-01T08:00:00Z"],
-  ])("an old-code row of untouched defaults (%s) gives way to the device's real progress, and keeps its records", async (_when, iso) => {
+  ])("an old-code row of untouched defaults (%s) remains retained when the player chooses the device's real progress", async (_when, iso) => {
     const entry = syncedStore("virtual-pet");
     // The old code uploaded an untouched pet, aged by time: it unlocked
     // Pupper, with a page-load time.
@@ -316,11 +340,19 @@ describe("the account's untouched progress (findings 2 and 10; wave 5: no cutoff
     signIn();
     const view = mount(entry);
     await settle(4_000);
+    if (Date.parse(iso) > Date.now()) {
+      expect(progressSyncPresentation.getSnapshot().find(row => row.appId === entry.appId)?.status).toBe("network-error");
+      expect(server.posts).toEqual([]);
+      expect(server.row("virtual-pet")).toEqual(row);
+      expect(useVirtualPetStore.getState().progress.pet.name).toBe("Rex");
+      view.unmount(); return;
+    }
+    const copies = await choose("virtual-pet");
+    expect((copies.options.find(option => option.id === "server")!.data as unknown as VirtualPetProgress).unlockedSpecies).toContain("pupper");
     view.unmount();
     const account = server.row("virtual-pet") as VirtualPetProgress;
     expect(account.pet.name).toBe("Rex");
-    expect(account.unlockedSpecies).toEqual(expect.arrayContaining(["blobby", "pupper"]));
-    expect(useVirtualPetStore.getState().progress.unlockedSpecies).toContain("pupper");
+    expect(account.unlockedSpecies).toEqual(useVirtualPetStore.getState().progress.unlockedSpecies);
   });
 
   it("a row that changed only a setting (the old code uploaded it) gives way to an older device's real wins, which reach the account", async () => {
@@ -337,6 +369,7 @@ describe("the account's untouched progress (findings 2 and 10; wave 5: no cutoff
     signIn();
     const view = mount(entry);
     await settle(4_000);
+    await choose("quoridor");
     view.unmount();
     const account = server.row("quoridor") as Record<string, unknown>;
     expect(account.gamesPlayed).toBe(4);
@@ -354,7 +387,7 @@ describe("the account's untouched progress (findings 2 and 10; wave 5: no cutoff
     expect(extractTimestamp(progressOf(entry) as AppProgressData)).toBeGreaterThan(0);
     await settle(4_000);
     await act(async () => {
-      await view.result.current.forceSync();
+      void view.result.current.forceSync();
     });
     window.dispatchEvent(new Event("beforeunload"));
     view.unmount();
@@ -404,6 +437,7 @@ describe("the account's untouched progress (findings 2 and 10; wave 5: no cutoff
     signIn();
     const view = mount(entry);
     await settle(4_000);
+    await choose("drawing-app");
     view.unmount();
     expect(server.rejected).toEqual([]);
     expect((server.row("drawing-app") as { stats: { artworksCreated: number } }).stats.artworksCreated).toBe(2);
@@ -412,7 +446,7 @@ describe("the account's untouched progress (findings 2 and 10; wave 5: no cutoff
 });
 
 describe("virtual-pet: what time alone earned, and a pet that only changed a setting", () => {
-  it("an untouched pet visited 10 days in a row: the account keeps its own pet, and gains the species and the streak", async () => {
+  it("an untouched pet visited 10 days in a row: cloud adoption preserves the exact local streak and species in durable originals", async () => {
     const entry = syncedStore("virtual-pet");
     const account = {
       ...made(entry, "2026-10-01T10:00:00Z", () => useVirtualPetStore.getState().renamePet("Rex")),
@@ -435,9 +469,15 @@ describe("virtual-pet: what time alone earned, and a pet that only changed a set
     const row = server.row("virtual-pet") as VirtualPetProgress;
     expect(row.pet.name).toBe("Rex");
     expect(row.coins).toBe(70);
-    expect(row.unlockedSpecies).toEqual(expect.arrayContaining(["kitcat", "pupper"]));
-    expect(row.stats.longestStreak).toBe(10);
-    expect(row.stats.currentStreak).toBe(10);
+    const database = new LocalWordsDatabase();
+    const sources = await database.listSources(await ownerKeyFor("user-1")); database.close();
+    const retained = sources.filter(source => source.appId === "virtual-pet").map(source => JSON.parse(source.raw!).live as VirtualPetProgress);
+    const envelopes = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)!).filter(key => key.startsWith("progress-sync-v1-")).map(key => JSON.parse(localStorage.getItem(key)!));
+    const originals = envelopes.flatMap(envelope => envelope.originals.map((original: { raw: string }) => JSON.parse(original.raw).live));
+    expect([...retained, ...originals]).toContainEqual(device);
+    expect(device.unlockedSpecies).toEqual(expect.arrayContaining(["kitcat", "pupper"]));
+    expect(device.stats.longestStreak).toBe(10);
+    expect(device.stats.currentStreak).toBe(10);
   });
 
   it("a guest who only turned the sound off never replaces the account's pet", async () => {

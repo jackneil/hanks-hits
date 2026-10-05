@@ -33,6 +33,119 @@ function storeFor(service: ReturnType<typeof createOwnerBoundProgress>) {
 }
 
 describe("owner-bound progress", () => {
+  it("distinguishes exact physical bytes from failed-write memory and physical tombstones", async () => {
+    const { service, local } = setup();
+    await service.updateSession("authenticated", "alice");
+    const lease = service.captureLease()!;
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "missing" });
+    service.writeScoped(key, raw(1), lease);
+    local.failWrite = true;
+    expect(service.writeScoped(key, raw(2), lease)).toBe(false);
+    expect(service.readScoped(key, lease)).toBe(raw(2));
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "durable", raw: raw(1) });
+    local.failWrite = false;
+    service.removeScoped(key, lease);
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "durable", raw: null });
+    local.failRead = true;
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "unavailable" });
+    local.failRead = false; service.revoke();
+    expect(service.readDurableScoped(key, lease)).toEqual({ status: "unavailable" });
+  });
+
+  it("enumerates unreadable physical rows without leaking another owner or trusting memory", async () => {
+    const { service, local } = setup();
+    await service.updateSession("authenticated", "alice");
+    const lease = service.captureLease()!;
+    local.data.set(physical("u_alice", "journal-broken"), "invalid");
+    local.data.set(physical("u_bob", "journal-foreign"), "invalid");
+    local.failWrite = true;
+    service.writeScoped("journal-memory", "pending", lease);
+    expect(service.listDurableScoped("journal-", lease)).toEqual({ keys: ["journal-broken"], available: true });
+    local.failRead = true;
+    vi.spyOn(local, "key").mockImplementation(() => { throw Error("unavailable"); });
+    expect(service.listDurableScoped("journal-", lease)).toEqual({ keys: [], available: false });
+    service.revoke();
+    expect(service.listDurableScoped("journal-", lease)).toEqual({ keys: [], available: false });
+  });
+
+  it("reports complete legacy enumeration separately from unavailable or revoked storage", async () => {
+    const { service, local } = setup();
+    await service.updateSession("authenticated", "alice");
+    const lease = service.captureLease()!;
+    local.setItem("cookie-clicker-sync-old-storage", "raw");
+    local.setItem(physical("u_alice", "cookie-clicker-sync-scoped-storage"), "raw");
+    expect(service.listDurableLegacy("cookie-clicker-sync-", lease)).toEqual({
+      keys: ["cookie-clicker-sync-old-storage"], available: true,
+    });
+    const key = vi.spyOn(local, "key").mockImplementation(() => { throw Error("unavailable"); });
+    expect(service.listDurableLegacy("cookie-clicker-sync-", lease)).toEqual({ keys: [], available: false });
+    key.mockRestore(); service.revoke();
+    expect(service.listDurableLegacy("cookie-clicker-sync-", lease)).toEqual({ keys: [], available: false });
+  });
+
+  it("distinguishes a durable guest inventory from cached candidates and quota failures", async () => {
+    const { service: guest, local, factory } = setup();
+    await guest.updateSession("unauthenticated"); guest.writeScoped(key, raw(7)); guest.prepareGuestHandoff();
+    local.failWrite = true;
+    const alice = factory(); alice.authorizeGuestHandoff(guest.getGuestHandoffProof()!);
+    await alice.updateSession("authenticated", "alice");
+    const lease = alice.captureLease()!;
+    expect(alice.readGuestCandidate(key)?.raw).toBe(raw(7));
+    expect(alice.listDurableGuestCandidates(key, lease)).toEqual({ candidates: [], unavailable: true });
+    local.failWrite = false;
+    const inventory = alice.listDurableGuestCandidates(key, lease);
+    expect(inventory.unavailable).toBe(false);
+    expect(inventory.candidates).toEqual([{ ...alice.readGuestCandidate(key), projectedRaw: raw(7) }]);
+    local.failRead = true;
+    expect(alice.listDurableGuestCandidates(key, lease).unavailable).toBe(true);
+    local.failRead = false;
+    const list = vi.spyOn(local, "key").mockImplementation(() => { throw Error("listing"); });
+    expect(alice.listDurableGuestCandidates(key, lease).unavailable).toBe(true);
+    list.mockRestore(); alice.revoke();
+    expect(alice.listDurableGuestCandidates(key, lease)).toEqual({ candidates: [], unavailable: true });
+  });
+
+  it("keeps exact guest words beside their projection and rejects altered source identity", async () => {
+    const { service: guest, local, factory } = setup();
+    await import("@/apps/drum-machine/lib/store");
+    const logical = "drum-machine-state";
+    const original = JSON.stringify({ version: 0, state: { progress: { savedBeats: [{ id: "beat", name: "Private song", bpm: 80 }], lastModified: 17 } } });
+    await guest.updateSession("unauthenticated"); guest.writeScoped(logical, original); guest.prepareGuestHandoff();
+    const alice = factory(); alice.authorizeGuestHandoff(guest.getGuestHandoffProof()!);
+    await alice.updateSession("authenticated", "alice");
+    const lease = alice.captureLease()!;
+    const inventory = alice.listDurableGuestCandidates(logical, lease);
+    expect(inventory.unavailable).toBe(false);
+    expect(inventory.candidates[0].raw).toBe(original);
+    expect(inventory.candidates[0].projectedRaw).not.toContain("Private song");
+    const name = GUEST_CANDIDATE_PREFIX + JSON.stringify([lease.ownerKey, inventory.candidates[0].id]);
+    const source = JSON.parse(local.getItem(name)!);
+    local.setItem(name, JSON.stringify({ ...source, raw: original + " " }));
+    expect(alice.listDurableGuestCandidates(logical, lease)).toEqual({ candidates: [], unavailable: true });
+    local.setItem(name, JSON.stringify(source));
+    local.setItem(GUEST_CANDIDATE_PREFIX + JSON.stringify(["u_bob", "foreign"]), "broken");
+    expect(alice.listDurableGuestCandidates(logical, lease).unavailable).toBe(false);
+    alice.writeScoped(logical, original);
+    expect(alice.acknowledgeGuestCandidate(logical, source.id, lease)).toBe(true);
+    expect(alice.listDurableGuestCandidates(logical, lease)).toEqual({ candidates: [], unavailable: false });
+    expect(JSON.parse(local.getItem(name)!).raw).toBe(original);
+  });
+
+  it("reports persisted game writes immediately even on quota failure, without journal recursion", async () => {
+    const { service, local } = setup(); const store = storeFor(service);
+    await service.updateSession("authenticated", "alice"); await service.whenHydrated(key);
+    const values: number[] = [];
+    const off = service.subscribeStoreWrites(key, () => {
+      values.push(store.getState().score);
+      service.writeScoped("progress-sync-v1-snake-test-storage", "journal");
+    });
+    store.setState({ score: 5 }); expect(values).toEqual([5]);
+    local.failWrite = true; store.setState({ score: 6 }); expect(values).toEqual([5, 6]);
+    await service.updateSession("loading"); store.setState({ score: 7 }); expect(values).toEqual([5, 6]);
+    await service.updateSession("authenticated", "alice"); store.setState({ score: 8 }); expect(values).toEqual([5, 6, 8]);
+    off(); store.setState({ score: 9 }); expect(values).toEqual([5, 6, 8]);
+  });
+
   it("keeps legacy bytes and marker frozen while hydrating and writing only the resolved owner", async () => {
     const { service, local, clock } = setup();
     local.setItem(key, raw(3)); local.setItem(marker, "alice");
