@@ -859,9 +859,9 @@ save.
 **Optional revision protocol (server foundation).** GET includes `protocol: 1`
 and an opaque `revision` for the returned canonical row, or `null` when no row
 exists. A conditional POST includes that exact `baseRevision` and the mounted
-account's `expectedOwnerId`. Omit `baseRevision` for the existing protocol;
-explicit `null` means create only if the row is still absent. Invalid revisions
-are rejected, never treated as an ordinary save.
+account's `expectedOwnerId`. Before a game has been deleted, legacy clients may
+omit `baseRevision`. Explicit `null` means create only if the row has never been
+saved or deleted. Invalid revisions are rejected, never treated as a legacy save.
 
 - All POSTs, including old clients, and DELETE take the same per-owner/app
   transaction advisory lock before reading the row. The lock is a separate SQL
@@ -876,19 +876,35 @@ are rejected, never treated as an ordinary save.
   returns 409 `owner_changed` without revealing the current account's data.
 - Revisions hash owner, app, row id and driver-visible update time. Every
   cooperating write advances that time by at least one millisecond, even for a
-  no-op or a backward wall clock. Deleting and recreating a row changes its id.
-- Deploy this server and drain old server instances before enabling a client
-  that depends on revisions. Old browser clients can continue using legacy
-  requests against the new server. Rolling back the server requires first
-  disabling revision clients; the old server ignores their preconditions.
+  no-op or a backward wall clock. DELETE retains a metadata-only row with JSONB
+  null data and an advanced revision, including when no save existed yet. SQL
+  NULL is not used. Repeated deletion advances the fence again.
+- DELETE atomically clears transaction logs, legacy word archives, and the game's
+  leaderboard entries. Aggregate progress excludes metadata-only rows; a per-game
+  GET returns null data with the deletion revision. Account deletion still removes
+  the whole row through the owner cascade.
+- Migration `0004_progress_deletion_fence` adds `revision_required` with a false
+  default. DELETE sets it true; recreation preserves it. Once set, every save must
+  include the exact revision. Otherwise an old unconditional request could arrive
+  after deletion and a legitimate restart, silently restoring the deleted game.
+- Apply the additive migration before new server instances start. Drain all old
+  server instances and their requests before relying on deletion fences. An old
+  server ignores revisions and can physically erase the fence. After activation,
+  rollback is only safe to a tombstone-aware server that preserves this flag.
+- All-client revision integration and explicit recovery choices must ship before
+  activating this deletion behavior. Legacy browser clients are rejected after
+  deletion, even after another client restarts the game; they must reload to a
+  revision-capable client. Never downgrade such retries to unconditional saves.
 - Client integration is separate. It must retain the acknowledged canonical
   base, immutable sent snapshot and later local edits independently. A lost
   acknowledgement is not permission to overwrite a new revision: fetch and
   reconcile, retain both alternatives on a real conflict, and never retry as a
   legacy unconditional write. A beacon is not an acknowledgement.
 
-No database migration is required. This foundation does not complete #69 or
-change any browser client's save behavior by itself.
+The deletion fence and local journal primitives do not complete #69 or #70.
+Generic runtime integration, conflict choices, recovery verification and the full
+release gate remain required. Cookie's compatibility session accepts null-data
+revisions and never rebases an initial save automatically onto a deletion fence.
 
 **How the legacy server merge works.** The client (`useAuthSync`) sends
 `merge: true` with each save after the first sync. The route merges the

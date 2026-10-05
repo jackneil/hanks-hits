@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { db, eq, and, sql } from "@hank-neil/db";
 import {
   appProgress,
+  appTransactions,
+  legacyProgressWords,
   gamingProfiles,
   leaderboardEntries,
   VALID_APP_IDS,
@@ -353,7 +355,7 @@ export async function POST(request: Request, context: RouteContext) {
       const where = and(eq(appProgress.userId, userId), eq(appProgress.appId, appId));
       const existing = await tx.query.appProgress.findFirst({ where });
       const currentRevision = existing ? progressRevision(existing) : null;
-      if (conditional && baseRevision !== currentRevision) {
+      if ((conditional && baseRevision !== currentRevision) || (!conditional && existing?.revisionRequired)) {
         return NextResponse.json({
           error: "The saved progress changed", code: "revision_conflict", protocol: 1,
           data: clean(existing?.data ?? null), revision: currentRevision,
@@ -373,7 +375,7 @@ export async function POST(request: Request, context: RouteContext) {
       // Field-aware reconcile (the app's reviewed table in
       // progress-field-rules.ts) means a stale/default blob can never erase
       // earned records (see mergeForSave + the wipe regression tests).
-      if ((merge || conditional) && existing) {
+      if ((merge || conditional) && existing && existing.data !== null) {
         // SECURITY: the merged blob is re-validated before it is stored —
         // max() and array-union combine two individually-valid blobs, and the
         // result must still satisfy the schema's bounds. When it does not,
@@ -448,7 +450,7 @@ export async function POST(request: Request, context: RouteContext) {
 
       // Capture the OLD stored source, never the request. An error here or in
       // the upsert rolls back both writes, retaining the original durable copy.
-      if (wordsLocal && existing) await preserveProgressWords(tx, existing);
+      if (wordsLocal && existing && existing.data !== null) await preserveProgressWords(tx, existing);
       finalData = clean(finalData);
       const now = nextProgressTime(existing?.updatedAt);
       const progressId = crypto.randomUUID();
@@ -532,6 +534,11 @@ export async function DELETE(request: Request, context: RouteContext) {
       );
     }
 
+    const expectedOwner = request.headers.get("x-hh-expected-owner");
+    if (expectedOwner !== null && expectedOwner !== session.user.id) {
+      return NextResponse.json({ error: "The signed-in account changed", code: "owner_changed" }, { status: 409 });
+    }
+
     // Rate limit: 10 deletes per minute per user (stricter than saves)
     const rateLimit = checkProgressDeleteRateLimit(session.user.id);
     if (!rateLimit.success) {
@@ -555,11 +562,22 @@ export async function DELETE(request: Request, context: RouteContext) {
       const existing = await tx.query.appProgress.findFirst({
         where: and(eq(appProgress.userId, userId), eq(appProgress.appId, appId)),
       });
-      if (!existing) {
-        return NextResponse.json({ error: "No progress found to delete" }, { status: 404 });
-      }
-      // Delete progress
-      await tx.delete(appProgress).where(eq(appProgress.id, existing.id));
+      const now = nextProgressTime(existing?.updatedAt);
+      // JSONB null retains only the revision fence. SQL NULL violates this
+      // column's constraint; a JS null is encoded as SQL NULL by Drizzle.
+      const deletedData = sql`'null'::jsonb`;
+      const id = existing?.id ?? crypto.randomUUID();
+      await tx.insert(appProgress).values({
+        id, userId, appId, data: deletedData, revisionRequired: true,
+        updatedAt: now, lastSyncedAt: null,
+      }).onConflictDoUpdate({
+        target: [appProgress.userId, appProgress.appId],
+        set: { data: deletedData, revisionRequired: true, updatedAt: now, lastSyncedAt: null },
+      });
+      // Retain the erasure semantics previously provided by the parent cascade.
+      // Any cleanup failure rolls back both the fence and all dependent writes.
+      await tx.delete(appTransactions).where(eq(appTransactions.progressId, id));
+      await tx.delete(legacyProgressWords).where(eq(legacyProgressWords.progressId, id));
 
       // Delete leaderboard entry (if exists)
       const profile = await tx.query.gamingProfiles.findFirst({
@@ -574,7 +592,8 @@ export async function DELETE(request: Request, context: RouteContext) {
           )
         );
       }
-      return NextResponse.json({ success: true, deleted: true });
+      return NextResponse.json({ success: true, deleted: true, protocol: 1, data: null,
+        revision: progressRevision({ id, userId, appId, updatedAt: now }) });
     });
   } catch (error) {
     console.error("DELETE /api/progress error:", describeError(error));

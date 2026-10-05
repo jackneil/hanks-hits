@@ -478,10 +478,167 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     })).status).toBe(200);
     const missing = await compareSave(first.data, first.revision);
     expect(missing.status).toBe(409);
-    expect(await missing.json()).toMatchObject({ data: null, revision: null });
-    const recreated = await (await compareSave(first.data, null)).json();
+    const fence = await missing.json();
+    expect(fence).toMatchObject({ data: null, revision: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    expect(fence.revision).not.toBe(first.revision);
+    expect((await compareSave(first.data, null)).status).toBe(409);
+    const recreated = await (await compareSave(first.data, fence.revision)).json();
     expect(recreated.revision).not.toBe(first.revision);
     expect((await compareSave(first.data, first.revision)).status).toBe(409);
+  });
+
+  function erase(appId = "cookie-clicker", expectedOwner = ids.user) {
+    return route.DELETE(new Request(`http://localhost/api/progress/${appId}`, {
+      method: "DELETE", headers: { "x-hh-expected-owner": expectedOwner },
+    }), { params: Promise.resolve({ appId }) });
+  }
+
+  it("fences a first save already dispatched when an absent game is deleted", async () => {
+    const data = await cookieClickerBlob(1000);
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const request = new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", duplex: "half", headers: { "Content-Type": "application/json" },
+      body: new ReadableStream<Uint8Array>({ start(controller) { body = controller; } }),
+    } as RequestInit);
+    const pending = route.POST(request, { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    let deleted: Response;
+    try {
+      deleted = await erase();
+    } finally {
+      body.enqueue(new TextEncoder().encode(JSON.stringify({ data, baseRevision: null, expectedOwnerId: ids.user })));
+      body.close();
+    }
+    const response = await pending;
+    expect(deleted!.status).toBe(200);
+    expect(response.status).toBe(409);
+    const fence = await cloud();
+    expect(fence.data).toBeNull();
+    expect(fence.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(await response.json()).toMatchObject({ data: null, revision: fence.revision });
+    // JSONB null survives the real driver's NOT NULL constraint.
+    const stored = await scratch!.db.execute(scratch!.sql`SELECT data = 'null'::jsonb AS json_null, data IS NULL AS sql_null FROM app_progress`);
+    expect(stored.rows).toEqual([{ json_null: true, sql_null: false }]);
+  });
+
+  it("advances every deletion fence, rejects legacy resurrection, and allows exact-revision restart", async () => {
+    const data = await cookieClickerBlob(1000);
+    expect((await erase()).status).toBe(200);
+    const first = await cloud();
+    expect((await erase()).status).toBe(200);
+    const second = await cloud();
+    expect(second.revision).not.toBe(first.revision);
+    expect((await compareSave(data, first.revision)).status).toBe(409);
+    expect((await save("cookie-clicker", data)).status).toBe(409);
+    expect(await cloud()).toEqual(second);
+    const restarted = await compareSave(data, second.revision);
+    expect(restarted.status).toBe(200);
+    expect((await restarted.json()).data).toEqual(data);
+    expect((await compareSave(data, second.revision)).status).toBe(409);
+  });
+
+  it("rejects an old unconditional save delayed past deletion and a legitimate restart", async () => {
+    const data = await cookieClickerBlob(1000);
+    await compareSave(data, null);
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const request = new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", duplex: "half", headers: { "Content-Type": "application/json" },
+      body: new ReadableStream<Uint8Array>({ start(controller) { body = controller; } }),
+    } as RequestInit);
+    const pending = route.POST(request, { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    let restarted: Response;
+    try {
+      expect((await erase()).status).toBe(200);
+      const fence = await cloud();
+      restarted = await compareSave({ ...data, cookies: 42, totalCookiesBaked: 42 }, fence.revision);
+    } finally {
+      body.enqueue(new TextEncoder().encode(JSON.stringify({ data, merge: false })));
+      body.close();
+    }
+    const stale = await pending;
+    expect(restarted!.status).toBe(200);
+    const fresh = await restarted!.json();
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ data: fresh.data, revision: fresh.revision });
+    expect(await cloud()).toMatchObject({ data: fresh.data, revision: fresh.revision });
+  });
+
+  it("serializes deletion with an already based save so deleted gameplay stays absent", async () => {
+    const data = await cookieClickerBlob(1000);
+    const first = await (await compareSave(data, null)).json();
+    const [deleted, saved] = await Promise.all([erase(), compareSave({ ...data, cookies: 2000 }, first.revision)]);
+    expect(deleted.status).toBe(200);
+    expect([200, 409]).toContain(saved.status);
+    expect((await cloud()).data).toBeNull();
+    expect(await scratch!.db.query.leaderboardEntries.findMany()).toEqual([]);
+  });
+
+  it("omits deletion metadata from profiles and rejects a stale owner's delete assertion", async () => {
+    const data = await cookieClickerBlob(1000);
+    await compareSave(data, null);
+    const before = await cloud();
+    const foreign = await erase("cookie-clicker", "previous-owner");
+    expect(foreign.status).toBe(409);
+    expect(await foreign.json()).toEqual({ error: "The signed-in account changed", code: "owner_changed" });
+    expect(await cloud()).toEqual(before);
+    await erase();
+    await save("weather", weatherWords("Other game"), false);
+    const all = await import("../../route");
+    const response = await all.GET();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ count: 1, progress: [{ appId: "weather" }] });
+    const { db, users, appProgress } = scratch!;
+    await db.insert(users).values({ id: "other-owner", name: "Other" });
+    await db.insert(appProgress).values({ id: "other-save", userId: "other-owner", appId: "cookie-clicker", data });
+    await erase();
+    expect(await db.query.appProgress.findFirst({ where: scratch!.eq(appProgress.id, "other-save") })).toMatchObject({ data });
+    await db.delete(users).where(scratch!.eq(users.id, ids.user));
+    expect(await db.query.appProgress.findMany()).toHaveLength(1);
+  });
+
+  it("rolls back deletion when dependent cleanup fails and otherwise erases transactions and board", async () => {
+    const first = await (await compareSave(await cookieClickerBlob(1000), null)).json();
+    const { db, sql, appTransactions } = scratch!;
+    const row = (await rowOf("cookie-clicker"))!;
+    await db.insert(appTransactions).values({ id: "purchase", progressId: row.id, type: "spend", amount: 20 });
+    const board = await db.query.leaderboardEntries.findMany();
+    expect(board.length).toBeGreaterThan(0);
+    await db.execute(sql.raw("CREATE FUNCTION hh_reject_cleanup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'cleanup unavailable'; END $$"));
+    await db.execute(sql.raw("CREATE TRIGGER hh_reject_cleanup BEFORE DELETE ON app_transactions FOR EACH ROW EXECUTE FUNCTION hh_reject_cleanup()"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await erase()).status).toBe(500);
+      expect(await cloud()).toMatchObject({ data: first.data, revision: first.revision });
+      expect(await db.query.leaderboardEntries.findMany()).toEqual(board);
+      expect(await db.select().from(appTransactions)).toHaveLength(1);
+    } finally {
+      await db.execute(sql.raw("DROP TRIGGER hh_reject_cleanup ON app_transactions"));
+      await db.execute(sql.raw("DROP FUNCTION hh_reject_cleanup()"));
+    }
+    expect((await erase()).status).toBe(200);
+    expect(await db.select().from(appTransactions)).toEqual([]);
+    expect(await db.query.leaderboardEntries.findMany()).toEqual([]);
+    expect((await cloud()).data).toBeNull();
+  });
+
+  it("adds the enforcement flag transactionally without changing existing saves", async () => {
+    await compareSave(await cookieClickerBlob(1000), null);
+    const before = await cloud();
+    const { db, sql } = scratch!;
+    await db.execute(sql.raw("ALTER TABLE app_progress DROP COLUMN revision_required"));
+    const statements = readFileSync(path.join(migrationsDir, "0004_progress_deletion_fence.sql"), "utf8")
+      .split("--> statement-breakpoint").map(s => s.trim()).filter(Boolean);
+    const interrupted = new Error("simulated migration interruption");
+    await expect(db.transaction(async tx => {
+      for (const statement of statements) await tx.execute(sql.raw(statement));
+      throw interrupted;
+    })).rejects.toBe(interrupted);
+    const columns = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'app_progress' AND column_name = 'revision_required'`);
+    expect(columns.rows).toEqual([]);
+    await db.transaction(async tx => {
+      for (const statement of statements) await tx.execute(sql.raw(statement));
+    });
+    expect(await cloud()).toEqual(before);
+    expect((await rowOf("cookie-clicker"))!.revisionRequired).toBe(false);
   });
 
   it("rejects an account switch even when both accounts have no row, without revealing progress", async () => {

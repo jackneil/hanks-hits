@@ -173,8 +173,8 @@ export class ProgressSyncSession<T extends AppProgressData> {
       this.replayReady = true;
       return "pending";
     }
-    // Absence has no incarnation: create -> lost ACK -> DELETE returns to the
-    // same null base. Only an explicit choice may create again after uncertainty.
+    // Never-created absence and legacy servers have no incarnation. A changed
+    // deletion fence also needs a choice; neither proves the old save is pending.
     return this.conflict(remote, "ambiguous-delivery", ["$root"]);
   }
 

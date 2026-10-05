@@ -38,8 +38,9 @@ export function isJournalProgress(appId: ValidAppId, value: unknown): value is A
 }
 export function isProgressSnapshot<T extends AppProgressData>(appId: ValidAppId, value: unknown): value is ProgressSnapshot<T> {
   if (!object(value)) return false;
-  return value.data === null ? value.revision === null
-    : typeof value.revision === "string" && /^[a-f0-9]{64}$/.test(value.revision) && isJournalProgress(appId, value.data);
+  if (value.revision === null) return value.data === null;
+  return typeof value.revision === "string" && /^[a-f0-9]{64}$/.test(value.revision)
+    && (value.data === null || isJournalProgress(appId, value.data));
 }
 
 /** The caller supplies the mounted owner and app; a stored record cannot select them. */

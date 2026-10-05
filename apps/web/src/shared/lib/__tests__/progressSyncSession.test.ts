@@ -56,6 +56,21 @@ describe("durable revision sessions", () => {
     }
   });
 
+  it("keeps a changed deletion revision as a conflict through response and cold recovery", () => {
+    const row = newProgressJournal("drawing-app", "owner", "writer", { data: null, revision: null }, drawing, true);
+    const h = harness("drawing-app", drawing, drawing, true, JSON.stringify(row));
+    const sent = h.session.prepare(drawing)!;
+    const fence = { data: null, revision: revision(2) };
+    expect(h.session.receive(sent.id, fence, "rejected", drawing)).toBe("conflict");
+    const cold = harness("drawing-app", drawing, drawing, true, h.raw()).session;
+    expect(cold.snapshot()!.conflict!.remote).toEqual(fence);
+    expect(cold.prepare(drawing)).toBeNull();
+    expect(cold.choose(fence, { empty: drawing })).toBe(true);
+    const restart = cold.prepare(drawing)!;
+    expect(restart.base).toEqual(fence);
+    expect(cold.receive(restart.id, { data: null, revision: revision(3) }, "rejected", drawing)).toBe("conflict");
+  });
+
   it("persists the exact request before dispatch and never creates overlapping requests", () => {
     const h = harness(), live = setting(drawing, { showGrid: true });
     const request = h.session.prepare(live)!;
@@ -330,7 +345,7 @@ describe("journal validation", () => {
   it.each([
     { ownerId: "other" }, { appId: "snake" }, { version: 2 }, { writerId: "../other" },
     { serial: -1 }, { serial: 1.5 }, { forceWrite: "true" }, { sent: {} },
-    { acknowledged: { data: null, revision: revision(1) } },
+    { acknowledged: { data: null, revision: "invalid" } },
     { conflict: { remote: snapshot(null), reason: "invented", paths: [] } },
   ])("refuses malformed or foreign records %j", patch => {
     const row = newProgressJournal("drawing-app", "owner", "writer", snapshot(drawing), drawing, true);
