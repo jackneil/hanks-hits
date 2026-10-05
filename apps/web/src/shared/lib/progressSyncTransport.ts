@@ -1,6 +1,6 @@
 import type { ValidAppId } from "@hank-neil/db/schema";
 
-export type ProgressWrite<T> = { data: T; merge: true; baseRevision: string | null; expectedOwnerId: string };
+export type ProgressWrite<T> = { data: T; merge: true; baseRevision: string | null; expectedOwnerId: string; resolution?: true };
 export type ProgressResponse = { status: number; body: unknown };
 export type ProgressTransport<T> = {
   read: () => Promise<ProgressResponse>;

@@ -420,6 +420,45 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     });
   });
 
+  function chooseSave(data: Record<string, unknown>, baseRevision: string | null, extra: Record<string, unknown> = {}) {
+    return route.POST(new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data, merge: true, baseRevision, expectedOwnerId: ids.user, resolution: true, ...extra }),
+    }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+  }
+
+  it("stores exactly the explicit selected copy while an ordinary continuation retains records", async () => {
+    const first = await (await compareSave({ ...await cookieClickerBlob(9000), cookies: 9000 }, null)).json();
+    const selected = { ...first.data, cookies: 2000, totalCookiesBaked: 2000 };
+    const response = await chooseSave(selected, first.revision);
+    expect(response.status).toBe(200);
+    const chosen = await response.json();
+    expect(chosen.data).toEqual(selected);
+    expect(chosen.revision).not.toBe(first.revision);
+    expect(await cloud()).toMatchObject({ data: selected, revision: chosen.revision });
+    const before = await rowOf("cookie-clicker");
+    expect((await chooseSave(first.data, first.revision)).status).toBe(409);
+    expect(await rowOf("cookie-clicker")).toEqual(before);
+    const repeated = await chooseSave(selected, chosen.revision);
+    expect(repeated.status).toBe(200);
+    expect((await repeated.json()).revision).not.toBe(chosen.revision);
+  });
+
+  it.each([false, "true", null, 1])("rejects malformed explicit-choice mode %s without writing", async resolution => {
+    const first = await (await compareSave(await cookieClickerBlob(9000), null)).json();
+    const before = await rowOf("cookie-clicker");
+    expect((await chooseSave(first.data, first.revision, { resolution })).status).toBe(400);
+    expect(await rowOf("cookie-clicker")).toEqual(before);
+  });
+
+  it("requires revision and owner assertions for explicit choices", async () => {
+    const data = await cookieClickerBlob(2000);
+    expect((await chooseSave(data, null, { baseRevision: undefined })).status).toBe(400);
+    expect((await chooseSave(data, null, { expectedOwnerId: "other-owner" })).status).toBe(409);
+    expect((await chooseSave(data, null, { expectedOwnerId: undefined })).status).toBe(409);
+    expect((await cloud()).data).toBeNull();
+  });
+
   it("uses the same revision for a legacy database timestamp with sub-millisecond precision", async () => {
     const first = await (await compareSave(await cookieClickerBlob(1000), null)).json();
     await scratch!.db.execute(scratch!.sql.raw("UPDATE app_progress SET updated_at = date_trunc('milliseconds', updated_at) + interval '456 microseconds'"));
@@ -670,6 +709,32 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
       headers: { "x-hh-expected-owner": owner },
     }), { params: Promise.resolve({ appId: "weather" }) });
   }
+
+  it("keeps word projection and original-source preservation inside an explicit choice", async () => {
+    await save("weather", weatherWords("Original town"), false);
+    const before = await cloud("weather");
+    await enableLocalWords();
+    const response = await route.POST(new Request("http://localhost/api/progress/weather", {
+      method: "POST", body: JSON.stringify({ data: weatherWords("New typed town"), resolution: true,
+        baseRevision: before.revision, expectedOwnerId: ids.user }),
+    }), { params: Promise.resolve({ appId: "weather" }) });
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({ savedLocations: [], lastLocation: null });
+    const preserved = JSON.stringify(await (await recoverWords()).json());
+    expect(preserved).toContain("Original town");
+    expect(preserved).not.toContain("New typed town");
+    expect(JSON.stringify(await scratch!.db.select().from(scratch!.appProgress))).not.toContain("town");
+  });
+
+  it("preserves the permanent deletion fence after an explicit chosen restart", async () => {
+    await erase();
+    const fence = await cloud(), selected = await cookieClickerBlob(2000);
+    expect((await chooseSave(selected, null)).status).toBe(409);
+    expect((await chooseSave(selected, fence.revision)).status).toBe(200);
+    expect((await rowOf("cookie-clicker"))!.revisionRequired).toBe(true);
+    expect((await save("cookie-clicker", await cookieClickerBlob(9000))).status).toBe(409);
+    expect((await cloud()).data).toEqual(selected);
+  });
 
   it("keeps compatibility behavior until cutover, then preserves the old source before an old-client save", async () => {
     expect((await save("weather", weatherWords("Original town"), false)).status).toBe(200);

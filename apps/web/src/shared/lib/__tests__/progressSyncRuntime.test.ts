@@ -216,6 +216,7 @@ describe("shared progress network runtime", () => {
     expect(await h.runtime.save()).toEqual({ ok: true, status: 200 });
     expect(network.write).toHaveBeenCalledTimes(1);
     expect(network.write.mock.calls[0][0]).toMatchObject({ data: painted("first"), baseRevision: null, expectedOwnerId: "owner" });
+    expect(network.write.mock.calls[0][0]).not.toHaveProperty("resolution");
     expect(h.runtime.status()).toBe("saved");
     expect(h.runtime.snapshot().journal!.acknowledged).toEqual(network.get());
   });
@@ -369,8 +370,21 @@ describe("explicit runtime recovery choices", () => {
     expect(await h.runtime.choose(h.runtime.choice()!, selected)).toEqual({ ok: true, status: 200 });
     expect(network.write).toHaveBeenCalledTimes(1);
     expect(network.write.mock.calls[0][0]).toMatchObject({ data: painted(selected === "local" ? "local" : "cloud"),
-      baseRevision: "a".repeat(64), expectedOwnerId: "owner" });
+      baseRevision: "a".repeat(64), expectedOwnerId: "owner", resolution: true });
     expect(h.runtime.status()).toBe("saved");
+  });
+
+  it("keeps explicit replacement on an uncertain retry and omits it after ACK", async () => {
+    const network = wire(cloud(painted("cloud"))), h = await fixture(painted("local"), network);
+    await h.runtime.initialize(network.get());
+    network.write.mockRejectedValueOnce(Error("offline"));
+    expect((await h.runtime.choose(h.runtime.choice()!, "local")).ok).toBe(false);
+    expect((await h.runtime.save()).ok).toBe(true);
+    expect(network.write.mock.calls[0][0].resolution).toBe(true);
+    expect(network.write.mock.calls[1][0]).toEqual(network.write.mock.calls[0][0]);
+    h.edit(changed(h.getLive(), { showGrid: true }));
+    expect((await h.runtime.save()).ok).toBe(true);
+    expect(network.write.mock.calls[2][0]).not.toHaveProperty("resolution");
   });
 
   it("requires a new choice if the displayed local copy changes", async () => {

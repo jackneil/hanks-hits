@@ -104,6 +104,30 @@ describe("progress requests remain bound to their initiating account", () => {
     expect(pg.rows("app_progress")[0]).toMatchObject({ userId: USER_ID, data });
   });
 
+  it("stores an exact conditional choice and refuses a stale second choice", async () => {
+    const initial = await cookieClickerBlob(9000);
+    await save("cookie-clicker", initial);
+    const first = await (await GET(new Request("http://localhost/api/progress/cookie-clicker"),
+      { params: Promise.resolve({ appId: "cookie-clicker" }) })).json();
+    const selected = { ...initial, cookies: 2000, totalCookiesBaked: 2000 };
+    const choose = (data: unknown) => POST(new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", body: JSON.stringify({ data, resolution: true, baseRevision: first.revision, expectedOwnerId: USER_ID }),
+    }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    expect((await choose(selected)).status).toBe(200);
+    expect(pg.rows("app_progress")[0].data).toEqual(selected);
+    expect((await choose(initial)).status).toBe(409);
+    expect(pg.rows("app_progress")[0].data).toEqual(selected);
+  });
+
+  it.each([{ resolution: true }, { resolution: false, baseRevision: null }, { resolution: "true", baseRevision: null }])(
+    "refuses an invalid explicit choice assertion %j", async assertions => {
+      const response = await POST(new Request("http://localhost/api/progress/cookie-clicker", {
+        method: "POST", body: JSON.stringify({ data: await cookieClickerBlob(2000), expectedOwnerId: USER_ID, ...assertions }),
+      }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+      expect(response.status).toBe(400);
+      expect(pg.rows("app_progress")).toEqual([]);
+    });
+
   it.each([undefined, USER_ID])("allows a matching or legacy missing load assertion %s", async (owner) => {
     const response = await GET(new Request("http://localhost/api/progress/cookie-clicker", {
       headers: owner ? { "x-hh-expected-owner": owner } : {},

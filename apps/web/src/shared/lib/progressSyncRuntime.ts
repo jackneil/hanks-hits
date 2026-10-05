@@ -112,7 +112,8 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
   }
 
   private payload(request: ProgressRequest<T>): ProgressWrite<T> {
-    return { data: request.data, merge: true, baseRevision: request.base.revision, expectedOwnerId: this.io.ownerId };
+    return { data: request.data, merge: true, baseRevision: request.base.revision, expectedOwnerId: this.io.ownerId,
+      ...(this.session?.snapshot()?.forceWrite ? { resolution: true as const } : {}) };
   }
 
   /** One immutable HTTP operation at a time. Concurrent callers still capture later play. */
@@ -309,7 +310,7 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     const row = this.session.snapshot()!;
     if (row.conflict || row.sent || this.io.repository.snapshot()?.recovery?.adoptedSources.length
       || (!row.forceWrite && this.io.isUntouched(row.live))) return "retained";
-    const preview = JSON.stringify({ data: row.live, merge: true, baseRevision: row.acknowledged.revision, expectedOwnerId: this.io.ownerId });
+    const preview = JSON.stringify(this.payload({ id: "preview", data: row.live, base: row.acknowledged }));
     if (new TextEncoder().encode(preview).byteLength > PROGRESS_BEACON_BYTES) return "retained";
     const request = this.session.prepare(this.io.getLive());
     if (!request) return "retained";

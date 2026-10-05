@@ -311,15 +311,20 @@ export async function POST(request: Request, context: RouteContext) {
     const body = read.value;
     // A body that is not an object (null, a number) has no data: the check
     // below answers 400. Destructuring null threw, and the route answered 500.
-    const { data, merge = false, baseRevision, expectedOwnerId } = (typeof body === "object" && body !== null ? body : {}) as {
+    const { data, merge = false, baseRevision, expectedOwnerId, resolution } = (typeof body === "object" && body !== null ? body : {}) as {
       data?: AppProgressData;
       merge?: boolean;
       baseRevision?: string | null;
       expectedOwnerId?: string;
+      resolution?: true;
     };
 
     const conditional = typeof body === "object" && body !== null && Object.hasOwn(body, "baseRevision");
     const suppliedOwner = typeof body === "object" && body !== null && Object.hasOwn(body, "expectedOwnerId");
+    const suppliedResolution = typeof body === "object" && body !== null && Object.hasOwn(body, "resolution");
+    if (suppliedResolution && (resolution !== true || !conditional)) {
+      return NextResponse.json({ error: "An explicit save choice requires a revision" }, { status: 400 });
+    }
     if (conditional) {
       if (baseRevision !== null && (typeof baseRevision !== "string" || !/^[a-f0-9]{64}$/.test(baseRevision))) {
         return NextResponse.json({ error: "Invalid save revision" }, { status: 400 });
@@ -375,7 +380,9 @@ export async function POST(request: Request, context: RouteContext) {
       // Field-aware reconcile (the app's reviewed table in
       // progress-field-rules.ts) means a stale/default blob can never erase
       // earned records (see mergeForSave + the wipe regression tests).
-      if ((merge || conditional) && existing && existing.data !== null) {
+      // A player selected this exact validated copy against the displayed
+      // revision. Ordinary continuations still fold earned records as before.
+      if (!resolution && (merge || conditional) && existing && existing.data !== null) {
         // SECURITY: the merged blob is re-validated before it is stored —
         // max() and array-union combine two individually-valid blobs, and the
         // result must still satisfy the schema's bounds. When it does not,

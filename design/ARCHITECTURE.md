@@ -871,6 +871,14 @@ saved or deleted. Invalid revisions are rejected, never treated as a legacy save
   idle progress with an unchanged player timestamp. The field rules and final
   schema validation still apply. The success response contains the canonical
   stored `data` and new `revision`, read back inside the transaction.
+- An explicit recovery choice adds `resolution: true`. Only literal true is
+  accepted, and both revision and owner assertions are required. After the same
+  locked revision check, the selected validated snapshot replaces the stored
+  snapshot without ordinary record folding. Word projection and transactional
+  preservation of the old word source still apply. The runtime derives this
+  mode from its persisted `forceWrite` choice, retains it on uncertain retries,
+  and removes it only after acknowledgement. An unchanged choice still advances
+  the revision. Older clients omitting this field retain normal merge behavior.
 - A stale revision returns 409 `revision_conflict` with current canonical data
   and revision, without writing either progress or leaderboard. A changed owner
   returns 409 `owner_changed` without revealing the current account's data.
