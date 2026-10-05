@@ -1,5 +1,7 @@
 import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
 import { validateProgress } from "@/lib/progress-schemas";
+import { PROGRESS_STORAGE_KEYS } from "@/lib/owner-bound-progress/keys";
+import { sha256 } from "@/shared/clips/library/ownerKey";
 import { sameProgress } from "./progressStamp";
 
 export type ProgressSnapshot<T> = { data: T | null; revision: string | null };
@@ -22,7 +24,8 @@ export type ProgressJournal<T> = {
   /** An explicit choice must advance the revision, even for an unchanged copy. */
   forceWrite: boolean;
   /** Opaque source bytes survive conversion, archive and later session writes. */
-  imported?: { kind: "bakery-v1"; sourceKey: string; raw: string };
+  imported?: { kind: "bakery-v1"; sourceKey: string; raw: string }
+    | { kind: "guest-v2"; sourceKey: string; raw: string; candidateId: string; loadAt: number };
 };
 
 export const PROGRESS_JOURNAL_PREFIX = "progress-sync-v1-";
@@ -54,11 +57,19 @@ export function parseProgressJournal<T extends AppProgressData>(raw: string, app
       || !isProgressSnapshot(appId, row.acknowledged) || !isJournalProgress(appId, row.live)
       || typeof row.forceWrite !== "boolean") return null;
     if (row.imported !== undefined) {
-      if (appId !== "cookie-clicker" || !object(row.imported) || row.imported.kind !== "bakery-v1"
-        || typeof row.imported.sourceKey !== "string" || !row.imported.sourceKey
-        || typeof row.imported.raw !== "string") return null;
-      const imported: unknown = JSON.parse(row.imported.raw);
-      if (!object(imported) || imported.version !== 1 || imported.ownerId !== ownerId) return null;
+      const source = row.imported;
+      if (!object(source) || typeof source.sourceKey !== "string" || !source.sourceKey || typeof source.raw !== "string") return null;
+      if (source.kind === "bakery-v1") {
+        if (appId !== "cookie-clicker") return null;
+        const imported: unknown = JSON.parse(source.raw);
+        if (!object(imported) || imported.version !== 1 || imported.ownerId !== ownerId) return null;
+      } else if (source.kind === "guest-v2") {
+        if (source.sourceKey !== PROGRESS_STORAGE_KEYS[appId] || typeof source.candidateId !== "string"
+          || typeof source.loadAt !== "number" || !Number.isFinite(source.loadAt)) return null;
+        const identity = JSON.stringify([source.sourceKey, source.raw, source.loadAt]);
+        const digest = [...sha256(new TextEncoder().encode(identity))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+        if (source.candidateId !== digest) return null;
+      } else return null;
     }
     if (row.sent !== null && (!object(row.sent) || !identifier(row.sent.id)
       || !isProgressSnapshot(appId, row.sent.base) || !isJournalProgress(appId, row.sent.data)

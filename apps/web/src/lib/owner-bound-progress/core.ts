@@ -31,6 +31,7 @@ export type PersistHandle = {
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">;
 type Legacy = { raw: string | null; marker: string | null; markerReadable: boolean; loadAt: number };
 export type GuestCandidate = Readonly<{ id: string; raw: string; loadAt: number }>;
+export type DurableGuestCandidate = GuestCandidate & Readonly<{ projectedRaw: string | null }>;
 type GuestSource = { version: 2; ownerKey: string; logicalKey: string; id: string; sourceOwner: "guest"; raw: string; loadAt: number; acknowledged: boolean };
 type GuestReceipt = { version: 2; ownerKey: string; nonce: string; rows: Record<string, { raw: string; loadAt: number }> };
 type Row = { appId?: string; legacy: Legacy; evidence?: ProgressEvidence; memory?: { raw: string | null; durable: boolean } };
@@ -44,6 +45,19 @@ const object = (value: unknown): value is Record<string, unknown> => value !== n
 const digestOf = (raw: string) => [...sha256(new TextEncoder().encode(raw))].map(byte => byte.toString(16).padStart(2, "0")).join("");
 const candidateKey = (owner: string, id: string) => GUEST_CANDIDATE_PREFIX + JSON.stringify([owner, id]);
 const physicalKey = (owner: string, logical: string) => PROGRESS_NAMESPACE + JSON.stringify([owner, logical]);
+
+function parseGuestSource(raw: string | null, name: string, ownerKey: string): GuestSource | null {
+  try {
+    const value: unknown = JSON.parse(raw ?? "null");
+    if (!object(value) || value.version !== 2 || value.ownerKey !== ownerKey
+      || value.sourceOwner !== "guest" || typeof value.id !== "string"
+      || typeof value.logicalKey !== "string" || !Object.values(PROGRESS_STORAGE_KEYS).includes(value.logicalKey)
+      || typeof value.raw !== "string" || typeof value.loadAt !== "number" || !Number.isFinite(value.loadAt)
+      || typeof value.acknowledged !== "boolean" || name !== candidateKey(ownerKey, value.id)
+      || value.id !== digestOf(JSON.stringify([value.logicalKey, value.raw, value.loadAt]))) return null;
+    return value as GuestSource;
+  } catch { return null; }
+}
 
 /** One authority per document. A confirmed owner can never become another owner. */
 export function createOwnerBoundProgress(deps: {
@@ -60,6 +74,7 @@ export function createOwnerBoundProgress(deps: {
   const bindings = new Map<string, Binding>();
   const waiters = new Map<string, Set<() => void>>();
   const listeners = new Set<() => void>();
+  const storeWriteListeners = new Map<string, Set<() => void>>();
   let snapshot: ProgressSnapshot = Object.freeze({ status: "unresolved", ownerKey: null, generation: 0, needsNavigation: false, hydrating: false, memoryOnly: false, guestHandoffUnavailable: false });
   let requestedStatus: AuthStatus = "loading";
   let requestedUserId: string | undefined;
@@ -121,15 +136,8 @@ export function createOwnerBoundProgress(deps: {
         try {
           const address: unknown = JSON.parse(name.slice(GUEST_CANDIDATE_PREFIX.length));
           if (!Array.isArray(address) || address[0] !== lease.ownerKey) continue;
-          const value: unknown = JSON.parse(local.getItem(name) ?? "null");
-          if (object(value) && value.version === 2 && value.ownerKey === lease.ownerKey
-            && value.sourceOwner === "guest" && typeof value.id === "string"
-            && typeof value.logicalKey === "string" && typeof value.raw === "string"
-            && typeof value.loadAt === "number" && Number.isFinite(value.loadAt)
-            && typeof value.acknowledged === "boolean" && name === candidateKey(lease.ownerKey, value.id)
-            && value.id === digestOf(JSON.stringify([value.logicalKey, value.raw, value.loadAt]))) {
-            guestSources.set(value.id, value as GuestSource);
-          }
+          const value = parseGuestSource(local.getItem(name), name, lease.ownerKey);
+          if (value) guestSources.set(value.id, value);
         } catch { /* Unknown candidate bytes remain intact. */ }
       }
     } catch { memoryOnly(); }
@@ -249,6 +257,15 @@ export function createOwnerBoundProgress(deps: {
       row.memory.durable = true;
       return true;
     } catch { memoryOnly(); return false; }
+    finally {
+      // Both JSON persistence and the optimized adapter write here. Journal
+      // keys are excluded, so capturing progress cannot notify recursively.
+      if (Object.values(PROGRESS_STORAGE_KEYS).includes(key) && isCurrent(lease)) {
+        for (const listener of storeWriteListeners.get(key) ?? []) {
+          try { listener(); } catch { /* Polling remains a recovery fallback. */ }
+        }
+      }
+    }
   };
   const removeScoped = (key: string, lease: ProgressLease | null = captureLease()): boolean => {
     if (!lease || !isCurrent(lease)) return false;
@@ -352,6 +369,52 @@ export function createOwnerBoundProgress(deps: {
       catch { /* Repeating this exact bound receipt is idempotent. */ }
     }
   };
+  /** Complete physical inventory. Cached or projected bytes are never a preservation receipt. */
+  const listDurableGuestCandidates = (key: string, lease: ProgressLease): {
+    candidates: DurableGuestCandidate[]; unavailable: boolean;
+  } => {
+    const denied = () => ({ candidates: [], unavailable: true });
+    if (!isCurrent(lease) || lease.ownerKey === "guest" || snapshot.guestHandoffUnavailable) return denied();
+    persistGuestSources();
+    if (!isCurrent(lease)) return denied();
+    try {
+      const local = storage();
+      if (!local) return denied();
+      const candidates: DurableGuestCandidate[] = [];
+      const found = new Map<string, GuestSource>();
+      let unavailable = false;
+      const length = local.length;
+      for (let i = 0; i < length; i++) {
+        const name = local.key(i);
+        if (name === null) { unavailable = true; continue; }
+        if (!name.startsWith(GUEST_CANDIDATE_PREFIX)) continue;
+        let address: unknown;
+        try { address = JSON.parse(name.slice(GUEST_CANDIDATE_PREFIX.length)); }
+        catch { unavailable = true; continue; }
+        if (!Array.isArray(address) || address.length !== 2 || typeof address[0] !== "string" || typeof address[1] !== "string") {
+          unavailable = true; continue;
+        }
+        if (address[0] !== lease.ownerKey) continue;
+        const source = parseGuestSource(local.getItem(name), name, lease.ownerKey);
+        if (!source) { unavailable = true; continue; }
+        found.set(source.id, source);
+        if (source.logicalKey !== key || source.acknowledged) continue;
+        const projectedRaw = guestProjection(rowFor(key), source.raw, source.loadAt);
+        if (projectedRaw === null) unavailable = true;
+        candidates.push({ id: source.id, raw: source.raw, projectedRaw, loadAt: source.loadAt });
+      }
+      // Quota may have left the only copy in the bound session receipt. Never
+      // mistake an empty localStorage inventory for a completed transfer.
+      if (pendingReceipt) {
+        if (pendingReceipt.ownerKey !== lease.ownerKey) unavailable = true;
+        for (const [logicalKey, value] of Object.entries(pendingReceipt.rows)) {
+          const id = digestOf(JSON.stringify([logicalKey, value.raw, value.loadAt]));
+          if (!found.has(id)) unavailable = true;
+        }
+      }
+      return isCurrent(lease) && local.length === length ? { candidates, unavailable } : denied();
+    } catch { return denied(); }
+  };
   const consumeHandoff = (ownerKey: string) => {
     const proof = authorizedProof;
     authorizedProof = null; // One attempt, even if all subsequent storage fails.
@@ -418,7 +481,12 @@ export function createOwnerBoundProgress(deps: {
     matchesSession: (status: AuthStatus, userId?: string): boolean => snapshot.status === "ready"
       && status !== "loading" && (status === "authenticated" ? !!userId && pinnedIdentity === userId : pinnedIdentity === null),
     readEvidence, readScoped, readDurableScoped, listDurableScoped, writeScoped, removeScoped, listScoped, readLegacy, listLegacyKeys, listDurableLegacy,
-    readGuestCandidate, listGuestCandidates,
+    readGuestCandidate, listGuestCandidates, listDurableGuestCandidates,
+    subscribeStoreWrites: (key: string, listener: () => void): (() => void) => {
+      const pending = storeWriteListeners.get(key) ?? new Set();
+      pending.add(listener); storeWriteListeners.set(key, pending);
+      return () => { pending.delete(listener); if (!pending.size && storeWriteListeners.get(key) === pending) storeWriteListeners.delete(key); };
+    },
     acknowledgeGuestCandidate: (key: string, id: string, lease: ProgressLease | null = captureLease()): boolean => {
       if (!lease || !isCurrent(lease)) return false;
       persistGuestSources();
