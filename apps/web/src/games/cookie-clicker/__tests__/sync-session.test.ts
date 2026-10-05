@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { useCookieClickerStore } from "../lib/store";
-import { BakerySyncSession, bakeryJournalKey, parseBakeryJournal, type BakeryJournal, type BakerySnapshot } from "../lib/sync-session";
+import { BakerySyncSession, isBakerySnapshot, bakeryJournalKey, parseBakeryJournal, type BakeryJournal, type BakerySnapshot } from "../lib/sync-session";
 import { isClearedOnSignOut } from "@/lib/storage-keys";
 
 const revision = (n: number) => n.toString(16).padStart(64, "0");
@@ -27,6 +27,29 @@ function setup(writerId = "writer-a", restored?: BakeryJournal) {
 }
 
 describe("Cookie save session", () => {
+  it("retains a deletion fence through cold recovery and requires a choice to recreate", () => {
+    const initial: BakeryJournal = { ...setup().session.snapshot(), acknowledged: { data: null, revision: null } };
+    const first = setup("writer-a", initial);
+    const request = first.session.prepare(bakery())!;
+    const fence: BakerySnapshot = { data: null, revision: revision(2) };
+    expect(isBakerySnapshot(fence)).toBe(true);
+    expect(first.session.receive(request, fence, false, bakery())).toBe("conflict");
+    expect(first.session.prepare(bakery())).toBeNull();
+    const restored = parseBakeryJournal(first.disk.get(bakeryJournalKey("writer-a"))!, "owner-a")!;
+    expect(restored.conflict).toEqual(fence);
+    const cold = setup("writer-a", restored).session;
+    expect(cold.prepare(bakery())).toBeNull();
+    expect(cold.choose({ data: null, revision: revision(3) }, bakery())).toBe(false);
+    expect(cold.choose(fence, bakery())).toBe(true);
+    const restart = cold.prepare(bakery())!;
+    expect(restart.base).toEqual(fence);
+    expect(cold.receive(restart, { data: null, revision: revision(3) }, false, bakery())).toBe("conflict");
+  });
+
+  it.each([undefined, "bad", "", 42])("rejects malformed deletion revision %s", revision => {
+    expect(isBakerySnapshot({ data: null, revision })).toBe(false);
+  });
+
   it("persists an immutable request and preserves purchases made while it is in flight", () => {
     const { session, disk } = setup();
     const sent = session.prepare(bakery(1100))!;

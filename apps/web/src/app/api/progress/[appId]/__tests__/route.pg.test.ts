@@ -140,15 +140,25 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
-  function save(appId: string, data: Record<string, unknown>, merge = true) {
+  async function save(appId: string, data: Record<string, unknown>, merge = true) {
+    const canonical = await (await route.GET(new Request(`http://localhost/api/progress/${appId}`, {
+      headers: { "x-hh-expected-owner": ids.user },
+    }), { params: Promise.resolve({ appId }) })).json();
     return route.POST(
       new Request(`http://localhost/api/progress/${appId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data, merge }),
+        body: JSON.stringify({ data, merge, baseRevision: canonical.revision, expectedOwnerId: ids.user,
+          ...(!merge ? { resolution: true } : {}) }),
       }),
       { params: Promise.resolve({ appId }) }
     );
+  }
+
+  function legacySave(appId: string, data: Record<string, unknown>) {
+    return route.POST(new Request(`http://localhost/api/progress/${appId}`, {
+      method: "POST", body: JSON.stringify({ data, merge: true }),
+    }), { params: Promise.resolve({ appId }) });
   }
 
   async function hillClimbBlob(bestDistance: number) {
@@ -328,7 +338,7 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     return rows[0];
   }
 
-  it("keeps a newer row as the base when the merge is too long, and folds in the older save's record", async () => {
+  it("uses a matching revision continuation despite an older clock and folds records within bounds", async () => {
     const list = (prefix: string) => Array.from({ length: 300 }, (_, i) => `${prefix}${i}`);
     const now = Date.now();
     await putRow(
@@ -342,12 +352,12 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
 
     expect(res.status).toBe(200);
     const stored = await progressOf("cookie-clicker");
-    expect(stored?.cookies).toBe(7_000);
+    expect(stored?.cookies).toBe(3);
     expect(stored?.totalCookiesBaked).toBe(5_000);
-    expect(stored?.unlockedAchievements).toEqual(list("row-"));
+    expect(stored?.unlockedAchievements).toEqual(list("dev-"));
   });
 
-  it("answers 409 and leaves a newer row that the schema refuses untouched", async () => {
+  it("refuses a legacy write and leaves an unfamiliar stored schema untouched", async () => {
     const { useMathAttackStore } = await import("@/games/math-attack/lib/store");
     const now = Date.now();
     const rowData = {
@@ -360,9 +370,9 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     const before = await rowOf("math-attack");
     const older = { ...useMathAttackStore.getState().getProgress(), highScore: 100, lastModified: now - 3_600_000 };
 
-    const res = await save("math-attack", older);
+    const res = await legacySave("math-attack", older);
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(428);
     const after = await rowOf("math-attack");
     expect(after?.data).toEqual(rowData);
     expect(after?.updatedAt.getTime()).toBe(before?.updatedAt.getTime());
@@ -420,6 +430,45 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     });
   });
 
+  function chooseSave(data: Record<string, unknown>, baseRevision: string | null, extra: Record<string, unknown> = {}) {
+    return route.POST(new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data, merge: true, baseRevision, expectedOwnerId: ids.user, resolution: true, ...extra }),
+    }), { params: Promise.resolve({ appId: "cookie-clicker" }) });
+  }
+
+  it("stores exactly the explicit selected copy while an ordinary continuation retains records", async () => {
+    const first = await (await compareSave({ ...await cookieClickerBlob(9000), cookies: 9000 }, null)).json();
+    const selected = { ...first.data, cookies: 2000, totalCookiesBaked: 2000 };
+    const response = await chooseSave(selected, first.revision);
+    expect(response.status).toBe(200);
+    const chosen = await response.json();
+    expect(chosen.data).toEqual(selected);
+    expect(chosen.revision).not.toBe(first.revision);
+    expect(await cloud()).toMatchObject({ data: selected, revision: chosen.revision });
+    const before = await rowOf("cookie-clicker");
+    expect((await chooseSave(first.data, first.revision)).status).toBe(409);
+    expect(await rowOf("cookie-clicker")).toEqual(before);
+    const repeated = await chooseSave(selected, chosen.revision);
+    expect(repeated.status).toBe(200);
+    expect((await repeated.json()).revision).not.toBe(chosen.revision);
+  });
+
+  it.each([false, "true", null, 1])("rejects malformed explicit-choice mode %s without writing", async resolution => {
+    const first = await (await compareSave(await cookieClickerBlob(9000), null)).json();
+    const before = await rowOf("cookie-clicker");
+    expect((await chooseSave(first.data, first.revision, { resolution })).status).toBe(400);
+    expect(await rowOf("cookie-clicker")).toEqual(before);
+  });
+
+  it("requires revision and owner assertions for explicit choices", async () => {
+    const data = await cookieClickerBlob(2000);
+    expect((await chooseSave(data, null, { baseRevision: undefined })).status).toBe(400);
+    expect((await chooseSave(data, null, { expectedOwnerId: "other-owner" })).status).toBe(409);
+    expect((await chooseSave(data, null, { expectedOwnerId: undefined })).status).toBe(409);
+    expect((await cloud()).data).toBeNull();
+  });
+
   it("uses the same revision for a legacy database timestamp with sub-millisecond precision", async () => {
     const first = await (await compareSave(await cookieClickerBlob(1000), null)).json();
     await scratch!.db.execute(scratch!.sql.raw("UPDATE app_progress SET updated_at = date_trunc('milliseconds', updated_at) + interval '456 microseconds'"));
@@ -433,15 +482,14 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     expect(await cloud()).toMatchObject({ data: after.data, revision: after.revision });
   });
 
-  it("legacy equal-time writes retain the stored wallet but advance revision even within one millisecond", async () => {
+  it("refuses equal-time legacy overwrites without advancing the revision", async () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.now());
     const first = await (await compareSave({ ...await cookieClickerBlob(9000), cookies: 9000 }, null)).json();
-    expect((await save("cookie-clicker", { ...first.data, cookies: 2000 })).status).toBe(200);
-    const second = await cloud();
-    expect(second.data!.cookies).toBe(9000);
-    expect(second.revision).not.toBe(first.revision);
-    expect(new Date(second.updatedAt!).getTime()).toBeGreaterThan(new Date(first.updatedAt).getTime());
-    expect((await compareSave({ ...first.data, cookies: 9100 }, first.revision)).status).toBe(409);
+    const response = await legacySave("cookie-clicker", { ...first.data, cookies: 2000 });
+    expect(response.status).toBe(428);
+    expect(await response.json()).toMatchObject({ code: "upgrade_required", protocol: 1 });
+    expect(await cloud()).toMatchObject({ data: first.data, revision: first.revision, updatedAt: first.updatedAt });
+    expect((await compareSave({ ...first.data, cookies: 9100 }, first.revision)).status).toBe(200);
   });
 
   it("only one of two concurrent continuations commits and the other gets the actual winner", async () => {
@@ -478,10 +526,167 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     })).status).toBe(200);
     const missing = await compareSave(first.data, first.revision);
     expect(missing.status).toBe(409);
-    expect(await missing.json()).toMatchObject({ data: null, revision: null });
-    const recreated = await (await compareSave(first.data, null)).json();
+    const fence = await missing.json();
+    expect(fence).toMatchObject({ data: null, revision: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    expect(fence.revision).not.toBe(first.revision);
+    expect((await compareSave(first.data, null)).status).toBe(409);
+    const recreated = await (await compareSave(first.data, fence.revision)).json();
     expect(recreated.revision).not.toBe(first.revision);
     expect((await compareSave(first.data, first.revision)).status).toBe(409);
+  });
+
+  function erase(appId = "cookie-clicker", expectedOwner = ids.user) {
+    return route.DELETE(new Request(`http://localhost/api/progress/${appId}`, {
+      method: "DELETE", headers: { "x-hh-expected-owner": expectedOwner },
+    }), { params: Promise.resolve({ appId }) });
+  }
+
+  it("fences a first save already dispatched when an absent game is deleted", async () => {
+    const data = await cookieClickerBlob(1000);
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const request = new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", duplex: "half", headers: { "Content-Type": "application/json" },
+      body: new ReadableStream<Uint8Array>({ start(controller) { body = controller; } }),
+    } as RequestInit);
+    const pending = route.POST(request, { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    let deleted: Response;
+    try {
+      deleted = await erase();
+    } finally {
+      body.enqueue(new TextEncoder().encode(JSON.stringify({ data, baseRevision: null, expectedOwnerId: ids.user })));
+      body.close();
+    }
+    const response = await pending;
+    expect(deleted!.status).toBe(200);
+    expect(response.status).toBe(409);
+    const fence = await cloud();
+    expect(fence.data).toBeNull();
+    expect(fence.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(await response.json()).toMatchObject({ data: null, revision: fence.revision });
+    // JSONB null survives the real driver's NOT NULL constraint.
+    const stored = await scratch!.db.execute(scratch!.sql`SELECT data = 'null'::jsonb AS json_null, data IS NULL AS sql_null FROM app_progress`);
+    expect(stored.rows).toEqual([{ json_null: true, sql_null: false }]);
+  });
+
+  it("advances every deletion fence, rejects legacy resurrection, and allows exact-revision restart", async () => {
+    const data = await cookieClickerBlob(1000);
+    expect((await erase()).status).toBe(200);
+    const first = await cloud();
+    expect((await erase()).status).toBe(200);
+    const second = await cloud();
+    expect(second.revision).not.toBe(first.revision);
+    expect((await compareSave(data, first.revision)).status).toBe(409);
+    expect((await legacySave("cookie-clicker", data)).status).toBe(428);
+    expect(await cloud()).toEqual(second);
+    const restarted = await compareSave(data, second.revision);
+    expect(restarted.status).toBe(200);
+    expect((await restarted.json()).data).toEqual(data);
+    expect((await compareSave(data, second.revision)).status).toBe(409);
+  });
+
+  it("rejects an old unconditional save delayed past deletion and a legitimate restart", async () => {
+    const data = await cookieClickerBlob(1000);
+    await compareSave(data, null);
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const request = new Request("http://localhost/api/progress/cookie-clicker", {
+      method: "POST", duplex: "half", headers: { "Content-Type": "application/json" },
+      body: new ReadableStream<Uint8Array>({ start(controller) { body = controller; } }),
+    } as RequestInit);
+    const pending = route.POST(request, { params: Promise.resolve({ appId: "cookie-clicker" }) });
+    let restarted: Response;
+    try {
+      expect((await erase()).status).toBe(200);
+      const fence = await cloud();
+      restarted = await compareSave({ ...data, cookies: 42, totalCookiesBaked: 42 }, fence.revision);
+    } finally {
+      body.enqueue(new TextEncoder().encode(JSON.stringify({ data, merge: false })));
+      body.close();
+    }
+    const stale = await pending;
+    expect(restarted!.status).toBe(200);
+    const fresh = await restarted!.json();
+    expect(stale.status).toBe(428);
+    expect(await stale.json()).toMatchObject({ code: "upgrade_required" });
+    expect(await cloud()).toMatchObject({ data: fresh.data, revision: fresh.revision });
+  });
+
+  it("serializes deletion with an already based save so deleted gameplay stays absent", async () => {
+    const data = await cookieClickerBlob(1000);
+    const first = await (await compareSave(data, null)).json();
+    const [deleted, saved] = await Promise.all([erase(), compareSave({ ...data, cookies: 2000 }, first.revision)]);
+    expect(deleted.status).toBe(200);
+    expect([200, 409]).toContain(saved.status);
+    expect((await cloud()).data).toBeNull();
+    expect(await scratch!.db.query.leaderboardEntries.findMany()).toEqual([]);
+  });
+
+  it("omits deletion metadata from profiles and rejects a stale owner's delete assertion", async () => {
+    const data = await cookieClickerBlob(1000);
+    await compareSave(data, null);
+    const before = await cloud();
+    const foreign = await erase("cookie-clicker", "previous-owner");
+    expect(foreign.status).toBe(409);
+    expect(await foreign.json()).toEqual({ error: "The signed-in account changed", code: "owner_changed" });
+    expect(await cloud()).toEqual(before);
+    await erase();
+    await save("weather", weatherWords("Other game"), false);
+    const all = await import("../../route");
+    const response = await all.GET();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ count: 1, progress: [{ appId: "weather" }] });
+    const { db, users, appProgress } = scratch!;
+    await db.insert(users).values({ id: "other-owner", name: "Other" });
+    await db.insert(appProgress).values({ id: "other-save", userId: "other-owner", appId: "cookie-clicker", data });
+    await erase();
+    expect(await db.query.appProgress.findFirst({ where: scratch!.eq(appProgress.id, "other-save") })).toMatchObject({ data });
+    await db.delete(users).where(scratch!.eq(users.id, ids.user));
+    expect(await db.query.appProgress.findMany()).toHaveLength(1);
+  });
+
+  it("rolls back deletion when dependent cleanup fails and otherwise erases transactions and board", async () => {
+    const first = await (await compareSave(await cookieClickerBlob(1000), null)).json();
+    const { db, sql, appTransactions } = scratch!;
+    const row = (await rowOf("cookie-clicker"))!;
+    await db.insert(appTransactions).values({ id: "purchase", progressId: row.id, type: "spend", amount: 20 });
+    const board = await db.query.leaderboardEntries.findMany();
+    expect(board.length).toBeGreaterThan(0);
+    await db.execute(sql.raw("CREATE FUNCTION hh_reject_cleanup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'cleanup unavailable'; END $$"));
+    await db.execute(sql.raw("CREATE TRIGGER hh_reject_cleanup BEFORE DELETE ON app_transactions FOR EACH ROW EXECUTE FUNCTION hh_reject_cleanup()"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await erase()).status).toBe(500);
+      expect(await cloud()).toMatchObject({ data: first.data, revision: first.revision });
+      expect(await db.query.leaderboardEntries.findMany()).toEqual(board);
+      expect(await db.select().from(appTransactions)).toHaveLength(1);
+    } finally {
+      await db.execute(sql.raw("DROP TRIGGER hh_reject_cleanup ON app_transactions"));
+      await db.execute(sql.raw("DROP FUNCTION hh_reject_cleanup()"));
+    }
+    expect((await erase()).status).toBe(200);
+    expect(await db.select().from(appTransactions)).toEqual([]);
+    expect(await db.query.leaderboardEntries.findMany()).toEqual([]);
+    expect((await cloud()).data).toBeNull();
+  });
+
+  it("adds the enforcement flag transactionally without changing existing saves", async () => {
+    await compareSave(await cookieClickerBlob(1000), null);
+    const before = await cloud();
+    const { db, sql } = scratch!;
+    await db.execute(sql.raw("ALTER TABLE app_progress DROP COLUMN revision_required"));
+    const statements = readFileSync(path.join(migrationsDir, "0004_progress_deletion_fence.sql"), "utf8")
+      .split("--> statement-breakpoint").map(s => s.trim()).filter(Boolean);
+    const interrupted = new Error("simulated migration interruption");
+    await expect(db.transaction(async tx => {
+      for (const statement of statements) await tx.execute(sql.raw(statement));
+      throw interrupted;
+    })).rejects.toBe(interrupted);
+    const columns = await db.execute(sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'app_progress' AND column_name = 'revision_required'`);
+    expect(columns.rows).toEqual([]);
+    await db.transaction(async tx => {
+      for (const statement of statements) await tx.execute(sql.raw(statement));
+    });
+    expect(await cloud()).toEqual(before);
+    expect((await rowOf("cookie-clicker"))!.revisionRequired).toBe(false);
   });
 
   it("rejects an account switch even when both accounts have no row, without revealing progress", async () => {
@@ -513,6 +718,32 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
       headers: { "x-hh-expected-owner": owner },
     }), { params: Promise.resolve({ appId: "weather" }) });
   }
+
+  it("keeps word projection and original-source preservation inside an explicit choice", async () => {
+    await save("weather", weatherWords("Original town"), false);
+    const before = await cloud("weather");
+    await enableLocalWords();
+    const response = await route.POST(new Request("http://localhost/api/progress/weather", {
+      method: "POST", body: JSON.stringify({ data: weatherWords("New typed town"), resolution: true,
+        baseRevision: before.revision, expectedOwnerId: ids.user }),
+    }), { params: Promise.resolve({ appId: "weather" }) });
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({ savedLocations: [], lastLocation: null });
+    const preserved = JSON.stringify(await (await recoverWords()).json());
+    expect(preserved).toContain("Original town");
+    expect(preserved).not.toContain("New typed town");
+    expect(JSON.stringify(await scratch!.db.select().from(scratch!.appProgress))).not.toContain("town");
+  });
+
+  it("preserves the permanent deletion fence after an explicit chosen restart", async () => {
+    await erase();
+    const fence = await cloud(), selected = await cookieClickerBlob(2000);
+    expect((await chooseSave(selected, null)).status).toBe(409);
+    expect((await chooseSave(selected, fence.revision)).status).toBe(200);
+    expect((await rowOf("cookie-clicker"))!.revisionRequired).toBe(true);
+    expect((await legacySave("cookie-clicker", await cookieClickerBlob(9000))).status).toBe(428);
+    expect((await cloud()).data).toEqual(selected);
+  });
 
   it("keeps compatibility behavior until cutover, then preserves the old source before an old-client save", async () => {
     expect((await save("weather", weatherWords("Original town"), false)).status).toBe(200);
@@ -604,15 +835,20 @@ describe.skipIf(!ADMIN_URL)("POST /api/progress/[appId] on a real Postgres", () 
     expect(rows[0].progressId).toBe("other-word-progress");
   });
 
-  it("recovers the original words while two old clients race to replace them", async () => {
+  it("recovers the original words while two conditional clients race to replace them", async () => {
     await save("weather", weatherWords("Before the race"), false);
     await enableLocalWords();
+    const { revision } = await cloud("weather");
+    const writeAtRevision = (data: Record<string, unknown>) => route.POST(new Request("http://localhost/api/progress/weather", {
+      method: "POST", body: JSON.stringify({ data, merge: true, baseRevision: revision, expectedOwnerId: ids.user }),
+    }), { params: Promise.resolve({ appId: "weather" }) });
     const [first, recovery, second] = await Promise.all([
-      save("weather", weatherWords("Race A"), true),
+      writeAtRevision(weatherWords("Race A")),
       recoverWords(),
-      save("weather", weatherWords("Race B"), false),
+      writeAtRevision(weatherWords("Race B")),
     ]);
-    expect([first.status, second.status, recovery.status]).toEqual([200, 200, 200]);
+    expect([first.status, second.status].sort()).toEqual([200, 409]);
+    expect(recovery.status).toBe(200);
     for (const response of [recovery, await recoverWords()]) {
       const candidates = (await response.json()).candidates;
       expect(candidates).toHaveLength(1);

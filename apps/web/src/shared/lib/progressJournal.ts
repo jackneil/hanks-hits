@@ -1,0 +1,107 @@
+import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
+import { validateProgress } from "@/lib/progress-schemas";
+import { PROGRESS_STORAGE_KEYS } from "@/lib/owner-bound-progress/keys";
+import { sha256 } from "@/shared/clips/library/ownerKey";
+import { sameProgress } from "./progressStamp";
+
+export type ProgressSnapshot<T> = { data: T | null; revision: string | null };
+export type ProgressRequest<T> = { id: string; base: ProgressSnapshot<T>; data: T };
+export type ProgressConflict<T> = {
+  remote: ProgressSnapshot<T>;
+  reason: "concurrent-edit" | "ambiguous-delivery" | "unknown-lineage" | "canonical-change";
+  paths: string[];
+};
+export type ProgressJournal<T> = {
+  version: 1;
+  appId: ValidAppId;
+  ownerId: string;
+  writerId: string;
+  serial: number;
+  acknowledged: ProgressSnapshot<T>;
+  sent: ProgressRequest<T> | null;
+  live: T;
+  conflict: ProgressConflict<T> | null;
+  /** An explicit choice must advance the revision, even for an unchanged copy. */
+  forceWrite: boolean;
+  /** Local preservation only; no canonical absence or dispatch authority. */
+  provisional?: true;
+  /** Opaque source bytes survive conversion, archive and later session writes. */
+  imported?: { kind: "bakery-v1"; sourceKey: string; raw: string }
+    | { kind: "guest-v2"; sourceKey: string; raw: string; candidateId: string; loadAt: number };
+};
+
+export const PROGRESS_JOURNAL_PREFIX = "progress-sync-v1-";
+export const progressJournalKey = (appId: ValidAppId, writerId: string) =>
+  `${PROGRESS_JOURNAL_PREFIX}${appId}-${writerId}-storage`;
+export const cloneProgress = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const object = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+const identifier = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9-]{1,100}$/.test(value);
+
+/** Refuse lossy schema parsing: never silently remove an original local field. */
+export function isJournalProgress(appId: ValidAppId, value: unknown): value is AppProgressData {
+  const checked = validateProgress(appId, value);
+  return checked.success && sameProgress(checked.data, value);
+}
+export function isProgressSnapshot<T extends AppProgressData>(appId: ValidAppId, value: unknown): value is ProgressSnapshot<T> {
+  if (!object(value)) return false;
+  if (value.revision === null) return value.data === null;
+  return typeof value.revision === "string" && /^[a-f0-9]{64}$/.test(value.revision)
+    && (value.data === null || isJournalProgress(appId, value.data));
+}
+
+/** The caller supplies the mounted owner and app; a stored record cannot select them. */
+export function parseProgressJournal<T extends AppProgressData>(raw: string, appId: ValidAppId, ownerId: string): ProgressJournal<T> | null {
+  try {
+    const row: unknown = JSON.parse(raw);
+    if (!object(row) || row.version !== 1 || row.appId !== appId || row.ownerId !== ownerId || !ownerId
+      || !identifier(row.writerId) || !Number.isSafeInteger(row.serial) || (row.serial as number) < 0
+      || !isProgressSnapshot(appId, row.acknowledged) || !isJournalProgress(appId, row.live)
+      || typeof row.forceWrite !== "boolean") return null;
+    if (row.imported !== undefined) {
+      const source = row.imported;
+      if (!object(source) || typeof source.sourceKey !== "string" || !source.sourceKey || typeof source.raw !== "string") return null;
+      if (source.kind === "bakery-v1") {
+        if (appId !== "cookie-clicker") return null;
+        const imported: unknown = JSON.parse(source.raw);
+        if (!object(imported) || imported.version !== 1 || imported.ownerId !== ownerId) return null;
+      } else if (source.kind === "guest-v2") {
+        if (source.sourceKey !== PROGRESS_STORAGE_KEYS[appId] || typeof source.candidateId !== "string"
+          || typeof source.loadAt !== "number" || !Number.isFinite(source.loadAt)) return null;
+        const identity = JSON.stringify([source.sourceKey, source.raw, source.loadAt]);
+        const digest = [...sha256(new TextEncoder().encode(identity))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+        if (source.candidateId !== digest) return null;
+      } else return null;
+    }
+    if (row.sent !== null && (!object(row.sent) || !identifier(row.sent.id)
+      || !isProgressSnapshot(appId, row.sent.base) || !isJournalProgress(appId, row.sent.data)
+      || !sameProgress(row.sent.base, row.acknowledged))) return null;
+    if (row.conflict !== null && (!object(row.conflict) || !isProgressSnapshot(appId, row.conflict.remote)
+      || !["concurrent-edit", "ambiguous-delivery", "unknown-lineage", "canonical-change"].includes(row.conflict.reason as string)
+      || !Array.isArray(row.conflict.paths) || !row.conflict.paths.every(path => typeof path === "string"))) return null;
+    if (row.provisional !== undefined && (row.provisional !== true || row.sent !== null || row.forceWrite
+      || row.imported !== undefined || !sameProgress(row.acknowledged, { data: null, revision: null })
+      || !object(row.conflict) || row.conflict.reason !== "unknown-lineage"
+      || !sameProgress(row.conflict.remote, { data: null, revision: null }))) return null;
+    return row as ProgressJournal<T>;
+  } catch { return null; }
+}
+
+export function newProgressJournal<T extends AppProgressData>(
+  appId: ValidAppId, ownerId: string, writerId: string, canonical: ProgressSnapshot<T>, live: T, related: boolean,
+): ProgressJournal<T> {
+  const row: ProgressJournal<T> = {
+    version: 1, appId, ownerId, writerId, serial: 0, acknowledged: canonical, sent: null, live,
+    conflict: related || sameProgress(canonical.data, live) ? null
+      : { remote: canonical, reason: "unknown-lineage", paths: ["$root"] },
+    forceWrite: false,
+  };
+  const checked = parseProgressJournal<T>(JSON.stringify(row), appId, ownerId);
+  if (!checked) throw new Error("Invalid progress journal");
+  return checked;
+}
+
+/** Placeholder lineage preserves local play but grants no network permission. */
+export function newProvisionalJournal<T extends AppProgressData>(appId: ValidAppId, ownerId: string, writerId: string, live: T): ProgressJournal<T> {
+  return { ...newProgressJournal(appId, ownerId, writerId, { data: null, revision: null }, live, false), provisional: true };
+}

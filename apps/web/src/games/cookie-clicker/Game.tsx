@@ -17,8 +17,7 @@ import {
   getAchievementById,
   type BuildingId,
 } from "./lib/constants";
-import { SaveConflict } from "./components/SaveConflict";
-import { useCookieSync } from "./lib/useCookieSync";
+import { pauseCookieRecovery } from "./lib/recoveryPause";
 import { useAuthSync } from "@/shared/hooks/useAuthSync";
 import { useCoarsePointer } from "@/shared/hooks/useCoarsePointer";
 import { usePlayBox } from "@/shared/hooks/usePlayBox";
@@ -61,15 +60,30 @@ export function CookieClickerGame() {
     }
   }, []);
 
-  const bakerySync = useCookieSync();
+  const pauseForRecovery = useCallback(() => {
+    const release = pauseCookieRecovery();
+    return (canonical?: boolean) => {
+      release();
+      if (canonical === undefined || !hasInitialized.current) return;
+      const game = useCookieClickerStore.getState();
+      const earned = game.applyOfflineProgress(canonical);
+      game.checkAchievements();
+      if (earned > 100) { setOfflineEarnings(earned); setShowOfflinePopup(true); }
+    };
+  }, []);
 
   // Cloud sync for authenticated users
   const { ready, synced } = useAuthSync<CookieClickerProgress>({
     appId: "cookie-clicker",
     localStorageKey: "cookie-clicker-storage",
-    continuation: bakerySync.continuation,
+    pauseForRecovery,
     getState: () => store.getProgress(),
-    setState: (data) => store.setProgress(data),
+    setState: (data) => {
+      // Preserve temporary frenzy, golden-cookie and UI state across cloud application.
+      useCookieClickerStore.setState(data);
+      const game = useCookieClickerStore.getState();
+      useCookieClickerStore.setState({ cookiesPerSecond: game.calculateCps(), cookiesPerClick: game.calculateClickPower() });
+    },
     debounceMs: 5000, // Cookie clicker state changes frequently
     onSyncComplete: bakeAfterLateSync,
   });
@@ -210,7 +224,6 @@ export function CookieClickerGame() {
         )}
       </header>
 
-      <SaveConflict view={bakerySync.view} local={store.getProgress()} choose={bakerySync.choose} retry={bakerySync.retry} />
 
       {/* The cookie and the shop: side by side sideways, stacked upright. */}
       <main

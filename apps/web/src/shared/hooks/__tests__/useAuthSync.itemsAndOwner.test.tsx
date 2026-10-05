@@ -1,22 +1,13 @@
 /**
- * Part B1 of #26i (the split after review wave 3): four fixes, each with the
- * real stores, the real useAuthSync and a server that runs the real
- * validation and merge (src/__tests__/fake-progress-server.ts).
- *
- * - F4: an item that the kid makes while the first GET is in flight on an
- *   untouched device is kept. The account's progress is taken, and the
- *   item joins it.
- * - F5: when items join a list, the list keeps the newest items up to its
- *   length, as the store's own eviction does, and each drop is logged.
- * - F6: another tab's newer save (the storage takeover) keeps this tab's
- *   items that were not saved yet, does not bring back an item that the
- *   other tab deleted, and keeps the save pending so that the items reach
- *   the account.
- * - F7: the progress of kid A never reaches the account of kid B. A session
- *   that changes on a mounted page, an owner key that another tab changed,
- *   and a page from the back-forward cache all lock the saves and reload.
+ * Real-store regression coverage for first-read additions, concurrent item
+ * edits, deletions, overflow and owner lease changes. Known revisions permit
+ * three-way merges. Unknown ancestry and overflow retain alternatives for an
+ * explicit choice, without arbitrary eviction. Provider navigation and real
+ * ownership are covered in owner-guard and ProgressSessionBoundary tests.
  */
+import { progressSyncPresentation } from "@/shared/lib/progressSyncPresentation";
 import { vi } from "vitest";
+import { setTimeout as realDelay } from "node:timers/promises";
 
 vi.hoisted(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
@@ -51,6 +42,7 @@ const at = (iso: string) => vi.setSystemTime(new Date(iso));
 const settle = async (ms: number) => {
   for (let left = ms; left > 0; left -= 250) {
     await act(async () => {
+      await realDelay(5);
       await vi.advanceTimersByTimeAsync(Math.min(250, left));
     });
   }
@@ -147,14 +139,21 @@ afterEach(() => {
   for (const entry of SYNCED_STORES) entry.reset();
 });
 
-const warned = () => (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((call) => call.map(String).join(" "));
+async function choose(appId: string) {
+  const entry = progressSyncPresentation.getSnapshot().find(row => row.appId === appId)!;
+  expect(entry.status).toBe("conflict");
+  const dialog = entry.open()!;
+  server.net.getDelayMs = 0;
+  await act(async () => { expect(await dialog.choose("local")).toMatchObject({ ok: true }); });
+  return dialog;
+}
 
 // ---------------------------------------------------------------------------
 // F4: an item made while the first GET is in flight on an untouched device
 // ---------------------------------------------------------------------------
 
 describe("F4: an item made during the first sync of an untouched device is kept", () => {
-  it("drum-machine: a beat saved while the GET is in flight joins the account's beats, on the device and on the account", async () => {
+  it("drum-machine: a beat saved while the first GET is in flight remains selectable alongside the account's beats", async () => {
     const entry = syncedStore("drum-machine");
     accountHolds(entry, made(entry, "2026-10-20T11:00:00Z", () => useDrumMachineStore.getState().saveBeat("Account beat")));
     at("2026-10-20T13:00:00Z");
@@ -164,14 +163,16 @@ describe("F4: an item made during the first sync of an untouched device is kept"
     await settle(400);
     useDrumMachineStore.getState().saveBeat("Kid beat");
     await settle(8_000);
+    const copies = await choose("drum-machine");
+    expect(names(copies.options.find(option => option.id === "server")!.data, "savedBeats")).toEqual(["Account beat"]);
     view.unmount();
 
     const beats = (p: unknown) => names((p as { savedBeats?: unknown } | undefined) ?? {}, "savedBeats");
-    expect(beats(progressOf(entry))).toEqual(["Account beat", "Kid beat"]);
-    expect(beats(server.row("drum-machine"))).toEqual(["Account beat", "Kid beat"]);
+    expect(beats(progressOf(entry))).toEqual(["Kid beat"]);
+    expect(beats(server.row("drum-machine"))).toEqual(["Kid beat"]);
   });
 
-  it("drawing-app: the account holds 20 drawings; a drawing made during the GET is kept and the account's oldest goes, with a log line (F5)", async () => {
+  it("drawing-app: the account holds 20 drawings; a drawing made during the GET stays selectable without silently evicting an account drawing", async () => {
     const entry = syncedStore("drawing-app");
     accountHolds(entry, drawings(20, "2026-10-20T09:00:00Z"));
     at("2026-10-20T13:00:00Z");
@@ -181,17 +182,14 @@ describe("F4: an item made during the first sync of an untouched device is kept"
     await settle(400);
     useDrawingStore.getState().saveArtwork("data:image/png;base64,KKKK", "Kid art");
     await settle(8_000);
+    expect(names(server.row("drawing-app"), "savedArtworks")).toHaveLength(20);
+    const copies = await choose("drawing-app");
+    const account = names(copies.options.find(option => option.id === "server")!.data, "savedArtworks");
+    expect(account).toHaveLength(20); expect(account).toContain("Acct 0");
     view.unmount();
-
-    const tab = names(progressOf(entry), "savedArtworks");
-    const row = names(server.row("drawing-app"), "savedArtworks");
-    expect(tab).toHaveLength(20);
-    expect(tab[0]).toBe("Kid art");
-    expect(tab).not.toContain("Acct 0");
-    expect(tab).toContain("Acct 1");
-    expect(row).toEqual(tab);
+    expect(names(progressOf(entry), "savedArtworks")).toEqual(["Kid art"]);
+    expect(names(server.row("drawing-app"), "savedArtworks")).toEqual(["Kid art"]);
     expect(server.rejected).toEqual([]);
-    expect(warned().some((line) => /drawing-app\.savedArtworks/.test(line) && /1 /.test(line))).toBe(true);
   });
 });
 
@@ -228,8 +226,8 @@ describe("F6: another tab's newer save keeps this tab's unsaved items", () => {
       accountHolds(entry, theirs);
       otherTabWrites(entry.key, rawSaveOf(entry, theirs), via);
 
-      expect(names(progressOf(entry), "savedArtworks")).toEqual(["Drawing Y", "Drawing X", "Shared"]);
       await settle(6_000);
+      expect(names(progressOf(entry), "savedArtworks")).toEqual(["Drawing Y", "Drawing X", "Shared"]);
       view.unmount();
       expect(names(server.row("drawing-app"), "savedArtworks")).toEqual(["Drawing Y", "Drawing X", "Shared"]);
     }
@@ -254,13 +252,13 @@ describe("F6: another tab's newer save keeps this tab's unsaved items", () => {
     accountHolds(entry, theirs);
     otherTabWrites(entry.key, rawSaveOf(entry, theirs), "storage");
 
-    expect(names(progressOf(entry), "savedArtworks")).toEqual(["Drawing X", "S1"]);
     await settle(6_000);
+    expect(names(progressOf(entry), "savedArtworks")).toEqual(["Drawing X", "S1"]);
     view.unmount();
     expect(names(server.row("drawing-app"), "savedArtworks")).toEqual(["Drawing X", "S1"]);
   });
 
-  it("F5: at the list's length, the union keeps the newest 20 (the store's own eviction) and logs the drop", async () => {
+  it("F5: overflow preserves both full lists for explicit choice without silently evicting another drawing", async () => {
     const start = drawings(20, "2026-10-20T09:00:00Z");
     const { entry, view } = await syncedDrawingTab(start);
 
@@ -275,16 +273,15 @@ describe("F6: another tab's newer save keeps this tab's unsaved items", () => {
     accountHolds(entry, theirs);
     otherTabWrites(entry.key, rawSaveOf(entry, theirs), "storage");
 
-    const tab = names(progressOf(entry), "savedArtworks");
-    expect(tab).toHaveLength(20);
-    expect(tab.slice(0, 2)).toEqual(["Drawing Y", "Drawing X"]);
-    expect(tab).not.toContain("Acct 0");
-    expect(tab).not.toContain("Acct 1");
-    expect(tab).toContain("Acct 2");
-    expect(warned().some((line) => /drawing-app\.savedArtworks/.test(line))).toBe(true);
     await settle(6_000);
+    const copies = await choose("drawing-app");
+    const local = names(copies.options.find(option => option.id === "local")!.data, "savedArtworks");
+    const remote = names(copies.options.find(option => option.id === "server")!.data, "savedArtworks");
+    expect(local).toHaveLength(20); expect(remote).toHaveLength(20);
+    expect(local).toContain("Drawing X"); expect(remote).toContain("Drawing Y");
+    expect(local).toContain("Acct 1"); expect(remote).toContain("Acct 1");
     view.unmount();
-    expect(names(server.row("drawing-app"), "savedArtworks")).toEqual(tab);
+    expect(names(server.row("drawing-app"), "savedArtworks")).toEqual(local);
     expect(server.rejected).toEqual([]);
   });
 });
@@ -311,7 +308,7 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
 
   const rowOfB = () => server.row("flappy-bird", "user-B") as Record<string, number>;
 
-  it("locks and reloads when the account changes during the first GET", async () => {
+  it("rejects the old owner lease when the account changes during the first GET", async () => {
     const entry = syncedStore("flappy-bird");
     useFlappyStore.setState({ score: 77 } as never);
     useFlappyStore.getState().endGame();
@@ -324,7 +321,7 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
     signInAs("user-B");
     view.rerender();
     await settle(100);
-    expect(reloadSpy).toHaveBeenCalled();
+    expect(server.posts.filter(post => post.data.highScore === 3)).toEqual([]);
     expect(localStorage.getItem(entry.key)).not.toBeNull();
     expect(localStorage.getItem(PROGRESS_OWNER_KEY)).toBe("user-A");
     await settle(4_000);
@@ -335,7 +332,7 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
     expect(rowOfB()).toMatchObject(kidB);
   });
 
-  it("a session that changes to kid B on a mounted page: no save reaches B, legacy saves remain, and the page reloads", async () => {
+  it("a session that changes to kid B on a mounted page: no save reaches B, legacy saves remain, and the old lease cannot save", async () => {
     const { entry, view } = await kidAPlays();
     const postsBefore = server.posts.length;
 
@@ -359,13 +356,13 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
 
     expect(rowOfB()).toMatchObject(kidB);
     expect(server.posts.length).toBe(postsBefore);
-    expect(reloadSpy).toHaveBeenCalled();
+    expect(server.posts.filter(post => post.data.highScore === 3)).toEqual([]);
     expect(saveAfterSwitch).not.toBeNull();
     expect(ownerAfterSwitch).toBeNull(); // Current identity never claims the legacy marker.
   });
 
   it.each([["pageshow"], ["storage"]] as const)(
-    "another tab claimed the device for kid B (the owner key), seen via %s: this page locks its saves and reloads",
+    "another tab claimed the device for kid B (the owner key), seen via %s: the old owner lease cannot save",
     async (via) => {
       const { view } = await kidAPlays();
       const postsBefore = server.posts.length;
@@ -386,7 +383,7 @@ describe("F7: kid A's progress never reaches kid B's account", () => {
 
       expect(rowOfB()).toMatchObject(kidB);
       expect(server.posts.length).toBe(postsBefore);
-      expect(reloadSpy).toHaveBeenCalled();
+      expect(server.posts.filter(post => post.data.highScore === 3)).toEqual([]);
     }
   );
 

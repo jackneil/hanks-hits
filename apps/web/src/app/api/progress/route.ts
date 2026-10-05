@@ -41,7 +41,7 @@ export async function GET() {
 
     const wordsLocal = await readWordPolicy(db);
     // Transform to response format
-    const progressList = allProgress.map((p) => ({
+    const progressList = allProgress.filter((p) => p.data !== null).map((p) => ({
       appId: p.appId,
       data: wordsLocal ? stripProgressWords(p.appId, p.data) : p.data,
       updatedAt: p.updatedAt.toISOString(),

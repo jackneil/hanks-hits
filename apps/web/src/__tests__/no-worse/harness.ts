@@ -58,6 +58,7 @@
  * the schemas, not the sync code.
  */
 import { vi } from "vitest";
+import { setTimeout as realDelay } from "node:timers/promises";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -141,6 +142,8 @@ export type Cell = {
 type Ctx = {
   session: Session;
   server: ReturnType<typeof createProgressServer>;
+  inspectRecovery?: (appId: string) => Progress[];
+  recoverable: Map<string, Progress[]>;
 };
 
 // ---------------------------------------------------------------------------
@@ -253,8 +256,13 @@ export function lostValues(
   sources: Record<string, Progress>,
   final: Progress | null | undefined,
   defaults: Progress,
-  older: readonly Progress[] = []
+  older: readonly Progress[] = [],
+  retained: readonly Progress[] = []
 ): string[] {
+  if (retained.length) {
+    const missing = retained.map(copy => new Set(lostValues(appId, sources, copy, defaults, older)));
+    return lostValues(appId, sources, final, defaults, older).filter(value => missing.every(set => set.has(value)));
+  }
   const skip = skipped(appId);
   const base = leaves(defaults, skip);
   for (const progress of older) leaves(progress, skip, "", base);
@@ -325,6 +333,7 @@ const withTime = (entry: SyncedStoreEntry, progress: Progress, time: number): Pr
 async function settle(ms: number, step = 250) {
   for (let left = ms; left > 0; left -= step) {
     await act(async () => {
+      await realDelay(1);
       await vi.advanceTimersByTimeAsync(Math.min(step, left));
     });
   }
@@ -334,8 +343,8 @@ function signIn(session: Session, id: string) {
   session.current = { data: { user: { id } }, status: "authenticated" };
 }
 
-const mount = (entry: SyncedStoreEntry) =>
-  renderHook(() =>
+const mount = (entry: SyncedStoreEntry, ctx: Ctx) => {
+  const view = renderHook(() =>
     useAuthSync({
       appId: entry.appId as ValidAppId,
       localStorageKey: entry.key,
@@ -344,6 +353,15 @@ const mount = (entry: SyncedStoreEntry) =>
       debounceMs: 1_000,
     })
   );
+  const unmount = view.unmount;
+  view.unmount = () => {
+    // Inspect the actual recovery controls while they are still mounted. Only
+    // the candidate supplies these controls; the baseline has no such UI.
+    ctx.recoverable.set(entry.appId, ctx.inspectRecovery?.(entry.appId) ?? []);
+    unmount();
+  };
+  return view;
+};
 
 /** A page load: the store's defaults, then its save on disk. */
 async function loadPage(entry: SyncedStoreEntry) {
@@ -374,7 +392,7 @@ function result(
   older: readonly Progress[] = []
 ): CellResult {
   return {
-    lost: lostValues(appId, sources, final, inputs.defaults, older),
+    lost: lostValues(appId, sources, final, inputs.defaults, older, ctx.recoverable.get(appId) ?? []),
     posts: ctx.server.posts.length,
     rejected: ctx.server.rejected.length,
     // NO_WORSE_DEBUG=1: the sources and the final row too (to read a failure).
@@ -388,6 +406,7 @@ const originalLocation = typeof window === "undefined" ? undefined : window.loca
 /** Before each cell: a clean device, a clean server, no session. */
 export function beforeCell(ctx: Ctx) {
   localStorage.clear();
+  ctx.recoverable.clear();
   ctx.server.reset();
   installAudioMock();
   __unsafeResetForeignPurgeLockForTests();
@@ -537,7 +556,7 @@ function deployCell(entry: SyncedStoreEntry, format: Format, device: Device, row
       else if (rowKind === "untouched") row = withTime(entry, inputs.defaults, T("2026-10-15T10:00:00Z"));
       if (row) putRow(ctx, "user-1", entry.appId, row);
       signIn(ctx.session, "user-1");
-      const view = mount(entry);
+      const view = mount(entry, ctx);
       await settle(6_000);
       view.unmount();
       const sources: Record<string, Progress> = {};
@@ -563,7 +582,7 @@ function guestLotsCell(entry: SyncedStoreEntry): Cell {
       at("2026-10-20T13:00:00Z");
       await loadPage(entry);
       signIn(ctx.session, "user-1");
-      const view = mount(entry);
+      const view = mount(entry, ctx);
       await settle(6_000);
       view.unmount();
       return result(ctx, entry.appId, { account, guest: inputs.guest }, ctx.server.row(entry.appId) as Progress | undefined, inputs);
@@ -585,7 +604,7 @@ function blankOutageCell(entry: SyncedStoreEntry): Cell {
       await loadPage(entry);
       ctx.server.net.failGets = 1_000_000;
       signIn(ctx.session, "user-1");
-      let view = mount(entry);
+      let view = mount(entry, ctx);
       await settle(60_000, 1_000);
       play(entry, inputs.guest);
       await settle(9 * 60_000, 1_000);
@@ -594,7 +613,7 @@ function blankOutageCell(entry: SyncedStoreEntry): Cell {
       view.unmount();
       // The next page load.
       await loadPage(entry);
-      view = mount(entry);
+      view = mount(entry, ctx);
       await settle(6_000);
       view.unmount();
       return result(ctx, entry.appId, { account, guest: inputs.guest }, ctx.server.row(entry.appId) as Progress | undefined, inputs);
@@ -624,7 +643,7 @@ function inFlightCell(entry: SyncedStoreEntry, speed: "fast" | "slow", amount: "
       await loadPage(entry);
       ctx.server.net.getDelayMs = speed === "fast" ? 300 : 1_500;
       signIn(ctx.session, "user-1");
-      const view = mount(entry);
+      const view = mount(entry, ctx);
       await settle(speed === "fast" ? 100 : 400, speed === "fast" ? 100 : 250);
       const kid = amount === "little" ? inputs.little : inputs.guest;
       play(entry, kid);
@@ -650,7 +669,7 @@ function tabCell(entry: SyncedStoreEntry): Cell {
       entry.store.getState().setProgress(clone(start) as never);
       await loadPage(entry);
       signIn(ctx.session, "user-1");
-      const view = mount(entry);
+      const view = mount(entry, ctx);
       await settle(3_000);
       // 12:30: another tab of this device saves newer progress and uploads it.
       at("2026-10-20T12:30:00Z");
@@ -698,7 +717,7 @@ function ownerSwitchCell(entry: SyncedStoreEntry): Cell {
       at("2026-10-20T12:00:00Z");
       await loadPage(entry);
       signIn(ctx.session, "user-A");
-      const view = mount(entry);
+      const view = mount(entry, ctx);
       await settle(3_000);
       // Another tab signs in as kid B (the login page does not sign out first).
       signIn(ctx.session, "user-B");
@@ -736,7 +755,7 @@ function gapCell(entry: SyncedStoreEntry): Cell {
       at("2026-10-20T13:00:00Z");
       await loadPage(entry);
       signIn(ctx.session, "user-1");
-      const view = mount(entry);
+      const view = mount(entry, ctx);
       await settle(6_000);
       view.unmount();
       return result(ctx, entry.appId, { device: inputs.device["86a1fe0"].played, account }, ctx.server.row(entry.appId) as Progress | undefined, inputs);
@@ -767,6 +786,6 @@ export function allCells(): Cell[] {
   return out;
 }
 
-export function createContext(session: Session): Ctx {
-  return { session, server: createProgressServer(session) };
+export function createContext(session: Session, inspectRecovery?: Ctx["inspectRecovery"]): Ctx {
+  return { session, server: createProgressServer(session), inspectRecovery, recoverable: new Map() };
 }

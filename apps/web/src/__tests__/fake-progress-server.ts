@@ -41,6 +41,8 @@ export function createProgressServer(session: Session) {
         net.failGets -= 1;
         return respond({ error: "down" }, 500);
       }
+      const expected = new Headers(init?.headers).get("x-hh-expected-owner");
+      if (expected && expected !== userId) return respond({ code: "owner_changed" }, 409);
       const row = rows.get(key);
       return respond(
         row
@@ -48,7 +50,7 @@ export function createProgressServer(session: Session) {
           : { data: null, lastSyncedAt: null, protocol: 1, revision: null }
       );
     }
-    const body = JSON.parse(init.body as string) as { data: AppProgressData; merge?: boolean; baseRevision?: string | null; expectedOwnerId?: string };
+    const body = JSON.parse(init.body as string) as { data: AppProgressData; merge?: boolean; baseRevision?: string | null; expectedOwnerId?: string; resolution?: boolean };
     const { data, merge } = body;
     const conditional = Object.hasOwn(body, "baseRevision");
     posts.push({ appId, merge: !!merge, data });
@@ -65,7 +67,7 @@ export function createProgressServer(session: Session) {
     }
     let final = valid.data as AppProgressData;
     const existing = rows.get(key);
-    if ((merge || conditional) && existing) {
+    if ((merge || conditional) && existing && !(conditional && body.resolution === true)) {
       const merged = resolveMergedSave(final, existing, appId, (value) => validateProgress(appId, value), { continuation: conditional });
       if (merged.kind === "keepExisting") return respond({ error: merged.error, kept: "existing" }, 409);
       final = merged.data;
