@@ -11,7 +11,7 @@ import { adoptJournalCopy, emptyJournalRecovery, isJournalRecovery, journalOrigi
   type JournalCopy, type JournalRecoveryMetadata } from "./progressJournalRecovery";
 
 type Authority = Pick<ReturnType<typeof createOwnerBoundProgress>, "isCurrent" | "readDurableScoped" | "writeScoped" | "listDurableScoped">;
-type Database = Pick<ProgressJournalDatabase, "ownerEpoch" | "isOwnerDeleted" | "put" | "list" | "archive" | "archivedSources">;
+type Database = Pick<ProgressJournalDatabase, "ownerEpoch" | "isOwnerDeleted" | "put" | "get" | "list" | "archive" | "archivedSources">;
 export type { JournalCopy } from "./progressJournalRecovery";
 type RepositoryOptions = {
   authority: Authority; database: Database; words: MigrationDatabase;
@@ -52,17 +52,28 @@ export class ProgressJournalRepository {
     this.key = progressJournalKey(io.appId, io.writerId);
   }
 
-  static async create(io: RepositoryOptions): Promise<{ repository: ProgressJournalRepository; recovery: JournalRecovery }> {
+  /** Writer readiness does not await unrelated recovery or guest-word preservation. */
+  static async open(io: RepositoryOptions): Promise<ProgressJournalRepository> {
     if (!/^[A-Za-z0-9-]{1,100}$/.test(io.writerId)) throw new Error("Invalid journal writer");
     const repository = new ProgressJournalRepository(io);
     if (io.database.isOwnerDeleted(repository.lease.ownerKey)) throw new DeletedJournalOwnerError();
     if (!repository.allowed() || await ownerKeyFor(io.ownerId) !== repository.lease.ownerKey || !repository.allowed()) throw new Error("Journal owner changed");
     try { repository.epoch = await io.database.ownerEpoch(repository.lease.ownerKey); }
     catch (error) { if (error instanceof DeletedJournalOwnerError) throw error; }
-    const recovery = await repository.recover();
+    let prior: JournalCheckpoint | undefined;
+    try { prior = await io.database.get(repository.lease.ownerKey, io.appId, io.writerId, repository.epoch); }
+    catch (error) { if (error instanceof DeletedJournalOwnerError) throw error; }
     if (!repository.allowed()) throw new Error("Journal owner changed");
     const local = io.authority.readDurableScoped(repository.key, repository.lease);
-    if (local.status === "durable" || repository.observedWriters.has(io.writerId)) throw new Error("A new journal writer is required");
+    if (local.status === "durable" || prior) throw new Error("A new journal writer is required");
+    return repository;
+  }
+
+  static async create(io: RepositoryOptions): Promise<{ repository: ProgressJournalRepository; recovery: JournalRecovery }> {
+    const repository = await ProgressJournalRepository.open(io);
+    const recovery = await repository.recover();
+    if (!repository.allowed()) throw new Error("Journal owner changed");
+    if (repository.observedWriters.has(io.writerId)) throw new Error("A new journal writer is required");
     return { repository, recovery };
   }
 
@@ -173,16 +184,19 @@ export class ProgressJournalRepository {
   }
 
   /** Fresh-writer adoption only, from a complete inventory with no resolution fence. */
-  async adopt(sourceId: string): Promise<string | null> {
-    const retry = () => this.adoptionDraft?.sourceId === sourceId
+  async adopt(sourceId: string, promotion?: { expectedProvisional: string; onPromoted: (raw: string) => void }): Promise<string | null> {
+    const provisional = promotion && parseProgressJournal(promotion.expectedProvisional, this.address.appId, this.address.ownerId);
+    const canPromote = () => !!provisional?.provisional && provisional.writerId === this.address.writerId
+      && this.isDurable() && this.current?.current === promotion!.expectedProvisional;
+    const retry = () => this.adoptionDraft !== null && this.adoptionDraft.sourceId === sourceId
       && this.snapshot()?.current === this.adoptionDraft.raw;
-    if (!this.allowed() || (this.current && !retry())) return null;
+    if (!this.allowed() || (this.current && !retry() && !canPromote())) return null;
     const inventory = await this.recover();
-    if (!this.allowed() || (this.current && !retry()) || inventory.unavailable) return null;
+    if (!this.allowed() || (this.current && !retry() && !canPromote()) || inventory.unavailable) return null;
     const resolved = resolvedJournalSources(inventory.copies, this.address.appId, this.lease.ownerKey);
     let source = inventory.copies.find(copy => copy.sourceId === sourceId);
     if (!source && retry()) source = (await this.archivedCopies(sourceId))?.sort((a, b) => b.envelope.generation - a.envelope.generation)[0];
-    if (!this.allowed() || (this.current && !retry())) return null;
+    if (!this.allowed() || (this.current && !retry() && !canPromote())) return null;
     if (!source || !resolved || resolved.has(sourceId)
       || source.envelope.recovery?.adoptedSources.some(id => resolved.has(id))) return null;
     const adopted = adoptJournalCopy(source, { ...this.address, ownerKey: this.lease.ownerKey });
@@ -190,9 +204,20 @@ export class ProgressJournalRepository {
     try { await this.io.database.archive({ ownerKey: this.lease.ownerKey, appId: this.address.appId,
       sourceId, raw: JSON.stringify(source.envelope) }, this.epoch); }
     catch { return null; }
-    if (!this.allowed() || (this.current && !retry())) return null;
+    if (!this.allowed() || (this.current && !retry() && !canPromote())) return null;
+    if (promotion) {
+      const latest = await this.recover();
+      const resolvedNow = resolvedJournalSources(latest.copies, this.address.appId, this.lease.ownerKey);
+      if (!canPromote() || !this.allowed() || latest.unavailable || !resolvedNow || resolvedNow.has(sourceId)
+        || source.envelope.recovery?.adoptedSources.some(id => resolvedNow.has(id))
+        || !latest.copies.some(copy => copy.sourceId === sourceId && sameProgress(copy.envelope, source.envelope))) return null;
+    }
     this.adoptionDraft = { sourceId, raw };
-    this.write(raw, adopted.originals.map(item => item.raw), adopted.recovery, adopted.originals);
+    const originals = [...adopted.originals, ...(promotion ? [{ raw: promotion.expectedProvisional, choice: false }] : [])];
+    this.write(raw, originals.map(item => item.raw), adopted.recovery, originals);
+    // Install the recovered operation synchronously before awaiting its receipt.
+    // Later captures must extend it, not overwrite it with a provisional row.
+    if (promotion && this.allowed() && this.current?.current === raw) promotion.onPromoted(raw);
     await this.settle();
     if (!this.isDurable() || this.snapshot()?.current !== raw) return null;
     this.adoptionDraft = null;

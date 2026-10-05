@@ -23,7 +23,9 @@ function deferred() {
   const promise = new Promise<void>(done => { resolve = done; });
   return { promise, resolve };
 }
-async function fixture(initial = defaults(), transport?: ProgressTransport<Drawing>) {
+async function fixture(initial = defaults(), transport?: ProgressTransport<Drawing>, options: {
+  writeReady?: boolean; additionalRecovery?: Parameters<typeof ProgressJournalRepository.open>[0]["additionalRecovery"];
+} = {}) {
   const storage = new Map<string, string>();
   const local = { get length() { return storage.size; }, key: (i: number) => [...storage.keys()][i] ?? null,
     getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, raw: string) => { storage.set(key, raw); },
@@ -33,11 +35,12 @@ async function fixture(initial = defaults(), transport?: ProgressTransport<Drawi
   const lease = authority.captureLease()!, factory = new IDBFactory();
   const database = new ProgressJournalDatabase(factory), words = new LocalWordsDatabase(factory, "runtime-words");
   closes.push(() => { database.close(); words.close(); });
-  const create = async (writerId: string) => (await ProgressJournalRepository.create({
-    authority, lease, database, words, appId: "drawing-app", ownerId: "owner", writerId,
-    maySave: () => authority.isCurrent(lease),
-  })).repository;
-  const repository = await create("mounted");
+  const create = async (writerId: string, writeReady = false) => {
+    const io = { authority, lease, database, words, appId: "drawing-app" as const, ownerId: "owner", writerId,
+      maySave: () => authority.isCurrent(lease), additionalRecovery: options.additionalRecovery };
+    return writeReady ? ProgressJournalRepository.open(io) : (await ProgressJournalRepository.create(io)).repository;
+  };
+  const repository = await create("mounted", options.writeReady);
   let live = cloneProgress(initial);
   const applyLive = vi.fn((data: Drawing) => { live = cloneProgress(data); });
   const runtime = new ProgressSyncRuntime({ appId: "drawing-app", ownerId: "owner", ownerKey: lease.ownerKey,
@@ -52,6 +55,96 @@ async function fixture(initial = defaults(), transport?: ProgressTransport<Drawi
   return { runtime, repository, database, authority, local, source, create, applyLive, getLive: () => cloneProgress(live),
     edit: (data: Drawing) => { live = cloneProgress(data); } };
 }
+
+describe("storage bootstrap before cloud access", () => {
+  it("checkpoints edits in IndexedDB while the initial GET is offline and localStorage is full", async () => {
+    const read = vi.fn(async () => { throw Error("offline"); }), write = vi.fn(), beacon = vi.fn();
+    const h = await fixture(painted("first"), { read, write, beacon }, { writeReady: true });
+    vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+    expect((await h.runtime.save()).ok).toBe(false);
+    h.edit(painted("offline-edit")); h.runtime.flush(); await h.repository.settle();
+    const rows = await h.database.list(h.authority.captureLease()!.ownerKey, 0);
+    const saved = JSON.parse(JSON.parse(rows.find(row => row.writerId === "mounted")!.raw).current);
+    expect(saved).toMatchObject({ provisional: true, live: painted("offline-edit"), sent: null, forceWrite: false });
+    expect(h.runtime.choice()).toBeNull(); expect(write).not.toHaveBeenCalled(); expect(beacon).not.toHaveBeenCalled();
+    const cold = await h.create("cold");
+    expect((await cold.recover()).copies.some(copy => JSON.parse(copy.envelope.current).live.savedArtworks[0].id === "offline-edit")).toBe(true);
+  });
+
+  it("can capture before a stalled additional recovery callback finishes", async () => {
+    const entered = deferred(), release = deferred();
+    const additionalRecovery = vi.fn(async () => { entered.resolve(); await release.promise; return { copies: [], unavailable: false }; });
+    const h = await fixture(painted("first"), undefined, { writeReady: true, additionalRecovery });
+    expect(additionalRecovery).not.toHaveBeenCalled();
+    vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+    let finished = false; const pending = h.runtime.bootstrap().then(result => { finished = true; return result; });
+    await entered.promise; h.edit(painted("while-inventory-waits")); h.runtime.capture(); await h.repository.settle();
+    expect(finished).toBe(false);
+    const rows = await h.database.list(h.authority.captureLease()!.ownerKey, 0);
+    expect(JSON.parse(JSON.parse(rows[0].raw).current).live).toEqual(painted("while-inventory-waits"));
+    release.resolve(); expect(await pending).toBe(true);
+    expect(h.applyLive).not.toHaveBeenCalled();
+  });
+
+  it("keeps newer provisional captures when a promotion's expected checkpoint changes during archive", async () => {
+    const h = await fixture(painted("first")); const original = await h.source("original", painted("first"));
+    const entered = deferred(), release = deferred(), archive = h.database.archive.bind(h.database);
+    vi.spyOn(h.database, "archive").mockImplementationOnce(async (...args) => { entered.resolve(); await release.promise; return archive(...args); });
+    const pending = h.runtime.bootstrap(); await entered.promise;
+    h.edit(painted("newer")); h.runtime.capture(); await h.repository.settle(); release.resolve();
+    expect(await pending).toBe(false);
+    expect(JSON.parse(h.repository.snapshot()!.current).live).toEqual(painted("newer"));
+    expect(JSON.parse(original.snapshot()!.current).live).toEqual(painted("first"));
+    expect(await h.runtime.initialize(cloud(painted("cloud")))).toBe(true);
+    expect(h.runtime.snapshot().journal!.conflict).not.toBeNull(); expect(h.getLive()).toEqual(painted("newer"));
+  });
+
+  it("preserves the recovered sent operation when play changes after promotion but before its disk receipt", async () => {
+    const h = await fixture(painted("first")); const original = await h.source("original", painted("first"));
+    const sourceSession = new ProgressSyncSession<Drawing>(original.snapshot()!.current, "drawing-app", "owner", {
+      maySave: () => true, persist: original.persist, requestId: () => "original-request",
+    });
+    const sent = sourceSession.prepare(painted("first"))!; await original.settle();
+    vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+    const entered = deferred(), release = deferred(), put = h.database.put.bind(h.database);
+    let delayed = false;
+    vi.spyOn(h.database, "put").mockImplementation(async (...args) => {
+      if (!delayed && JSON.parse(args[0].raw).recovery.adoptedSources.length) {
+        delayed = true; entered.resolve(); await release.promise;
+      }
+      return put(...args);
+    });
+    const pending = h.runtime.bootstrap(); await entered.promise;
+    expect(h.runtime.snapshot().journal!.sent).toEqual(sent);
+    h.edit(painted("later")); h.runtime.capture();
+    expect(h.runtime.snapshot().journal!.sent).toEqual(sent);
+    release.resolve(); expect(await pending).toBe(true);
+    expect(JSON.parse(h.repository.snapshot()!.current)).toMatchObject({ sent, live: painted("later") });
+    expect(await h.runtime.initialize(cloud(defaults()))).toBe(true);
+    expect(h.runtime.snapshot().journal!.sent).toEqual(sent); expect(h.getLive()).toEqual(painted("later"));
+  });
+
+  it("recovers a failed first provisional write without treating its placeholder as canonical absence", async () => {
+    const h = await fixture(painted("local"));
+    const set = vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
+    const put = vi.spyOn(h.database, "put").mockRejectedValue(Error("quota"));
+    expect(await h.runtime.bootstrap()).toBe(false);
+    expect(h.runtime.choice()).toBeNull();
+    set.mockRestore(); put.mockRestore();
+    expect(await h.runtime.initialize(cloud(painted("cloud")))).toBe(true);
+    expect(h.runtime.choice()!.remote).toEqual(cloud(painted("cloud")));
+    expect(h.getLive()).toEqual(painted("local"));
+  });
+
+  it("stops a revoked owner during a pending recovery inventory without applying cloud", async () => {
+    const entered = deferred(), release = deferred();
+    const h = await fixture(painted("local"), undefined, { writeReady: true,
+      additionalRecovery: async () => { entered.resolve(); await release.promise; return { copies: [], unavailable: false }; } });
+    const pending = h.runtime.initialize(cloud(painted("cloud"))); await entered.promise;
+    await h.repository.settle(); h.authority.revoke(); release.resolve();
+    expect(await pending).toBe(false); expect(h.runtime.capture()).toBe(false); expect(h.applyLive).not.toHaveBeenCalled();
+  });
+});
 
 describe("shared progress runtime initialization", () => {
   it("adopts cloud only after preserving an untouched local copy durably", async () => {
@@ -98,8 +191,16 @@ describe("shared progress runtime initialization", () => {
   it("retries the archived adoption ID when the original writer advances after checkpoint failure", async () => {
     const h = await fixture(painted("old"));
     const original = await h.source("original", painted("old"));
-    const write = vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
-    const put = vi.spyOn(h.database, "put").mockRejectedValueOnce(Error("quota"));
+    const setItem = h.local.setItem.bind(h.local), checkpoint = h.database.put.bind(h.database);
+    const write = vi.spyOn(h.local, "setItem").mockImplementation((key, raw) => {
+      const envelope = JSON.parse(JSON.parse(raw).raw);
+      if (envelope.recovery?.adoptedSources.length) throw Error("quota");
+      setItem(key, raw);
+    });
+    const put = vi.spyOn(h.database, "put").mockImplementation(async (...args) => {
+      if (JSON.parse(args[0].raw).recovery?.adoptedSources.length) throw Error("quota");
+      return checkpoint(...args);
+    });
     expect(await h.runtime.initialize(cloud(painted("old"), "b".repeat(64)))).toBe(false);
     expect(h.repository.snapshot()).not.toBeNull();
     write.mockRestore(); put.mockRestore();
@@ -113,8 +214,16 @@ describe("shared progress runtime initialization", () => {
   it("converts an adoption resolved elsewhere during storage failure into a preserved choice", async () => {
     const h = await fixture(painted("old"));
     await h.source("original", painted("old"));
-    const write = vi.spyOn(h.local, "setItem").mockImplementation(() => { throw Error("quota"); });
-    const put = vi.spyOn(h.database, "put").mockRejectedValueOnce(Error("quota"));
+    const setItem = h.local.setItem.bind(h.local), checkpoint = h.database.put.bind(h.database);
+    const write = vi.spyOn(h.local, "setItem").mockImplementation((key, raw) => {
+      const envelope = JSON.parse(JSON.parse(raw).raw);
+      if (envelope.recovery?.adoptedSources.length) throw Error("quota");
+      setItem(key, raw);
+    });
+    const put = vi.spyOn(h.database, "put").mockImplementation(async (...args) => {
+      if (JSON.parse(args[0].raw).recovery?.adoptedSources.length) throw Error("quota");
+      return checkpoint(...args);
+    });
     expect(await h.runtime.initialize(cloud(painted("old"), "b".repeat(64)))).toBe(false);
     const sourceId = h.repository.snapshot()!.recovery!.adoptedSources[0];
     write.mockRestore(); put.mockRestore();
@@ -362,6 +471,22 @@ describe("explicit runtime recovery choices", () => {
     expect((await h.runtime.choose(h.runtime.choice()!, "server")).ok).toBe(false);
     expect(h.repository.snapshot()!.originals.some(original => original.choice
       && JSON.stringify(JSON.parse(original.raw).live) === JSON.stringify(local))).toBe(true);
+  });
+
+  it("offers the mounted pre-choice original again after uncertain delivery meets a changed cloud", async () => {
+    const local = { ...defaults(), lastModified: 1, settings: { ...defaults().settings, showGrid: true } };
+    const remote = { ...defaults(), lastModified: 2, settings: { ...defaults().settings, soundEnabled: false } };
+    const network = wire(cloud(remote)), h = await fixture(local, network);
+    await h.runtime.initialize(network.get());
+    network.write.mockRejectedValueOnce(Error("offline"));
+    await h.runtime.choose(h.runtime.choice()!, "server");
+    network.set(cloud({ ...remote, lastModified: 3 }, "b".repeat(64)));
+    await h.runtime.save();
+    const token = h.runtime.choice()!;
+    const retained = h.runtime.alternatives().find(copy => JSON.stringify(copy.data) === JSON.stringify(local));
+    expect(retained).toBeDefined();
+    expect(await h.runtime.choose(token, { alternativeId: retained!.id })).toEqual({ ok: true, status: 200 });
+    expect(h.getLive()).toEqual(local);
   });
 
   it.each(["local", "server"] as const)("conditionally commits the exact %s choice", async selected => {

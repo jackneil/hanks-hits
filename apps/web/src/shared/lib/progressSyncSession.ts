@@ -83,7 +83,7 @@ export class ProgressSyncSession<T extends AppProgressData> {
   prepare(live: T): ProgressRequest<T> | null {
     if (!this.capture(live) || !this.io.maySave()) return null;
     const row = this.journal;
-    if (row.conflict) return null;
+    if (row.provisional || row.conflict) return null;
     if (row.sent) {
       if (!this.replayReady) return null;
       this.replayReady = false;
@@ -115,7 +115,7 @@ export class ProgressSyncSession<T extends AppProgressData> {
 
   /** A sibling writer resolved inherited work; retain it for an explicit choice. */
   requireChoice(remote: ProgressSnapshot<T>): Result {
-    if (!this.io.maySave() || !isProgressSnapshot<T>(this.journal.appId, remote)) return "ignored";
+    if (!this.io.maySave() || this.journal.provisional || !isProgressSnapshot<T>(this.journal.appId, remote)) return "ignored";
     return this.conflict(remote, "unknown-lineage", ["$root"]);
   }
 
@@ -164,10 +164,11 @@ export class ProgressSyncSession<T extends AppProgressData> {
 
   /** Cold recovery / reconnect GET, before any remote copy touches the store. */
   observe(remote: ProgressSnapshot<T>): Result {
-    if (!this.io.maySave() || !isProgressSnapshot<T>(this.journal.appId, remote)) return "ignored";
+    if (!this.io.maySave() || this.journal.provisional || !isProgressSnapshot<T>(this.journal.appId, remote)) return "ignored";
     this.freshRequest = null;
     this.replayReady = false;
     const row = this.journal;
+    if (row.provisional) return "ignored";
     if (row.conflict) return this.conflict(remote, row.conflict.reason, row.conflict.paths);
     if (!row.sent) return this.rebase(remote);
     // Equality to the sent copy proves it is redundant now. Equality to the OLD
@@ -185,9 +186,20 @@ export class ProgressSyncSession<T extends AppProgressData> {
     return this.conflict(remote, "ambiguous-delivery", ["$root"]);
   }
 
+  /** Canonical initialization is a durable transition, never permission inferred from the placeholder base. */
+  reconcileProvisional(remote: ProgressSnapshot<T>, live: T, related: boolean): boolean {
+    if (!this.io.maySave() || !this.journal.provisional || !isProgressSnapshot<T>(this.journal.appId, remote)
+      || !isJournalProgress(this.journal.appId, live)) return false;
+    const next = { ...cloneProgress(this.journal), acknowledged: cloneProgress(remote), live: cloneProgress(live),
+      conflict: related ? null
+        : { remote: cloneProgress(remote), reason: "unknown-lineage" as const, paths: ["$root"] } };
+    delete next.provisional;
+    return this.write(next, true);
+  }
+
   /** The exact displayed revision fences an explicit choice against later edits. */
   choose(displayed: ProgressSnapshot<T>, selected: "local" | "server" | { empty: T } | { data: T }): boolean {
-    if (!this.io.maySave() || !sameProgress(displayed, this.journal.conflict?.remote)) return false;
+    if (!this.io.maySave() || this.journal.provisional || !sameProgress(displayed, this.journal.conflict?.remote)) return false;
     // A deleted cloud row has no playable state. The adapter offers "Start
     // fresh" with this game's validated defaults and sends a conditional write
     // against the absent row. That write fences a delayed pre-deletion request.

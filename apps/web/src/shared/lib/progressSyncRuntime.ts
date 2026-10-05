@@ -1,15 +1,15 @@
 import type { AppProgressData, ValidAppId } from "@hank-neil/db/schema";
-import { cloneProgress, isProgressSnapshot, newProgressJournal, parseProgressJournal,
+import { cloneProgress, isProgressSnapshot, newProvisionalJournal, parseProgressJournal,
   type ProgressJournal, type ProgressRequest, type ProgressSnapshot } from "./progressJournal";
 import { ProgressJournalRepository, type JournalCopy } from "./progressJournalRepository";
-import { journalOriginalId, resolvedJournalSources } from "./progressJournalRecovery";
+import { journalOriginalId, journalSourceId, resolvedJournalSources } from "./progressJournalRecovery";
 import { ProgressSyncSession } from "./progressSyncSession";
 import { sameProgress } from "./progressStamp";
 import { progressSyncTransport, type ProgressResponse, type ProgressTransport, type ProgressWrite } from "./progressSyncTransport";
 
 export const PROGRESS_BEACON_BYTES = 48 * 1024;
 export type ProgressSaveResult = { ok: boolean; status: number | null };
-export type ProgressChoice<T> = { remote: ProgressSnapshot<T>; local: T; copies: JournalCopy[] };
+export type ProgressChoice<T> = { remote: ProgressSnapshot<T>; local: T; copies: JournalCopy[]; alternatives: ProgressAlternative<T>[] };
 export type ProgressAlternative<T> = { id: string; sourceId: string; data: T };
 export type ProgressSelection<T> = "local" | "server" | { alternativeId: string } | { empty: T };
 export type ProgressSyncStatus = "pending" | "saving" | "saved" | "conflict" | "storage-error" | "network-error" | "revoked";
@@ -43,8 +43,7 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
   private copies: JournalCopy[] = [];
   private alive = true;
   private initializing: Promise<boolean> | null = null;
-  private adoptionSource: string | null = null;
-  private boot: { raw: string; expectedLive: T; adoptingCloud: boolean } | null = null;
+  private bootstrapping: Promise<boolean> | null = null;
   private readonly transport: ProgressTransport<T>;
   private saving: Promise<ProgressSaveResult> | null = null;
   private explicitChoice = false;
@@ -76,7 +75,7 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     if (!this.allowed()) return "revoked";
     if (this.saving) return "saving";
     const row = this.session?.snapshot();
-    if (row?.conflict) return "conflict";
+    if (row?.conflict && !row.provisional) return "conflict";
     if (this.problem) return this.problem;
     if (this.phase !== "ready" || !row) return "pending";
     if (!this.session!.storageAvailable || !this.io.repository.isDurable()) return "storage-error";
@@ -85,11 +84,60 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
 
   /** Persist play immediately; network debounce must not delay recovery capture. */
   capture(): boolean {
-    if (!this.allowed() || !this.session) return false;
-    const durable = this.session.capture(this.io.getLive());
+    if (!this.allowed()) return false;
+    let durable = false;
+    try {
+      if (!this.session) {
+        const raw = JSON.stringify(newProvisionalJournal(this.io.appId, this.io.ownerId, this.io.writerId, this.io.getLive()));
+        this.io.repository.persist(raw, []);
+        this.install(raw);
+      }
+      const captured = this.session!.capture(this.io.getLive());
+      const raw = JSON.stringify(this.session!.snapshot());
+      const pending = this.io.repository.snapshot()?.current;
+      // Failed structural transitions may have queued another candidate. Capture
+      // the still-current session exactly, retaining that candidate before retry.
+      if (captured && (!this.io.repository.isDurable() || pending !== raw)) {
+        this.io.repository.persist(raw, pending && pending !== raw ? [pending] : []);
+      }
+      durable = captured && this.io.repository.isDurable() && this.io.repository.snapshot()?.current === raw;
+    } catch { /* Unknown local shapes remain in their original game store. */ }
     if (!durable) this.problem = "storage-error";
     this.io.onChange?.();
     return durable;
+  }
+
+  /** Local preservation starts before GET and never waits on unrelated source capture. */
+  bootstrap(): Promise<boolean> {
+    if (this.bootstrapping) return this.bootstrapping;
+    this.capture();
+    this.bootstrapping = this.bootstrapOnce().catch(() => this.block()).finally(() => { this.bootstrapping = null; });
+    return this.bootstrapping;
+  }
+
+  private async bootstrapOnce(): Promise<boolean> {
+    const { repository } = this.io;
+    if (!await this.captureLatest() || !this.allowed()) return this.block();
+    const inventory = await repository.recover();
+    if (!this.allowed() || inventory.unavailable) return this.block();
+    const resolved = resolvedJournalSources(inventory.copies, this.io.appId, this.io.ownerKey);
+    if (!resolved) return this.block();
+    this.copies = this.pendingCopies(inventory.copies, resolved);
+    if (this.session!.snapshot()!.provisional && !repository.snapshot()?.recovery?.adoptedSources.length && this.copies.length === 1) {
+      const source = this.copies[0];
+      const row = parseProgressJournal<T>(source.envelope.current, this.io.appId, this.io.ownerId)!;
+      if (sameProgress(row.live, this.io.getLive()) && !source.envelope.recovery?.adoptedSources.some(id => resolved.has(id))) {
+        if (!await this.captureLatest()) return this.block();
+        const expectedProvisional = JSON.stringify(this.session!.snapshot());
+        let promoted = false;
+        const raw = await repository.adopt(source.sourceId, { expectedProvisional, onPromoted: next => {
+          this.install(next); promoted = true;
+        } });
+        if (!this.allowed() || (!raw && !promoted)) return this.block();
+        if (!await this.captureLatest()) return this.block();
+      }
+    }
+    return this.allowed() && await this.captureLatest();
   }
 
   private saved(): boolean {
@@ -135,6 +183,7 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     if (this.initializing) await this.initializing;
     if (!this.allowed()) return failed();
     if (!this.session || this.phase !== "ready") {
+      if (!await this.bootstrap() || !this.allowed()) { this.problem = "storage-error"; return failed(); }
       const response = await this.transport.read();
       const canonical = this.canonical(response);
       if (response.status !== 200 || !canonical) { this.problem = "network-error"; return failed(response.status); }
@@ -228,22 +277,29 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
   choice(): ProgressChoice<T> | null {
     if (!this.allowed()) return null;
     const row = this.session?.snapshot();
-    return row?.conflict ? { remote: cloneProgress(row.conflict.remote), local: cloneProgress(this.io.getLive()),
-      copies: cloneProgress(this.copies) } : null;
+    return this.phase === "ready" && row?.conflict && !row.provisional ? { remote: cloneProgress(row.conflict.remote), local: cloneProgress(this.io.getLive()),
+      copies: cloneProgress(this.copies), alternatives: this.alternatives() } : null;
   }
 
   alternatives(): ProgressAlternative<T>[] {
     if (!this.allowed()) return [];
     const alternatives: ProgressAlternative<T>[] = [];
-    for (const source of this.copies) {
-      for (const raw of [source.envelope.current, ...source.envelope.originals.map(original => original.raw)]) {
-        const row = parseProgressJournal<T>(raw, this.io.appId, this.io.ownerId)!;
-        for (const [section, data] of [["live", row.live], ["sent", row.sent?.data], ["base", row.acknowledged.data],
-          ["conflict", row.conflict?.remote.data]] as const) {
-          if (data && !alternatives.some(copy => sameProgress(copy.data, data))) alternatives.push({
-            id: JSON.stringify([source.sourceId, journalOriginalId(raw), section]), sourceId: source.sourceId, data: cloneProgress(data),
-          });
-        }
+    const sources = this.copies.flatMap(source =>
+      [source.envelope.current, ...source.envelope.originals.map(original => original.raw)]
+        .map(raw => ({ sourceId: source.sourceId, raw })));
+    for (const original of this.io.repository.snapshot()?.originals ?? []) {
+      if (!original.choice) continue;
+      const row = parseProgressJournal<T>(original.raw, this.io.appId, this.io.ownerId);
+      if (row) sources.push({ raw: original.raw,
+        sourceId: journalSourceId(this.io.ownerKey, this.io.appId, row.writerId, original.raw) });
+    }
+    for (const { raw, sourceId } of sources) {
+      const row = parseProgressJournal<T>(raw, this.io.appId, this.io.ownerId)!;
+      for (const [section, data] of [["live", row.live], ["sent", row.sent?.data], ["base", row.acknowledged.data],
+        ["conflict", row.conflict?.remote.data]] as const) {
+        if (data && !alternatives.some(copy => sameProgress(copy.data, data))) alternatives.push({
+          id: JSON.stringify([sourceId, journalOriginalId(raw), section]), sourceId, data: cloneProgress(data),
+        });
       }
     }
     return alternatives;
@@ -269,13 +325,17 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     this.problem = null;
     const selectedData = selected === "local" ? displayed.local : selected === "server" ? displayed.remote.data
       : "empty" in selected ? (displayed.remote.data === null ? selected.empty : null)
-        : this.alternatives().find(copy => copy.id === selected.alternativeId)?.data;
+        : displayed.alternatives.find(copy => copy.id === selected.alternativeId)?.data;
     if (!selectedData) return failed(409);
-    if (!await this.captureLatest() || !unchanged()) { this.problem = "storage-error"; return failed(); }
+    const selectedRetained = typeof selected === "object" && "alternativeId" in selected
+      ? displayed.alternatives.find(copy => copy.id === selected.alternativeId) : null;
+    const retainedUnchanged = () => !selectedRetained || this.alternatives().some(copy => sameProgress(copy, selectedRetained));
+    if (!retainedUnchanged()) return failed(409);
+    if (!await this.captureLatest() || !unchanged() || !retainedUnchanged()) { this.problem = "storage-error"; return failed(); }
     const response = await this.transport.read();
     const canonical = this.canonical(response);
     if (response.status !== 200 || !canonical) { this.problem = "network-error"; return failed(response.status); }
-    if (!unchanged()) return failed(409);
+    if (!unchanged() || !retainedUnchanged()) return failed(409);
     if (!sameProgress(canonical, displayed.remote)) {
       const result = this.session!.observe(canonical);
       if (result === "blocked") this.problem = "storage-error";
@@ -283,7 +343,7 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     }
     const repository = this.io.repository;
     const current = repository.snapshot()?.current;
-    if (!current || !await repository.retainSources(displayed.copies, current) || !unchanged()) {
+    if (!current || !await repository.retainSources(displayed.copies, current) || !unchanged() || !retainedUnchanged()) {
       this.problem = "storage-error";
       await this.refreshCopies();
       return failed();
@@ -294,7 +354,7 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     let chosen = session.choose(displayed.remote, { data: selectedData });
     if (!chosen) {
       await repository.settle();
-      if (!unchanged()) { session.capture(this.io.getLive()); return failed(409); }
+      if (!unchanged() || !retainedUnchanged()) { session.capture(this.io.getLive()); return failed(409); }
       chosen = session.choose(displayed.remote, { data: selectedData });
     }
     if (!chosen || !this.allowed()) { this.problem = "storage-error"; return failed(); }
@@ -333,9 +393,9 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
   /** Includes a storage retry, but never assumes play stopped while it waited. */
   private async captureLatest(): Promise<boolean> {
     if (!this.allowed() || !this.session) return false;
-    if (this.session.capture(this.io.getLive())) return true;
+    if (this.capture()) return true;
     await this.io.repository.settle();
-    return this.allowed() && this.session.capture(this.io.getLive());
+    return this.allowed() && this.capture();
   }
 
   private pendingCopies(copies: JournalCopy[], resolved: Set<string>): JournalCopy[] {
@@ -357,84 +417,48 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
   }
 
   private async initializeOnce(canonical: ProgressSnapshot<T>): Promise<boolean> {
-    const { repository, appId, ownerId, ownerKey, writerId } = this.io;
-    if (!this.allowed() || !isProgressSnapshot<T>(appId, canonical)) return this.block();
-    if (this.session) return this.observeInitialization(canonical);
-    const beforeInventory = cloneProgress(this.io.getLive());
+    const { repository } = this.io;
+    if (!this.allowed() || !isProgressSnapshot<T>(this.io.appId, canonical)) return this.block();
+    if (this.phase === "ready" && this.session && !this.session.snapshot()!.provisional) return this.observeInitialization(canonical);
+    if (!await this.bootstrap() || !this.allowed()) return this.block();
+    // Promotion and GET each await external work. Re-inventory before using
+    // recovered lineage or applying the remote snapshot to the mounted store.
     const inventory = await repository.recover();
     if (!this.allowed() || inventory.unavailable) return this.block();
-    const resolved = resolvedJournalSources(inventory.copies, appId, ownerKey);
+    const resolved = resolvedJournalSources(inventory.copies, this.io.appId, this.io.ownerKey);
     if (!resolved) return this.block();
     this.copies = this.pendingCopies(inventory.copies, resolved);
-    const live = cloneProgress(this.io.getLive());
-    if (!this.boot && !this.adoptionSource && this.copies.length === 1) {
-      const source = this.copies[0];
-      const row = parseProgressJournal<T>(source.envelope.current, appId, ownerId)!;
-      if (sameProgress(row.live, live) && !source.envelope.recovery?.adoptedSources.some(id => resolved.has(id))) {
-        this.adoptionSource = source.sourceId;
+    if (!await this.captureLatest() || !this.allowed()) return this.block();
+    const session = this.session!, row = session.snapshot()!;
+    if (!row.provisional) {
+      const ancestors = repository.snapshot()?.recovery?.adoptedSources ?? [];
+      if (ancestors.some(id => resolved.has(id)) || this.copies.some(copy => !ancestors.includes(copy.sourceId))) {
+        if (session.requireChoice(canonical) === "blocked") return this.block();
       }
+      return this.observeInitialization(canonical);
     }
-    if (!this.boot && this.adoptionSource) {
-      // The repository's failed adoption draft owns this exact source ID,
-      // even if its original writer advances before checkpoint storage recovers.
-      const id = this.adoptionSource, prior = repository.snapshot();
-      const retired = resolved.has(id) || prior?.recovery?.adoptedSources.some(source => resolved.has(source));
-      const raw = retired ? prior?.current : await repository.adopt(id);
+    const expectedLive = cloneProgress(this.io.getLive());
+    const untouched = this.copies.length === 0 && this.io.isUntouched(expectedLive);
+    const adoptingCloud = untouched && canonical.data !== null && !sameProgress(expectedLive, canonical.data);
+    const target = adoptingCloud ? canonical.data! : expectedLive;
+    const related = this.copies.length === 0 && (untouched || sameProgress(expectedLive, canonical.data) || canonical.revision === null);
+    let reconciled = session.reconcileProvisional(canonical, target, related);
+    if (!reconciled) {
+      await repository.settle();
       if (!this.allowed()) return this.block();
-      if (!raw) {
-        if (!repository.snapshot()) this.adoptionSource = null; // No archived draft yet: refresh selection next time.
+      if (!sameProgress(this.io.getLive(), expectedLive)) {
+        session.capture(this.io.getLive());
         return this.block();
       }
-      this.adoptionSource = null;
-      if (retired || this.copies.some(copy => copy.sourceId !== id)) {
-        // A resolved ancestor or a newer source is not permission to replay
-        // the old draft. Keep its immutable operation and require a choice.
-        const row = parseProgressJournal<T>(raw, appId, ownerId)!;
-        row.conflict = { remote: cloneProgress(canonical), reason: "unknown-lineage", paths: ["$root"] };
-        this.boot = { raw: JSON.stringify(row), expectedLive: live, adoptingCloud: false };
-        repository.persist(this.boot.raw, [raw]);
-      } else {
-        this.install(raw);
-        // Adoption awaited archive/checkpoint writes. Capture play created
-        // while those writes waited before observing or applying cloud state.
-        return this.observeInitialization(canonical);
-      }
+      reconciled = session.reconcileProvisional(canonical, target, related);
     }
-    if (!this.boot) {
-      const untouched = this.copies.length === 0 && sameProgress(beforeInventory, live) && this.io.isUntouched(live);
-      const adoptingCloud = untouched && canonical.data !== null && !sameProgress(live, canonical.data);
-      const target = adoptingCloud ? canonical.data! : live;
-      const related = this.copies.length === 0 && (untouched || sameProgress(live, canonical.data) || canonical.revision === null);
-      const row = newProgressJournal(appId, ownerId, writerId, canonical, target, related);
-      if (this.copies.length) row.conflict = { remote: cloneProgress(canonical), reason: "unknown-lineage", paths: ["$root"] };
-      const raw = JSON.stringify(row);
-      // Preserve even an untouched device copy before replacing it with cloud.
-      const originals = adoptingCloud
-        ? [JSON.stringify(newProgressJournal(appId, ownerId, writerId, canonical, live, false))] : [];
-      this.boot = { raw, expectedLive: live, adoptingCloud };
-      repository.persist(raw, originals);
-    } else repository.persist(this.boot.raw, []);
-    await repository.settle();
-    if (!this.allowed() || !repository.isDurable() || repository.snapshot()?.current !== this.boot.raw) return this.block();
-    const currentLive = cloneProgress(this.io.getLive());
-    if (this.boot.adoptingCloud && !sameProgress(currentLive, this.boot.expectedLive)) {
-      // Those edits were made on the old device copy, not the cloud ancestor.
-      const raw = JSON.stringify(newProgressJournal(appId, ownerId, writerId, canonical, currentLive, false));
-      repository.persist(raw, [this.boot.raw]);
-      this.boot = { raw, expectedLive: currentLive, adoptingCloud: false };
-      await repository.settle();
-      if (!this.allowed() || !repository.isDurable() || repository.snapshot()?.current !== raw) return this.block();
-    }
-    const boot = this.boot;
-    this.install(boot.raw);
-    this.boot = null;
-    if (boot.adoptingCloud) {
-      // No await between this final comparison and apply. It is still the
-      // untouched local snapshot whose replacement was durably preserved.
-      if (!sameProgress(this.io.getLive(), boot.expectedLive)) return this.block();
-      this.io.applyLive(this.session!.snapshot()!.live);
-    }
-    return this.observeInitialization(canonical);
+    if (!reconciled || !this.allowed()) return this.block();
+    if (!sameProgress(this.io.getLive(), expectedLive)) {
+      if (!session.capture(this.io.getLive()) || session.requireChoice(canonical) === "blocked") return this.block();
+    } else this.io.applyLive(session.snapshot()!.live);
+    this.phase = "ready";
+    this.problem = null;
+    return true;
   }
 
   private async observeInitialization(canonical: ProgressSnapshot<T>): Promise<boolean> {

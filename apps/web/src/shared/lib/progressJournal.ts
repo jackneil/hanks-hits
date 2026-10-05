@@ -23,6 +23,8 @@ export type ProgressJournal<T> = {
   conflict: ProgressConflict<T> | null;
   /** An explicit choice must advance the revision, even for an unchanged copy. */
   forceWrite: boolean;
+  /** Local preservation only; no canonical absence or dispatch authority. */
+  provisional?: true;
   /** Opaque source bytes survive conversion, archive and later session writes. */
   imported?: { kind: "bakery-v1"; sourceKey: string; raw: string }
     | { kind: "guest-v2"; sourceKey: string; raw: string; candidateId: string; loadAt: number };
@@ -77,6 +79,10 @@ export function parseProgressJournal<T extends AppProgressData>(raw: string, app
     if (row.conflict !== null && (!object(row.conflict) || !isProgressSnapshot(appId, row.conflict.remote)
       || !["concurrent-edit", "ambiguous-delivery", "unknown-lineage", "canonical-change"].includes(row.conflict.reason as string)
       || !Array.isArray(row.conflict.paths) || !row.conflict.paths.every(path => typeof path === "string"))) return null;
+    if (row.provisional !== undefined && (row.provisional !== true || row.sent !== null || row.forceWrite
+      || row.imported !== undefined || !sameProgress(row.acknowledged, { data: null, revision: null })
+      || !object(row.conflict) || row.conflict.reason !== "unknown-lineage"
+      || !sameProgress(row.conflict.remote, { data: null, revision: null }))) return null;
     return row as ProgressJournal<T>;
   } catch { return null; }
 }
@@ -93,4 +99,9 @@ export function newProgressJournal<T extends AppProgressData>(
   const checked = parseProgressJournal<T>(JSON.stringify(row), appId, ownerId);
   if (!checked) throw new Error("Invalid progress journal");
   return checked;
+}
+
+/** Placeholder lineage preserves local play but grants no network permission. */
+export function newProvisionalJournal<T extends AppProgressData>(appId: ValidAppId, ownerId: string, writerId: string, live: T): ProgressJournal<T> {
+  return { ...newProgressJournal(appId, ownerId, writerId, { data: null, revision: null }, live, false), provisional: true };
 }

@@ -4,7 +4,7 @@ import { useDrawingStore } from "@/apps/drawing-app/lib/store";
 import { useRetroArcadeStore } from "@/games/retro-arcade/lib/store";
 import { ProgressSyncSession } from "../progressSyncSession";
 import {
-  cloneProgress, newProgressJournal, parseProgressJournal,
+  cloneProgress, newProgressJournal, newProvisionalJournal, parseProgressJournal,
   type ProgressJournal, type ProgressSnapshot,
 } from "../progressJournal";
 
@@ -36,6 +36,23 @@ function harness(appId: ValidAppId = "drawing-app", data = drawing, live = data,
 const state = (session: ProgressSyncSession<AppProgressData>) => session.snapshot()!;
 
 describe("durable revision sessions", () => {
+  it("requires an exact durable canonical transition before provisional data can prepare or choose", () => {
+    const row = newProvisionalJournal("drawing-app", "owner", "writer", drawing);
+    const h = harness("drawing-app", drawing, drawing, false, JSON.stringify(row));
+    expect(h.session.prepare(drawing)).toBeNull();
+    expect(h.session.observe(snapshot(drawing))).toBe("ignored");
+    expect(h.session.choose({ data: null, revision: null }, "local")).toBe(false);
+    h.writable(false);
+    expect(h.session.reconcileProvisional(snapshot(drawing), drawing, true)).toBe(false);
+    expect(state(h.session).provisional).toBe(true);
+    h.writable(true);
+    expect(h.session.reconcileProvisional(snapshot(drawing), drawing, true)).toBe(true);
+    expect(state(h.session).provisional).toBeUndefined();
+    expect(state(h.session).acknowledged).toEqual(snapshot(drawing));
+    expect(h.archives).toContain(JSON.stringify(row));
+    expect(h.session.reconcileProvisional(snapshot(drawing), drawing, true)).toBe(false);
+  });
+
   it.each([false, true])("does not replay a lost-ACK initial creation after deletion (cold recovery=%s)", cold => {
     const row = newProgressJournal("drawing-app", "owner", "writer", { data: null, revision: null }, drawing, true);
     const h = harness("drawing-app", drawing, drawing, true, JSON.stringify(row));

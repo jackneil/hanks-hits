@@ -152,6 +152,13 @@ export class ProgressJournalDatabase {
     });
   }
 
+  get(ownerKey: string, appId: ValidAppId, writerId: string, expectedEpoch: number): Promise<JournalCheckpoint | undefined> {
+    return this.run("readonly", async tx => {
+      await this.epoch(tx, ownerKey, expectedEpoch);
+      return request<JournalCheckpoint | undefined>(tx.objectStore("checkpoints").get([ownerKey, appId, writerId]));
+    });
+  }
+
   list(ownerKey: string, expectedEpoch: number): Promise<JournalCheckpoint[]> {
     return this.run("readonly", async tx => {
       await this.epoch(tx, ownerKey, expectedEpoch);
