@@ -80,6 +80,9 @@ describe("bounded encoder warm-up", () => {
     void w.locks.client("other").request(CAPTURE_LOCK, { steal: true }, () => new Promise(() => undefined)).catch(() => undefined);
     await flush();
     expect(w.service.getSnapshot()).toMatchObject({ button: "suspended", reason: "warmup-timeout" });
+    const clip = vi.spyOn(w.engine, "clip");
+    expect(press(w, 10)).toEqual({ kind: "menu" });
+    expect(clip).not.toHaveBeenCalled();
     w.service.wake();
     await advance(60_000);
     expect(w.engine.disarms).toBe(1);

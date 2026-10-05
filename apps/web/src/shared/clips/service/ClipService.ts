@@ -616,6 +616,7 @@ export class ClipService implements ClipServiceApi {
     const heldMs = info.upAtMs - token.downAtMs;
     const button = snap.button;
     if (button === "recording" || button === "saving" || button === "exporting") return { kind: "ignored", reason: "busy" };
+    if (this.warmupResting) return { kind: "menu" };
     if (heldMs >= HOLD_FOR_MENU_MS && !info.moved) return { kind: "menu" };
     switch (button) {
       case "resting":

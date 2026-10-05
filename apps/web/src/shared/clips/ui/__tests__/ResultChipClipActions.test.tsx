@@ -118,6 +118,19 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     expect(chipRunOf(null)).toBeNull();
   });
 
+  it.each(["resting", "suspended"] as const)("opens retry instead of clipping a frozen result after timeout (%s)", async (button) => {
+    const fake = afterRun(16, { button: "warming", engine: "warming", bufferedSec: 0 });
+    renderWithClips(<ResultChipClipActions />, { fake });
+    expect(fake.service.beginPress).toHaveBeenCalledTimes(1);
+    act(() => fake.set({ button, engine: "resting", reason: "warmup-timeout" }));
+    expect(labels()).toEqual(["Put it on the leaderboard"]);
+    fireEvent.click(screen.getByRole("button", { name: "Put it on the leaderboard" }));
+    await flush(6);
+    expect(fake.service.clipRun).not.toHaveBeenCalled();
+    expect(screen.getByTestId("capture-menu")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Turn the clip button back on" })).toBeEnabled();
+  });
+
   it("gives the voice the length in words", () => {
     expect(resultChipClipActions(snapshot(), run(16.08))[0].spoken).toBe("Watch the whole run, 16 seconds");
     expect(resultChipClipActions(snapshot({ bufferedSec: 200 }), run(102)).map((action) => action.spoken)).toEqual([

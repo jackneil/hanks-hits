@@ -110,11 +110,11 @@ const RUN_CLIP_STATES: ReadonlySet<ClipButtonState> = new Set(["ready", "made", 
  * frozen end: that much of the ring's start is gone.
  */
 export function resultChipClipActions(
-  snapshot: Pick<ClipSnapshot, "button" | "bufferedSec" | "replayGranularitySec">,
+  snapshot: Pick<ClipSnapshot, "button" | "bufferedSec" | "replayGranularitySec" | "reason">,
   run: ChipRun | null,
   capturedSinceRunEnd = 0,
 ): ResultChipClipAction[] {
-  if (!run || !RUN_CLIP_STATES.has(snapshot.button)) return [];
+  if (!run || snapshot.reason === "warmup-timeout" || !RUN_CLIP_STATES.has(snapshot.button)) return [];
   // A run clip starts at the first keyframe at or after the run's start, so
   // it can be one keyframe gap shorter than the run. Too short to clip: none.
   const granularity = snapshot.replayGranularitySec ?? 1;
