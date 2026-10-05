@@ -17,6 +17,8 @@ type RepositoryOptions = {
   authority: Authority; database: Database; words: MigrationDatabase;
   lease: ProgressLease; appId: ValidAppId; ownerId: string; writerId: string;
   maySave: () => boolean; onDurable?: () => void;
+  /** Read-only compatibility sources participate in every complete inventory. */
+  additionalRecovery?: () => JournalRecovery | Promise<JournalRecovery>;
 };
 export type JournalRecovery = { copies: JournalCopy[]; unavailable: boolean };
 const digest = (raw: string) => [...sha256(new TextEncoder().encode(raw))].map(n => n.toString(16).padStart(2, "0")).join("");
@@ -70,7 +72,7 @@ export class ProgressJournalRepository {
   /** Cold recovery must inspect BOTH backends before deciding which generation wins. */
   async recover(): Promise<JournalRecovery> {
     if (!this.allowed()) return { copies: [], unavailable: true };
-    const rows: Array<{ writerId: string; raw: string; generation?: number }> = [];
+    const rows: Array<{ writerId: string; raw: string; generation?: number; sourceId?: string }> = [];
     let unavailable = false;
     const prefix = `${PROGRESS_JOURNAL_PREFIX}${this.address.appId}-`;
     const listing = this.io.authority.listDurableScoped(prefix, this.lease);
@@ -90,12 +92,25 @@ export class ProgressJournalRepository {
         if (row.appId === this.address.appId) { this.observedWriters.add(row.writerId); rows.push(row); }
       }
     } catch { unavailable = true; }
+    if (this.io.additionalRecovery) {
+      try {
+        const additional = await this.io.additionalRecovery();
+        unavailable ||= additional.unavailable;
+        for (const source of additional.copies) {
+          this.observedWriters.add(source.writerId);
+          rows.push({ writerId: source.writerId, sourceId: source.sourceId, raw: JSON.stringify(source.envelope) });
+        }
+      } catch { unavailable = true; }
+    }
     if (!this.allowed()) return { copies: [], unavailable: true };
     const latest = new Map<string, JournalCopy>();
     for (const row of rows) {
       const envelope = readJournalEnvelope(row.raw, { ...this.address, writerId: row.writerId });
       if (!envelope || (row.generation !== undefined && row.generation !== envelope.generation)) { unavailable = true; continue; }
       if (envelope.recovery && !isJournalRecovery(envelope.recovery, this.address.appId, this.lease.ownerKey)) { unavailable = true; continue; }
+      if (row.sourceId !== undefined && row.sourceId !== journalSourceId(this.lease.ownerKey, this.address.appId, row.writerId, envelope.current)) {
+        unavailable = true; continue;
+      }
       const prior = latest.get(row.writerId);
       if (prior && prior.envelope.generation > envelope.generation) continue;
       if (prior?.envelope.generation === envelope.generation) {

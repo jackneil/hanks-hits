@@ -68,6 +68,21 @@ describe("owner-bound progress", () => {
     expect(service.listDurableScoped("journal-", lease)).toEqual({ keys: [], available: false });
   });
 
+  it("reports complete legacy enumeration separately from unavailable or revoked storage", async () => {
+    const { service, local } = setup();
+    await service.updateSession("authenticated", "alice");
+    const lease = service.captureLease()!;
+    local.setItem("cookie-clicker-sync-old-storage", "raw");
+    local.setItem(physical("u_alice", "cookie-clicker-sync-scoped-storage"), "raw");
+    expect(service.listDurableLegacy("cookie-clicker-sync-", lease)).toEqual({
+      keys: ["cookie-clicker-sync-old-storage"], available: true,
+    });
+    const key = vi.spyOn(local, "key").mockImplementation(() => { throw Error("unavailable"); });
+    expect(service.listDurableLegacy("cookie-clicker-sync-", lease)).toEqual({ keys: [], available: false });
+    key.mockRestore(); service.revoke();
+    expect(service.listDurableLegacy("cookie-clicker-sync-", lease)).toEqual({ keys: [], available: false });
+  });
+
   it("keeps legacy bytes and marker frozen while hydrating and writing only the resolved owner", async () => {
     const { service, local, clock } = setup();
     local.setItem(key, raw(3)); local.setItem(marker, "alice");

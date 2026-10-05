@@ -21,6 +21,8 @@ export type ProgressJournal<T> = {
   conflict: ProgressConflict<T> | null;
   /** An explicit choice must advance the revision, even for an unchanged copy. */
   forceWrite: boolean;
+  /** Opaque source bytes survive conversion, archive and later session writes. */
+  imported?: { kind: "bakery-v1"; sourceKey: string; raw: string };
 };
 
 export const PROGRESS_JOURNAL_PREFIX = "progress-sync-v1-";
@@ -51,6 +53,13 @@ export function parseProgressJournal<T extends AppProgressData>(raw: string, app
       || !identifier(row.writerId) || !Number.isSafeInteger(row.serial) || (row.serial as number) < 0
       || !isProgressSnapshot(appId, row.acknowledged) || !isJournalProgress(appId, row.live)
       || typeof row.forceWrite !== "boolean") return null;
+    if (row.imported !== undefined) {
+      if (appId !== "cookie-clicker" || !object(row.imported) || row.imported.kind !== "bakery-v1"
+        || typeof row.imported.sourceKey !== "string" || !row.imported.sourceKey
+        || typeof row.imported.raw !== "string") return null;
+      const imported: unknown = JSON.parse(row.imported.raw);
+      if (!object(imported) || imported.version !== 1 || imported.ownerId !== ownerId) return null;
+    }
     if (row.sent !== null && (!object(row.sent) || !identifier(row.sent.id)
       || !isProgressSnapshot(appId, row.sent.base) || !isJournalProgress(appId, row.sent.data)
       || !sameProgress(row.sent.base, row.acknowledged))) return null;

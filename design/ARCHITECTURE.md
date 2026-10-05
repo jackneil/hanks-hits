@@ -1148,6 +1148,17 @@ progress instead of treating another tab's timestamp as a canonical revision.
 The shared hook's existing behavior remains for games without this adapter.
 This does not complete the all-game reconciliation and two-device proof in #69.
 
+The shared runtime's compatibility importer is prepared but not active in this
+hook yet. `import-progress-journals.ts` inventories durable owner-scoped and
+legacy Cookie journals, retaining exact source bytes inside generic journals.
+Sent requests, backup alternatives, guest IDs and old retirement evidence stay
+recoverable. Pending imports require an explicit choice; legacy retirement
+receipts do not suppress them automatically. Failed enumeration or malformed
+same-owner data blocks recovery. The repository includes these read-only sources
+in every inventory, archives them before adoption/choice, and suppresses only
+exact source identities covered by a later generic acknowledgement and receipt.
+Legacy keys are never rewritten or deleted by this importer.
+
 **Enforcement:**
 
 - `src/__tests__/store-default-timestamp.test.ts`: every store that

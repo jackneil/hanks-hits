@@ -270,6 +270,20 @@ export function createOwnerBoundProgress(deps: {
     try { const local = storage(); if (local) for (let i = 0; i < local.length; i++) { const key = local.key(i); if (key?.startsWith(prefix) && !key.startsWith(PROGRESS_NAMESPACE)) keys.push(key); } } catch { /* Recovery remains optional when storage is unavailable. */ }
     return keys;
   };
+  /** A recovery inventory must distinguish an empty store from a failed listing. */
+  const listDurableLegacy = (prefix: string, lease: ProgressLease): { keys: string[]; available: boolean } => {
+    if (!isCurrent(lease)) return { keys: [], available: false };
+    try {
+      const local = storage();
+      if (!local) return { keys: [], available: false };
+      const keys: string[] = [];
+      for (let i = 0; i < local.length; i++) {
+        const key = local.key(i);
+        if (key?.startsWith(prefix) && !key.startsWith(PROGRESS_NAMESPACE)) keys.push(key);
+      }
+      return isCurrent(lease) ? { keys, available: true } : { keys: [], available: false };
+    } catch { return { keys: [], available: false }; }
+  };
   const listScoped = (prefix: string, lease: ProgressLease | null = captureLease()): string[] => {
     if (!lease || !isCurrent(lease)) return [];
     const keys = new Set<string>();
@@ -403,7 +417,7 @@ export function createOwnerBoundProgress(deps: {
     },
     matchesSession: (status: AuthStatus, userId?: string): boolean => snapshot.status === "ready"
       && status !== "loading" && (status === "authenticated" ? !!userId && pinnedIdentity === userId : pinnedIdentity === null),
-    readEvidence, readScoped, readDurableScoped, listDurableScoped, writeScoped, removeScoped, listScoped, readLegacy, listLegacyKeys,
+    readEvidence, readScoped, readDurableScoped, listDurableScoped, writeScoped, removeScoped, listScoped, readLegacy, listLegacyKeys, listDurableLegacy,
     readGuestCandidate, listGuestCandidates,
     acknowledgeGuestCandidate: (key: string, id: string, lease: ProgressLease | null = captureLease()): boolean => {
       if (!lease || !isCurrent(lease)) return false;
