@@ -8,6 +8,19 @@ import { sameProgress } from "./progressStamp";
 import { progressSyncTransport, type ProgressResponse, type ProgressTransport, type ProgressWrite } from "./progressSyncTransport";
 
 export const PROGRESS_BEACON_BYTES = 48 * 1024;
+
+/** Reserve the largest wire wrapper; near-boundary saves may upload early. */
+export function progressBeaconDataBudget(ownerId: string): number {
+  const wrapper: ProgressWrite<null> = { data: null, merge: true, baseRevision: "0".repeat(64),
+    expectedOwnerId: ownerId, resolution: true };
+  return Math.max(0, PROGRESS_BEACON_BYTES - new TextEncoder().encode(JSON.stringify(wrapper)).byteLength + 4);
+}
+
+/** Reuse a bounded buffer, even when the live gallery is many megabytes. */
+export function exceedsProgressBeaconBudget(raw: string, buffer: Uint8Array<ArrayBuffer>): boolean {
+  return raw.length > buffer.length || new TextEncoder().encodeInto(raw, buffer).read < raw.length;
+}
+
 export type ProgressSaveResult = { ok: boolean; status: number | null };
 export type ProgressChoice<T> = { remote: ProgressSnapshot<T>; local: T; copies: JournalCopy[]; alternatives: ProgressAlternative<T>[] };
 export type ProgressAlternative<T> = { id: string; sourceId: string; data: T };
