@@ -98,6 +98,8 @@ export const FAILURES_TO_DISABLE = 4;
 export const RESULT_POST_ROLL_MS = 3000;
 /** How often the Record timer updates. */
 export const RECORD_TICK_MS = 1000;
+/** Active capture time allowed before an empty encoder attempt rests. */
+export const WARMUP_TIMEOUT_MS = 15_000;
 /** Moments older than this behind the newest frame can no longer be in a clip (a ring holds at most 60 s). */
 export const MOMENT_KEEP_US = 120_000_000;
 /** First wait before the owner is read again after a failed read at a bfcache restore. It doubles each time. */
@@ -299,6 +301,9 @@ export class ClipService implements ClipServiceApi {
   private outputOk = false;
   private sourcePresent = false;
   private governorResting = false;
+  private warmupResting = false;
+  private warmupElapsedMs = 0;
+  private warmupStartedAt: number | null = null;
   private recovering = false;
   private bufferedSec = 0;
   /** The encoder's time to first frame (plan 15.2), once the engine measured it. */
@@ -491,7 +496,7 @@ export class ClipService implements ClipServiceApi {
   /** Hands a registration to the engine once the engine may capture. */
   private forward(reg: SourceReg): void {
     const engine = this.engine;
-    if (reg.removed || reg.dispose || !engine || !this.supported || this.disabledReason !== null) return;
+    if (reg.removed || reg.dispose || !engine || !this.supported || this.disabledReason !== null || this.warmupResting) return;
     // Not before startGame: the breaker verdict and the engine's game come first.
     if (!this.attached || !this.attached.ready || !this.attached.sources.has(reg)) return;
     if (reg.kind === "canvas" && reg.canvas) {
@@ -514,6 +519,7 @@ export class ClipService implements ClipServiceApi {
     attachment.sources.clear();
     if (this.attached !== attachment) return;
     this.attached = null;
+    this.warmupResting = false;
     this.breaker.end(attachment.game.appId);
     this.lifecycle.wantCapture(false);
     for (const name of ["source-lost", "post-roll", "recovering-quiet"]) this.clearNamedTimer(name);
@@ -666,7 +672,7 @@ export class ClipService implements ClipServiceApi {
 
   /** States with footage to clip: ready, made, suspended (pre-pause) and resting (pre-rest). */
   private canClipIn(button: ClipButtonState): boolean {
-    return button === "ready" || button === "made" || button === "suspended" || button === "resting";
+    return !this.warmupResting && (button === "ready" || button === "made" || button === "suspended" || button === "resting");
   }
 
   private canExtend(downAtMs: number): boolean {
@@ -952,7 +958,7 @@ export class ClipService implements ClipServiceApi {
     const engine = this.engine;
     const button = this.snapshot.button;
     if (!this.ownerConfirmed) return this.refuse("picture");
-    if (!this.attached || !engine || button === "hidden" || button === "disabled") {
+    if (!this.attached || !engine || this.warmupResting || button === "hidden" || button === "disabled") {
       return this.fail("picture", this.snapshot.reason ?? "source-lost");
     }
     const epoch = this.ownerEpoch;
@@ -1004,7 +1010,16 @@ export class ClipService implements ClipServiceApi {
 
   wake(): void {
     if (this.state !== "resting" || !this.engine) return;
-    this.engine.wake();
+    if (this.warmupResting && this.attached) {
+      this.warmupResting = false;
+      this.warmupElapsedMs = 0;
+      this.fire("retry-warmup");
+      this.engine.setGame(this.attached.game);
+      for (const reg of this.attached.sources) this.forward(reg);
+      this.applyPauses();
+    } else {
+      this.engine.wake();
+    }
     this.publish();
   }
 
@@ -1018,7 +1033,7 @@ export class ClipService implements ClipServiceApi {
    */
   async runExport<T>(task: () => Promise<T>): Promise<T> {
     const engine = this.engine;
-    if (!engine || !this.fire("export")) return task();
+    if (!engine || this.warmupResting || !this.fire("export")) return task();
     engine.setPaused("export", true);
     engine.closeEncoder("export");
     this.publish();
@@ -1261,6 +1276,9 @@ export class ClipService implements ClipServiceApi {
   // ---- engine events --------------------------------------------------------------------------------
 
   private onEngine(event: EngineEvent): void {
+    // A stopped attempt cannot revive itself or count late failures as crashes.
+    // Reset still clears its timeline; a pending tier switch may still finish.
+    if (this.warmupResting && event.t !== "reset" && event.t !== "tier") return;
     switch (event.t) {
       case "source":
         this.sourcePresent = event.present;
@@ -1443,7 +1461,7 @@ export class ClipService implements ClipServiceApi {
         if (!this.sourcePresent) return "canvas-gone";
         return null;
       case "resting":
-        if (this.governorResting) return null;
+        if (this.governorResting || this.warmupResting) return null;
         return this.recording ? "record" : "probe-passes";
       case "suspended":
         return this.suspendedNow() ? null : "resume";
@@ -1460,6 +1478,7 @@ export class ClipService implements ClipServiceApi {
   // ---- snapshot --------------------------------------------------------------------------------------------
 
   private publish(): void {
+    this.reconcileWarmup();
     const attachment = this.attached;
     const now = this.now();
     const mediaEnd = this.engine?.mediaEndUs() ?? 0;
@@ -1485,7 +1504,7 @@ export class ClipService implements ClipServiceApi {
     const next: Omit<ClipSnapshot, "version"> = {
       button: derived.button,
       engine: this.state,
-      reason: derived.reason,
+      reason: this.warmupResting ? "warmup-timeout" : derived.reason,
       appId: attachment?.game.appId ?? null,
       tier: this.tier,
       warmProgress: derived.warmProgress,
@@ -1513,6 +1532,39 @@ export class ClipService implements ClipServiceApi {
         // One bad listener must not stop the others.
       }
     }
+  }
+
+  /** Count only time when this source may capture; bridge fallback shares the budget. */
+  private reconcileWarmup(): void {
+    const now = this.now();
+    if (this.warmupStartedAt !== null) this.warmupElapsedMs += Math.max(0, now - this.warmupStartedAt);
+    this.warmupStartedAt = null;
+    this.clearNamedTimer("warmup");
+    if (this.disposed || !this.attached || !this.supported || !this.sourcePresent || this.outputOk ||
+        (this.state !== "warming" && this.state !== "bridged")) {
+      this.warmupElapsedMs = 0;
+      return;
+    }
+    if (this.suspendedNow()) return;
+    const remaining = WARMUP_TIMEOUT_MS - this.warmupElapsedMs;
+    if (remaining > 0) {
+      this.warmupStartedAt = now;
+      this.setNamedTimer("warmup", remaining, () => this.publish());
+      return;
+    }
+    // Latch before cleanup: source removal and disarm emit synchronously.
+    this.warmupResting = true;
+    this.fire("warmup-timeout");
+    this.sourcePresent = false;
+    for (const reg of this.attached.sources) {
+      const dispose = reg.dispose;
+      reg.dispose = null;
+      dispose?.();
+    }
+    // Removing registrations also empties EngineSwitch's replay set, so an
+    // upgrade finishing later cannot arm its new engine behind the resting UI.
+    this.engine?.disarm();
+    this.markCapturing();
   }
 
   // ---- timers -------------------------------------------------------------------------------------------------

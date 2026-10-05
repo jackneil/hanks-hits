@@ -461,7 +461,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
 
   /** The reason a resting or record-only button gives before its menu. */
   const menuReason = (): ClipReasonCode | null => {
-    const button = deps.snapshot().button;
+    const { button, reason } = deps.snapshot();
+    if (reason === "warmup-timeout") return reason;
     if (button === "resting") return "resting";
     if (button === "record-only") return "record-only";
     return null;

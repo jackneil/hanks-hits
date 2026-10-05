@@ -37,6 +37,8 @@ const ALL_EVENTS: MachineEvent[] = [
   "output-ok",
   "no-output",
   "hardware-ready",
+  "warmup-timeout",
+  "retry-warmup",
   "record",
   "stop",
   "governor-severe",
@@ -79,6 +81,13 @@ describe("plan 7 state machine", () => {
     expect(transition("warming", "encoder-error")).toBe("recovering");
     expect(transition("bridged", "encoder-error")).toBe("recovering");
     expect(transition("recovering", "disable")).toBe("disabled");
+  });
+
+  it("rests an empty warm-up and retries through source registration", () => {
+    expect(transition("warming", "warmup-timeout")).toBe("resting");
+    expect(transition("bridged", "warmup-timeout")).toBe("resting");
+    expect(transition("resting", "retry-warmup")).toBe("idle");
+    expect(transition("buffering", "warmup-timeout")).toBeNull();
   });
 
   it("closes the live encoder for an export from every state that holds it (the game is paused)", () => {
