@@ -336,8 +336,8 @@ export interface ClipUiController {
   openSharingMenu(): void;
   /**
    * Open the viewer. During play the game pauses first where it can. In a
-   * run that cannot pause, a clip opens at the next break instead (the
-   * new-clip chip says "Your clip is ready when this run ends!").
+   * run that cannot pause, a clip opens at the next break instead, with a
+   * reply that says so. The new-clip chip uses openNewestClip instead.
    */
   openViewer(target: ViewerTarget): void;
   openSettings(): void;
@@ -345,7 +345,7 @@ export interface ClipUiController {
   closeSheet(options?: { resume?: boolean }): void;
   /** Swap the open sheet for another one and keep the pause. */
   replaceSheet(next: { kind: "viewer"; target: ViewerTarget } | { kind: "settings" }): void;
-  /** The new-clip chip: open the newest clip (plan 11.1). */
+  /** The new-clip chip: watch now and supersede older pending clip/menu requests. */
   openNewestClip(): void;
   /** Open a clip or the menu that waited for the end of a run. Call when the snapshot reaches a break. */
   flushPendingOpen(): void;
@@ -461,7 +461,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
 
   /** The reason a resting or record-only button gives before its menu. */
   const menuReason = (): ClipReasonCode | null => {
-    const button = deps.snapshot().button;
+    const { button, reason } = deps.snapshot();
+    if (reason === "warmup-timeout") return reason;
     if (button === "resting") return "resting";
     if (button === "record-only") return "record-only";
     return null;
@@ -509,7 +510,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
           if (!service) return;
           if (!canCoverPlay()) {
             // A slow press in a run that cannot pause: clip the moment of the press.
-            if (outcome.hold && outcome.token && HOLD_CLIPS_IN.has(deps.snapshot().button)) {
+            const snapshot = deps.snapshot();
+            if (outcome.hold && outcome.token && snapshot.reason !== "warmup-timeout" && HOLD_CLIPS_IN.has(snapshot.button)) {
               commitFromButton("clip", service.clipLast(DEFAULT_CLIP_SECONDS, outcome.token));
               return;
             }
@@ -604,9 +606,13 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     },
 
     openNewestClip() {
+      if (!deps.service() || store.getState().sheet) return;
       const id = deps.snapshot().unwatchedClipId;
       if (!id) return;
-      controller.openViewer({ kind: "clip", id });
+      store.setPendingOpen(null);
+      store.setPendingMenu(false);
+      store.clearReply();
+      openViewerNow({ kind: "clip", id }, pauseIfPlaying());
     },
 
     flushPendingOpen() {

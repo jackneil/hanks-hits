@@ -23,18 +23,19 @@
  *   3. Makes a clip. The clip button path: when the button shows "ready"
  *      (data-state), the kid plays 3 s more and taps it (1.5 s after a run
  *      that ended with no clip).
- *      A tap that does not start a clip (the button turned "resting" in
- *      between, so the Capture menu opened) is closed and tried again, up
- *      to two times. When a run ends: the result chip's clip button ("Watch
+ *      If capture rests, the kid opens the Capture menu and taps its
+ *      visible "Turn the clip button back on" action, then keeps playing.
+ *      A game that cannot pause reaches its normal break to open the menu.
+ *      Failed clip taps are tried again up to two times. When a run ends:
+ *      the result chip's clip button ("Watch
  *      the whole run", "Make the whole run a video" or "Watch the end").
  *      A chip with no clip button: Play again, up to three runs; after the
  *      third, the header clip button at the break, when it reads ready,
  *      made or suspended (those clip the ring with no press token,
  *      pressGesture.ts).
- *   4. Opens the clip: a tap on the new-clip chip. A game that can pause
- *      opens the viewer at once. A game that cannot pause opens it at the
- *      next break, so the kid lets the run end (or taps the game's own
- *      Pause). The result chip path opens the viewer by itself.
+ *   4. Opens the clip: a deliberate tap on the new-clip chip opens the
+ *      viewer at once, including games whose run never ends. The result
+ *      chip path opens the viewer by itself.
  *   5. Checks the viewer: it shows the clip (not broken, not missing) once
  *      it has read its library row, it names this game, and its video
  *      loads. The kid starts it by touch: a tap on the player's play button
@@ -127,7 +128,7 @@ import path from "node:path";
 import { expect, test, type Browser, type ConsoleMessage, type Locator, type Page } from "playwright/test";
 
 import { MIN_CLIP_SECONDS } from "../../apps/web/src/shared/clips/service/contract";
-import { MENU_COPY, SHARING_COPY } from "../../apps/web/src/shared/clips/ui/copy";
+import { MENU_COPY, SHARING_COPY, TOAST_COPY } from "../../apps/web/src/shared/clips/ui/copy";
 import { readMetadataLiterals } from "../../apps/web/src/shared/lib/metadataLiterals";
 import { RowReport } from "../clips/lib/report";
 import { Finger, wanted } from "../phone/touch";
@@ -169,7 +170,7 @@ const PLAY_BUDGET_MS = 150_000;
 const MIN_PLAY_MS = 30_000;
 /**
  * The longest the steps after play can take: the new-clip chip 30 s, the
- * viewer 63 s, its row, name and video 40 s, a 60 s clip played to its end
+ * viewer 3 s, its row, name and video 40 s, a 60 s clip played to its end
  * plus 15 s, Save and the download 45 s, ffmpeg and the browser's close.
  */
 const AFTER_PLAY_RESERVE_MS = 300_000;
@@ -194,7 +195,8 @@ const TAP_RETRIES = 2;
 /** How often the play loop reads the clip button, the replies and the result chip. */
 const LOOK_EVERY_MS = 250;
 const VIEWER_AT_ONCE_MS = 3_000;
-const VIEWER_AT_BREAK_MS = 60_000;
+/** Generic Capture menu requests still wait for a continuous game's next break. */
+const MENU_AT_BREAK_MS = 60_000;
 /**
  * The most "warming" after Play on a quiet machine. Every game was ready
  * 4.5 s to 7 s after Play at a load of 6 to 7 on 10 cores (2026-10-01).
@@ -823,6 +825,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       return state;
     };
     let tapTries = 0;
+    let wakeTries = 0;
     let tapWhen = "";
     /** When the press that made the clip went down: the clip ends there (the press token freezes the end). */
     let pressAt = 0;
@@ -838,7 +841,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
      * A tap on the clip button, and proof that it started a clip: the
      * button turns saving or made, or the new-clip chip shows, in 2 s. A
      * tap on a button that turned "resting" between the read and the tap
-     * opens the Capture menu instead; the kid closes it.
+     * opens the Capture menu instead; the kid retries capture when offered.
      */
     const tapClipButton = async (when: string): Promise<boolean> => {
       tapTries++;
@@ -857,7 +860,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
         },
         50,
       );
-      const menuOpen = await menu.isVisible().catch(() => false);
+      let menuOpen = await menu.isVisible().catch(() => false);
       states.note(after || "absent");
       if (took && !menuOpen) {
         tapWhen = when;
@@ -865,7 +868,25 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
         return true;
       }
       await noteReply();
+      if (!menuOpen && after === "resting" && replies[replies.length - 1]?.endsWith(TOAST_COPY.menuAtRunEnd)) {
+        report.info("capture retry waits for a break", replies[replies.length - 1], "the kid reaches the game's normal break");
+        if (driver.toBreak) await driver.toBreak(ctx);
+        else await finger.release();
+        menuOpen = await waitUntil(page, MENU_AT_BREAK_MS, () => menu.isVisible().catch(() => false));
+      }
       if (menuOpen) {
+        const wake = menu.getByRole("button", { name: MENU_COPY.wake, exact: true });
+        if (wakeTries < TAP_RETRIES && await wake.isVisible().catch(() => false)) {
+          wakeTries++;
+          const reason = await menu.getByTestId("capture-menu-reason").innerText().catch(() => "capture resting");
+          await finger.tap(wake);
+          await expect(menu, "capture retry closes its menu").toBeHidden({ timeout: 3000 });
+          report.info(`capture retry ${wakeTries}`, `${reason}; tapped ${MENU_COPY.wake}`, "a fresh capture attempt through the visible control; media checks remain required");
+          const resume = page.getByRole("button", { name: "Resume", exact: true });
+          if (await resume.isVisible().catch(() => false)) await finger.tap(resume);
+          await driver.begin?.(ctx);
+          return false;
+        }
         report.info(`clip tap ${tapTries}`, `the Capture menu opened (the button read "${after}")`, "closed it; the kid taps again when the button reads ready");
         await finger.tap(menu.getByRole("button", { name: new RegExp(`^(${MENU_COPY.close}|${MENU_COPY.back})$`) })).catch(() => undefined);
         await menu.waitFor({ state: "hidden", timeout: 3_000 }).catch(() => undefined);
@@ -918,6 +939,14 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       }
       lookedAt = Date.now();
       state = await look();
+      if (!SHARING_ONLY && !RESULT_CHIP_ONLY && state === "resting" && wakeTries < TAP_RETRIES) {
+        if (await tapClipButton(`retrying capture during run ${runs}`)) {
+          path = "button";
+          break;
+        }
+        readySince = null;
+        continue;
+      }
       if (await page.getByTestId("result-chip").isVisible().catch(() => false)) {
         if (chipSince === null) {
           chipSince = Date.now();
@@ -1057,19 +1086,8 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
         return;
       }
       await finger.tap(chip);
-      let open = await waitUntil(page, VIEWER_AT_ONCE_MS, viewerOpen);
-      if (!open) {
-        // A game that cannot pause: the clip opens at the next break.
-        await noteReply();
-        report.info("the clip opens at the next break", replies[replies.length - 1] ?? "no reply");
-        if (driver.toBreak) await driver.toBreak(ctx);
-        else await finger.release();
-        open = await waitUntil(page, VIEWER_AT_BREAK_MS, async () => {
-          await noteReply();
-          return viewerOpen();
-        });
-      }
-      if (!report.check("a tap on the new-clip chip opens the viewer", open, open ? "the viewer is open" : "no viewer", `[data-testid=clip-viewer] in ${(VIEWER_AT_ONCE_MS + VIEWER_AT_BREAK_MS) / 1000} s`)) {
+      const open = await waitUntil(page, VIEWER_AT_ONCE_MS, viewerOpen);
+      if (!report.check("a tap on the new-clip chip opens the viewer immediately", open, open ? "the viewer is open" : "no viewer", `[data-testid=clip-viewer] in ${VIEWER_AT_ONCE_MS / 1000} s without waiting for a break`)) {
         await page.screenshot({ path: testInfo.outputPath(`${game.id}-no-viewer.png`) });
         return;
       }

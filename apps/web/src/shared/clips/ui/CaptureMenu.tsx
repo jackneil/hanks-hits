@@ -82,11 +82,12 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
   const closeLabel = closeResumesPlay(sheet) ? MENU_COPY.close : MENU_COPY.back;
 
   const state = snapshot.button;
+  const stalled = snapshot.reason === "warmup-timeout";
   const recording = state === "recording" || snapshot.recording !== null;
   const gameId = snapshot.appId;
 
   const rows: MenuRow[] = [];
-  const note = state === "record-only" ? REASON_COPY["record-only"] : state === "disabled" ? REASON_COPY.breaker : null;
+  const note = stalled ? REASON_COPY["warmup-timeout"] : state === "record-only" ? REASON_COPY["record-only"] : state === "disabled" ? REASON_COPY.breaker : null;
 
   const wake: MenuRow = { id: "wake", label: MENU_COPY.wake, icon: <PowerGlyph />, onSelect: () => ui.wakeFromMenu() };
   const clipLast: MenuRow = {
@@ -119,7 +120,11 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
     onSelect: () => ui.replaceSheet({ kind: "settings" }),
   };
 
-  if (state === "record-only") {
+  if (stalled) {
+    rows.push(wake);
+    if (myClips) rows.push(myClips);
+    rows.push(settings);
+  } else if (state === "record-only") {
     rows.push(record, picture);
   } else if (state === "disabled") {
     if (myClips) rows.push(myClips);
@@ -152,7 +157,7 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
     }
   };
   const readAloudText = () =>
-    [MENU_COPY.title, SHARING_COPY.prepareAGameplayVideoWatchItThen, SHARING_COPY.previewLast30SecondsToPublish, note ? `${note.say} ${note.next}` : null, ...rows.map((row) => row.label), closeLabel]
+    [MENU_COPY.title, ...(!stalled ? [SHARING_COPY.prepareAGameplayVideoWatchItThen, SHARING_COPY.previewLast30SecondsToPublish] : []), note ? `${note.say} ${note.next}` : null, ...rows.map((row) => row.label), closeLabel]
       .filter(Boolean)
       .join(". ");
 
@@ -165,9 +170,11 @@ export function CaptureMenu({ token }: CaptureMenuProps) {
       closeLabel={closeLabel}
       readAloudText={readAloudText}
     >
+      {!stalled && <>
       <p className="mb-3">{SHARING_COPY.prepareAGameplayVideoWatchItThen2}</p>
       <button className="btn btn-primary mb-3 min-h-14 h-auto whitespace-normal" disabled={preparing || recording} onClick={() => void prepare()}>{preparing ? SHARING_COPY.preparingVideo : SHARING_COPY.previewLast30SecondsToPublish}</button>
       {prepareError && <p role="status" className="mb-3">{prepareError}</p>}
+      </>}
       {note && (
         <p data-testid="capture-menu-reason" className="mb-3 rounded-xl bg-base-200 px-4 py-3 text-base leading-snug">
           <ClipWords text={`${note.say} ${note.next}`} />

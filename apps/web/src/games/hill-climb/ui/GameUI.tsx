@@ -40,10 +40,9 @@ export function GameUI({ fuel, maxFuel, nitro, maxNitro, nitroActive, distance, 
   const isNitroLow = nitroPercent < 20;
 
   return (
-    // Anchored BELOW the GameShell header (fixed, --shell-header-h, z-[1000]):
-    // a plain inset-0 layer put the pause button and stat boxes underneath
-    // it, which made pause unreachable by touch or mouse.
-    <div data-testid="hill-climb-hud" className="fixed inset-x-0 bottom-0 top-[var(--shell-header-h)] pointer-events-none z-40">
+    // The relative game root is the play box, below the shell header and
+    // Share bar. Keep the HUD in that box so Pause stays above the game.
+    <div data-testid="hill-climb-hud" className="absolute inset-0 pointer-events-none z-40">
       <div className="absolute inset-x-2 top-2 flex items-start justify-between gap-2 short:top-1.5">
         {/* Left: distance, then the coins of this run and the total */}
         <div className="flex min-w-0 flex-col gap-1.5 short:flex-row short:items-start short:gap-1.5">

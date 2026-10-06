@@ -9,6 +9,7 @@ import { ownerKeyFor } from "../../library/ownerKey";
 import type { ClipRecord } from "../../protocol";
 import type { ShareOutcome } from "../../service/contract";
 import { ClipTile } from "../ClipTile";
+import { ToastSlot } from "../ToastSlot";
 import { useClipUi } from "../uiContext";
 import {
   DELETE_QUESTIONS,
@@ -65,6 +66,11 @@ function Open({ target }: { target: ViewerTarget }) {
       open
     </button>
   );
+}
+
+function QueueMenu() {
+  const ui = useClipUi();
+  return <button type="button" data-testid="queue-menu" onClick={() => ui?.openMenu(null, "pointer")}>menu</button>;
 }
 
 async function openClip(record: ClipRecord, options: { fake?: FakeClipService; records?: ClipRecord[] } = {}) {
@@ -638,6 +644,57 @@ describe("ClipViewer: pause before open (plan 11.1, 12)", () => {
     // Closing the viewer leaves the game paused: the kid resumes from the pause menu.
     fireEvent.click(within(viewer()).getByRole("button", { name: VIEWER_COPY.close }));
     expect(view.resumeGame).not.toHaveBeenCalled();
+  });
+});
+
+describe("ClipViewer: deliberate newest watch supersedes older intent", () => {
+  it.each(["missing", "unreadable"] as const)("does not restore an older viewer or menu after the chosen %s clip closes", async (failure) => {
+    const older = makeRecord({ id: "older" });
+    const chosen = makeRecord({ id: "chosen" });
+    const fake = createFakeClipService({
+      records: failure === "missing" ? [older] : [older, chosen],
+      snapshot: { atBreak: false, gameCanPause: false, unwatchedClipId: chosen.id },
+    });
+    if (failure === "unreadable") {
+      vi.mocked(fake.service.library.file).mockRejectedValueOnce(Object.assign(new Error("cannot read"), { name: "NotReadableError" }));
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+    }
+    renderWithClips(<><ToastSlot /><Open target={{ kind: "clip", id: older.id }} /><QueueMenu /></>, { fake });
+    fireEvent.click(screen.getByTestId("open-viewer"));
+    fireEvent.click(screen.getByTestId("queue-menu"));
+    expect(screen.queryByTestId("clip-viewer")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("clip-new-chip"));
+    await flush();
+
+    if (failure === "missing") {
+      expect(screen.getByTestId("clip-viewer-missing")).toHaveTextContent(VIEWER_COPY.missingSay);
+      expect(fake.service.library.file).not.toHaveBeenCalled();
+      expect(fake.service.markWatched).not.toHaveBeenCalled();
+    } else {
+      expect(screen.getByTestId("clip-viewer-broken")).toHaveTextContent(VIEWER_COPY.brokenSay);
+      expect(fake.service.library.file).toHaveBeenCalledWith(chosen.id);
+      expect(fake.service.markWatched).toHaveBeenCalledWith(chosen.id);
+      expect(action("share")).toBeNull();
+      expect(action("save")).toBeNull();
+      expect(action("delete")).toBeEnabled();
+    }
+    expect(fake.service.markWatched).not.toHaveBeenCalledWith(older.id);
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
+    fireEvent.click(within(viewer()).getByRole("button", { name: VIEWER_COPY.close }));
+    await flush();
+    expect(screen.queryByTestId("clip-viewer")).toBeNull();
+
+    for (let breakNumber = 0; breakNumber < 2; breakNumber++) {
+      act(() => fake.set({ atBreak: false }));
+      await flush();
+      act(() => fake.set({ atBreak: true }));
+      await flush();
+      expect(screen.queryByTestId("clip-viewer")).toBeNull();
+      expect(screen.queryByTestId("capture-menu")).toBeNull();
+    }
+    expect(fake.service.library.file).not.toHaveBeenCalledWith(older.id);
+    expect(fake.service.markWatched).not.toHaveBeenCalledWith(older.id);
   });
 });
 
