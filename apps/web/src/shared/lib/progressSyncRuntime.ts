@@ -230,7 +230,13 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
       if (!await this.captureLatest() || !this.allowed() || !session.capture(this.io.getLive())) {
         this.problem = "storage-error"; return failed();
       }
-      const result = session.observe(canonical);
+      let result = session.observe(canonical);
+      if (result === "blocked") {
+        await this.io.repository.settle();
+        if (!this.allowed()) return failed();
+        if (!session.capture(this.io.getLive())) { this.problem = "storage-error"; return failed(); }
+        result = session.observe(canonical);
+      }
       if (result === "blocked" || result === "ignored") { this.problem = "storage-error"; return failed(); }
       if (!this.allowed()) return failed();
       this.io.applyLive(session.snapshot()!.live);
@@ -263,11 +269,18 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
       this.problem = "network-error";
       return failed(response.status);
     }
-    const result = session.receive(request.id, canonical, response.status === 200 ? "accepted" : "rejected", this.io.getLive());
+    let result = session.receive(request.id, canonical, response.status === 200 ? "accepted" : "rejected", this.io.getLive());
+    if (result === "blocked") {
+      // Install only the exact durable transition. Capturing the prior session
+      // here would replace the staged ACK with its still-uncertain sent row.
+      await this.io.repository.settle();
+      if (!this.allowed()) return failed();
+      result = session.receive(request.id, canonical, response.status === 200 ? "accepted" : "rejected", this.io.getLive());
+    }
     if (result === "blocked" || result === "ignored") {
       session.uncertain(request.id);
       this.problem = result === "blocked" ? "storage-error" : "network-error";
-      return failed(response.status);
+      return failed(result === "blocked" ? null : response.status);
     }
     if (!this.allowed()) return failed(response.status);
     this.io.applyLive(session.snapshot()!.live);
@@ -280,13 +293,18 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     const row = this.session.snapshot()!;
     const envelope = this.io.repository.snapshot();
     const sources = envelope?.recovery?.adoptedSources ?? [];
+    let resolutionFailed = false;
     if (sources.length && envelope && !row.sent && !row.conflict && !row.forceWrite) {
-      if (!await this.io.repository.resolve(sources, envelope.current)) this.problem = "storage-error";
+      if (!await this.io.repository.resolve(sources, envelope.current)) {
+        resolutionFailed = true;
+        this.problem = "storage-error";
+      }
       else this.copies = [];
     }
     if (!this.allowed()) return { ok: false, status };
-    this.capture();
-    return { ok: this.problem === null && this.saved(), status };
+    if (this.capture() && this.session.storageAvailable && !resolutionFailed && this.problem === "storage-error") this.problem = null;
+    // Local receipt failures need the hook's protected retry even after HTTP200.
+    return { ok: this.problem === null && this.saved(), status: this.problem === "storage-error" ? null : status };
   }
 
   choice(): ProgressChoice<T> | null {
@@ -489,7 +507,12 @@ export class ProgressSyncRuntime<T extends AppProgressData> {
     // Awaiting even an already-completed capture yields to the caller. Capture
     // again immediately before observation and application to close that gap.
     if (!this.session!.capture(this.io.getLive())) return this.block();
-    const result = this.session!.observe(canonical);
+    let result = this.session!.observe(canonical);
+    if (result === "blocked") {
+      await this.io.repository.settle();
+      if (!this.allowed() || !this.session!.capture(this.io.getLive())) return this.block();
+      result = this.session!.observe(canonical);
+    }
     if (!this.allowed() || result === "blocked" || result === "ignored") return this.block();
     const live = this.session!.snapshot()!.live;
     if (!sameProgress(live, this.io.getLive())) this.io.applyLive(live);
