@@ -88,7 +88,9 @@ describe("useAuthSync with the real owner storage authority", () => {
     fetchSpy.mockImplementation(server.fetch);
     const state = store(); await confirm();
     const originalCandidate = authority.current.readGuestCandidate(key)!;
-    mount(state); await settle();
+    const view = mount(state);
+    await act(async () => { await view.result.current.forceSync(); });
+    await settle();
     expect(server.posts).toEqual([]);
     expect(authority.current.readGuestCandidate(key)).toEqual(originalCandidate);
     const dialog = progressSyncPresentation.getSnapshot().find(row => row.appId === "snake")!.open()!;
