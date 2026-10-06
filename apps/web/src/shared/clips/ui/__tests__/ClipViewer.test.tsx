@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
@@ -650,6 +650,7 @@ describe("ClipViewer account changes", () => {
     let release!: (file: File) => void;
     vi.mocked(fake.service.library.file).mockImplementation(() => new Promise((resolve) => { release = resolve; }));
     await openClip(record, { fake });
+    await waitFor(() => expect(fake.service.library.file).toHaveBeenCalledWith(record.id));
     await act(async () => { publishSessionUser("b"); release(new File(["private"], "private.mp4")); });
     await flush();
     expect(screen.queryByTestId("clip-viewer-video")).not.toBeInTheDocument();

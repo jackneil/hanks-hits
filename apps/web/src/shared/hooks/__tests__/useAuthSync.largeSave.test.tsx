@@ -157,15 +157,22 @@ describe("size-aware open-page uploads with the real revision hook", () => {
 
   it("keeps retry backoff when large edits continue after a failed upload", async () => {
     server.rows.set(`${auth.data.user.id}:drawing-app`, { data: painted(100), updatedAt: new Date() });
-    const { state } = await fixture(); server.net.postStatus = 500;
+    const { state, view } = await fixture(); server.net.postStatus = 500;
+    const first = delayNextPost();
     act(() => state.setState({ progress: painted(80_000, 2) }));
-    await advance(500); await settleUntil(() => entry().status === "network-error"); expect(posts()).toHaveLength(1);
+    await advance(500); await settleUntil(first.started);
+    // Join a known in-flight operation. The visible error can precede the
+    // hook finishing failure processing and scheduling its retry deadline.
+    await act(async () => { const complete = view.result.current.forceSync(); first.release(); await complete; });
+    expect(entry().status).toBe("network-error"); expect(posts()).toHaveLength(1);
+    const retry = delayNextPost();
     for (let version = 3; version <= 21; version++) {
       act(() => state.setState({ progress: painted(80_000, version) })); await advance(100);
       expect(posts()).toHaveLength(1);
     }
-    await advance(100); await settleUntil(() => posts().length === 2);
-    await settleUntil(() => entry().status === "network-error");
+    await advance(100); await settleUntil(retry.started); expect(posts()).toHaveLength(2);
+    await act(async () => { const complete = view.result.current.forceSync(); retry.release(); await complete; });
+    expect(entry().status).toBe("network-error");
     act(() => state.setState({ progress: painted(80_000, 22) }));
     await advance(3999); expect(posts()).toHaveLength(2);
     await advance(1); await settleUntil(() => posts().length === 3);
