@@ -6,9 +6,9 @@
  *
  * What it holds:
  * - The new-clip chip: its own 44 px target. It shows until the kid watches
- *   the clip. A tap opens the newest clip; the game pauses first where it
- *   can. In a run that cannot pause it says "Your clip is ready when this
- *   run ends!" and the clip opens at the break.
+ *   the clip. A tap opens the newest clip immediately; the game pauses
+ *   first where it can, and the viewer uses the existing shell hold.
+ *   An accepted watch supersedes older pending clip and menu requests.
  * - While a video records: the timer pill and the star button.
  * - Tap replies. A reply to the kid's own tap keeps a 44 px read-aloud
  *   button that takes taps even during play. Other toasts take no taps.

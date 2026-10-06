@@ -2,9 +2,10 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
+import { useShellHold } from "@/shared/hooks/useShellHold";
 
 import { useClipUi } from "../uiContext";
-import { recordTimerName, TOAST_COPY, VIEWER_TITLES } from "../copy";
+import { recordTimerName, TOAST_COPY, VIEWER_COPY, VIEWER_TITLES } from "../copy";
 import { TOAST_SLOT_Z_INDEX, ToastSlot } from "../ToastSlot";
 import { HOLD_TIP_AFTER_CLIPS, REPLY_MS, REPLY_READING_MS, UI_PREFS_KEY } from "../uiStore";
 import { createFakeClipService, makeRecord } from "./fakeClipService";
@@ -25,6 +26,11 @@ afterEach(() => {
 
 function slot() {
   return screen.getByTestId("clip-toast-slot");
+}
+
+function HoldProbe() {
+  const held = useShellHold();
+  return <output data-testid="clip-game-hold">{held ? "held" : "playing"}</output>;
 }
 
 /** A probe that reaches the controller, for replies and the hold tip. */
@@ -183,15 +189,26 @@ describe("in-play controls take a second finger (plan 11.3)", () => {
     expect(fake.service.addStar).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the newest clip from the chip on the pointer, with no click", async () => {
-    const { fake } = renderWithClips(<ToastSlot />, {
+  it("opens a continuous game's newest clip on a second-finger pointer and releases its shell hold on viewer close", async () => {
+    const { fake, pauseGame, resumeGame } = renderWithClips(<><ToastSlot /><HoldProbe /></>, {
       records: [makeRecord({ id: "c1" })],
-      snapshot: { unwatchedClipId: "c1", gameCanPause: true, atBreak: false },
+      snapshot: { unwatchedClipId: "c1", gameCanPause: false, atBreak: false },
     });
+    expect(screen.getByTestId("clip-game-hold")).toHaveTextContent("playing");
     secondFingerTap(screen.getByTestId("clip-new-chip"));
     await flush();
     expect(screen.getByRole("dialog", { name: VIEWER_TITLES.clip })).toBeInTheDocument();
     expect(fake.service.markWatched).toHaveBeenCalledWith("c1");
+    expect(pauseGame).not.toHaveBeenCalled();
+    expect(screen.getByTestId("clip-game-hold")).toHaveTextContent("held");
+
+    fireEvent.click(within(screen.getByTestId("clip-viewer")).getByRole("button", { name: VIEWER_COPY.close }));
+    await flush();
+
+    expect(screen.queryByTestId("clip-viewer")).toBeNull();
+    expect(screen.getByTestId("clip-game-hold")).toHaveTextContent("playing");
+    expect(resumeGame).not.toHaveBeenCalled();
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
   });
 
   it("reads a reply out loud on the pointer, with no click, and keeps the reply up", () => {
@@ -360,23 +377,38 @@ describe("the new-clip chip (plan 11.1)", () => {
     expect(screen.queryByTestId("clip-new-chip")).toBeNull();
   });
 
-  it('in a run that cannot pause, says "ready when this run ends" and opens the clip at the break', async () => {
-    installSpeechMock();
+  it("opens a deliberately chosen clip immediately without a pause or a run-ending break", async () => {
     const record = makeRecord({ id: "c1" });
     const { fake, pauseGame } = renderWithClips(<ToastSlot />, {
       records: [record],
       snapshot: { unwatchedClipId: "c1", gameCanPause: false, atBreak: false },
     });
     fireEvent.click(screen.getByTestId("clip-new-chip"));
-    expect(pauseGame).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("clip-viewer")).toBeNull();
-    const reply = screen.getByTestId("clip-reply");
-    expect(reply).toHaveTextContent(TOAST_COPY.readyAtRunEnd);
-    expect(within(reply).getByTestId("read-aloud-button")).toBeInTheDocument();
-
-    act(() => fake.set({ atBreak: true })); // the run ends
     await flush();
+
+    expect(pauseGame).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: VIEWER_TITLES.clip })).toBeInTheDocument();
+    expect(fake.snapshot().atBreak).toBe(false);
+    expect(fake.service.library.file).toHaveBeenCalledWith("c1");
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("clip-reply")).toBeNull();
+  });
+
+  it("opens the chosen clip on a keyboard-style click without pointer events or a host pause action", async () => {
+    const { fake, pauseGame } = renderWithClips(<ToastSlot />, {
+      records: [makeRecord({ id: "c1" })],
+      snapshot: { unwatchedClipId: "c1", gameCanPause: true, atBreak: false },
+      host: false,
+    });
+    // Enter, Space and assistive activation produce a click without a pointer;
+    // jsdom does not synthesize that native click from a key event.
+    fireEvent.click(screen.getByRole("button", { name: TOAST_COPY.newClipName }), { detail: 0 });
+    await flush();
+
+    expect(screen.getByRole("dialog", { name: VIEWER_TITLES.clip })).toBeInTheDocument();
+    expect(fake.service.markWatched).toHaveBeenCalledWith("c1");
+    expect(pauseGame).not.toHaveBeenCalled();
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
   });
 
   it("opens at once at a break", async () => {

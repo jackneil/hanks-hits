@@ -336,8 +336,8 @@ export interface ClipUiController {
   openSharingMenu(): void;
   /**
    * Open the viewer. During play the game pauses first where it can. In a
-   * run that cannot pause, a clip opens at the next break instead (the
-   * new-clip chip says "Your clip is ready when this run ends!").
+   * run that cannot pause, a clip opens at the next break instead, with a
+   * reply that says so. The new-clip chip uses openNewestClip instead.
    */
   openViewer(target: ViewerTarget): void;
   openSettings(): void;
@@ -345,7 +345,7 @@ export interface ClipUiController {
   closeSheet(options?: { resume?: boolean }): void;
   /** Swap the open sheet for another one and keep the pause. */
   replaceSheet(next: { kind: "viewer"; target: ViewerTarget } | { kind: "settings" }): void;
-  /** The new-clip chip: open the newest clip (plan 11.1). */
+  /** The new-clip chip: watch now and supersede older pending clip/menu requests. */
   openNewestClip(): void;
   /** Open a clip or the menu that waited for the end of a run. Call when the snapshot reaches a break. */
   flushPendingOpen(): void;
@@ -606,9 +606,12 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     },
 
     openNewestClip() {
+      if (!deps.service() || store.getState().sheet) return;
       const id = deps.snapshot().unwatchedClipId;
       if (!id) return;
-      controller.openViewer({ kind: "clip", id });
+      store.setPendingOpen(null);
+      store.setPendingMenu(false);
+      openViewerNow({ kind: "clip", id }, pauseIfPlaying());
     },
 
     flushPendingOpen() {

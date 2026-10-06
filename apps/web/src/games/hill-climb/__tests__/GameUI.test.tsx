@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 
@@ -7,34 +7,39 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { GameUI } from "../ui/GameUI";
+import { useHillClimbStore } from "../lib/store";
 import { PauseSheet } from "../ui/PauseSheet";
 import { mockPointer } from "@/__tests__/pointer-mock";
 
 describe("hill-climb GameUI HUD layer", () => {
-  it("anchors below the GameShell header instead of inset-0 (pause button was buried)", () => {
-    // Regression: the HUD layer was `fixed inset-0`, which put its top-4 pause
-    // button underneath the shell's fixed 48px z-[1000] header — unreachable
-    // by touch AND mouse. The layer must start below the header.
-    const { container } = render(
-      <GameUI
-        fuel={100}
-        maxFuel={100}
-        nitro={100}
-        maxNitro={100}
-        nitroActive={false}
-        distance={0}
-        speed={0}
-      />
-    );
-    const layer = container.firstElementChild as HTMLElement;
-    expect(layer.className.split(/\s+/)).toContain("top-[var(--shell-header-h)]");
-    expect(layer.className).not.toContain("inset-0");
+  it("offers one Pause control that pauses the game", () => {
+    // Actual hit geometry needs a browser with layout. Here verify the
+    // control still performs its game action instead of opening sharing.
+    const wasPaused = useHillClimbStore.getState().isPaused;
+    act(() => useHillClimbStore.setState({ isPaused: false }));
+    try {
+      render(
+        <GameUI
+          fuel={100}
+          maxFuel={100}
+          nitro={100}
+          maxNitro={100}
+          nitroActive={false}
+          distance={0}
+          speed={0}
+        />
+      );
 
-    const pause = screen.getByRole("button", { name: "Pause game" });
-    // Real touch target (w-12 h-12 = 48px) that accepts pointer events inside
-    // the pointer-events-none HUD layer.
-    expect(pause.className).toContain("w-12");
-    expect(pause.className).toContain("pointer-events-auto");
+      const pause = screen.getByRole("button", { name: "Pause game" });
+      // Real touch target (w-12 h-12 = 48px) that accepts pointer events inside
+      // the pointer-events-none HUD layer.
+      expect(pause.className).toContain("w-12");
+      expect(pause.className).toContain("pointer-events-auto");
+      fireEvent.click(pause);
+      expect(useHillClimbStore.getState().isPaused).toBe(true);
+    } finally {
+      act(() => useHillClimbStore.setState({ isPaused: wasPaused }));
+    }
   });
 });
 

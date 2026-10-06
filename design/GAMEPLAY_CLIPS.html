@@ -661,14 +661,15 @@ stateDiagram-v2
   <li>A tap within 5 s of the last clip extends it.</li>
   <li>Test: a 600 ms hold opens the menu and leaves zero new library rows.</li>
   </ul></li>
-<li><strong>Never interrupt play.</strong> During play the only feedback is a compact confirmation in the header row (a check mark and a small pill). The full card waits for a break.</li>
+<li><strong>Capture feedback never interrupts play automatically.</strong> During play capture feedback is a compact confirmation in the header row (a check mark and a small pill). The full card waits for a break. Deliberately tapping the new-clip chip opens the viewer immediately.</li>
 <li><strong>A clip is always reachable.</strong>
   <ul>
   <li>After a manual clip, a small "new clip" chip (its own 44 px target, in the in-play toast slot under the header) shows until the clip is watched. The clip button itself never changes meaning.</li>
-  <li>Tapping the chip opens the newest clip:
+  <li>Tapping the chip deliberately watches the newest clip immediately:
     <ul>
-    <li>In games that can pause, including Monster Truck, both Four-Wheelers and Retro Arcade, which all gain a real pause in Phase 3, the game pauses first.</li>
-    <li>In run-based games that cannot pause (Flappy Bird, Dino Runner, Endless Runner, Hill Climb, Cookie Clicker), a tap during a run says "Your clip is ready when this run ends!" with read-aloud, and the clip opens at the run's end.</li>
+    <li>During play, the game pauses first when its host supports pausing. At a break or without a usable pause host, the viewer still opens immediately and uses the existing sheet hold. This does not promise to stop every game's passive timers.</li>
+    <li>The action is accepted only with a live clip service, no open sheet, and a nonempty newest clip ID. An ignored action leaves pending requests unchanged. An accepted watch supersedes older pending clip and menu requests before pausing, including when the chosen clip is missing or unreadable; closing it or reaching a later break does not restore those older requests.</li>
+    <li>Generic viewer requests retain their existing behavior: during play that cannot pause, a clip request says "Your clip is ready when this run ends!" with read-aloud and opens at a break. A later generic request made after the deliberate watch is still eligible under those rules.</li>
     </ul></li>
   </ul></li>
 <li><strong>Suggest, don't decide.</strong> The editor opens on a suggested 15 s window around the best moment. "All" widens it.</li>
@@ -724,7 +725,7 @@ stateDiagram-v2
 <tr><td>Error</td><td>Amber "!" for 3 s</td><td>The reason in kid words, with a tappable 🔊</td></tr>
 </tbody>
 </table>
-<p>Toasts that answer the kid's own tap (warming, error, resting, disabled, the "ready when this run ends" chip reply) keep a 44 px 🔊 button that takes taps even during play. Other in-play toasts take no taps.</p>
+<p>Toasts that answer the kid's own tap (warming, error, resting, disabled, the "ready when this run ends" reply for a deferred viewer request) keep a 44 px 🔊 button that takes taps even during play. Other in-play toasts take no taps.</p>
 
 <h3>11.4 Surfaces and where things live</h3>
 <ul>
@@ -1025,7 +1026,7 @@ stateDiagram-v2
   <ul>
   <li><strong>Engine:</strong> rings; timeline slots at 30/41/50/60/75/90/120/144/165 Hz (a 41 fps irregular trace gives video length equal to audio within 1 frame); clock map and PLL; mixer watermarks; resampler; ASC builder; roll-group box writer; epoch classification.</li>
   <li><strong>Control and storage:</strong> governor traces; owner purge rules including the 60 s sign-in window; library protocol; share decision table.</li>
-  <li><strong>UX rules:</strong> copy table rules; handle never in live frames; independent name controls; tap semantics (a hold leaves no clip; 5 taps in 10 s give one row; tap, tap within 5 s, tap after 6 s give two rows; no viewer opens during play).</li>
+  <li><strong>UX rules:</strong> copy table rules; handle never in live frames; independent name controls; tap semantics (a hold leaves no clip; 5 taps in 10 s give one row; tap, tap within 5 s, tap after 6 s give two rows); capture feedback and generic unpausable viewer requests wait for a break; deliberate newest-clip watches open immediately, pause at most once when supported, and supersede older pending clip/menu requests only after acceptance; duplicate or ignored watches preserve pending requests; a missing or unreadable chosen clip cannot restore obsolete requests after close or a later break.</li>
   <li><strong>Hosted:</strong> the Pushover payload builder; the scrub hash gate; a sweeper test (a nudity hold older than 7 days is not deleted).</li>
   <li><strong>Release:</strong> the production default flag after release (a production build with no env shows the clip button).</li>
   <li><strong>New single-copy doubles:</strong> webcodecs, audio, opfs, share (fails if share() follows an await), canvas2d, fake-indexeddb.</li>

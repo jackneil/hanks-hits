@@ -379,11 +379,111 @@ describe("clip UI store and controller", () => {
     expect(host.pauseGame).toHaveBeenCalledTimes(1);
   });
 
-  it("defers the chip's clip in a run that cannot pause, and opens it at the break", () => {
+  it.each([
+    { label: "during a continuous game", gameCanPause: false, atBreak: false, hasHost: true, pausedByUs: false },
+    { label: "without a host pause action", gameCanPause: true, atBreak: false, hasHost: false, pausedByUs: false },
+    { label: "at a break", gameCanPause: true, atBreak: true, hasHost: true, pausedByUs: false },
+    { label: "after pausing a pausable game", gameCanPause: true, atBreak: false, hasHost: true, pausedByUs: true },
+  ])("opens the chosen newest clip immediately $label", ({ gameCanPause, atBreak, hasHost, pausedByUs }) => {
+    fake.set({ gameCanPause, atBreak, unwatchedClipId: "chosen" });
+    const pause = host.pauseGame;
+    if (!hasHost) host = {} as typeof host;
+    const { store, controller } = makeController();
+
+    controller.openNewestClip();
+
+    expect(store.getState().sheet).toEqual({ kind: "viewer", target: { kind: "clip", id: "chosen" }, pausedByUs });
+    expect(pause).toHaveBeenCalledTimes(pausedByUs ? 1 : 0);
+    expect(store.getState().pendingOpenId).toBeNull();
+    expect(fake.service.beginPress).not.toHaveBeenCalled();
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
+  });
+
+  it.each(["older", "chosen"])("a deliberate newest watch supersedes pending clip %s and the older menu", (pendingId) => {
+    fake.set({ gameCanPause: false, atBreak: false, unwatchedClipId: "chosen" });
+    const { store, controller } = makeController();
+    controller.openViewer({ kind: "clip", id: pendingId });
+    controller.openMenu(null, "pointer");
+    expect(store.getState()).toMatchObject({ pendingOpenId: pendingId, pendingMenu: true, sheet: null });
+
+    controller.openNewestClip();
+
+    expect(store.getState().sheet).toMatchObject({ kind: "viewer", target: { kind: "clip", id: "chosen" } });
+    expect(store.getState().pendingOpenId).toBeNull();
+    expect(store.getState().pendingMenu).toBe(false);
+    controller.closeSheet();
+    fake.set({ atBreak: true });
+    controller.flushPendingOpen();
+    expect(store.getState().sheet).toBeNull();
+    fake.set({ atBreak: false });
+    fake.set({ atBreak: true });
+    controller.flushPendingOpen();
+    expect(store.getState().sheet).toBeNull();
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
+  });
+
+  it.each(["no service", "open sheet", "no newest clip", "empty newest ID"] as const)("an ignored newest watch preserves pending intent with %s", (reason) => {
+    const unwatchedClipId = reason === "no newest clip" ? null : reason === "empty newest ID" ? "" : "chosen";
+    fake.set({ gameCanPause: true, atBreak: false, unwatchedClipId });
+    const store = createClipUiStore();
+    const controller = createClipUiController({
+      store,
+      service: () => reason === "no service" ? null : fake.service,
+      snapshot: () => fake.snapshot(),
+      host: () => host,
+      platform: () => "computer",
+    });
+    store.setPendingOpen("older");
+    store.setPendingMenu(true);
+    if (reason === "open sheet") store.setSheet({ kind: "settings", pausedByUs: false });
+    const before = store.getState();
+
+    controller.openNewestClip();
+
+    expect(store.getState()).toBe(before);
+    expect(host.pauseGame).not.toHaveBeenCalled();
+    expect(fake.service.beginPress).not.toHaveBeenCalled();
+  });
+
+  it("ignores another newest-watch action while the chosen viewer is already open", () => {
+    fake.set({ gameCanPause: true, atBreak: false, unwatchedClipId: "chosen" });
+    const { store, controller } = makeController();
+    controller.openNewestClip();
+    expect(host.pauseGame).toHaveBeenCalledTimes(1);
+    fake.set({ unwatchedClipId: "newer" });
+    store.setPendingOpen("later");
+    store.setPendingMenu(true);
+    const before = store.getState();
+
+    controller.openNewestClip();
+    controller.openNewestClip();
+
+    expect(store.getState()).toBe(before);
+    expect(store.getState().sheet).toMatchObject({ target: { kind: "clip", id: "chosen" } });
+    expect(host.pauseGame).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a later generic request when the deliberately chosen viewer closes", () => {
+    fake.set({ gameCanPause: false, atBreak: false, unwatchedClipId: "chosen" });
+    const { store, controller } = makeController();
+    controller.openNewestClip();
+    expect(store.getState().sheet).toMatchObject({ target: { kind: "clip", id: "chosen" } });
+
+    controller.openViewer({ kind: "clip", id: "later" });
+    expect(store.getState().pendingOpenId).toBe("later");
+    controller.closeSheet();
+    fake.set({ atBreak: true });
+    controller.flushPendingOpen();
+
+    expect(store.getState().sheet).toEqual({ kind: "viewer", target: { kind: "clip", id: "later" }, pausedByUs: false });
+    expect(store.getState().pendingOpenId).toBeNull();
+  });
+
+  it("still defers a generic viewer request during a continuous game and opens it at the break", () => {
     fake.set({ gameCanPause: false, unwatchedClipId: "c9" });
     fake.records.push(makeRecord({ id: "c9" }));
     const { store, controller } = makeController();
-    controller.openNewestClip();
+    controller.openViewer({ kind: "clip", id: "c9" });
     expect(store.getState().sheet).toBeNull();
     expect(store.getState().pendingOpenId).toBe("c9");
     expect(store.getState().reply?.text).toBe(TOAST_COPY.readyAtRunEnd);
@@ -392,6 +492,21 @@ describe("clip UI store and controller", () => {
     fake.set({ atBreak: true });
     controller.flushPendingOpen();
     expect(store.getState().sheet).toEqual({ kind: "viewer", target: { kind: "clip", id: "c9" }, pausedByUs: false });
+    expect(store.getState().pendingOpenId).toBeNull();
+  });
+
+  it("keeps only the newest generic viewer request for the next break", () => {
+    fake.set({ gameCanPause: false, atBreak: false });
+    const { store, controller } = makeController();
+    controller.openViewer({ kind: "clip", id: "older" });
+    controller.openViewer({ kind: "clip", id: "later" });
+    expect(store.getState().sheet).toBeNull();
+    expect(store.getState().pendingOpenId).toBe("later");
+
+    fake.set({ atBreak: true });
+    controller.flushPendingOpen();
+
+    expect(store.getState().sheet).toEqual({ kind: "viewer", target: { kind: "clip", id: "later" }, pausedByUs: false });
     expect(store.getState().pendingOpenId).toBeNull();
   });
 
