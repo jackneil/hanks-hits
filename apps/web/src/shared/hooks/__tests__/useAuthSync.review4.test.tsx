@@ -217,6 +217,7 @@ describe("a save that the server refuses", () => {
     server.net.postStatus = 400;
     signIn();
     const view = mount(entry);
+    await act(async () => { await view.result.current.forceSync(); });
     await settle(1_000);
     expect(view.result.current.ready).toBe(true);
     await settle(5 * 60_000);
