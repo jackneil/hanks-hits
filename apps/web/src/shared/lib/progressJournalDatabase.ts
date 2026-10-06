@@ -11,6 +11,65 @@ export type JournalCheckpoint = {
   raw: string;
 };
 export type JournalArchive = { ownerKey: string; appId: ValidAppId; sourceId: string; raw: string };
+type JournalPageKind = "checkpoints" | "archives";
+type JournalPageKeys = {
+  checkpoints: readonly [string, ValidAppId, string];
+  archives: readonly [string, ValidAppId, string, string];
+};
+type JournalPageRows = { checkpoints: JournalCheckpoint; archives: JournalArchive & { digest: string } };
+/** A validated continuation position, not a source-preservation receipt. */
+export type JournalPageCursor<K extends JournalPageKind = JournalPageKind> = {
+  kind: K;
+  ownerKey: string;
+  epoch: number;
+  primaryKey: JournalPageKeys[K];
+};
+export type JournalPageOptions<K extends JournalPageKind> = {
+  maxRows?: number;
+  /** Count UTF-16 code units, without reserializing the stored raw. */
+  maxRawChars?: number;
+  cursor?: JournalPageCursor<K> | null;
+};
+export type JournalPage<K extends JournalPageKind> = {
+  rows: JournalPageRows[K][];
+  rawChars: number;
+  nextCursor: JournalPageCursor<K> | null;
+};
+const PAGE_ROWS = 100, PAGE_RAW_CHARS = 256 * 1024;
+const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+const positiveBudget = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+const pageOptions = <K extends JournalPageKind>(kind: K, ownerKey: string, expectedEpoch: number, options?: JournalPageOptions<K>) => {
+  owner(ownerKey);
+  if (!Number.isSafeInteger(expectedEpoch) || expectedEpoch < 0) throw new Error("Invalid journal owner epoch");
+  if (options !== undefined && (!object(options) || Object.keys(options).some(key => !["maxRows", "maxRawChars", "cursor"].includes(key)))) {
+    throw new Error("Invalid journal page options");
+  }
+  const supplied = { ...options };
+  const maxRows = supplied.maxRows === undefined ? PAGE_ROWS : supplied.maxRows;
+  const maxRawChars = supplied.maxRawChars === undefined ? PAGE_RAW_CHARS : supplied.maxRawChars;
+  if (!positiveBudget(maxRows) || !positiveBudget(maxRawChars)) throw new Error("Invalid journal page budget");
+  let cursor: JournalPageCursor<K> | null = null;
+  if (supplied.cursor !== undefined && supplied.cursor !== null) {
+    const incoming: unknown = supplied.cursor;
+    if (!object(incoming)) throw new Error("Invalid journal page cursor");
+    // Copy the primary key before opening storage so callers cannot redirect a
+    // pending read by mutating a cursor or its nested array.
+    const copy: Record<string, unknown> & { primaryKey: unknown[] | null } = {
+      ...incoming, primaryKey: Array.isArray(incoming.primaryKey) ? [...incoming.primaryKey] : null,
+    };
+    const key = copy.primaryKey;
+    if (Object.keys(copy).some(name => !["kind", "ownerKey", "epoch", "primaryKey"].includes(name))
+      || copy.kind !== kind || copy.ownerKey !== ownerKey || copy.epoch !== expectedEpoch || !key
+      || key.length !== (kind === "checkpoints" ? 3 : 4) || key[0] !== ownerKey
+      || typeof key[1] !== "string" || !VALID_APP_IDS.includes(key[1] as ValidAppId) || typeof key[2] !== "string"
+      || (kind === "checkpoints" ? !/^[a-zA-Z0-9-]{1,100}$/.test(key[2])
+        : !isJournalSourceId(key[2], key[1] as ValidAppId, ownerKey) || typeof key[3] !== "string" || !/^[a-f0-9]{64}$/.test(key[3]))) {
+      throw new Error("Invalid journal page cursor");
+    }
+    cursor = { kind, ownerKey, epoch: expectedEpoch, primaryKey: key as unknown as JournalPageKeys[K] };
+  }
+  return { maxRows, maxRawChars, cursor };
+};
 export const PROGRESS_JOURNAL_DB = "hh-progress-journals:v1";
 export class DeletedJournalOwnerError extends Error {
   constructor() { super("This owner's recovery copies were deleted."); this.name = "DeletedJournalOwnerError"; }
@@ -164,6 +223,64 @@ export class ProgressJournalDatabase {
       await this.epoch(tx, ownerKey, expectedEpoch);
       return request<JournalCheckpoint[]>(tx.objectStore("checkpoints").index("owner").getAll(ownerKey));
     });
+  }
+
+  private async ownerPage<K extends JournalPageKind>(kind: K, ownerKey: string, expectedEpoch: number,
+    options?: JournalPageOptions<K>): Promise<JournalPage<K>> {
+    const settings = pageOptions(kind, ownerKey, expectedEpoch, options);
+    const factory = this.factory ?? globalThis.indexedDB;
+    if (!factory) throw new Error("Journal storage is unavailable");
+    const afterKey = settings.cursor ? [...settings.cursor.primaryKey] : null;
+    const page = await this.run("readonly", async tx => {
+      await this.epoch(tx, ownerKey, expectedEpoch);
+      return new Promise<JournalPage<K>>((resolve, reject) => {
+        const rows: JournalPageRows[K][] = [];
+        let rawChars = 0, lastKey: JournalPageKeys[K] | null = null;
+        // An exact index key works with injected factories without depending on
+        // a browser-global IDBKeyRange. The index is ordered by full primary key.
+        const req = tx.objectStore(kind).index("owner").openCursor(ownerKey);
+        req.onerror = () => reject(req.error ?? new Error("Journal page read failed"));
+        req.onsuccess = () => {
+          try {
+            const current = req.result;
+            if (!current) { resolve({ rows, rawChars, nextCursor: null }); return; }
+            if (afterKey) {
+              const comparison = factory.cmp(current.primaryKey, afterKey);
+              if (comparison < 0) {
+                current.continuePrimaryKey(ownerKey, afterKey);
+                return;
+              }
+              if (comparison === 0) { current.continue(); return; }
+            }
+            const value = current.value as JournalPageRows[K];
+            if (rows.length >= settings.maxRows || (rows.length > 0 && value.raw.length > settings.maxRawChars - rawChars)) {
+              resolve({ rows, rawChars, nextCursor: { kind, ownerKey, epoch: expectedEpoch, primaryKey: lastKey! } });
+              return;
+            }
+            // Retain a single oversized first row intact. Splitting, parsing or
+            // trimming exact recovery bytes would turn inventory into data loss.
+            rows.push(value);
+            rawChars += value.raw.length;
+            lastKey = [...current.primaryKey as unknown[]] as unknown as JournalPageKeys[K];
+            current.continue();
+          } catch (error) { reject(error); }
+        };
+      });
+    });
+    // Explicit deletion fences synchronously, before its queued write completes.
+    // A cursor success is therefore insufficient even after the read commits.
+    if (this.isOwnerDeleted(ownerKey)) throw new DeletedJournalOwnerError();
+    return page;
+  }
+
+  /** Pages are separate snapshots and never authorize source retirement. */
+  checkpointPage(ownerKey: string, expectedEpoch: number, options?: JournalPageOptions<"checkpoints">): Promise<JournalPage<"checkpoints">> {
+    return this.ownerPage("checkpoints", ownerKey, expectedEpoch, options);
+  }
+
+  /** Includes orphan archives and every digest variant, without parsing raw. */
+  archivePage(ownerKey: string, expectedEpoch: number, options?: JournalPageOptions<"archives">): Promise<JournalPage<"archives">> {
+    return this.ownerPage("archives", ownerKey, expectedEpoch, options);
   }
 
   /** Immutable source variants survive a writer advancing and recovery chains. */
