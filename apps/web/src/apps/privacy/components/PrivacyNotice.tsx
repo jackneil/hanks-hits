@@ -96,7 +96,7 @@ export function PrivacyNotice({ config, preview = false }: PrivacyNoticeProps) {
           </ul>
           <ReadAloudButton text={kidSummarySpeech()} className="mt-6" />
         </section>
-        <article aria-labelledby="grown-ups-title" className="space-y-10 rounded-3xl bg-white p-5 text-base leading-relaxed text-slate-800 shadow-xl sm:p-10">
+        <article aria-labelledby="grown-ups-title" className="space-y-10 rounded-3xl bg-white p-5 text-base leading-relaxed text-slate-800 shadow-xl [overflow-wrap:anywhere] sm:p-10">
           <header className="space-y-3">
             <h2 id="grown-ups-title" className="text-3xl font-black text-slate-900">For grown-ups: how the site saves information</h2>
             <p className="font-semibold text-slate-700">{preview ? "Draft updated" : "Last updated"}: {updated}</p>
