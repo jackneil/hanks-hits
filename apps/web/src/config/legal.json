@@ -1,0 +1,16 @@
+{
+  "_comment": "Unpublished privacy draft. Keep publicationEnabled false until the responsible adult, a working request contact and process, coverage assessment, storage provider and retention facts have been established and reviewed. Address and phone are required here only when coverageAssessment is coppa_applies; non-home contact choices are privacy preferences, not requirements imposed by this file.",
+  "publicationEnabled": false,
+  "operatorName": "",
+  "mailingAddress": "",
+  "phone": "",
+  "email": "",
+  "adultContactVerified": false,
+  "requestProcess": "",
+  "requestProcessVerified": false,
+  "coverageAssessment": "pending",
+  "clipStorageProvider": "",
+  "clipStorageProviderVerified": false,
+  "retentionDetails": "",
+  "retentionDetailsVerified": false
+}
