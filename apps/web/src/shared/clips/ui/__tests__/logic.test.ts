@@ -422,7 +422,7 @@ describe("clip UI store and controller", () => {
     expect(fake.service.clipLast).not.toHaveBeenCalled();
   });
 
-  it.each(["no service", "open sheet", "no newest clip", "empty newest ID"] as const)("an ignored newest watch preserves pending intent with %s", (reason) => {
+  it.each(["no service", "open sheet", "no newest clip", "empty newest ID"] as const)("an ignored newest watch preserves pending intent and prior feedback with %s", (reason) => {
     const unwatchedClipId = reason === "no newest clip" ? null : reason === "empty newest ID" ? "" : "chosen";
     fake.set({ gameCanPause: true, atBreak: false, unwatchedClipId });
     const store = createClipUiStore();
@@ -435,6 +435,7 @@ describe("clip UI store and controller", () => {
     });
     store.setPendingOpen("older");
     store.setPendingMenu(true);
+    store.showReply(TOAST_COPY.readyAtRunEnd, true);
     if (reason === "open sheet") store.setSheet({ kind: "settings", pausedByUs: false });
     const before = store.getState();
 
@@ -443,6 +444,20 @@ describe("clip UI store and controller", () => {
     expect(store.getState()).toBe(before);
     expect(host.pauseGame).not.toHaveBeenCalled();
     expect(fake.service.beginPress).not.toHaveBeenCalled();
+  });
+
+  it("dismisses prior transient feedback on an accepted newest watch but preserves new feedback on close", () => {
+    fake.set({ gameCanPause: false, atBreak: false, unwatchedClipId: "chosen" });
+    const { store, controller } = makeController();
+    store.showReply(reasonText("warmup-timeout"), true);
+
+    controller.openNewestClip();
+
+    expect(store.getState().sheet).toMatchObject({ target: { kind: "clip", id: "chosen" } });
+    expect(store.getState().reply).toBeNull();
+    const laterReply = store.showReply(reasonText("quota"), true);
+    controller.closeSheet();
+    expect(store.getState().reply).toEqual({ id: laterReply, text: reasonText("quota"), tappable: true });
   });
 
   it("ignores another newest-watch action while the chosen viewer is already open", () => {
@@ -471,7 +486,10 @@ describe("clip UI store and controller", () => {
 
     controller.openViewer({ kind: "clip", id: "later" });
     expect(store.getState().pendingOpenId).toBe("later");
+    const laterReply = store.getState().reply;
+    expect(laterReply?.text).toBe(TOAST_COPY.readyAtRunEnd);
     controller.closeSheet();
+    expect(store.getState().reply).toBe(laterReply);
     fake.set({ atBreak: true });
     controller.flushPendingOpen();
 

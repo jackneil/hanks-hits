@@ -5,7 +5,7 @@ import { installSpeechMock, removeSpeechMock } from "@/__tests__/speech-mock";
 import { useShellHold } from "@/shared/hooks/useShellHold";
 
 import { useClipUi } from "../uiContext";
-import { recordTimerName, TOAST_COPY, VIEWER_COPY, VIEWER_TITLES } from "../copy";
+import { deferredMenuText, recordTimerName, TOAST_COPY, VIEWER_COPY, VIEWER_TITLES } from "../copy";
 import { TOAST_SLOT_Z_INDEX, ToastSlot } from "../ToastSlot";
 import { HOLD_TIP_AFTER_CLIPS, REPLY_MS, REPLY_READING_MS, UI_PREFS_KEY } from "../uiStore";
 import { createFakeClipService, makeRecord } from "./fakeClipService";
@@ -46,6 +46,12 @@ function Controls() {
       </button>
       <button type="button" data-testid="note-clip" onClick={() => ui?.store.noteManualClip()}>
         c
+      </button>
+      <button type="button" data-testid="defer-viewer" onClick={() => ui?.openViewer({ kind: "clip", id: "older" })}>
+        viewer
+      </button>
+      <button type="button" data-testid="defer-menu" onClick={() => ui?.openMenu(null, "pointer")}>
+        menu
       </button>
     </>
   );
@@ -392,6 +398,32 @@ describe("the new-clip chip (plan 11.1)", () => {
     expect(fake.service.library.file).toHaveBeenCalledWith("c1");
     expect(fake.service.clipLast).not.toHaveBeenCalled();
     expect(screen.queryByTestId("clip-reply")).toBeNull();
+  });
+
+  it.each(["viewer", "menu"] as const)("does not show an obsolete deferred %s reply after an accepted newest watch closes before its timeout", async (request) => {
+    const { fake } = renderWithClips(<><ToastSlot /><Controls /></>, {
+      records: [makeRecord({ id: "older" }), makeRecord({ id: "chosen" })],
+      snapshot: { unwatchedClipId: "chosen", gameCanPause: false, atBreak: false },
+    });
+    fireEvent.click(screen.getByTestId("defer-viewer"));
+    if (request === "menu") fireEvent.click(screen.getByTestId("defer-menu"));
+    const deferredReply = request === "menu" ? deferredMenuText(null) : TOAST_COPY.readyAtRunEnd;
+    expect(screen.getByTestId("clip-reply")).toHaveTextContent(deferredReply);
+    expect(screen.queryByTestId("clip-viewer")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("clip-new-chip"));
+    await flush();
+    expect(screen.getByRole("dialog", { name: VIEWER_TITLES.clip })).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1000)); // Close while the old reply would still be live.
+    fireEvent.click(within(screen.getByTestId("clip-viewer")).getByRole("button", { name: VIEWER_COPY.close }));
+    await flush();
+
+    expect(fake.snapshot().atBreak).toBe(false);
+    expect(screen.queryByTestId("clip-viewer")).toBeNull();
+    expect(screen.queryByTestId("clip-reply")).toBeNull();
+    expect(screen.getByTestId("clip-toast-announcer")).not.toHaveTextContent(deferredReply);
+    expect(fake.service.library.file).not.toHaveBeenCalledWith("older");
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
   });
 
   it("opens the chosen clip on a keyboard-style click without pointer events or a host pause action", async () => {

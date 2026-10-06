@@ -611,6 +611,7 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
       if (!id) return;
       store.setPendingOpen(null);
       store.setPendingMenu(false);
+      store.clearReply();
       openViewerNow({ kind: "clip", id }, pauseIfPlaying());
     },
 
