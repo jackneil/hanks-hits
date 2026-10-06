@@ -74,7 +74,7 @@ export function PrivacyNotice({ config, preview = false }: PrivacyNoticeProps) {
   const hasOptionalContact = config.mailingAddress !== "" || config.phone !== "";
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-[100dvh] bg-slate-950">
       <Header />
       <main className="mx-auto max-w-3xl space-y-6 px-4 pb-16 pt-8">
         <h1 className="text-4xl font-black text-white">Privacy at {SITE.name}</h1>
