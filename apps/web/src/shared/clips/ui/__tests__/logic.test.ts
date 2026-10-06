@@ -455,6 +455,28 @@ describe("clip UI store and controller", () => {
       expect(store.getState().pendingMenu).toBe(false);
     });
 
+    it("explains a startup timeout while its menu waits for a break", () => {
+      fake.set({ button: "resting", reason: "warmup-timeout" });
+      const { store, controller } = makeController();
+      controller.openMenu(null, "pointer");
+      expect(store.getState().sheet).toBeNull();
+      expect(store.getState().pendingMenu).toBe(true);
+      expect(store.getState().reply?.text).toBe(deferredMenuText("warmup-timeout"));
+    });
+
+    it.each(["resting", "suspended"] as const)("defers retry for a timeout hold without attempting an empty clip (%s)", (button) => {
+      fake.set({ button, reason: "warmup-timeout" });
+      const { store, controller } = makeController();
+      pressFor(600, controller);
+      expect(fake.service.clipLast).not.toHaveBeenCalled();
+      expect(store.getState().sheet).toBeNull();
+      expect(store.getState().pendingMenu).toBe(true);
+      expect(store.getState().reply?.text).toBe(deferredMenuText("warmup-timeout"));
+      fake.set({ atBreak: true });
+      controller.flushPendingOpen();
+      expect(store.getState().sheet).toMatchObject({ kind: "menu", pausedByUs: false });
+    });
+
     it("says why a resting button waits, and never covers the run", () => {
       fake.set({ button: "resting" });
       const { store, controller } = makeController();

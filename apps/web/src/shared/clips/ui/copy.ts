@@ -55,6 +55,7 @@ export interface ReasonCopy {
 /** Every ClipReasonCode, for the copy test and for exhaustive loops. */
 export const CLIP_REASON_CODES = [
   "warming",
+  "warmup-timeout",
   "flag-off",
   "no-tier",
   "other-tab",
@@ -85,6 +86,10 @@ export function isClipReasonCode(value: string): value is ClipReasonCode {
 }
 
 export const REASON_COPY: Record<ClipReasonCode, ReasonCopy> = {
+  "warmup-timeout": {
+    say: "The clip maker could not get started.",
+    next: "Tap Turn the clip button back on to try again.",
+  },
   warming: { say: "Play a little first!", next: "Then tap the clip button again." },
   "source-lost": { say: "Play a little first!", next: "Then tap the clip button again." },
   "flag-off": { say: "Clips are not on here yet.", next: "Keep playing and have fun!" },

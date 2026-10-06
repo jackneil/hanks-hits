@@ -10,6 +10,7 @@ const ALL_STRINGS: Array<[string, string]> = [
 
 /** Every ClipReasonCode of the contract. The Record type makes this list complete. */
 const REASONS: Record<ClipReasonCode, true> = {
+  "warmup-timeout": true,
   warming: true,
   "flag-off": true,
   "no-tier": true,

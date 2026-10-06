@@ -461,7 +461,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
 
   /** The reason a resting or record-only button gives before its menu. */
   const menuReason = (): ClipReasonCode | null => {
-    const button = deps.snapshot().button;
+    const { button, reason } = deps.snapshot();
+    if (reason === "warmup-timeout") return reason;
     if (button === "resting") return "resting";
     if (button === "record-only") return "record-only";
     return null;
@@ -509,7 +510,8 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
           if (!service) return;
           if (!canCoverPlay()) {
             // A slow press in a run that cannot pause: clip the moment of the press.
-            if (outcome.hold && outcome.token && HOLD_CLIPS_IN.has(deps.snapshot().button)) {
+            const snapshot = deps.snapshot();
+            if (outcome.hold && outcome.token && snapshot.reason !== "warmup-timeout" && HOLD_CLIPS_IN.has(snapshot.button)) {
               commitFromButton("clip", service.clipLast(DEFAULT_CLIP_SECONDS, outcome.token));
               return;
             }

@@ -77,13 +77,23 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     expect(resultChipClipActions(snapshot({ bufferedSec: 12 }), run(20)).map((action) => action.id)).toEqual(["watchEnd"]);
     // The first run of a page: capture started a moment after the run, and
     // the last ring report is up to a second old. The chip still offers the
-    // whole run, with the length of the clip that the kid gets.
-    expect(resultChipClipActions(snapshot({ bufferedSec: 22.4 }), run(23.9)).map((action) => action.label)).toEqual([watchRunLabel("0:22")]);
+    // whole run, with its frozen run duration.
+    expect(resultChipClipActions(snapshot({ bufferedSec: 22.4 }), run(23.9)).map((action) => action.label)).toEqual([watchRunLabel("0:23")]);
     expect(resultChipClipActions(snapshot({ bufferedSec: 43 }), run(44.5), 0).map((action) => action.label)).toEqual([
       RESULT_ACTION_COPY.watchEnd,
-      wholeRunLabel("0:43"),
+      wholeRunLabel("0:44"),
     ]);
-    expect(resultChipClipActions(snapshot({ bufferedSec: 43 }), run(44.5), 0)[1].spoken).toBe("Make the whole run a video, 43 seconds");
+    expect(resultChipClipActions(snapshot({ bufferedSec: 43 }), run(44.5), 0)[1].spoken).toBe("Make the whole run a video, 44 seconds");
+  });
+
+  it("keeps visible and spoken run duration stable through report jitter and drops it just outside eligibility", () => {
+    const frozen = run(4.2);
+    const first = resultChipClipActions(snapshot({ bufferedSec: 4.2 }), frozen);
+    for (const [bufferedSec, since] of [[3.9, 0.1], [4.5, 0.9], [4.15, 1.1], [4.2, 2]]) {
+      expect(resultChipClipActions(snapshot({ bufferedSec }), frozen, since)).toEqual(first);
+    }
+    expect(first[0]).toMatchObject({ label: watchRunLabel("0:04"), spoken: "Watch the whole run, 4 seconds" });
+    expect(resultChipClipActions(snapshot({ bufferedSec: 4.2 }), frozen, 2.001).map((a) => a.id)).toEqual(["watchEnd"]);
   });
 
   it("offers nothing with no run, a run too short to clip, or a state with no footage", () => {
@@ -106,6 +116,19 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     expect(chipRunOf(token(50e6, { startUs: 34e6, endUs: 49e6 }))).toEqual({ seconds: 15, spanSec: 16 });
     expect(chipRunOf(token(50e6, null))).toBeNull();
     expect(chipRunOf(null)).toBeNull();
+  });
+
+  it.each(["resting", "suspended"] as const)("opens retry instead of clipping a frozen result after timeout (%s)", async (button) => {
+    const fake = afterRun(16, { button: "warming", engine: "warming", bufferedSec: 0 });
+    renderWithClips(<ResultChipClipActions />, { fake });
+    expect(fake.service.beginPress).toHaveBeenCalledTimes(1);
+    act(() => fake.set({ button, engine: "resting", reason: "warmup-timeout" }));
+    expect(labels()).toEqual(["Put it on the leaderboard"]);
+    fireEvent.click(screen.getByRole("button", { name: "Put it on the leaderboard" }));
+    await flush(6);
+    expect(fake.service.clipRun).not.toHaveBeenCalled();
+    expect(screen.getByTestId("capture-menu")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Turn the clip button back on" })).toBeEnabled();
   });
 
   it("gives the voice the length in words", () => {
@@ -200,8 +223,8 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     act(() => {
       vi.advanceTimersByTime(4000);
     });
-    // 4 s of capture since the run ended: the ring lost the run's first second, and the length says so.
-    expect(wholeRun()?.textContent).toBe(wholeRunLabel("0:41"));
+    // 4 s of capture since the run ended: the ring lost the run's first second, and the label still describes the frozen run.
+    expect(wholeRun()?.textContent).toBe(wholeRunLabel("0:42"));
     act(() => {
       vi.advanceTimersByTime(2000); // 6 s of capture since the run ended: 42 + 6 > 45 + 1 + 1
     });

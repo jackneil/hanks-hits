@@ -12,6 +12,7 @@ import type { AttachedGame, ClipActionResult, ClipLibraryApi, GameAttachment, Pr
 import type { SessionBusLike } from "../ioClient";
 import { Lifecycle, type LifecycleEnv } from "../lifecycle";
 import { FakeLockManager } from "./fakeLocks";
+import type { CaptureEngine } from "../engine";
 import { FakeEngine, recordFor } from "./fakeEngine";
 
 /** A stored record part of a recording (the id and the kind change). */
@@ -82,7 +83,7 @@ export function disposeWorlds(): void {
   services.splice(0).forEach((s) => s.dispose());
 }
 
-export function makeWorld(options: { closesOnHide?: boolean; tab?: string } = {}): World {
+export function makeWorld(options: { closesOnHide?: boolean; tab?: string; wrapEngine?: (engine: FakeEngine) => CaptureEngine } = {}): World {
   const engine = new FakeEngine();
   const rows = new Map<string, ClipRecord>();
   const baseClip = engine.clipResult;
@@ -133,7 +134,7 @@ export function makeWorld(options: { closesOnHide?: boolean; tab?: string } = {}
   const shared: File[] = [];
   const world = { paused: 0 } as World;
   const service = new ClipService({
-    loadEngine: async () => engine,
+    loadEngine: async () => options.wrapEngine?.(engine) ?? engine,
     io: io as unknown as ServiceIo,
     breaker,
     lifecycle,

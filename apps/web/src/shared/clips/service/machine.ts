@@ -25,6 +25,8 @@ export type MachineEvent =
   | "source-registered" // IDLE -> WARMING
   | "output-ok" // WARMING -> BUFFERING (output + calibration ok)
   | "no-output" // WARMING -> BRIDGED (no output 2.5 s after the first frame; Chromium)
+  | "warmup-timeout" // WARMING, BRIDGED -> RESTING (empty attempt stopped)
+  | "retry-warmup" // RESTING -> IDLE (explicit retry after timeout)
   | "hardware-ready" // BRIDGED -> BUFFERING (new epoch)
   | "record" // BUFFERING -> RECORDING; RESTING -> RECORDING (low-power rung)
   | "stop" // RECORDING -> BUFFERING (not rested) or RESTING (the session was rested)
@@ -55,8 +57,8 @@ type Edge = EngineState | ((ctx: TransitionContext) => EngineState);
 /** The plan 7 diagram, edge by edge. */
 export const TRANSITIONS: Readonly<Record<EngineState, Partial<Record<MachineEvent, Edge>>>> = Object.freeze({
   idle: { "source-registered": "warming", "device-fallback": "record-only", breaker: "disabled" },
-  warming: { "output-ok": "buffering", "no-output": "bridged", "encoder-error": "recovering" },
-  bridged: { "hardware-ready": "buffering", "encoder-error": "recovering" },
+  warming: { "warmup-timeout": "resting", "output-ok": "buffering", "no-output": "bridged", "encoder-error": "recovering" },
+  bridged: { "warmup-timeout": "resting", "hardware-ready": "buffering", "encoder-error": "recovering" },
   buffering: {
     record: "recording",
     "governor-severe": "resting",
@@ -74,7 +76,7 @@ export const TRANSITIONS: Readonly<Record<EngineState, Partial<Record<MachineEve
     "canvas-gone": "source-lost",
     export: "exporting",
   },
-  resting: { record: "recording", "probe-passes": "buffering", export: "exporting" },
+  resting: { "retry-warmup": "idle", record: "recording", "probe-passes": "buffering", export: "exporting" },
   suspended: { resume: "buffering", export: "exporting" },
   exporting: { "export-done": "buffering" },
   "source-lost": { "re-registered": "buffering", "grace-over": "idle" },
@@ -85,6 +87,9 @@ export const TRANSITIONS: Readonly<Record<EngineState, Partial<Record<MachineEve
 
 /** The edges that the plan implies but the diagram does not draw (see the file comment). */
 export const IMPLIED_EDGES: ReadonlyArray<readonly [EngineState, MachineEvent]> = Object.freeze([
+  ["warming", "warmup-timeout"],
+  ["bridged", "warmup-timeout"],
+  ["resting", "retry-warmup"],
   ["idle", "breaker"],
   ["warming", "encoder-error"],
   ["bridged", "encoder-error"],

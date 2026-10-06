@@ -101,6 +101,23 @@ describe("CaptureMenu (plan 11.4)", () => {
     expect(screen.queryByTestId("capture-menu")).toBeNull();
   });
 
+  it.each(["resting", "suspended"] as const)("explains a stalled attempt and offers only retry, library and settings, including in speech (%s)", (button) => {
+    const speech = installSpeechMock();
+    const { fake } = renderWithClips(<OpenMenu />, { snapshot: { button, reason: "warmup-timeout" } });
+    fireEvent.click(screen.getByTestId("open-menu"));
+    expect(rows()).toEqual(["wake", "myClips", "settings"]);
+    expect(within(menu()).queryByRole("button", { name: /Preview/ })).toBeNull();
+    expect(screen.getByTestId("capture-menu-reason")).toHaveTextContent(REASON_COPY["warmup-timeout"].say);
+    fireEvent.click(within(menu()).getByTestId("read-aloud-button"));
+    expect(speech.lastUtterance().text).toBe([
+      MENU_COPY.title,
+      `${REASON_COPY["warmup-timeout"].say} ${REASON_COPY["warmup-timeout"].next}`,
+      MENU_COPY.wake, MENU_COPY.myClips, MENU_COPY.settings, MENU_COPY.close,
+    ].join(". ").replace(/\.\./g, "."));
+    fireEvent.click(within(menu()).getByRole("button", { name: MENU_COPY.wake }));
+    expect(fake.service.wake).toHaveBeenCalledTimes(1);
+  });
+
   it("shows only Record and Take a picture, with the reason, in the record-only state", () => {
     renderWithClips(<OpenMenu />, { snapshot: { button: "record-only" } });
     fireEvent.click(screen.getByTestId("open-menu"));

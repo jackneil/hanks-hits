@@ -42,6 +42,7 @@ export const LAB_COPY = Object.freeze({
 
 /** Plain words for each reason code, with a next step (plan 11.6: every error has a reason and a next step). */
 export const LAB_REASON_TEXT: Readonly<Record<ClipReasonCode | "busy" | "cancelled", string>> = Object.freeze({
+  "warmup-timeout": "The clip maker could not get started. Open Clips and tap Turn the clip button back on to try again.",
   warming: "Clips need a few more seconds of play. Keep playing, then try again.",
   "flag-off": "Clips are off right now. Turn clips on, then load the page again.",
   "no-tier": "This browser cannot make videos. Try another browser.",

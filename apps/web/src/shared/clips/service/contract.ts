@@ -58,6 +58,7 @@ export type ClipButtonState =
 /** Why the service is in a limited state. The UI maps each code to kid words. */
 export type ClipReasonCode =
   | "warming" // less than the minimum footage in the ring
+  | "warmup-timeout" // no first output within the active capture budget; explicit retry
   | "flag-off" // CLIPS_MODE is off for this visitor
   | "no-tier" // the browser cannot encode video
   | "other-tab" // another tab holds the capture lock
