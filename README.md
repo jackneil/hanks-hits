@@ -128,6 +128,16 @@ After setup, hand the keyboard to the kid: they just open Claude Code in this fo
 
 All the site branding lives in one file: **`apps/web/src/config/site.json`**. Change **both** `siteName` and `ownerName` (e.g. to `"Jimmie's Hits"` / `"Jimmie"`) and the whole site updates — browser title, home page, footer, link previews, and the installable (Add-to-Home-Screen) app name — and it ships to Railway on the next deploy. That one file is the only thing to edit. The kid can also just ask Claude: *"call it Jimmie's Hits."*
 
+### Privacy notice configuration
+
+The notice uses `apps/web/src/config/legal.json`. Its checked-in draft has `publicationEnabled: false`, so `/privacy` shows the not-found page. Keep publication disabled until the actual operator contact, request process, coverage assessment, video storage provider and retention details have been established and their verification flags are true. The `coppa_applies` assessment also requires a mailing address and phone; `other_reviewed` permits those fields to remain blank. Complete configuration and deliberate publication enable the notice at `/privacy`.
+
+```bash
+node apps/web/scripts/check-legal-config.mjs
+```
+
+Run this readiness check from the repository root, optionally passing another configuration file path. Exit code 1 is expected for the unpublished draft. Ordinary builds permit the disabled draft. The checker validates configuration, not legal coverage or a working contact process.
+
 ### Useful commands
 
 ```bash
