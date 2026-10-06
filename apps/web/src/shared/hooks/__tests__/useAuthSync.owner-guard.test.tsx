@@ -108,7 +108,10 @@ describe("useAuthSync with the real owner storage authority", () => {
     await seedHandoff({ ...played(80), lastModified: 300 }, { ...played(100), lastModified: 200 });
     const server = createProgressServer({ current: auth }); fetchSpy.mockImplementation(server.fetch);
     server.rows.set("user-B:snake", { data: played(80), updatedAt: new Date(300) });
-    const state = store(); await confirm(); mount(state); await settle();
+    const state = store(); await confirm();
+    const view = mount(state);
+    await act(async () => { await view.result.current.forceSync(); });
+    await settle();
     const candidate = authority.current.readGuestCandidate(key)!;
     expect(server.posts).toEqual([]);
     const dialog = progressSyncPresentation.getSnapshot().find(row => row.appId === "snake")!.open()!;
@@ -131,7 +134,9 @@ describe("useAuthSync with the real owner storage authority", () => {
     authority.current = createOwnerBoundProgress(); authority.current.authorizeGuestHandoff(proof);
     const state = store(); await confirm();
     const candidate = authority.current.readGuestCandidate(key);
-    const view = mount(state); await settle();
+    const view = mount(state);
+    await act(async () => { await view.result.current.forceSync(); });
+    await settle();
     expect(view.result.current.ready).toBe(true);
     expect(authority.current.readGuestCandidate(key)).toEqual(candidate);
     expect(state.getState().progress).toEqual(defaults);

@@ -13,13 +13,15 @@ import { sameProgress } from "@/shared/lib/progressStamp";
 import { ProgressJournalDatabase } from "@/shared/lib/progressJournalDatabase";
 import { ProgressJournalRepository } from "@/shared/lib/progressJournalRepository";
 import { cloneProgress, newProvisionalJournal } from "@/shared/lib/progressJournal";
-import { ProgressSyncRuntime, type ProgressSaveResult } from "@/shared/lib/progressSyncRuntime";
+import { ProgressSyncRuntime, exceedsProgressBeaconBudget, progressBeaconDataBudget,
+  type ProgressSaveResult } from "@/shared/lib/progressSyncRuntime";
 import { acknowledgeResolvedGuests, inventoryGuestJournals } from "@/shared/lib/guestProgressRecovery";
 import { inventoryBakeryJournals } from "@/games/cookie-clicker/lib/import-progress-journals";
 import { progressSyncPresentation, type RecoveryDialog } from "@/shared/lib/progressSyncPresentation";
 
 export const READY_FALLBACK_MS = 10_000;
 const RETRY_FIRST_MS = 2_000, RETRY_MAX_MS = 30_000;
+const LARGE_SAVE_MS = 500;
 type SyncStatus = "idle" | "syncing" | "synced" | "error";
 type Options<T extends AppProgressData> = {
   appId: ValidAppId;
@@ -72,6 +74,9 @@ export function useAuthSync<T extends AppProgressData>({ appId, localStorageKey,
     let refreshRequested = false;
     const database = new ProgressJournalDatabase(), words = new LocalWordsDatabase();
     let timer: ReturnType<typeof setTimeout> | null = null, attempts = 0;
+    let timerDue = 0, timerPurpose: "edit" | "retry" = "edit";
+    const beaconDataBuffer = new Uint8Array(userId ? progressBeaconDataBudget(userId) : 0);
+    let largeSave = false;
     let lastObserved = "", lastReported = "", completed = false, lastSavedRevision: string | null = null;
     let releasePause: ((synced?: boolean) => void) | null = null, choiceBusy = false, dialogClosed = true;
     let dialogGeneration = 0;
@@ -118,13 +123,14 @@ export function useAuthSync<T extends AppProgressData>({ appId, localStorageKey,
             if (current() && repository) await acknowledgeResolvedGuests({ appId, ownerId: userId!, authority: ownerBoundProgress, lease, repository });
             if (result.ok) dialogClosed = true;
             publish();
-            if (!result.ok && retryable(result)) schedule(RETRY_FIRST_MS);
+            if (!result.ok && retryable(result)) schedule(RETRY_FIRST_MS, "retry");
             return result;
           } finally {
             choiceBusy = false;
             choiceOperation = null;
             if (dialogClosed) closeDialog();
-            if (refreshRequested) queueMicrotask(() => { void run(); });
+            schedulePending();
+            if (refreshRequested && (!timer || timerPurpose === "edit")) queueMicrotask(() => { void run(); });
           } })();
           return choiceOperation;
         } };
@@ -132,7 +138,7 @@ export function useAuthSync<T extends AppProgressData>({ appId, localStorageKey,
     const publish = () => {
       if (!current() || !runtime) return;
       const snapshot = runtime.snapshot(), row = snapshot.journal, state = runtime.status();
-      const synced = snapshot.phase === "ready" && !!row && !row.provisional && !row.conflict && !row.forceWrite;
+      const synced = state === "saved" && !!row;
       const syncStatus: SyncStatus = state === "saved" ? "synced" : state === "saving" || state === "pending" ? "syncing" : "error";
       const revision = state === "saved" ? row?.acknowledged.revision ?? null : null;
       const lastSynced = revision && revision !== lastSavedRevision ? new Date() : localView.lastSynced;
@@ -173,19 +179,33 @@ export function useAuthSync<T extends AppProgressData>({ appId, localStorageKey,
       })().catch(() => { construction = null; if (current()) setLocalView({ syncStatus: "error" }); });
       return construction;
     };
-    function schedule(delay: number) {
-      if (!current() || timer || !userId) return;
-      timer = setTimeout(() => { timer = null; void run(); }, delay);
+    const editDelay = () => largeSave ? Math.min(debounceMs, LARGE_SAVE_MS) : debounceMs;
+    function schedule(delay: number, purpose: "edit" | "retry" = "edit") {
+      if (!current() || !userId) return;
+      const due = Date.now() + delay;
+      if (timer) {
+        // Edits can bring an ordinary deadline forward, but never defeat backoff.
+        if (timerPurpose === "retry" && purpose === "edit") return;
+        if (timerPurpose === purpose && timerDue <= due) return;
+        clearTimeout(timer);
+      }
+      timerPurpose = purpose; timerDue = due;
+      timer = setTimeout(() => { timer = null; timerDue = 0; void run(); }, delay);
+    }
+    function schedulePending() {
+      if (!current() || runtime?.status() !== "pending") return;
+      changed();
+      schedule(editDelay());
     }
     function run(refresh = false): Promise<void> {
       if (!current() || !userId) return Promise.resolve();
       refreshRequested ||= refresh;
       if (choiceBusy) { runtime?.capture(); return choiceOperation?.then(() => {}) ?? Promise.resolve(); }
       if (operation) { runtime?.capture(); return operation; }
-      if (timer) { clearTimeout(timer); timer = null; }
+      if (timer) { clearTimeout(timer); timer = null; timerDue = 0; }
       operation = (async () => {
         await construct();
-        if (!current() || !runtime || !repository) { schedule(RETRY_FIRST_MS); return; }
+        if (!current() || !runtime || !repository) { schedule(RETRY_FIRST_MS, "retry"); return; }
         const refresh = refreshRequested; refreshRequested = false;
         const result = await runtime.save(refresh);
         if (!current()) return;
@@ -194,13 +214,12 @@ export function useAuthSync<T extends AppProgressData>({ appId, localStorageKey,
         const state = runtime.status();
         if (result.ok) {
           attempts = 0;
-          if (!acknowledged) schedule(RETRY_FIRST_MS);
+          if (!acknowledged) schedule(RETRY_FIRST_MS, "retry");
         } else if (state !== "conflict" && (retryable(result) || result.status === 409)) {
-          schedule(Math.min(RETRY_FIRST_MS * 2 ** Math.min(attempts++, 4), RETRY_MAX_MS));
+          schedule(Math.min(RETRY_FIRST_MS * 2 ** Math.min(attempts++, 4), RETRY_MAX_MS), "retry");
         }
-        if (state === "pending") schedule(debounceMs);
-      })().catch(() => { if (current()) { setLocalView({ syncStatus: "error" }); schedule(RETRY_FIRST_MS); } })
-        .finally(() => { operation = null; publish(); if (refreshRequested && !timer) queueMicrotask(() => { void run(); }); });
+      })().catch(() => { if (current()) { setLocalView({ syncStatus: "error" }); schedule(RETRY_FIRST_MS, "retry"); } })
+        .finally(() => { operation = null; publish(); schedulePending(); if (refreshRequested && !timer) queueMicrotask(() => { void run(); }); });
       return operation;
     }
     const changed = () => {
@@ -208,8 +227,9 @@ export function useAuthSync<T extends AppProgressData>({ appId, localStorageKey,
       const raw = JSON.stringify(callbacks.getState());
       if (raw === lastObserved) return;
       lastObserved = raw;
+      largeSave = exceedsProgressBeaconBudget(raw, beaconDataBuffer);
       runtime?.capture();
-      if (userId) schedule(debounceMs);
+      if (userId) schedule(editDelay());
     };
     const off = ownerBoundProgress.subscribeStoreWrites(localStorageKey, changed);
     const poll = setInterval(() => {
