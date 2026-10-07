@@ -203,6 +203,32 @@ export class LocalWordsDatabase {
     });
   }
 
+  /** Read one immutable capture across its atomic move into committed receipts. */
+  readCapturedSource(ownerKey: string, sourceId: string, expectedEpoch: number): Promise<SourceRecord | null> {
+    return this.run(["owners", "sources", "receipts"], "readonly", async tx => {
+      await this.epoch(tx, ownerKey, expectedEpoch);
+      const source = await request<SourceRecord | undefined>(tx.objectStore("sources").get(sourceId));
+      const receipt = await request<Receipt | undefined>(tx.objectStore("receipts").get(sourceId));
+      const origin = source ?? receipt;
+      if (!origin) return null;
+      const copies = [source, receipt].filter((record): record is SourceRecord => record !== undefined);
+      if (copies.every(record => isOwnerKey(record.ownerKey) && record.ownerKey !== ownerKey)) return null;
+      if (source && receipt && !sameProgress(source, receipt)) {
+        throw new Error("Local word captured source copies conflict.");
+      }
+      for (const record of copies) {
+        if (record.ownerKey !== ownerKey || typeof record.appId !== "string" || typeof record.sourceKey !== "string"
+          || typeof record.digest !== "string" || !(typeof record.sourceVersion === "string"
+            || (typeof record.sourceVersion === "number" && Number.isFinite(record.sourceVersion)))
+          || record.id !== sourceId
+          || record.id !== JSON.stringify([record.ownerKey, record.appId, record.sourceKey, record.sourceVersion, record.digest])) {
+          throw new Error("Local word captured source identity is invalid.");
+        }
+      }
+      return structuredClone(origin);
+    });
+  }
+
   listSources(ownerKey: string): Promise<SourceRecord[]> {
     owner(ownerKey);
     return this.run(["sources"], "readonly", tx => request(tx.objectStore("sources").index("owner").getAll(ownerKey)));

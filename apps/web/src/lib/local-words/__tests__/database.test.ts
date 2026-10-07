@@ -35,6 +35,16 @@ function peer() {
   return next;
 }
 
+function putCapturedCopy(storeName: "sources" | "receipts", record: unknown): Promise<void> {
+  const connection = (db as unknown as { connection: IDBDatabase }).connection;
+  return new Promise((resolve, reject) => {
+    const tx = connection.transaction([storeName], "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("Fixture transaction failed."));
+    tx.objectStore(storeName).put(record);
+  });
+}
+
 describe("local word transactions", () => {
   it("does not open storage at construction, and reports unavailable storage", async () => {
     const open = vi.spyOn(factory, "open");
@@ -229,5 +239,193 @@ describe("local word transactions", () => {
     expect(await db.readWords(A, "drum-machine")).toEqual([word("durable")]);
     db.close();
     await expect(db.ownerEpoch(A)).rejects.toMatchObject({ name: "InvalidStateError" });
+  });
+});
+
+describe("exact captured source lookup", () => {
+  it("returns the chosen pending capture without interpreting or changing its bytes", async () => {
+    const original = source(), newer = source("newer");
+    original.raw = "original\n\ud800";
+    original.sourceVersion = "preservation:v1:legacy-parser:v1:extraction:1";
+    original.id = JSON.stringify([A, original.appId, original.sourceKey, original.sourceVersion, original.digest]);
+    original.fields.push({ path: "savedBeats[1].name", value: "unmapped", identity: { id: "beat-2" } });
+    await db.capture(original, 0);
+    await db.capture(newer, 0);
+
+    expect(await db.readCapturedSource(A, original.id, 0)).toEqual(original);
+    expect(await db.readCapturedSource(A, source("missing").id, 0)).toBeNull();
+    expect(await db.listSources(A)).toEqual([original, newer]);
+    expect(await db.listCommittedSources(A)).toEqual([]);
+    expect(await db.readWords(A, "drum-machine")).toEqual([]);
+  });
+
+  it("returns the same complete capture from its committed receipt", async () => {
+    const original = source();
+    original.fields.push({ path: "savedBeats[1].name", value: "unmapped", identity: { id: "beat-2" } });
+    await db.capture(original, 0);
+    await db.commitSource(original.id, [word("first")], 0);
+
+    expect(await peer().readCapturedSource(A, original.id, 0)).toEqual(original);
+    expect(await db.listSources(A)).toEqual([]);
+    expect(await db.listCommittedSources(A)).toEqual([original]);
+    expect(await db.readWords(A, "drum-machine")).toEqual([word("first")]);
+  });
+
+  it("keeps a coherent capture while another connection queues its transfer", async () => {
+    const original = source(), other = peer();
+    await db.capture(original, 0);
+    await other.ownerEpoch(A);
+    let transfer: Promise<unknown> | undefined;
+    const get = IDBObjectStore.prototype.get;
+    vi.spyOn(IDBObjectStore.prototype, "get").mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["get"]>) {
+      const result = get.apply(this, args);
+      if (this.name === "sources" && this.transaction.mode === "readonly" && args[0] === original.id) {
+        result.addEventListener("success", () => {
+          transfer = other.commitSource(original.id, [word("first")], 0);
+        }, { once: true });
+      }
+      return result;
+    });
+
+    expect(await db.readCapturedSource(A, original.id, 0)).toEqual(original);
+    expect(transfer).toBeDefined();
+    await expect(transfer).resolves.toBe("committed");
+    vi.restoreAllMocks();
+    expect(await other.readCapturedSource(A, original.id, 0)).toEqual(original);
+    expect(await db.listSources(A)).toEqual([]);
+    expect(await db.listCommittedSources(A)).toEqual([original]);
+  });
+
+  it("checks the epoch and capture in one snapshot when deletion is queued during the read", async () => {
+    const original = source(), other = peer();
+    await db.capture(original, 0);
+    await other.ownerEpoch(A);
+    let deletion: Promise<number> | undefined;
+    const get = IDBObjectStore.prototype.get;
+    vi.spyOn(IDBObjectStore.prototype, "get").mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["get"]>) {
+      const result = get.apply(this, args);
+      if (this.name === "owners" && this.transaction.mode === "readonly" && args[0] === A) {
+        result.addEventListener("success", () => {
+          deletion = other.deleteOwner(A);
+        }, { once: true });
+      }
+      return result;
+    });
+
+    expect(await db.readCapturedSource(A, original.id, 0)).toEqual(original);
+    expect(deletion).toBeDefined();
+    await expect(deletion).resolves.toBe(1);
+    vi.restoreAllMocks();
+    await expect(db.readCapturedSource(A, original.id, 0)).rejects.toBeInstanceOf(DeletedWordOwnerError);
+    expect(await db.listSources(A)).toEqual([]);
+  });
+
+  it("denies foreign pending and committed IDs while leaving the other owner intact", async () => {
+    const own = source(), foreignPending = source("foreign-pending", "drum-machine", B);
+    const foreignCommitted = source("foreign-committed", "drum-machine", B);
+    await db.capture(own, 0);
+    await db.capture(foreignPending, 0);
+    await db.capture(foreignCommitted, 0);
+    await db.commitSource(foreignCommitted.id, [word("private B", "drum-machine", B)], 0);
+    const before = {
+      sources: await db.listSources(B), receipts: await db.listCommittedSources(B),
+      words: await db.readWords(B, "drum-machine"), epoch: await db.ownerEpoch(B),
+    };
+
+    expect(await db.readCapturedSource(A, foreignPending.id, 0)).toBeNull();
+    expect(await db.readCapturedSource(A, foreignCommitted.id, 0)).toBeNull();
+    expect(await db.readCapturedSource(B, own.id, 0)).toBeNull();
+    expect(await db.readCapturedSource(A, own.id, 0)).toEqual(own);
+    expect({
+      sources: await db.listSources(B), receipts: await db.listCommittedSources(B),
+      words: await db.readWords(B, "drum-machine"), epoch: await db.ownerEpoch(B),
+    }).toEqual(before);
+  });
+
+  it("rejects invalid owners and stale or deleted epochs even for missing IDs", async () => {
+    const original = source();
+    await db.capture(original, 0);
+    await expect(db.readCapturedSource("raw-user-id", original.id, 0)).rejects.toThrow("Invalid local word owner");
+    await expect(db.readCapturedSource(A, original.id, 5)).rejects.toBeInstanceOf(StaleOwnerEpochError);
+    await expect(db.readCapturedSource(A, source("missing").id, 5)).rejects.toBeInstanceOf(StaleOwnerEpochError);
+    await db.deleteOwner(A);
+    for (const epoch of [0, 1]) {
+      await expect(db.readCapturedSource(A, original.id, epoch)).rejects.toBeInstanceOf(DeletedWordOwnerError);
+      await expect(db.readCapturedSource(A, source("missing").id, epoch)).rejects.toBeInstanceOf(DeletedWordOwnerError);
+    }
+  });
+
+  it("rejects a lookup queued behind another connection's deletion", async () => {
+    const original = source(), other = peer();
+    await db.capture(original, 0);
+    await other.ownerEpoch(A);
+    const deletion = other.deleteOwner(A);
+    const lookup = db.readCapturedSource(A, original.id, 0);
+    await expect(lookup).rejects.toBeInstanceOf(DeletedWordOwnerError);
+    await expect(deletion).resolves.toBe(1);
+  });
+
+  it("returns defensive copies from pending and committed storage", async () => {
+    const original = source();
+    await db.capture(original, 0);
+    for (const committed of [false, true]) {
+      if (committed) await db.commitSource(original.id, [word("first")], 0);
+      const returned = await db.readCapturedSource(A, original.id, 0);
+      expect(returned).not.toBeNull();
+      returned!.raw = "caller edit";
+      returned!.fields[0].value = "caller edit";
+      returned!.fields[0].identity.id = "caller identity";
+      returned!.fields.push({ path: "extra", value: "caller extra", identity: {} });
+      expect(await db.readCapturedSource(A, original.id, 0)).toEqual(original);
+    }
+    expect(await db.listCommittedSources(A)).toEqual([original]);
+  });
+
+  it("accepts identical copies without retiring or replacing either copy", async () => {
+    const original = source();
+    await db.capture(original, 0);
+    await putCapturedCopy("receipts", original);
+    expect(await db.readCapturedSource(A, original.id, 0)).toEqual(original);
+    expect(await db.listSources(A)).toEqual([original]);
+    expect(await db.listCommittedSources(A)).toEqual([original]);
+  });
+
+  it("rejects contradictory copies with a redacted error and preserves both", async () => {
+    const original = source(), conflicting = { ...original, raw: "private contradictory bytes" };
+    await db.capture(original, 0);
+    await putCapturedCopy("receipts", conflicting);
+    await expect(db.readCapturedSource(A, original.id, 0)).rejects.toThrow("Local word captured source copies conflict.");
+    expect(await db.listSources(A)).toEqual([original]);
+    expect(await db.listCommittedSources(A)).toEqual([conflicting]);
+    expect(await db.readWords(A, "drum-machine")).toEqual([]);
+  });
+
+  it("rejects contradictory ownership between copies without returning either owner's data", async () => {
+    const original = source(), conflicting = { ...original, ownerKey: B };
+    await db.capture(original, 0);
+    await putCapturedCopy("receipts", conflicting);
+    for (const ownerKey of [A, B]) {
+      await expect(db.readCapturedSource(ownerKey, original.id, 0)).rejects.toThrow("Local word captured source copies conflict.");
+    }
+    expect(await db.listSources(A)).toEqual([original]);
+    expect(await db.listCommittedSources(B)).toEqual([conflicting]);
+  });
+
+  it.each(["sources", "receipts"] as const)("rejects a malformed canonical identity in %s without disclosing or changing it", async storeName => {
+    const original = source();
+    await db.capture(original, 0);
+    if (storeName === "receipts") await db.commitSource(original.id, [word("first")], 0);
+    const malformed = { ...original, sourceKey: "private wrong source key" };
+    await putCapturedCopy(storeName, malformed);
+    await expect(db.readCapturedSource(A, original.id, 0)).rejects.toThrow("Local word captured source identity is invalid.");
+    expect(await (storeName === "sources" ? db.listSources(A) : db.listCommittedSources(A))).toEqual([malformed]);
+  });
+
+  it.each([undefined, null, Number.NaN])("rejects malformed identity tuple values even if their JSON encoding matches (%s)", async sourceVersion => {
+    const malformed = { ...source(), sourceVersion };
+    malformed.id = JSON.stringify([A, malformed.appId, malformed.sourceKey, sourceVersion, malformed.digest]);
+    await db.ownerEpoch(A);
+    await putCapturedCopy("sources", malformed);
+    await expect(db.readCapturedSource(A, malformed.id, 0)).rejects.toThrow("Local word captured source identity is invalid.");
   });
 });
