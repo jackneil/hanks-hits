@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReleaseNotice } from "../ReleaseNotice";
 const state = vi.hoisted(() => ({ placement: "page", pathname: "/", durable: false,
-  retry: null as null | (() => Promise<void>), prepare: () => false }));
+  retry: null as null | (() => Promise<void>), prepare: (): boolean => false }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.pathname }));
 vi.mock("../LiveProvider", () => ({ useLive: () => ({ update: { id: "new", builtAt: 100 } }) }));
 vi.mock("@/shared/lib/gameBreaks", () => ({ useNudgePlacement: () => ({ kind: state.placement }) }));
