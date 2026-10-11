@@ -28,6 +28,15 @@ function connect(host: string, owner: string | null, origin = "http://127.0.0.1"
   return socket;
 }
 describe("live gateway", () => {
+  it("explicitly allows the same-site socket without expanding emulator connections", async () => {
+    const host = await setup((req, res) => {
+      res.setHeader("Content-Security-Policy", req.url === "/emulator/" ? "connect-src 'self' blob:;" : "default-src 'self'; connect-src 'self' https:;");
+      res.end("page");
+    });
+    vi.stubEnv("AUTH_URL", "https://hankshits.com");
+    expect((await fetch(`http://${host}/page`)).headers.get("content-security-policy")).toBe("default-src 'self'; connect-src 'self' https: wss://hankshits.com;");
+    expect((await fetch(`http://${host}/emulator/`)).headers.get("content-security-policy")).toBe("connect-src 'self' blob:;");
+  });
   it("handles connection resets even for a rejected raw upgrade", async () => {
     const gateway = startGateway({ port: 0, host: "127.0.0.1", upstreamPort: 1,
       secret: "test-secret", release: { id: "test", builtAt: 1 } });

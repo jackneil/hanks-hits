@@ -16,7 +16,22 @@ export function startGateway(options: Options) {
   const server = createServer((req, res) => {
     const upstream = httpRequest({ hostname: "127.0.0.1", port: options.upstreamPort,
       path: req.url, method: req.method, headers: req.headers }, reply => {
-      res.writeHead(reply.statusCode ?? 502, reply.headers);
+      const headers = { ...reply.headers };
+      const csp = headers["content-security-policy"];
+      // 'self' does not include WebSocket schemes in every browser. Add
+      // only this gateway's allowed origin to the app's connection policy.
+      // The emulator's stricter policy has no https: source and stays intact.
+      const sources = typeof csp === "string" ? csp.match(/(?:^|;\s*)connect-src\s+([^;]*)/)?.[1].split(/\s+/) : undefined;
+      if (sources?.includes("https:")) {
+        try {
+          const site = new URL(process.env.AUTH_URL ?? `${process.env.NODE_ENV === "production" ? "https" : "http"}://${req.headers.host}`);
+          if (site.protocol === "https:" || site.protocol === "http:") {
+            site.protocol = site.protocol === "https:" ? "wss:" : "ws:";
+            headers["content-security-policy"] = (csp as string).replace(/(^|;\s*)connect-src([^;]*)/, `$1connect-src$2 ${site.origin}`);
+          }
+        } catch { /* Origin validation also refuses malformed configuration. */ }
+      }
+      res.writeHead(reply.statusCode ?? 502, headers);
       pipeline(reply, res, () => { /* A truncated upstream closes the downstream too. */ });
     });
     upstream.on("error", () => { if (!res.headersSent) res.writeHead(502); res.end("Please try again shortly"); });
