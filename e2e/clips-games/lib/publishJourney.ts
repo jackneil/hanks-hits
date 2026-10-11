@@ -49,8 +49,8 @@ export async function publishAndWatch(args: { browser: Browser; page: Page; fing
   const { browser, finger, viewer, baseURL, game, file } = args;
   localOnly(baseURL);
   const publish = viewer.getByRole("region", { name: "Publish gameplay" });
-  await expect(publish.getByRole("button", { name: "Publish video", exact: true })).toBeEnabled({ timeout: 30_000 });
-  await finger.tap(publish.getByRole("button", { name: "Publish video", exact: true }));
+  await expect(publish.getByRole("button", { name: "Publish and copy link", exact: true })).toBeEnabled({ timeout: 30_000 });
+  await finger.tap(publish.getByRole("button", { name: "Publish and copy link", exact: true }));
   const watch = publish.getByRole("link", { name: /^Watch my (shared )?video$/ });
   await expect(watch).toBeVisible({ timeout: 120_000 });
   const href = await watch.getAttribute("href");

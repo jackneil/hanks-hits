@@ -55,6 +55,7 @@ afterEach(() => {
   removeSpeechMock();
   setUserAgent(REAL_UA);
   setBrowserShare(false);
+  delete (navigator as { canShare?: unknown }).canShare;
   vi.restoreAllMocks();
 });
 
@@ -346,6 +347,22 @@ describe("ClipViewer: Share (plan 12)", () => {
     await openClip(makeRecord({ id: "c1" }));
     expect(action("share")).toBeNull();
     expect(action("save")).toHaveTextContent(SAVE_LABELS.computer);
+  });
+
+  it("hides Share when the sheet exists but refuses the video file, and puts publishing first", async () => {
+    Object.defineProperty(navigator, "canShare", {
+      configurable: true,
+      writable: true,
+      value: (data: ShareData) => !data.files,
+    });
+    await openClip(makeRecord({ id: "c1", gameId: "snake" }));
+    expect(action("share")).toBeNull();
+    expect(action("save").className).toContain("btn-primary");
+    const actions = screen.getByTestId("clip-viewer-actions");
+    const publish = within(actions).getByRole("region", { name: "Publish gameplay" });
+    const saveWrap = action("save").parentElement?.parentElement;
+    expect(publish.parentElement?.className).toContain("order-1");
+    expect(saveWrap?.className).toContain("order-2");
   });
 });
 

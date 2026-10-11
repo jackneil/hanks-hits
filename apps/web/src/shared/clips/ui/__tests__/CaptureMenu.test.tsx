@@ -9,7 +9,8 @@ import type { ClipActionResult } from "../../service/contract";
 import { DEFAULT_CLIP_SECONDS } from "../../service/contract";
 import { ClipsPauseEntry } from "../ClipsPauseEntry";
 import { useClipUi } from "../uiContext";
-import { MENU_COPY, PAUSE_ENTRY_LABEL, REASON_COPY, SETTINGS_COPY, VIEWER_COPY } from "../copy";
+import { ToastSlot } from "../ToastSlot";
+import { MENU_COPY, PAUSE_ENTRY_LABEL, REASON_COPY, SETTINGS_COPY, SHARING_COPY, VIEWER_COPY } from "../copy";
 import { CLIP_SHEET_Z_INDEX } from "../Sheet";
 import type { MenuSource } from "../uiStore";
 import { createFakeClipService, makeRecord } from "./fakeClipService";
@@ -72,13 +73,14 @@ describe("CaptureMenu (plan 11.4)", () => {
     fireEvent.click(screen.getByTestId("open-menu"));
     fireEvent.click(within(menu()).getByTestId("read-aloud-button"));
     expect(speech.lastUtterance().text).toBe(
-      [MENU_COPY.title, "Prepare a gameplay video, watch it, then choose Publish video. Nothing is published automatically", "Preview last 30 seconds to publish", MENU_COPY.clipLast, MENU_COPY.record, MENU_COPY.picture, MENU_COPY.myClips, MENU_COPY.settings, MENU_COPY.close].join(
+      [MENU_COPY.title, SHARING_COPY.menuOpensTheVideo, MENU_COPY.clipLast, MENU_COPY.record, MENU_COPY.picture, MENU_COPY.myClips, MENU_COPY.settings, MENU_COPY.close].join(
         ". ",
       ),
     );
   });
 
-  it('clips with the press token from the hold ("Clip the last 30 seconds")', async () => {
+  it('clips with the press token from the hold ("Share the last 30 seconds")', async () => {
+    stubObjectUrls();
     // The clip button's hold: beginPress gives the token, endPress answers "menu".
     const fake = createFakeClipService();
     const token = fake.service.beginPress()!;
@@ -90,6 +92,7 @@ describe("CaptureMenu (plan 11.4)", () => {
     expect(fake.service.clipLast).toHaveBeenCalledWith(DEFAULT_CLIP_SECONDS, token);
     expect(fake.records).toHaveLength(1);
     expect(screen.queryByTestId("capture-menu")).toBeNull();
+    expect(screen.getByTestId("clip-viewer")).toBeInTheDocument();
   });
 
   it("puts Turn the clip button back on first while resting, and wakes the button", async () => {
@@ -185,13 +188,16 @@ describe("CaptureMenu (plan 11.4)", () => {
     expect(resumeGame).not.toHaveBeenCalled();
   });
 
-  it("pauses the game when it opens during play, and resumes after a quick action", async () => {
+  it("pauses the game when it opens during play, and keeps that pause while the video is open", async () => {
+    stubObjectUrls();
     const { fake, pauseGame, resumeGame } = renderWithClips(<OpenMenu />);
     fireEvent.click(screen.getByTestId("open-menu"));
     expect(pauseGame).toHaveBeenCalledTimes(1);
     fireEvent.click(within(menu()).getByRole("button", { name: MENU_COPY.clipLast }));
     await flush();
-    expect(resumeGame).toHaveBeenCalledTimes(1);
+    // The video stays up, so play stays paused until the kid leaves it.
+    expect(screen.getByTestId("clip-viewer")).toBeInTheDocument();
+    expect(resumeGame).not.toHaveBeenCalled();
     expect(fake.records).toHaveLength(1);
   });
 
@@ -340,27 +346,34 @@ describe("ClipsPauseEntry (plan 11.4)", () => {
 });
 
 
-describe("publish preparation lifetime", () => {
-  it.each(["close", "owner"])("does not reopen a finished preparation after %s", async (change) => {
+describe("share the last 30 seconds", () => {
+  it.each(["close", "owner"])("does not open the video after the kid leaves (%s)", async (change) => {
     publishSessionUser("a");
     const fake = createFakeClipService();
     let finish!: (result: ClipActionResult) => void;
     vi.mocked(fake.service.clipLast).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     renderWithClips(<OpenMenu />, { fake });
     fireEvent.click(screen.getByTestId("open-menu"));
-    fireEvent.click(screen.getByRole("button", { name: "Preview last 30 seconds to publish" }));
+    fireEvent.click(screen.getByRole("button", { name: MENU_COPY.clipLast }));
     if (change === "close") fireEvent.click(screen.getByRole("button", { name: MENU_COPY.close }));
     else act(() => publishSessionUser("b"));
     await act(async () => finish({ ok: true, action: "clip", record: makeRecord(), atMs: 1 }));
     expect(screen.queryByTestId("clip-viewer")).not.toBeInTheDocument();
   });
-  it("turns a thrown preparation error into a retryable explanation", async () => {
+
+  it("closes the menu and says the clip did not work when sharing fails", async () => {
     const fake = createFakeClipService();
     vi.mocked(fake.service.clipLast).mockRejectedValue(new Error("capture failed"));
-    renderWithClips(<OpenMenu />, { fake });
+    renderWithClips(
+      <>
+        <OpenMenu />
+        <ToastSlot />
+      </>,
+      { fake },
+    );
     fireEvent.click(screen.getByTestId("open-menu"));
-    fireEvent.click(screen.getByRole("button", { name: "Preview last 30 seconds to publish" }));
-    expect(await screen.findByText(/The video could not be prepared/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Preview last 30 seconds to publish" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: MENU_COPY.clipLast }));
+    expect(await screen.findByTestId("clip-reply")).toHaveTextContent("That clip did not work.");
+    expect(screen.queryByTestId("capture-menu")).not.toBeInTheDocument();
   });
 });

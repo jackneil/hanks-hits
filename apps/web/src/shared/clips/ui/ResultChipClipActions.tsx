@@ -26,9 +26,14 @@ import { SHARING_COPY } from "./copy";
  *   start the ring lost gets "Watch the end" too.
  * - The m:ss on a button is the length of the clip that the kid gets: the
  *   run, less any start that the ring no longer holds.
- * - No run reported, or a run too short to clip: no clip button. Record a
+ * - No run reported, or a run too short to clip: no watch button. Record a
  *   video and Take a picture are in the Capture menu (a hold on the clip
  *   button).
+ *
+ * Share this run is the first button. It makes the end of a long run, or
+ * the whole short run, and opens the video. It does not publish. A run
+ * with no footage disables it and says to play longer. A stalled capture
+ * opens the Capture menu so the kid can turn clips back on.
  *
  * The buttons are the size of the chip's own buttons (56 px, 44 px on a
  * short screen). Below 480 px each one takes the full width of the chip's
@@ -147,6 +152,14 @@ export function resultChipClipActions(
 }
 
 const ACTION_BUTTON = `btn ${SECONDARY_ACTION} gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation max-[480px]:col-span-2`;
+const SHARE_BUTTON = `btn btn-primary gap-2 px-4 text-lg ${RESULT_CHIP_BUTTON} normal-case active:scale-[0.97] touch-manipulation max-[480px]:col-span-2`;
+
+/** The part Share this run makes: the death, or the whole short run. */
+function sharePart(actions: ResultChipClipAction[]): RunClipPart | null {
+  if (actions.some((action) => action.id === "watchEnd")) return "end";
+  if (actions.some((action) => action.part === "whole")) return "whole";
+  return null;
+}
 
 /** A mouse press must not leave focus on the button (the game's keys stay with the game). */
 function keepFocusOff(event: React.MouseEvent) {
@@ -172,14 +185,32 @@ export function ResultChipClipActions() {
 
   const mark = uiState.resultMark;
   const actions = resultChipClipActions(snapshot, chipRunOf(mark?.token), capturedSecSince(mark));
+  const stalled = snapshot.reason === "warmup-timeout";
+  const part = sharePart(actions);
+  const busy = snapshot.button === "saving" || snapshot.button === "exporting";
+  const tooShort = !stalled && part === null;
 
   return (
     <>
-      <button type="button" data-action="publish-run" data-spoken={SHARING_COPY.putItOnTheLeaderboard} onMouseDown={keepFocusOff}
-        disabled={snapshot.button === "saving" || snapshot.button === "exporting"}
-        onClick={() => actions.length ? ui.clipRun("end") : ui.openMenu(mark?.token ?? null, "result-chip")}
-        className={ACTION_BUTTON}>{SHARING_COPY.putItOnTheLeaderboard}</button>
-      {actions.length === 0 && <p className="col-span-2 text-sm">{SHARING_COPY.prepareAVideoFirstShortRunsMay}</p>}
+      <button
+        type="button"
+        data-action="share-run"
+        data-spoken={tooShort ? SHARING_COPY.playLongerThenShare : SHARING_COPY.shareThisRun}
+        onMouseDown={keepFocusOff}
+        disabled={busy || tooShort}
+        onClick={() => {
+          if (busy || tooShort) return;
+          if (stalled) {
+            ui.openMenu(mark?.token ?? null, "result-chip");
+            return;
+          }
+          if (part) ui.clipRun(part);
+        }}
+        className={SHARE_BUTTON}
+      >
+        {SHARING_COPY.shareThisRun}
+      </button>
+      {tooShort && <p className="col-span-2 text-sm">{SHARING_COPY.playLongerThenShare}</p>}
       {actions.map((action) => (
         <button
           key={action.id}

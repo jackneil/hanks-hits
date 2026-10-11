@@ -32,6 +32,7 @@ import {
   type RunClipPart,
 } from "../service/contract";
 import type { ClipRecord } from "../protocol";
+import { currentSessionUser } from "../service/registry";
 import { deferredMenuText, reasonText, recoveredReplyText, TOAST_COPY, type SavePlatform } from "./copy";
 import { logClipUiFailure } from "./log";
 import { nowMs } from "./platform";
@@ -632,9 +633,24 @@ export function createClipUiController(deps: ClipUiDeps): ClipUiController {
     clipLastFromMenu(token) {
       const service = deps.service();
       if (!service) return;
+      // The menu row is the share path: open the video. Closing here used to
+      // drop the kid back on the game with no way to send it. If they leave
+      // the menu, or the signed-in player changes, the late result stays put.
+      const owner = currentSessionUser();
       const result = settle("clip", service.clipLast(DEFAULT_CLIP_SECONDS, token ?? undefined));
-      controller.closeSheet();
-      void result.then(replyForResult);
+      void result.then((settled) => {
+        if (currentSessionUser() !== owner) return;
+        if (store.getState().sheet?.kind !== "menu") {
+          if (!settled?.ok) replyForResult(settled);
+          return;
+        }
+        if (settled?.ok) {
+          controller.replaceSheet({ kind: "viewer", target: { kind: "clip", id: settled.record.id } });
+          return;
+        }
+        controller.closeSheet();
+        replyForResult(settled);
+      });
     },
 
     recordFromMenu() {

@@ -8,6 +8,7 @@ import {
   resetShareRefusalsForTests,
   saveFile,
   shareFile,
+  shareLink,
   type ShareEnv,
 } from "../share";
 
@@ -128,6 +129,38 @@ describe("shareFile", () => {
     await shareFile(clip("secret-kid-name.mp4"), env);
     expect(log).toHaveBeenCalled();
     for (const [message] of log.mock.calls) expect(String(message)).not.toContain("secret");
+  });
+});
+
+describe("shareLink", () => {
+  it("calls navigator.share with the link only, before it returns", async () => {
+    const { env } = shareEnv(async () => undefined);
+    const pending = shareLink("https://play.example/clips/id", "Watch this run", "Watch this run", env);
+    expect(env.navigator!.share).toHaveBeenCalledWith({
+      url: "https://play.example/clips/id",
+      title: "Watch this run",
+      text: "Watch this run",
+    });
+    expect(await pending).toEqual({ kind: "shared" });
+  });
+
+  it("does not pretend a refused link can be saved, and maps a closed sheet to cancelled", async () => {
+    const refused = shareEnv(async () => undefined, () => false);
+    expect(await shareLink("https://play.example/clips/id", "t", "t", refused.env)).toEqual({ kind: "unsupported" });
+    expect(refused.env.navigator!.share).not.toHaveBeenCalled();
+    const thrown = shareEnv(async () => undefined, () => {
+      throw domError("DataError");
+    });
+    expect(await shareLink("https://play.example/clips/id", "t", "t", thrown.env)).toEqual({ kind: "unsupported" });
+    const closed = shareEnv(async () => {
+      throw domError("AbortError");
+    });
+    expect(await shareLink("https://play.example/clips/id", "t", "t", closed.env)).toEqual({ kind: "cancelled" });
+    const retry = shareEnv(async () => {
+      throw domError("NotAllowedError");
+    });
+    expect(await shareLink("https://play.example/clips/id", "t", "t", retry.env)).toEqual({ kind: "retry" });
+    expect(await shareLink("https://x", "t", "t", { navigator: {}, log: () => undefined })).toEqual({ kind: "unsupported" });
   });
 });
 

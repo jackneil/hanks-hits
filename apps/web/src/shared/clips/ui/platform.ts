@@ -9,7 +9,8 @@ interface NavigatorLike {
   userAgent?: string;
   maxTouchPoints?: number;
   userAgentData?: { mobile?: boolean; platform?: string };
-  share?: unknown;
+  share?: (data: ShareData) => Promise<void>;
+  canShare?: (data: ShareData) => boolean;
   userActivation?: { hasBeenActive?: boolean };
 }
 
@@ -46,11 +47,37 @@ export function isApplePlatform(nav: NavigatorLike | undefined = currentNavigato
 /**
  * True when the browser has a share sheet at all (navigator.share). Where it
  * has none (Firefox on a computer, Chrome on Linux, some in-app browsers),
- * the viewer shows no Share button (plan 12). Whether the share sheet takes
- * one file is the service's answer (ShareOutcome), not this probe.
+ * the viewer shows no Share button (plan 12).
  */
 export function canShareHere(nav: NavigatorLike | undefined = currentNavigator()): boolean {
   return !!nav && typeof nav.share === "function";
+}
+
+/**
+ * True when this browser will take the video file. A computer often has a
+ * share sheet that still refuses files. The Share button stays hidden then,
+ * so a tap cannot end in "this clip cannot be shared here".
+ * No canShare function: the button stays, and the tap reports a refusal.
+ */
+export function canShareFile(file: File, nav: NavigatorLike | undefined = currentNavigator()): boolean {
+  if (!canShareHere(nav)) return false;
+  if (typeof nav?.canShare !== "function") return true;
+  try {
+    return nav.canShare({ files: [file] });
+  } catch {
+    return false;
+  }
+}
+
+/** True when the share sheet can send a link (no file). */
+export function canShareLink(nav: NavigatorLike | undefined = currentNavigator()): boolean {
+  if (!canShareHere(nav)) return false;
+  if (typeof nav?.canShare !== "function") return true;
+  try {
+    return nav.canShare({ url: "https://example.com/clips/example", title: "Clip", text: "Watch this run" });
+  } catch {
+    return false;
+  }
 }
 
 /**

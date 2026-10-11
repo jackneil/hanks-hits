@@ -93,7 +93,8 @@ describe("clip copy table (plan 11.6)", () => {
 
   it("public publishing explicitly asks a guest to sign in and never publishes automatically", () => {
     expect(SHARING_COPY.signInToPublishThisVideo).toBe("Sign in to publish this video");
-    expect(SHARING_COPY.prepareAGameplayVideoWatchItThen).toContain("Nothing is published automatically");
+    expect(SHARING_COPY.publishExplainer).toContain("Nothing is published until you tap it");
+    expect(SHARING_COPY.menuOpensTheVideo).toContain("Nothing is published until you tap Publish and copy link");
   });
 
   it("gives every ClipReasonCode kid words and a separate next step", () => {
