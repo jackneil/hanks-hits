@@ -6,7 +6,7 @@ import { deferredMenuText, reasonText, TOAST_COPY } from "../copy";
 import { clipGameInfo, formatBytes, formatDuration, UNKNOWN_GAME_EMOJI } from "../format";
 import { BACK_BUTTON_INDEX, clipButtonFor, createGamepadPoller, parseVendorProduct, SHARE_BUTTON_INDEX, type PadLike } from "../gamepad";
 import { ignoreForHotkey, isTextEntryTarget, matchClipHotkey } from "../hotkeys";
-import { canShareHere, detectSavePlatform, isApplePlatform, pageHasBeenActive } from "../platform";
+import { canShareFile, canShareHere, canShareLink, detectSavePlatform, isApplePlatform, pageHasBeenActive } from "../platform";
 import { createClipPress, type ClipPress } from "../pressGesture";
 import {
   capturedSecSince,
@@ -65,6 +65,16 @@ describe("save platform", () => {
     expect(canShareHere({ share: () => Promise.resolve() })).toBe(true);
     expect(canShareHere({})).toBe(false);
     expect(canShareHere(undefined)).toBe(false);
+    const file = new File(["x"], "a.mp4", { type: "video/mp4" });
+    const share = () => Promise.resolve();
+    expect(canShareFile(file, { share })).toBe(true);
+    expect(canShareFile(file, { share, canShare: () => true })).toBe(true);
+    expect(canShareFile(file, { share, canShare: () => false })).toBe(false);
+    expect(canShareFile(file, { share, canShare: () => { throw new Error("no"); } })).toBe(false);
+    expect(canShareFile(file, {})).toBe(false);
+    expect(canShareLink({ share, canShare: (data) => !data.files })).toBe(true);
+    expect(canShareLink({ share, canShare: () => false })).toBe(false);
+    expect(canShareLink({})).toBe(false);
     expect(pageHasBeenActive({ userActivation: { hasBeenActive: false } })).toBe(false);
     expect(pageHasBeenActive({ userActivation: { hasBeenActive: true } })).toBe(true);
     // A browser that cannot tell: the voice may try.

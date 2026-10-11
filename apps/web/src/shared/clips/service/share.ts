@@ -92,6 +92,55 @@ export function resetShareRefusalsForTests(): void {
 }
 
 /**
+ * Opens the share sheet for a watch link (no file). Call it synchronously
+ * inside the tap. A computer that refuses video files can still send a link.
+ */
+export function shareLink(url: string, title: string, text: string, env: ShareEnv = defaultEnv()): Promise<ShareOutcome> {
+  const nav = env.navigator;
+  const log = env.log ?? (() => undefined);
+  if (!nav || typeof nav.share !== "function") {
+    log("[clips] share: the browser has no share sheet");
+    return Promise.resolve({ kind: "unsupported" });
+  }
+  const data: ShareData = { url, title, text };
+  try {
+    if (typeof nav.canShare === "function" && !nav.canShare(data)) {
+      log("[clips] share: the browser cannot share this link");
+      return Promise.resolve({ kind: "unsupported" });
+    }
+  } catch (error) {
+    log(`[clips] share: canShare failed (${errorName(error)})`);
+    return Promise.resolve({ kind: "unsupported" });
+  }
+  let started: Promise<void>;
+  try {
+    started = nav.share(data);
+  } catch (error) {
+    return Promise.resolve(linkOutcome(error, log));
+  }
+  return Promise.resolve(started).then(
+    (): ShareOutcome => ({ kind: "shared" }),
+    (error: unknown) => linkOutcome(error, log),
+  );
+}
+
+function linkOutcome(error: unknown, log: (message: string) => void): ShareOutcome {
+  const name = errorName(error);
+  switch (name) {
+    case "AbortError":
+      return { kind: "cancelled" };
+    case "InvalidStateError":
+      return { kind: "ignored" };
+    case "NotAllowedError":
+      log("[clips] share: refused (no user activation)");
+      return { kind: "retry" };
+    default:
+      log(`[clips] share: failed (${name})`);
+      return { kind: "unsupported" };
+  }
+}
+
+/**
  * Opens the share sheet for one file. Call it synchronously inside the tap:
  * navigator.share runs before this function returns.
  */

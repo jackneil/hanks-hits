@@ -41,7 +41,7 @@
  *                       the motion rows of a game whose driver plays a
  *                       step (the game can wait for that tap).
  *   CLIPS_E2E_PATH      "sharing": use the named Share gameplay entry and
- *                       Preview last 30 seconds to publish, including games
+ *                       Share the last 30 seconds, including games
  *                       that never end. Use this for the all-game publish sweep.
  *                       "result-chip": the kid never taps the clip button
  *                       and clips the run from the result chip. Use it for

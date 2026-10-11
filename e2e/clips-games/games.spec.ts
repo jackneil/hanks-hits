@@ -543,16 +543,22 @@ async function waitUntil(page: Page, timeoutMs: number, done: () => Promise<bool
   }
 }
 
-/** The first visible button among the result chip's clip actions (ResultChipClipActions.tsx data-action). */
+/** The result chip's share button when a run can be clipped, else the first watch button. */
 async function resultClipAction(page: Page): Promise<{ button: Locator; label: string } | null> {
   const chip = page.getByTestId("result-chip");
+  let watch: { button: Locator; label: string } | null = null;
   for (const id of ["watchRun", "wholeRun", "watchEnd"]) {
     const button = chip.locator(`[data-action="${id}"]`).first();
     if (await button.isVisible().catch(() => false)) {
-      return { button, label: ((await button.textContent()) ?? id).trim() };
+      watch = { button, label: ((await button.textContent()) ?? id).trim() };
+      break;
     }
   }
-  return null;
+  const share = chip.locator('[data-action="share-run"]').first();
+  if (watch && await share.isVisible().catch(() => false) && await share.isEnabled().catch(() => false)) {
+    return { button: share, label: ((await share.textContent()) ?? "share-run").trim() };
+  }
+  return watch;
 }
 
 /** The words of the clip reply toast, if one shows. */
@@ -912,13 +918,13 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
       await finger.release();
       const menu = page.getByTestId("capture-menu");
       await expect(menu, "Share gameplay opens its menu immediately, even during a continuous game").toBeVisible({ timeout: 5000 });
-      const preview = menu.getByRole("button", { name: SHARING_COPY.previewLast30SecondsToPublish, exact: true });
+      const preview = menu.getByRole("button", { name: MENU_COPY.clipLast, exact: true });
       await expect(preview).toBeEnabled();
-      progress("sharing menu open; tapping Preview last 30 seconds to publish");
+      progress("sharing menu open; tapping Share the last 30 seconds");
       await finger.tap(preview);
-      progress("preview requested; waiting for viewer");
+      progress("share requested; waiting for viewer");
       tapWhen = when;
-      report.check("sharing: named entry opens the preview action", true, "Share gameplay -> Preview last 30 seconds to publish", "both actions reached by touch; no glyph or result-chip fallback");
+      report.check("sharing: named entry opens the video", true, "Share gameplay -> Share the last 30 seconds", "both actions reached by touch; no glyph or result-chip fallback");
     };
 
     let path: ClipPath = "none";
@@ -1044,7 +1050,7 @@ async function checkGame(game: ClipGame, browser: Browser, baseURL: string, repo
           : path === "result-chip"
             ? `result chip: "${resultLabel}"`
             : `no way in ${runs} run(s) and ${tapTries} tap(s): button ${states.last}`,
-        SHARING_ONLY ? "the visible Share gameplay entry and its Preview action" : "a ready clip button, a clip button on the result chip, or the clip button at a break",
+        SHARING_ONLY ? "the visible Share gameplay entry and its Share the last 30 seconds action" : "a ready clip button, a clip button on the result chip, or the clip button at a break",
       )
     ) {
       await page.screenshot({ path: testInfo.outputPath(`${game.id}-no-clip.png`) });

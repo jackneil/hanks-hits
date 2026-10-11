@@ -288,7 +288,7 @@ describe("GameShell with clips on", () => {
     const actions = within(chip).getByTestId("result-chip-clip-actions");
     const labels = Array.from(actions.querySelectorAll("[data-action]")).map((el) => el.textContent?.trim());
     // A short run offers explicit publishing and one local watch action. Recording stays in the Capture menu.
-    expect(labels).toEqual([SHARING_COPY.putItOnTheLeaderboard, watchRunLabel("0:20")]);
+    expect(labels).toEqual([SHARING_COPY.shareThisRun, watchRunLabel("0:20")]);
 
     fireEvent.click(within(chip).getByTestId("read-aloud-button"));
     const spoken = synth.lastUtterance().text;
@@ -296,7 +296,7 @@ describe("GameShell with clips on", () => {
     // The voice says the length in words, after the chip's own buttons.
     const watchSpoken = `${RESULT_ACTION_COPY.watchRun}, 20 seconds`;
     expect(spoken.split(watchSpoken)).toHaveLength(2); // said once
-    expect(spoken.split(SHARING_COPY.putItOnTheLeaderboard)).toHaveLength(2);
+    expect(spoken.split(SHARING_COPY.shareThisRun)).toHaveLength(2);
     expect(spoken).not.toContain("0:20");
     expect(spoken.indexOf("Play again")).toBeLessThan(spoken.indexOf(watchSpoken));
   });

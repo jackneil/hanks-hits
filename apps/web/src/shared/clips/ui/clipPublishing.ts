@@ -61,4 +61,44 @@ export function clipWatchHref(id: string, gameId: string): string {
   return `/clips/${encodeURIComponent(id)}?game=${encodeURIComponent(gameId)}`;
 }
 
+/** The full watch address a person can send. A missing origin keeps the path. */
+export function absoluteClipWatchUrl(id: string, gameId: string, origin = typeof window === "undefined" ? "" : window.location.origin): string {
+  const path = clipWatchHref(id, gameId);
+  if (!origin) return path;
+  return new URL(path, origin).href;
+}
+
+/**
+ * Copy text. The clipboard call can fail after a wait (the tap's permission
+ * is gone). Returns false so the caller can show the link for a fresh tap.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // A later tap can copy. Fall through to the text field.
+  }
+  try {
+    if (typeof document === "undefined" || !document.body) return false;
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.top = "0";
+    area.style.left = "0";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    const copied = typeof document.execCommand === "function" && document.execCommand("copy");
+    area.remove();
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
 export { safeReturnTo } from "@/lib/safe-return-to";

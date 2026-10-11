@@ -47,6 +47,7 @@ import { SHARING_COPY } from "./copy";
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { isGameVideoGame } from "@/lib/game-video-games";
 import { SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
 import type { ClipRecord } from "../protocol";
@@ -75,7 +76,7 @@ import { ClipWords } from "./ClipWords";
 import { clipGameInfo, formatDuration } from "./format";
 import { KeepGlyph, PlayGlyph, SaveGlyph, ShareGlyph, TrashGlyph } from "./glyphs";
 import { logClipUiFailure } from "./log";
-import { canShareHere, subscribeToNothing } from "./platform";
+import { canShareFile, canShareHere, subscribeToNothing } from "./platform";
 import { Sheet } from "./Sheet";
 import { SHARE_COACH_TIMES, type ViewerTarget } from "./uiStore";
 
@@ -153,6 +154,8 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
   const [shareTrouble, setShareTrouble] = useState<ShareTrouble | null>(null);
   const [keptOverride, setKeptOverride] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // null until the file is read. False only when canShare exists and refuses the file.
+  const [shareProbe, setShareProbe] = useState<{ id: string; ok: boolean } | null>(null);
 
   // When My clips opens, ask for Record videos saved from last time (plan 8.4).
   useEffect(() => {
@@ -215,6 +218,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
           }
         }
         url = typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : "";
+        setShareProbe({ id: recordId, ok: canShareFile(file) });
         setMedia({ id: recordId, file, url, owner: captured });
       },
       (error: unknown) => {
@@ -273,7 +277,8 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
     if (text && recordId) setStatus({ id: recordId, text });
   };
   const trouble = shareTrouble && shareTrouble.id === recordId ? shareTrouble : null;
-  const shareShown = browserCanShare && !trouble?.unsupported;
+  const fileShareable = shareProbe?.id === recordId ? shareProbe.ok : null;
+  const shareShown = browserCanShare && !trouble?.unsupported && fileShareable !== false;
   const saveButtonKind = saveButtonFor(platform, shareShown && !trouble?.rejected);
   const kind = record?.kind ?? "clip";
 
@@ -435,15 +440,16 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
     const saveWords = saveTip(saveButtonKind);
     const buttons = !shareShown ? [saveWords] : saveFirst ? [saveWords, VIEWER_COPY.shareTip] : [VIEWER_COPY.shareTip, saveWords];
     const watchWords = readyMedia && !isPicture ? VIEWER_COPY.watchTip : null;
+    const sendLine = record && !isPicture && !broken && isGameVideoGame(record.gameId) ? SHARING_COPY.sendThisVideo : null;
+    const wayOut = sendLine ? [sendLine, ...buttons] : buttons;
     return [
       title,
       game.name,
       ...recoveredWords,
       note,
       watchWords,
-      !isPicture ? SHARING_COPY.putItOnTheLeaderboardWatchYour : null,
       statusText,
-      ...(confirmWords ?? [...buttons, isKept ? VIEWER_COPY.kept : VIEWER_COPY.keep, VIEWER_COPY.delete]),
+      ...(confirmWords ?? [...wayOut, isKept ? VIEWER_COPY.kept : VIEWER_COPY.keep, VIEWER_COPY.delete]),
     ]
       .filter(Boolean)
       .join(". ");
@@ -603,9 +609,16 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
             <p role="status" aria-live="polite" data-testid="clip-viewer-status" className="mb-2 min-h-6 text-center text-base font-semibold">
               {statusText}
             </p>
-            {record && !isPicture && !broken && <ClipPublishPanel key={`${record.id}:${session?.userId ?? "guest"}`} record={record} file={readyMedia?.file ?? null} />}
+            {record && !isPicture && !broken && isGameVideoGame(record.gameId) && (
+              <p data-testid="clip-send-line" className="mb-2 text-center text-base">{SHARING_COPY.sendThisVideo}</p>
+            )}
+            {record && !isPicture && !broken && (
+              <div className={shareShown ? "order-2" : "order-1"}>
+                <ClipPublishPanel key={`${record.id}:${session?.userId ?? "guest"}`} record={record} file={readyMedia?.file ?? null} />
+              </div>
+            )}
 
-
+            <div className={shareShown ? "order-1" : "order-2"}>
             {confirmBlock ??
               (broken ? (
                 <div className="flex flex-col gap-2">{deleteButton}</div>
@@ -634,6 +647,7 @@ export function ClipViewer({ target, onClose }: ClipViewerProps) {
                   {deleteButton}
                 </div>
               ))}
+            </div>
           </div>
         </>
       )}

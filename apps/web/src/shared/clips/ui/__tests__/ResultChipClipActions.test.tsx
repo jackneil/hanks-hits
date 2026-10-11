@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESULT_CHIP_BUTTON, SECONDARY_ACTION } from "@/shared/components/buttonStyles";
 
 import { HIDDEN_SNAPSHOT, type ClipSnapshot, type PressToken } from "../../service/contract";
-import { RESULT_ACTION_COPY, VIEWER_TITLES, watchRunLabel, wholeRunLabel } from "../copy";
+import { RESULT_ACTION_COPY, SHARING_COPY, VIEWER_TITLES, watchRunLabel, wholeRunLabel } from "../copy";
 import { chipRunOf, RING_REPORT_SLACK_SEC, ResultChipClipActions, resultChipClipActions, type ChipRun } from "../ResultChipClipActions";
 import { createFakeClipService, makeRecord, PLAYING, type FakeClipService } from "./fakeClipService";
 import { flush, renderWithClips, stubObjectUrls } from "./renderClips";
@@ -40,12 +40,17 @@ const run = (seconds: number, spanSec = seconds): ChipRun => ({ seconds, spanSec
 describe("result chip clip actions (plan 11.4, decision D1)", () => {
   it("offers one action for a run of 30 s or less: Watch the whole run (m:ss), at the chip's button size", () => {
     renderWithClips(<ResultChipClipActions />, { fake: afterRun(16.08) });
-    expect(labels()).toEqual(["Put it on the leaderboard", watchRunLabel("0:16")]);
+    expect(labels()).toEqual([SHARING_COPY.shareThisRun, watchRunLabel("0:16")]);
+    const [share, ...rest] = screen.getAllByRole("button");
+    expect(share.className.split(/\s+/)).toContain("btn-primary");
+    expect(rest).toHaveLength(1);
+    for (const button of rest) {
+      // White buttons on the white chip: each needs a visible edge.
+      expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(SECONDARY_ACTION.split(" ")));
+    }
     for (const button of screen.getAllByRole("button")) {
       expect(button.className).toMatch(/(^|\s)min-h-14(\s|$)/);
       expect(button.className).toMatch(/(^|\s)short:min-h-11(\s|$)/);
-      // White buttons on the white chip: each needs a visible edge.
-      expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(SECONDARY_ACTION.split(" ")));
       // The chip's own size rule, and the full width of the narrow two-column grid.
       expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(RESULT_CHIP_BUTTON.split(" ")));
       expect(button.className.split(/\s+/)).toContain("max-[480px]:col-span-2");
@@ -54,7 +59,7 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
 
   it("offers Watch the end and Make the whole run a video (m:ss) for a longer run", () => {
     renderWithClips(<ResultChipClipActions />, { fake: afterRun(42.5) });
-    expect(labels()).toEqual(["Put it on the leaderboard", RESULT_ACTION_COPY.watchEnd, wholeRunLabel("0:42")]);
+    expect(labels()).toEqual([SHARING_COPY.shareThisRun, RESULT_ACTION_COPY.watchEnd, wholeRunLabel("0:42")]);
   });
 
   it("never offers Record a video or Take a picture (they stay in the Capture menu)", () => {
@@ -123,8 +128,8 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     renderWithClips(<ResultChipClipActions />, { fake });
     expect(fake.service.beginPress).toHaveBeenCalledTimes(1);
     act(() => fake.set({ button, engine: "resting", reason: "warmup-timeout" }));
-    expect(labels()).toEqual(["Put it on the leaderboard"]);
-    fireEvent.click(screen.getByRole("button", { name: "Put it on the leaderboard" }));
+    expect(labels()).toEqual([SHARING_COPY.shareThisRun]);
+    fireEvent.click(screen.getByRole("button", { name: SHARING_COPY.shareThisRun }));
     await flush(6);
     expect(fake.service.clipRun).not.toHaveBeenCalled();
     expect(screen.getByTestId("capture-menu")).toBeInTheDocument();
@@ -141,12 +146,23 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     expect(screen.getByRole("button", { name: watchRunLabel("0:16") }).getAttribute("data-spoken")).toBe("Watch the whole run, 16 seconds");
   });
 
-  it("the publish entry prepares only the frozen run end and never publishes automatically", async () => {
+  it("Share this run on a short run opens that whole run and does not publish", async () => {
+    const fake = afterRun(16);
+    renderWithClips(<ResultChipClipActions />, { fake });
+    const token = vi.mocked(fake.service.beginPress).mock.results[0].value as PressToken;
+    fireEvent.click(screen.getByRole("button", { name: SHARING_COPY.shareThisRun }));
+    await flush(6);
+    expect(fake.service.clipRun).toHaveBeenCalledWith(token, "whole");
+    expect(fake.service.clipLast).not.toHaveBeenCalled();
+    expect(screen.getByTestId("clip-viewer")).toBeInTheDocument();
+  });
+
+  it("Share this run on a long run opens the frozen end and never publishes automatically", async () => {
     const fake = afterRun(42);
     renderWithClips(<ResultChipClipActions />, { fake });
     const token = vi.mocked(fake.service.beginPress).mock.results[0].value as PressToken;
     fake.advanceCapture(3);
-    fireEvent.click(screen.getByRole("button", { name: "Put it on the leaderboard" }));
+    fireEvent.click(screen.getByRole("button", { name: SHARING_COPY.shareThisRun }));
     await flush(6);
     expect(fake.service.clipRun).toHaveBeenCalledWith(token, "end");
     expect(fake.service.clipLast).not.toHaveBeenCalled();
@@ -229,7 +245,7 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
       vi.advanceTimersByTime(2000); // 6 s of capture since the run ended: 42 + 6 > 45 + 1 + 1
     });
     expect(wholeRun()).toBeNull();
-    expect(labels()).toEqual(["Put it on the leaderboard", RESULT_ACTION_COPY.watchEnd]);
+    expect(labels()).toEqual([SHARING_COPY.shareThisRun, RESULT_ACTION_COPY.watchEnd]);
   });
 
   it("keeps the whole-run button while capture is stopped at the break (the ring does not move)", () => {
@@ -246,10 +262,13 @@ describe("result chip clip actions (plan 11.4, decision D1)", () => {
     expect(screen.queryByRole("button", { name: wholeRunLabel("0:42") })).not.toBeNull();
   });
 
-  it("keeps a preparation entry with an explanation when the game reported no run", () => {
+  it("disables Share this run and explains when the game reported no run", () => {
     renderWithClips(<ResultChipClipActions />, { snapshot: AT_GAME_OVER });
-    expect(screen.getByRole("button", { name: "Put it on the leaderboard" })).toBeEnabled();
-    expect(screen.getByText(/Prepare a video first/)).toBeInTheDocument();
+    const share = screen.getByRole("button", { name: SHARING_COPY.shareThisRun });
+    expect(share).toBeDisabled();
+    expect(screen.getByText(SHARING_COPY.playLongerThenShare)).toBeInTheDocument();
+    fireEvent.click(share);
+    expect(screen.queryByTestId("capture-menu")).not.toBeInTheDocument();
   });
 
   it("does not leave keyboard focus on a clip button after a mouse press", () => {
