@@ -55,6 +55,9 @@ const INVENTORY: Inventory = {
   },
   "src/app/api/clips-config/route.ts": { bodyMethods: [], reads: [] },
   "src/app/api/gaming-profile/route.ts": { bodyMethods: ["PATCH"], reads: ["readJson(SMALL_SAVE_BODY)"] },
+  "src/app/api/live-ticket/route.ts": { bodyMethods: ["POST"], reads: [], why: "Ticket uses only the session and same-origin headers; no request body is read." },
+  "src/app/api/notifications/route.ts": { bodyMethods: ["PATCH"], reads: ["readJson(SMALL_SAVE_BODY)"] },
+  "src/app/api/release/route.ts": { bodyMethods: [], reads: [] },
   "src/app/api/leaderboard-clips/route.ts": { bodyMethods: ["POST"], reads: ["readBody(CLIP_UPLOAD_BODY)"] },
   "src/app/api/leaderboard-clips/[id]/route.ts": { bodyMethods: ["DELETE"], reads: ["readBody(CLIP_DELETE_BODY)"] },
   "src/app/api/leaderboard-clips/[id]/report/route.ts": {

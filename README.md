@@ -142,9 +142,18 @@ Run this readiness check from the repository root, optionally passing another co
 
 ```bash
 pnpm --filter web dev      # local dev server
+pnpm --filter web dev:live # local server with WebSocket notifications
 pnpm --filter web test     # run the test suite (Vitest)
 pnpm --filter web build    # production build (regenerates game metadata)
 ```
+
+### Live updates
+
+The bell opens `/notifications`. Signed-in players receive saved alerts when another public player passes their score on the visible top-100 leaderboard, when they enter the top ten, or when they reach first place. The inbox keeps the latest 100 alerts per player. Hidden profiles do not generate public score alerts, and hiding a profile removes its handle from older alerts.
+
+New releases show a Refresh/Later prompt between rounds. Refresh first checks that local saves are durable. WebSockets reconnect automatically, and the inbox catches up from PostgreSQL after reconnecting or returning to the page. These are in-app updates; a closed browser does not receive push notifications.
+
+The Docker entrypoint runs the WebSocket gateway and Next.js together. It uses the existing `DATABASE_URL`, `AUTH_SECRET`, and `AUTH_URL`, plus PostgreSQL `LISTEN/NOTIFY`; no additional service is required. Apply `packages/db/drizzle/0005_live_notifications.sql` in a transaction before deploying this version to an existing installation. For a new database, apply all migrations in journal order. For local live testing, provide these environment variables and use `dev:live`; ordinary `dev` and `start` run Next.js alone.
 
 ### How a game is structured
 

@@ -33,6 +33,20 @@ function storeFor(service: ReturnType<typeof createOwnerBoundProgress>) {
 }
 
 describe("owner-bound progress", () => {
+  it("prepares a reload only after hydrated flush callbacks persist current bytes", async () => {
+    const { service, local } = setup();
+    expect(service.prepareReload()).toBe(false);
+    await service.updateSession("unauthenticated");
+    const store = storeFor(service);
+    await service.whenHydrated(key);
+    service.bindPersistedStore(key, store.persist, () => store.setState({ score: 42 }));
+    expect(service.prepareReload()).toBe(true);
+    const envelope = JSON.parse(local.getItem(physical("guest"))!);
+    expect(JSON.parse(envelope.raw).state.score).toBe(42);
+    local.failWrite = true;
+    service.bindPersistedStore(key, store.persist, () => store.setState({ score: 43 }));
+    expect(service.prepareReload()).toBe(false);
+  });
   it("distinguishes exact physical bytes from failed-write memory and physical tombstones", async () => {
     const { service, local } = setup();
     await service.updateSession("authenticated", "alice");
@@ -237,6 +251,7 @@ describe("owner-bound progress", () => {
     const persistHandle = { rehydrate: vi.fn(() => rehydrated), hasHydrated: () => completed, onFinishHydration: () => () => {} };
     service.bindPersistedStore(key, persistHandle);
     await Promise.resolve(); expect(completed).toBe(false); expect(service.getSnapshot().hydrating).toBe(true);
+    expect(service.prepareReload()).toBe(false);
     resolve(); await waiting; expect(completed).toBe(true); expect(service.isHydrated(key)).toBe(true);
   });
 

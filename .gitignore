@@ -37,6 +37,7 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+.release.json
 
 # Python bytecode (the scripts/ catalog generators import scripts/retro_content_rules.py)
 __pycache__/

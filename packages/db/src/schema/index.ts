@@ -10,3 +10,4 @@ export * from "./leaderboards";
 // Leaderboard clips (videos of a run on the leaderboard)
 export * from "./leaderboard-clips";
 export * from "./progress-words";
+export * from "./notifications";

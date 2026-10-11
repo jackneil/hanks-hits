@@ -1,8 +1,10 @@
 import type { NextConfig } from "next";
 import { clipMediaSources } from "./src/lib/leaderboard-clips/csp";
+import fs from "node:fs";
 
 // Public bucket origins are compiled into CSP; runtime config checks membership.
 const CLIP_MEDIA_SOURCES = clipMediaSources(process.env.LEADERBOARD_CLIPS_S3_ENDPOINT).join(" ");
+const release = fs.existsSync(".release.json") ? JSON.parse(fs.readFileSync(".release.json", "utf8")) : { id: "development", builtAt: 0 };
 
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployment
@@ -26,7 +28,8 @@ const nextConfig: NextConfig = {
     serverMinification: false,
   },
 
-  env: { LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES: CLIP_MEDIA_SOURCES },
+  env: { LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES: CLIP_MEDIA_SOURCES,
+    NEXT_PUBLIC_HH_RELEASE_ID: release.id, NEXT_PUBLIC_HH_RELEASE_TIME: String(release.builtAt) },
 
   // Security headers to prevent clickjacking, XSS, MIME sniffing
   // IMPORTANT: Order matters! When multiple rules match, LAST one wins for each header.

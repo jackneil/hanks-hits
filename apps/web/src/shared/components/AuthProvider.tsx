@@ -11,6 +11,8 @@ import { consumeGuestHandoffNavigation, isAuthNavigationPending, PROGRESS_SESSIO
 import { ProgressHydrationBoundary, ProgressReloadNotice } from "./ProgressHydrationBoundary";
 import { ProgressRecoveryNotice } from "./ProgressRecoveryNotice";
 import { ProgressStorageNotice } from "./ProgressStorageNotice";
+import { LiveProvider } from "@/shared/live/LiveProvider";
+import { ReleaseNotice } from "@/shared/live/ReleaseNotice";
 
 const loadAchievements = () => import("./AchievementCelebrations");
 const Achievements = dynamic(() => loadAchievements().then(module => module.AchievementCelebrations), { ssr: false });
@@ -106,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <SessionProvider>
       {/* Session publication must never wait for a store hydration boundary. */}
       <ClipSessionWatcher />
-      <ProgressSessionBoundary>{children}</ProgressSessionBoundary>
+      <LiveProvider><ProgressSessionBoundary>{children}<ReleaseNotice /></ProgressSessionBoundary></LiveProvider>
     </SessionProvider>
   );
 }

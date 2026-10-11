@@ -381,8 +381,12 @@ describe("Railway configuration", () => {
     const buildTime = nextPublicNamesIn(readRepoFile(BUILD_TIME_FILE));
     // A public build constant explicitly compiled by next.config.ts, not a
     // runtime service setting. Keep the assertion tied to its source.
-    expect(readRepoFile("apps/web/next.config.ts")).toMatch(/env:\s*\{\s*LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES:\s*CLIP_MEDIA_SOURCES\s*\}/);
-    buildTime.add("LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES");
+    const nextConfig = readRepoFile("apps/web/next.config.ts");
+    expect(nextConfig).toMatch(/env:\s*\{\s*LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES:\s*CLIP_MEDIA_SOURCES/);
+    expect(nextConfig).toContain('fs.readFileSync(".release.json", "utf8")');
+    expect(nextConfig).toContain("NEXT_PUBLIC_HH_RELEASE_ID: release.id");
+    expect(nextConfig).toContain("NEXT_PUBLIC_HH_RELEASE_TIME: String(release.builtAt)");
+    for (const name of ["LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES", "NEXT_PUBLIC_HH_RELEASE_ID", "NEXT_PUBLIC_HH_RELEASE_TIME"]) buildTime.add(name);
     const web = await loadService();
     const declared = new Set(Object.keys(web.variables ?? {}));
     const missing = [...read]
@@ -415,8 +419,12 @@ describe("Railway configuration", () => {
     const buildTime = nextPublicNamesIn(readRepoFile(BUILD_TIME_FILE));
     // A public build constant explicitly compiled by next.config.ts, not a
     // runtime service setting. Keep the assertion tied to its source.
-    expect(readRepoFile("apps/web/next.config.ts")).toMatch(/env:\s*\{\s*LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES:\s*CLIP_MEDIA_SOURCES\s*\}/);
-    buildTime.add("LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES");
+    const nextConfig = readRepoFile("apps/web/next.config.ts");
+    expect(nextConfig).toMatch(/env:\s*\{\s*LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES:\s*CLIP_MEDIA_SOURCES/);
+    expect(nextConfig).toContain('fs.readFileSync(".release.json", "utf8")');
+    expect(nextConfig).toContain("NEXT_PUBLIC_HH_RELEASE_ID: release.id");
+    expect(nextConfig).toContain("NEXT_PUBLIC_HH_RELEASE_TIME: String(release.builtAt)");
+    for (const name of ["LEADERBOARD_CLIPS_CSP_MEDIA_SOURCES", "NEXT_PUBLIC_HH_RELEASE_ID", "NEXT_PUBLIC_HH_RELEASE_TIME"]) buildTime.add(name);
     // A control: the ROM address comes from the committed file.
     expect([...buildTime]).toContain("NEXT_PUBLIC_ROM_CDN_URL");
     const web = await loadService();

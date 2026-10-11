@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { LoginButton } from "./LoginButton";
+import { NotificationBell } from "@/shared/live/NotificationBell";
 
 interface HeaderProps {
   title?: string;
@@ -36,7 +37,7 @@ export function Header({
     // see-through, blurred bar it painted that strip white on a real
     // iPhone SE (2026-10-01).
     <header className={`sticky top-0 z-50 bg-slate-950 border-b border-white/10 ${className}`}>
-      <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div className="max-w-4xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-y-2 md:flex-nowrap">
         {/* Left: Back button or spacer */}
         {showBackButton ? (
           <Link
@@ -58,7 +59,7 @@ export function Header({
             content carries its own identity there) and the title never
             wraps — a two-line header title crowded 390px phones. */}
         {title && (
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="order-last flex w-full items-center justify-center gap-3 min-w-0 md:order-none md:w-auto">
             {titleIcon && (
               <span className="hidden md:inline text-3xl md:text-4xl animate-bounce-slow">
                 {titleIcon}
@@ -73,7 +74,8 @@ export function Header({
         {/* Right: Trophies + Leaderboards links (everyone) + LoginButton.
             🏅 for the Trophy Case, 🏆 stays Leaderboards — same glyph for
             both would misdirect a kid hunting their trophies. */}
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 md:ml-0">
+          <NotificationBell />
           <Link
             href="/trophies"
             aria-label="Trophy Case"

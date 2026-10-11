@@ -563,6 +563,19 @@ export function createOwnerBoundProgress(deps: {
       const saved = readPhysical(key, lease);
       return !!memory?.durable && memory.raw !== null && saved.present && saved.readable && saved.raw === memory.raw;
     },
+    prepareReload: (): boolean => {
+      const lease = captureLease();
+      if (!lease || snapshot.memoryOnly || snapshot.hydrating) return false;
+      for (const [key, binding] of bindings) {
+        if (!binding.hydrated || !binding.flush) continue;
+        try { binding.flush(); } catch { memoryOnly(); return false; }
+        if (!isCurrent(lease)) return false;
+        const memory = rows.get(key)?.memory;
+        const saved = readPhysical(key, lease);
+        if (!memory?.durable || memory.raw === null || !saved.readable || saved.raw !== memory.raw) return false;
+      }
+      return isCurrent(lease) && !snapshot.memoryOnly && !snapshot.hydrating;
+    },
     isHydrated: (key: string): boolean => snapshot.status === "ready" && bindings.get(key)?.hydrated === true,
     whenHydrated: (key: string): Promise<void> => bindings.get(key)?.hydrated && snapshot.status === "ready" ? Promise.resolve() : new Promise(resolve => { const pending = waiters.get(key) ?? new Set(); pending.add(resolve); waiters.set(key, pending); }),
     prepareGuestHandoff: (): boolean => {
