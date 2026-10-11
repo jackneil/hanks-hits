@@ -60,6 +60,10 @@ export function LeaderboardsPage() {
   const [selectedGame, setSelectedGame] = useState<string>(
     LEADERBOARD_GAMES[0]?.appId || "2048"
   );
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("game");
+    if (requested && LEADERBOARD_GAMES.some(game => game.appId === requested)) setSelectedGame(requested);
+  }, []);
   const [myRanks, setMyRanks] = useState<MyRanksData | null>(null);
   const [myRanksLoading, setMyRanksLoading] = useState(false);
 

@@ -36,6 +36,13 @@
       "when": 1791224950754,
       "tag": "0004_progress_deletion_fence",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791750808164,
+      "tag": "0005_live_notifications",
+      "breakpoints": true
     }
   ]
 }

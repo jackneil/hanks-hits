@@ -7,6 +7,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // Keep the full suite from spawning a worker for every CPU on a laptop.
+    // The same tests run in both the pre-push gate and hosted CI.
+    maxWorkers: 4,
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/**/*.{test,spec}.{js,jsx,ts,tsx}'],
     // A timeout exists to catch a hung test, not a slow machine. With the

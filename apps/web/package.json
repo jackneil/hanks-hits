@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "pnpm generate:metadata && pnpm generate:content-notice && next build",
+    "build": "node scripts/build-live.mjs && pnpm generate:metadata && pnpm generate:content-notice && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -13,7 +13,8 @@
     "test:coverage": "vitest run --coverage",
     "generate:metadata": "npx tsx scripts/generate-game-metadata.ts",
     "generate:content-notice": "npx tsx scripts/generate-content-notice.ts",
-    "emulator:sources": "node scripts/emulatorjs-sources.mjs 4.2.3 --fetch --sources"
+    "emulator:sources": "node scripts/emulatorjs-sources.mjs 4.2.3 --fetch --sources",
+    "dev:live": "node scripts/build-live.mjs && node dist/live-server.mjs --dev"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
@@ -21,6 +22,7 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "@react-three/rapier": "^2.2.0",
+    "aws4fetch": "1.0.20",
     "bcryptjs": "^2.4.3",
     "chess.js": "^1.4.0",
     "daisyui": "^5.6.18",
@@ -28,13 +30,14 @@
     "mediabunny": "1.60.0",
     "next": "16.3.6",
     "next-auth": "5.0.0-beta.32",
+    "pg": "^8",
     "react": "19.2.3",
     "react-chessboard": "^5.10.0",
     "react-dom": "19.2.3",
     "simplex-noise": "^4.0.3",
     "three": "^0.182.0",
-    "zustand": "^5.0.14",
-    "aws4fetch": "1.0.20"
+    "ws": "^8",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
@@ -44,11 +47,14 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/matter-js": "^0.20.2",
     "@types/node": "^24.19.0",
+    "@types/pg": "^8",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.182.0",
+    "@types/ws": "^8",
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.6",
     "fake-indexeddb": "6.2.5",
